@@ -15,7 +15,7 @@ use crate::ports::*;
 /// Persistencia en memoria: sola para tests, demuestra que un consumidor
 /// puede implementar `AgentPersistence` sin conocer la base de task.
 #[derive(Default)]
-struct PersistenciaMock {
+pub struct PersistenciaMock {
     mensajes: Vec<MensajePersistido>,
     memoria: Vec<(uuid::Uuid, String, String)>,
     skills: Vec<SkillEntrada>,
@@ -116,7 +116,7 @@ impl ProviderPort for ProveedorMock {
 }
 
 /// Búsqueda web falsa: devuelve un resultado fijo.
-struct WebMock;
+pub struct WebMock;
 
 #[async_trait::async_trait]
 impl WebSearchProvider for WebMock {

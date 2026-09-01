@@ -15,6 +15,12 @@ pub mod ports;
 pub mod evento;
 pub mod error;
 pub mod llm;
+pub mod diff;
+pub mod context;
+pub mod sandbox;
+pub mod tool;
+pub mod tools_archivo;
+pub mod tools_web;
 #[cfg(test)]
 pub mod contrato_tests;
 
