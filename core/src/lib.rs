@@ -14,6 +14,8 @@
 pub mod ports;
 pub mod evento;
 pub mod error;
+#[cfg(test)]
+pub mod contrato_tests;
 
 /// Frontera de puertos (traits) que define el núcleo y que el consumidor
 /// implementa. Ver [`ports`].
