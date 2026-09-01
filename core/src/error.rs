@@ -19,6 +19,8 @@ pub enum Error {
     Persistencia(String),
     /// El sandbox bloqueó la ruta (fuera de los directorios permitidos).
     Sandbox(String),
+    /// Recurso no encontrado (archivo inexistente, fila ausente).
+    NoEncontrado(String),
     /// Timeout o límite excedido (turnos, contexto, herramienta).
     Limite(String),
     /// Cancelación del turno (el consumidor cerró el SSE).
@@ -39,6 +41,7 @@ impl fmt::Display for Error {
             Error::Validacion(msg) => write!(f, "entrada inválida: {msg}"),
             Error::Persistencia(msg) => write!(f, "error de persistencia: {msg}"),
             Error::Sandbox(msg) => write!(f, "ruta bloqueada por el sandbox: {msg}"),
+            Error::NoEncontrado(msg) => write!(f, "recurso no encontrado: {msg}"),
             Error::Limite(msg) => write!(f, "límite excedido: {msg}"),
             Error::Cancelado => write!(f, "turno cancelado"),
             Error::Interno(msg) => write!(f, "error interno: {msg}"),

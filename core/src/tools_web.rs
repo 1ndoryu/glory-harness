@@ -68,7 +68,6 @@ pub fn registrar_tools_red(registry: &mut crate::tool::AgentToolRegistry) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Arc;
     use uuid::Uuid;
 
     use crate::contrato_tests::{PersistenciaMock, WebMock};
