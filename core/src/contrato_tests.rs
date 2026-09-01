@@ -97,6 +97,14 @@ impl AgentPersistence for PersistenciaMock {
     ) -> crate::error::Result<()> {
         Ok(())
     }
+    async fn tarea_reprogramar(
+        &self,
+        _id: uuid::Uuid,
+        _user_id: uuid::Uuid,
+        _proxima: Option<chrono::DateTime<chrono::Utc>>,
+    ) -> crate::error::Result<()> {
+        Ok(())
+    }
 }
 
 /// Proveedor LLM falso: emite dos tokens y un fin.

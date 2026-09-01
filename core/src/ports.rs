@@ -110,6 +110,15 @@ pub trait AgentPersistence: Send + Sync {
     /// Marca 'ejecutando' de forma atómica; `false` si otra réplica la tomó.
     async fn tarea_tomar(&self, id: Uuid) -> Result<bool>;
     async fn tarea_finalizar(&self, id: Uuid, ok: bool, resumen: Option<&str>) -> Result<()>;
+    /// Fija la próxima ejecución (`None` desprograma, p. ej. 'una_vez').
+    /// El cálculo de la fecha es lógica agnóstica del scheduler del núcleo;
+    /// el consumidor solo persiste.
+    async fn tarea_reprogramar(
+        &self,
+        id: Uuid,
+        user_id: Uuid,
+        proxima: Option<DateTime<Utc>>,
+    ) -> Result<()>;
 }
 
 // ---------------------------------------------------------------------------

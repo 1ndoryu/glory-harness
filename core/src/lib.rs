@@ -21,6 +21,7 @@ pub mod sandbox;
 pub mod tool;
 pub mod tools_archivo;
 pub mod tools_web;
+pub mod scheduler;
 #[cfg(test)]
 pub mod contrato_tests;
 
