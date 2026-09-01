@@ -1,0 +1,20 @@
+{
+  "variableFiles": [],
+  "includePatterns": [
+    "core/src/**/*.rs",
+    "cli/src/**/*.rs"
+  ],
+  "excludePatterns": [
+    "**/node_modules/**",
+    "**/dist/**",
+    "**/target/**",
+    "**/.quality-tools/**",
+    "**/.quality-reports/**",
+    "**/.sentinel/**"
+  ],
+  "scanAllFiles": false,
+  "hardcodedDetection": {
+    "enabled": true,
+    "severity": "warning"
+  }
+}

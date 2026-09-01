@@ -1,0 +1,10 @@
+{
+  "name": "glory-harness",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "quality:setup": "node scripts/quality/quality-setup.mjs",
+    "quality:doctor": "node scripts/quality/quality-doctor.mjs",
+    "quality:analyze": "node scripts/quality/sentinel-analyze.mjs"
+  }
+}

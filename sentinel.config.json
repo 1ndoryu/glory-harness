@@ -1,0 +1,58 @@
+{
+  "schemaVersion": 2,
+  "mode": "enforce",
+  "project": {
+    "primaryBranch": "main"
+  },
+  "gate": {
+    "command": ["sentinel", "check", "--"],
+    "taskIdRequired": true
+  },
+  "guard": {
+    "directCommands": {
+      "npmScripts": [],
+      "npxTools": [],
+      "cargoSubcommands": ["check", "clippy", "test", "bench", "fmt"],
+      "tools": ["rustfmt"]
+    }
+  },
+  "runtime": {
+    "minimumVersion": "0.7.5",
+    "protocolVersion": 1,
+    "lockFile": "sentinel.lock.json"
+  },
+  "analyzers": {
+    "sentinel": {
+      "enabled": true,
+      "profile": "project-default",
+      "config": {
+        "includePatterns": [
+          "**/*.rs",
+          "Cargo.toml",
+          "Cargo.lock"
+        ],
+        "excludePatterns": [
+          "**/target/**",
+          "**/.quality-tools/**",
+          "**/.quality-reports/**",
+          "**/.sentinel/**"
+        ],
+        "rules": {
+          "barras-decorativas": { "severidad": "warning" },
+          "catch-vacio": { "severidad": "error" },
+          "hardcoded-secret": { "severidad": "error" },
+          "innerhtml-variable": { "severidad": "error" },
+          "unwrap-produccion-rs": { "severidad": "error" },
+          "panic-produccion-rs": { "severidad": "error" },
+          "git-add-all": { "severidad": "error" },
+          "unsafe-process-shell": { "severidad": "error" }
+        }
+      }
+    },
+    "varsense": {
+      "enabled": true,
+      "profile": "project-default",
+      "config": "varsense.config.json"
+    }
+  }
+}

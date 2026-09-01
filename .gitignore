@@ -1,0 +1,6 @@
+.freebuff/
+.quality-reports/
+.sentinel/
+target/
+core/target/
+cli/target/

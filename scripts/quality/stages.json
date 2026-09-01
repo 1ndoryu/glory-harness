@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "stages": [
+    {
+      "name": "sentinel",
+      "executable": "node",
+      "args": ["scripts/quality/sentinel-stage.mjs", "{reportPath}"],
+      "reportPath": "sentinel.json",
+      "expectedSchemaVersion": "1",
+      "timeoutMs": 120000,
+      "cwd": "."
+    }
+  ]
+}
