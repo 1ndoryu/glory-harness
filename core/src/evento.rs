@@ -1,8 +1,18 @@
 //! Contrato de eventos del turno (invariante H3 del plan 318A-13: el
 //! frontend de task consume exactamente estos eventos vía SSE; el daemon y el
 //! CLI del harness emiten el mismo contrato).
+//!
+//! Cada variante serializa 1:1 al SSE de task (contrato §6.4: «el handler de
+//! task serializa ese enum a SSE; el frontend no cambia»). Los nombres de
+//! campo coinciden byte a byte con `src/agent/runtime.rs::AgenteEvento` de
+//! task (Token, ToolStart, ToolResult, RequiereAprobacion, Usage, Contexto,
+//! ContextoDetalle, Error, Done).
 
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
+
+/// Stream de tokens de un turno: canal mpsc sin límite; `None`/cierre = fin.
+pub type TokenStream = tokio::sync::mpsc::UnboundedReceiver<crate::ports::EventoTurno>;
 
 /// Un evento emitido durante un turno del agente. Este es el contrato público
 /// estable; el transporte (SSE de task, daemon loopback) serializa estos
@@ -24,24 +34,36 @@ pub enum AgenteEvento {
     },
     /// La tool requiere aprobación del usuario (modo predeterminado).
     RequiereAprobacion { tool: String, argumentos: serde_json::Value },
-    /// Uso parcial/final de tokens.
-    Usage { prompt_tokens: u32, completion_tokens: u32, total_tokens: u32 },
-    /// Resumen del contexto inyectado (memoria, skills, notas…).
-    Contexto { resumen: String },
-    /// Detalle del contexto inyectado (para la UI de auditoría).
-    ContextoDetalle { secciones: Vec<SeccionContexto> },
+    /// Uso parcial/final de tokens. `ocupacion_pct` lo emite el runtime tras
+    /// cada compactación (barra de contexto del front); `None` en los demás.
+    Usage {
+        tokens_prompt: u32,
+        tokens_complecion: u32,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        ocupacion_pct: Option<f32>,
+    },
+    /// [31-08-2026] Fase 3 (skills v1): cuántas skills activas se inyectaron
+    /// como contexto en este turno (observabilidad real; el front lo ignora
+    /// de forma segura).
+    Contexto { skills: usize },
+    /// Desglose de la ventana de contexto de la conversación: total usado por
+    /// sección + reserva de salida + ventana máxima (barra con desglose del
+    /// front, estilo Claude).
+    ContextoDetalle {
+        max_ventana: u32,
+        reserva_salida: u32,
+        system_instrucciones: u32,
+        definiciones_tools: u32,
+        mensajes: u32,
+        resultados_tools: u32,
+        total_entrada: u32,
+        ocupacion_pct: f32,
+    },
     /// Error del turno (mensaje presentable, sin detalles internos).
-    Error { mensaje: String },
-    /// Fin del turno (motivo: ok | error | cancelado | max_tokens…).
-    Done { motivo: String },
+    /// `retryable` lo decide el consumidor (el handler de task marca
+    /// reintentables Upstream/ServiceUnavailable/NotConfigured).
+    Error { mensaje: String, retryable: bool },
+    /// Fin del turno. `turno_id` es el id de auditoría que el consumidor
+    /// creó antes del turno (el front lo usa para asociar la respuesta).
+    Done { turno_id: Uuid },
 }
-
-/// Sección del contexto inyectado al prompt (auditoría).
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SeccionContexto {
-    pub nombre: String,
-    pub contenido: String,
-}
-
-/// Stream de tokens de un turno: canal mpsc sin límite; `None`/cierre = fin.
-pub type TokenStream = tokio::sync::mpsc::UnboundedReceiver<crate::ports::EventoTurno>;

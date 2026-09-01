@@ -211,6 +211,9 @@ mod tests {
         ) -> CoreResult<Vec<crate::ports::MensajePersistido>> {
             Ok(Vec::new())
         }
+        async fn conversacion_tocar(&self, _c: Uuid) -> CoreResult<()> {
+            Ok(())
+        }
         async fn registrar_accion(
             &self,
             _a: &crate::ports::AccionAuditable,

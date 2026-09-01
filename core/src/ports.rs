@@ -26,6 +26,8 @@ pub struct MensajePersistido {
 }
 
 /// Metadatos de un turno (una llamada al agente dentro de una conversación).
+/// El runtime lo persiste al finalizar con las métricas de auditoría (el
+/// consumidor hace UPSERT contra su tabla `agente_turnos`).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TurnoPersistido {
     pub id: Uuid,
@@ -34,6 +36,14 @@ pub struct TurnoPersistido {
     pub estado: String, // "ejecutando" | "ok" | "error" | "cancelado"
     pub resumen: Option<String>,
     pub creado_en: DateTime<Utc>,
+    // Métricas de auditoría del turno (sin secretos).
+    pub provider: Option<String>,
+    pub modelo: Option<String>,
+    pub tokens_prompt: u32,
+    pub tokens_complecion: u32,
+    pub tools_ejecutadas: u32,
+    pub duracion_ms: u64,
+    pub error: Option<String>,
 }
 
 /// Entrada de memoria persistente (clave → contenido).
@@ -90,6 +100,9 @@ pub trait AgentPersistence: Send + Sync {
     async fn guardar_mensaje(&self, mensaje: &MensajePersistido) -> Result<()>;
     /// Historial de una conversación, ordenado por `creado_en` ascendente.
     async fn listar_mensajes(&self, conversacion_id: Uuid) -> Result<Vec<MensajePersistido>>;
+    /// Toca la recencia de una conversación (p. ej. al persistir la respuesta
+    /// del asistente, para que el orden por `actualizado_en` sea correcto).
+    async fn conversacion_tocar(&self, conversacion_id: Uuid) -> Result<()>;
 
     // --- Acciones (auditoría) ---
     async fn registrar_accion(&self, accion: &AccionAuditable) -> Result<()>;

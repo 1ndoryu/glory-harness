@@ -47,6 +47,9 @@ impl AgentPersistence for PersistenciaMock {
     ) -> crate::error::Result<Vec<MensajePersistido>> {
         Ok(self.mensajes.clone())
     }
+    async fn conversacion_tocar(&self, _conversacion_id: uuid::Uuid) -> crate::error::Result<()> {
+        Ok(())
+    }
     async fn registrar_accion(&self, accion: &AccionAuditable) -> crate::error::Result<()> {
         let _ = accion.tool.as_str();
         Ok(())
