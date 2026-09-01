@@ -17,7 +17,6 @@ use crate::ports::*;
 #[derive(Default)]
 struct PersistenciaMock {
     mensajes: Vec<MensajePersistido>,
-    acciones: Vec<AccionAuditable>,
     memoria: Vec<(uuid::Uuid, String, String)>,
     skills: Vec<SkillEntrada>,
     tareas: Vec<TareaProgramadaPendiente>,
@@ -48,7 +47,8 @@ impl AgentPersistence for PersistenciaMock {
     ) -> crate::error::Result<Vec<MensajePersistido>> {
         Ok(self.mensajes.clone())
     }
-    async fn registrar_accion(&self, _accion: &AccionAuditable) -> crate::error::Result<()> {
+    async fn registrar_accion(&self, accion: &AccionAuditable) -> crate::error::Result<()> {
+        let _ = accion.tool.as_str();
         Ok(())
     }
     async fn memoria_listar(

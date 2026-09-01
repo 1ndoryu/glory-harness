@@ -13,6 +13,8 @@ pub enum Error {
     /// Error de proveedor LLM (red, auth, upstream). Lleva un detalle
     /// presentable y una causa interna opcional que **no** se expone al LLM.
     Proveedor { detalle: String, causa: Option<String> },
+    /// Entrada inválida (payload mal formado, parámetros fuera de rango).
+    Validacion(String),
     /// La operación de persistencia declarada por el puerto falló.
     Persistencia(String),
     /// El sandbox bloqueó la ruta (fuera de los directorios permitidos).
@@ -34,6 +36,7 @@ impl fmt::Display for Error {
                 write!(f, "{detalle} ({causa})")
             }
             Error::Proveedor { detalle, causa: None } => write!(f, "{detalle}"),
+            Error::Validacion(msg) => write!(f, "entrada inválida: {msg}"),
             Error::Persistencia(msg) => write!(f, "error de persistencia: {msg}"),
             Error::Sandbox(msg) => write!(f, "ruta bloqueada por el sandbox: {msg}"),
             Error::Limite(msg) => write!(f, "límite excedido: {msg}"),

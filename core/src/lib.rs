@@ -14,6 +14,7 @@
 pub mod ports;
 pub mod evento;
 pub mod error;
+pub mod llm;
 #[cfg(test)]
 pub mod contrato_tests;
 
