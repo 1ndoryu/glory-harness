@@ -114,7 +114,7 @@ impl AgentContextManager {
         mensajes: &[AiMessage],
         indice_system: usize,
     ) -> CompactarResultado {
-        let tokens_total: u32 = mensajes.iter().map(|m| tokens_de_mensaje(m)).sum();
+        let tokens_total: u32 = mensajes.iter().map(tokens_de_mensaje).sum();
         let ventana_efectiva = self.config.ventana_efectiva();
         let occupancy = tokens_total as f32 / ventana_efectiva as f32;
         let umbral = self.config.umbral_efectivo();
@@ -131,7 +131,7 @@ impl AgentContextManager {
         }
 
         let (nuevos, cola_tokens) = self.compactar(mensajes, indice_system);
-        let tokens_after: u32 = nuevos.iter().map(|m| tokens_de_mensaje(m)).sum();
+        let tokens_after: u32 = nuevos.iter().map(tokens_de_mensaje).sum();
         let ahorro = (tokens_total.saturating_sub(tokens_after)) as f32 / tokens_total.max(1) as f32;
         self.ahorros_recientes.push(ahorro);
         if self.ahorros_recientes.len() > 2 {

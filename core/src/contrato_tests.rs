@@ -209,6 +209,6 @@ fn contrato_skill_serde_con_activa() {
         activa: true,
     };
     let json = serde_json::to_value(&skill).expect("serializa");
-    assert_eq!(json["activa"], serde_json::Value::Bool(true));
+    assert!(json["activa"].as_bool().unwrap_or(false));
     assert_eq!(json["nombre"], "revisar");
 }

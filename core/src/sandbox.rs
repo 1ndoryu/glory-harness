@@ -286,7 +286,7 @@ mod tests {
         /* Nunca debe aparecer el prefijo verbatim de Windows en el resumen. */
         assert!(!presentable.contains(r"\\?\"));
         /* Debe terminar en la ruta relativa y empezar con la raíz absoluta. */
-        assert!(presentable.ends_with(&format!("sub\\nota.txt")) || presentable.ends_with("sub/nota.txt"));
+        assert!(presentable.ends_with("sub\\nota.txt") || presentable.ends_with("sub/nota.txt"));
         assert!(presentable.contains("agente-sandbox-ruta"));
     }
 }

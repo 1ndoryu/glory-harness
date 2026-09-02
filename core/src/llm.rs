@@ -395,6 +395,18 @@ pub struct LlmProviderService {
     circuito: std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String, CircuitoProveedor>>>,
 }
 
+/// Parámetros agrupados de un request de streaming (evita la firma larga;
+/// [318A-13] clippy too_many_arguments).
+#[derive(Clone, Copy)]
+struct SolicitudStream<'a> {
+    proveedor: &'a str,
+    api_key: &'a str,
+    modelo: &'a str,
+    mensajes: &'a [AiMessage],
+    opciones: &'a AiChatOptions,
+    tools: &'a [serde_json::Value],
+}
+
 impl LlmProviderService {
     #[must_use]
     pub fn new(llaves: LlavesProveedor) -> Self {
@@ -695,8 +707,16 @@ impl LlmProviderService {
                 keys.to_vec()
             };
             for key in &keys {
+                let solicitud = SolicitudStream {
+                    proveedor,
+                    api_key: key,
+                    modelo,
+                    mensajes: &mensajes_validos,
+                    opciones: &opciones,
+                    tools: &tools,
+                };
                 match self
-                    .ejecutar_request_stream_con_reintentos(proveedor, key, modelo, &mensajes_validos, &opciones, &tools, on_token)
+                    .ejecutar_request_stream_con_reintentos(solicitud, on_token)
                     .await
                 {
                     Ok(resultado) => {
@@ -741,14 +761,17 @@ impl LlmProviderService {
     /// responde sin SSE (algunos proxies devuelven JSON directo).
     async fn ejecutar_request_stream(
         &self,
-        proveedor: &str,
-        api_key: &str,
-        modelo: &str,
-        mensajes: &[AiMessage],
-        opciones: &AiChatOptions,
-        tools: &[serde_json::Value],
+        solicitud: SolicitudStream<'_>,
         on_token: &mut (dyn FnMut(&str) -> bool + Send),
     ) -> Result<AiStreamResult, Error> {
+        let SolicitudStream {
+            proveedor,
+            api_key,
+            modelo,
+            mensajes,
+            opciones,
+            tools,
+        } = solicitud;
         let url = url_proveedor(proveedor);
         let modelo = modelo_proveedor(proveedor, modelo);
 
@@ -912,18 +935,18 @@ impl LlmProviderService {
     /// La cancelación del cliente (Error::Cancelado) se propaga sin reintento.
     async fn ejecutar_request_stream_con_reintentos(
         &self,
-        proveedor: &str,
-        api_key: &str,
-        modelo: &str,
-        mensajes: &[AiMessage],
-        opciones: &AiChatOptions,
-        tools: &[serde_json::Value],
+        solicitud: SolicitudStream<'_>,
         on_token: &mut (dyn FnMut(&str) -> bool + Send),
     ) -> Result<AiStreamResult, Error> {
+        let SolicitudStream {
+            proveedor,
+            modelo,
+            ..
+        } = solicitud;
         let mut ultimo_error: Option<Error> = None;
         for intento in 0..=REINTENTOS_TRANSITORIOS {
             match self
-                .ejecutar_request_stream(proveedor, api_key, modelo, mensajes, opciones, tools, on_token)
+                .ejecutar_request_stream(solicitud, on_token)
                 .await
             {
                 Ok(resultado) => return Ok(resultado),

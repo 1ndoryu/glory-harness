@@ -377,7 +377,7 @@ mod tests {
         assert_eq!(ejecuciones.load(Ordering::SeqCst), 1, "el runner se llamó");
         let finalizadas = persistencia.finalizadas.lock().expect("lock").clone();
         assert_eq!(finalizadas.len(), 1);
-        assert_eq!(finalizadas[0].1, false, "fallida");
+        assert!(!finalizadas[0].1, "fallida");
         assert!(finalizadas[0].2.contains("Error:"));
         assert!(
             persistencia.reprogramadas.lock().expect("lock").is_empty(),
