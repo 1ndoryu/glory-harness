@@ -64,5 +64,11 @@ por máquina en `.sentinel/release-evidence/` (gitignored).
 ## Estado por fase (checklist en el plan)
 
 - **Fase 0** ✅ skeleton (workspace core+cli), contrato documentado, gate propio verde.
-- **Fase 1** en curso — traits definidos; portar módulos agnósticos.
-- **Fase 2-4** pendiente (integración lib en task, CLI/daemon, segundo consumidor).
+- **Fase 1** ✅ traits definidos; módulos agnósticos portados al núcleo (44/44 tests core, gate PASS).
+- **Fase 2** ✅ integración lib en task: task declara `glory-harness-core` como dependencia path;
+  `AgentPersistence`/`WebSearchProvider` implementados en task; 6 módulos huérfanos de task
+  eliminados; `AiMessage` con `utoipa::ToSchema` para el OpenAPI del consumidor. Evidencia: `cargo
+  check` task 0 errores, tests task 23 pass, gate glory-harness PASS. Gate task pendiente de
+  realinear varsense (318A-6VAR, preexistente). Pendiente: evidencia de turno SSE real con
+  proveedor externo.
+- **Fase 3-4** pendiente (CLI/daemon, segundo consumidor).
