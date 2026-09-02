@@ -205,16 +205,19 @@ impl UiEstado {
 
     /// Marca la tool como en curso (la añade al bloque del asistente actual).
     fn tool_inicio(&mut self, tool: String) {
+        // Garantiza un bloque de asistente en curso y toma su referencia sin
+        // `.unwrap()` (si acabamos de crearlo, `last_mut` siempre es `Some`).
+        if !matches!(self.mensajes.last(), Some(b) if b.rol == Rol::Asistente) {
+            self.mensajes.push(Bloque {
+                rol: Rol::Asistente,
+                cuerpo: String::new(),
+                tools: Vec::new(),
+            });
+        }
         let bloque = match self.mensajes.last_mut() {
             Some(b) if b.rol == Rol::Asistente => b,
-            _ => {
-                self.mensajes.push(Bloque {
-                    rol: Rol::Asistente,
-                    cuerpo: String::new(),
-                    tools: Vec::new(),
-                });
-                self.mensajes.last_mut().unwrap()
-            }
+            // Caso imposible tras el push anterior; si llegara, no añade tool.
+            _ => return,
         };
         let ya_activa = bloque
             .tools
