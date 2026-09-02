@@ -70,8 +70,20 @@ pub async fn ejecutar_turno_run(mensaje: String) -> Result<SalidaTurno, String> 
         }
     }
 
-    let _ = handle.await;
-    Ok(SalidaTurno { texto, tools, ok })
+    /* No fallo silencioso: el runtime propaga los errores de proveedor/red con
+     * `?` sin emitir necesariamente un `AgenteEvento::Error`; si el turno
+     * terminó en error real, se devuelve como `Err` para que el CLI salga con
+     * código ≠ 0 y muestre la causa (antes se descartaba con `let _` y un
+     * turno fallido salía vacío con exit 0). */
+    let resultado = handle.await;
+    match resultado {
+        Ok(Ok(())) => Ok(SalidaTurno { texto, tools, ok }),
+        // El runtime propaga errores de proveedor/red con `?`; sean o no
+        // acompañados por un evento Error previo, el turno fallido se reporta
+        // como `Err` para que el CLI salga con código ≠ 0 y muestre la causa.
+        Ok(Err(err)) => Err(err.to_string()),
+        Err(err) => Err(format!("el turno abortó con pánico: {err}")),
+    }
 }
 
 /// Ejecuta el subcomando `run`. Lee el prompt de `--prompt` (o `--mensaje`)

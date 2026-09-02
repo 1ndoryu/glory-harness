@@ -162,11 +162,31 @@ impl Daemon {
             let linea = serde_json::to_string(&evento).map_err(|e| e.to_string())?;
             escribir_linea(w, &linea).await?;
         }
-        let _ = handle.await;
-
-        let done = Respuesta::TurnoDone { turno_id };
-        let linea = serde_json::to_string(&done).map_err(|e| e.to_string())?;
-        escribir_linea(w, &linea).await
+        let resultado = handle.await;
+        match resultado {
+            Ok(Ok(())) => {
+                let done = Respuesta::TurnoDone { turno_id };
+                let linea = serde_json::to_string(&done).map_err(|e| e.to_string())?;
+                escribir_linea(w, &linea).await
+            }
+            Ok(Err(err)) => {
+                // No fallo silencioso: si el runtime devolvió error (proveedor/
+                // red) sin evento Error previo, el cliente recibe un error en
+                // vez de un turno_done engañoso.
+                let error = Respuesta::Error {
+                    mensaje: err.to_string(),
+                };
+                let linea = serde_json::to_string(&error).map_err(|e| e.to_string())?;
+                escribir_linea(w, &linea).await
+            }
+            Err(err) => {
+                let error = Respuesta::Error {
+                    mensaje: format!("el turno abortó con pánico: {err}"),
+                };
+                let linea = serde_json::to_string(&error).map_err(|e| e.to_string())?;
+                escribir_linea(w, &linea).await
+            }
+        }
     }
 }
 
