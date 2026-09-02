@@ -47,7 +47,27 @@ consumidores; el frontend no cambia.
 
 - **Como lib (Fase 2):** `glory-harness-core = { path = "../glory-harness/core" }`.
 - **Como CLI/daemon (Fase 3):** `glory-harness run --prompt "..."` /
-  `glory-harness daemon` (SSE en loopback, token de sesión, multi-sesión).
+  `glory-harness daemon` (NDJSON TCP en loopback, token de sesión, multi-sesión).
+
+## Segundo consumidor (Fase 4): cliente del daemon
+
+`examples/consumidor-daemon.mjs` es un cliente de ejemplo que consume
+`glory-harness` **como servicio de fondo** (sin enlazar el crate como lib),
+mostrando el contrato NDJSON end-to-end: abre una sesión con token, ejecuta un
+turno (recibe el stream de `AgenteEvento`) y la cierra.
+
+```bash
+# 1) arranca el daemon con el token conocido
+GLORY_HARNESS_DAEMON_TOKEN=mi-token glory-harness daemon --puerto 8798 --mostrar-token
+# 2) consume desde otro proceso
+node examples/consumidor-daemon.mjs --token mi-token --puerto 8798 --mensaje "hola"
+```
+
+Este es el caso de uso del daemon (§5.1 opción B / §5.2): un proceso externo
+(task, WANDORIUS, un script o un escritorio) puede delegar turnos en el mismo
+proceso de fondo sin acoplarse al build del núcleo. Probado contra el daemon
+release: `sesion_abierta` → stream de eventos → `turno_done` → `sesion_cerrada`
+(exit 0).
 
 ## Gate
 
@@ -77,4 +97,9 @@ por máquina en `.sentinel/release-evidence/` (gitignored).
   validados end-to-end (abrir sesión → stream `AgenteEvento` → `done` → cerrar; token
   inválido rechazado). `cargo build`/`test --workspace` 44/44, clippy limpio en cli, gate
   PASS (318A-13). Para un turno real con proveedor externo: configurar clave LLM en env.
-- **Fase 4** pendiente (segundo consumidor, a validar con el usuario).
+- **Fase 4** ✅ segundo consumidor: `examples/consumidor-daemon.mjs` consume el
+  daemon como servicio de fondo vía NDJSON (abrir sesión → turno → cerrar),
+  probado end-to-end contra el daemon release; sin cambios en el núcleo. Caso de
+  uso documentado en "Segundo consumidor". Pendiente: elegir el consumidor de
+  producción (p. ej. integrar en WANDORIUS) cuando el usuario lo decida, y
+  evidencia de turno SSE real con proveedor externo.
