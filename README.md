@@ -71,4 +71,10 @@ por máquina en `.sentinel/release-evidence/` (gitignored).
   check` task 0 errores, tests task 23 pass, gate glory-harness PASS. Gate task pendiente de
   realinear varsense (318A-6VAR, preexistente). Pendiente: evidencia de turno SSE real con
   proveedor externo.
-- **Fase 3-4** pendiente (CLI/daemon, segundo consumidor).
+- **Fase 3** ✅ CLI/daemon: binario `glory-harness` con subcomandos `run` (turno
+  one-shot), `daemon` (proceso NDJSON TCP en loopback, multi-sesión, token obligatorio),
+  `tools` y `doctor`. Persistencia en memoria (`PersistenciaMemoria`) y transporte
+  validados end-to-end (abrir sesión → stream `AgenteEvento` → `done` → cerrar; token
+  inválido rechazado). `cargo build`/`test --workspace` 44/44, clippy limpio en cli, gate
+  PASS (318A-13). Para un turno real con proveedor externo: configurar clave LLM en env.
+- **Fase 4** pendiente (segundo consumidor, a validar con el usuario).
