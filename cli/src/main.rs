@@ -1,7 +1,10 @@
 //! Binario `glory-harness` (Fase 3): subcomandos `run`, `daemon`, `tools`,
 //! `doctor` y `--version`.
 //!
-//! - `run --prompt "..."` → un turno one-shot, respuesta a stdout.
+//! - `run [--prompt "..." | --stdin] [--provider P] [--modelo M] [--dir R]`
+//!   → un turno one-shot. Trabaja en la carpeta actual (o `--dir`); usa por
+//!   defecto Laguna S 2.1 free (`commandcode/poolside/laguna-s-2.1-free`) y
+//!   salta a gloryapi/otros si falla.
 //! - `daemon [--puerto N] [--mostrar-token]` → proceso de fondo NDJSON en
 //!   `127.0.0.1`, multi-sesión, token obligatorio.
 //! - `tools` → lista las tools agnósticas del núcleo.
@@ -15,6 +18,11 @@ mod run;
 use std::process::ExitCode;
 
 fn main() -> ExitCode {
+    // Carga opcional de claves LLM desde ~/.glory-harness.env (para que el
+    // binario funcione "desde cualquier carpeta" sin depender del .env de un
+    // proyecto). Solo define variables que aún no existan en el entorno.
+    cargar_env_usuario();
+
     let args: Vec<String> = std::env::args().skip(1).collect();
     match args.first().map(String::as_str) {
         Some("--version" | "-V") => {
@@ -27,8 +35,21 @@ fn main() -> ExitCode {
         }
         Some("run") => {
             let prompt = extraer_opcion(&args, &["--prompt", "--mensaje", "-p"]);
+            let usa_stdin = args.iter().any(|a| a == "--stdin");
+            let opciones = run::OpcionesRun {
+                provider: extraer_opcion(&args, &["--provider", "--proveedor"]),
+                modelo: extraer_opcion(&args, &["--modelo", "--model"]),
+                dir: extraer_opcion(&args, &["--dir", "--cwd", "--workspace"]).map(std::path::PathBuf::from),
+            };
+            let prompt = if let Some(p) = prompt {
+                Some(p)
+            } else if usa_stdin {
+                leer_stdin()
+            } else {
+                None
+            };
             match tokio::runtime::Runtime::new() {
-                Ok(rt) => rt.block_on(run::run(prompt)),
+                Ok(rt) => rt.block_on(run::run(prompt, opciones)),
                 Err(e) => {
                     eprintln!("glory-harness run: no se pudo iniciar el runtime tokio: {e}");
                     ExitCode::from(1)
@@ -77,6 +98,54 @@ fn extraer_opcion(args: &[String], nombres: &[&str]) -> Option<String> {
         }
     }
     None
+}
+
+/// Lee todo stdin como prompt (modo pipeline: `echo "x" | glory-harness run --stdin`).
+fn leer_stdin() -> Option<String> {
+    use std::io::Read;
+    let mut buf = String::new();
+    std::io::stdin()
+        .read_to_string(&mut buf)
+        .map(|_| {
+            let t = buf.trim().to_string();
+            if t.is_empty() { None } else { Some(t) }
+        })
+        .unwrap_or(None)
+}
+
+/// Carga `~/.glory-harness.env` si existe (formato `CLAVE=valor`, `#` = comentario).
+/// Solo define variables aún ausentes, así el entorno real del proceso (o las
+/// de un proyecto) siempre tienen prioridad. Nunca imprime valores.
+fn cargar_env_usuario() {
+    let Some(home) = std::env::var_os("USERPROFILE")
+        .or_else(|| std::env::var_os("HOME"))
+        .map(std::path::PathBuf::from)
+    else {
+        return;
+    };
+    let ruta = home.join(".glory-harness.env");
+    let contenido = match std::fs::read_to_string(&ruta) {
+        Ok(c) => c,
+        Err(_) => return, // no existe o no legible: sin claves extra, no es error
+    };
+    for linea in contenido.lines() {
+        let linea = linea.trim();
+        if linea.is_empty() || linea.starts_with('#') {
+            continue;
+        }
+        let Some((clave, valor)) = linea.split_once('=') else {
+            continue;
+        };
+        let clave = clave.trim();
+        let valor = valor.trim();
+        if clave.is_empty() || valor.is_empty() {
+            continue;
+        }
+        // Solo si no está ya definida (edition 2021: set_var es seguro).
+        if std::env::var_os(clave).is_none() {
+            std::env::set_var(clave, valor);
+        }
+    }
 }
 
 /// `doctor`: valida la configuración del entorno (proveedores LLM) y reporta

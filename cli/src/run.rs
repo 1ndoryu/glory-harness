@@ -5,8 +5,17 @@
 //! LlavesProveedor::from_env())`), ejecuta un turno y vuelca la respuesta de
 //! texto a stdout. El contrato de eventos es el mismo `AgenteEvento` de H3,
 //! así que el resultado es idéntico al que vería el frontend de task vía SSE.
+//!
+//! [02-09-2026] Modo "trabaja en la carpeta donde lo ejecutas": `run` usa por
+//! defecto el modelo gratuito Laguna S 2.1 (`commandcode` /
+//! `poolside/laguna-s-2.1-free`) con la raíz del workspace = cwd actual (o la
+//! de `--dir`), activando las tools de archivo en esa carpeta si
+//! `AGENTE_MODO=local`. Si el proveedor falla, el núcleo salta solo a la
+//! cadena de respaldo (gloryapi/auto, DeepSeek directo, etc.).
 
+use std::path::PathBuf;
 use std::sync::Arc;
+
 use uuid::Uuid;
 
 use glory_harness_core::evento::AgenteEvento;
@@ -17,6 +26,17 @@ use glory_harness_core::AgentPersistence;
 
 use crate::persistencia::PersistenciaMemoria;
 
+/// Opciones del subcomando `run`.
+#[derive(Debug, Clone, Default)]
+pub struct OpcionesRun {
+    /// Proveedor LLM. `None` → `commandcode` (Laguna S 2.1 free).
+    pub provider: Option<String>,
+    /// Modelo LLM. `None` → `poolside/laguna-s-2.1-free`.
+    pub modelo: Option<String>,
+    /// Raíz del workspace. `None` → cwd actual (trabaja donde se ejecuta).
+    pub dir: Option<PathBuf>,
+}
+
 /// Resultado de un turno one-shot, listo para imprimir.
 pub struct SalidaTurno {
     pub texto: String,
@@ -24,13 +44,49 @@ pub struct SalidaTurno {
     pub ok: bool,
 }
 
+/// Default del CLI: Laguna S 2.1 free (commandcode directo). Si falla, el
+/// núcleo salta solo a la cadena de respaldo (glory/auto, deepseek, …).
+fn turno_config_default(workspace: Option<PathBuf>) -> TurnoConfig {
+    TurnoConfig {
+        provider: "commandcode".into(),
+        modelo: "poolside/laguna-s-2.1-free".into(),
+        workspace: workspace.map(|p| p.to_string_lossy().into_owned()),
+        ..TurnoConfig::default()
+    }
+}
+
+/// En Windows `canonicalize` devuelve rutas con prefijo verbatim `\\?\C:\...`;
+/// se quita para que el sandbox y los mensajes usen la forma legible `C:\...`.
+fn quitar_prefijo_verbatim(p: PathBuf) -> PathBuf {
+    let s = p.to_string_lossy();
+    let limpio = s.strip_prefix(r"\\?\").unwrap_or(&s);
+    PathBuf::from(limpio)
+}
+
 /// Ejecuta un turno con el mensaje dado y recoge la respuesta de texto.
 /// Devuelve la salida o un error presentable al usuario de la CLI.
-pub async fn ejecutar_turno_run(mensaje: String) -> Result<SalidaTurno, String> {
+pub async fn ejecutar_turno_run(mensaje: String, opciones: OpcionesRun) -> Result<SalidaTurno, String> {
     let persistencia = Arc::new(PersistenciaMemoria::nuevo());
     // Añadir una skill base para dar contexto útil (standalone sin BD).
     let user_id = Uuid::new_v4();
     persistencia.con_skills_base(user_id);
+
+    /* La raíz del workspace: `--dir`, o el cwd donde se invocó el comando.
+     * Así el agente "trabaja en esa carpeta" con sus tools de archivo. */
+    let workspace = opciones
+        .dir
+        .or_else(|| std::env::current_dir().ok())
+        .map(|p| p.canonicalize().unwrap_or(p))
+        .map(quitar_prefijo_verbatim);
+
+    /* [02-09-2026] En el CLI standalone queremos tools de archivo sobre el
+     * workspace, que el núcleo solo activa con AGENTE_MODO=local. Fijamos
+     * `local` por defecto salvo que el usuario ya haya elegido otro modo
+     * explícitamente (p. ej. prod). */
+    if std::env::var_os("AGENTE_MODO").is_none() {
+        // edition 2021: set_var es seguro (sin unsafe).
+        std::env::set_var("AGENTE_MODO", "local");
+    }
 
     let llm = Arc::new(LlmProviderService::new(LlavesProveedor::from_env()));
     let persistencia_port: Arc<dyn AgentPersistence> = persistencia.clone();
@@ -43,7 +99,16 @@ pub async fn ejecutar_turno_run(mensaje: String) -> Result<SalidaTurno, String> 
         web_search: None,
         dominio: None,
     };
-    let runtime = Arc::new(AgentRuntime::nuevo(registry, puertos, TurnoConfig::default()));
+
+    let mut config = turno_config_default(workspace.clone());
+    if let Some(provider) = opciones.provider.as_deref().map(str::trim).filter(|p| !p.is_empty()) {
+        config.provider = provider.to_string();
+    }
+    if let Some(modelo) = opciones.modelo.as_deref().map(str::trim).filter(|m| !m.is_empty()) {
+        config.modelo = modelo.to_string();
+    }
+
+    let runtime = Arc::new(AgentRuntime::nuevo(registry, puertos, config));
 
     let turno_id = Uuid::new_v4();
     let conversacion_id = Uuid::new_v4();
@@ -88,13 +153,23 @@ pub async fn ejecutar_turno_run(mensaje: String) -> Result<SalidaTurno, String> 
 
 /// Ejecuta el subcomando `run`. Lee el prompt de `--prompt` (o `--mensaje`)
 /// o de `--stdin`; imprime la respuesta. Devuelve `ExitCode`.
-pub async fn run(prompt: Option<String>) -> std::process::ExitCode {
+pub async fn run(prompt: Option<String>, opciones: OpcionesRun) -> std::process::ExitCode {
     let Some(prompt) = prompt else {
         eprintln!("glory-harness run: falta --prompt \"...\" (o usa --stdin)");
         return std::process::ExitCode::from(2);
     };
 
-    match ejecutar_turno_run(prompt).await {
+    let raiz = opciones
+        .dir
+        .clone()
+        .or_else(|| std::env::current_dir().ok())
+        .map(|p| p.canonicalize().unwrap_or(p))
+        .map(quitar_prefijo_verbatim)
+        .map(|p| p.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "<desconocido>".to_string());
+    eprintln!("[glory-harness] workspace: {raiz}");
+
+    match ejecutar_turno_run(prompt, opciones).await {
         Ok(salida) => {
             if !salida.tools.is_empty() {
                 eprintln!(
