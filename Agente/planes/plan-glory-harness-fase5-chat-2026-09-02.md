@@ -205,6 +205,43 @@ para no duplicar la construcción del runtime/config/workspace. Sin tocar el cor
       preexistentes en core/chat, 0 en `tui.rs` tras dividir `tui()` y
       `spawn_worker`).
 
+### Bloque 3 (02-09-2026): rediseño TUI estilo opencode-ligero + fix UTF-8
+
+Refinamiento posterior de la TUI (`--tui`) solicitado por el usuario ("ajustar y
+mejorar, errores visuales; lo más parecido a opencode"). Reescribí `cli/src/tui.rs`
+por completo con un diseño opencode-ligero; sin tocar el core (R1).
+
+- [x] **Streaming en vivo**: los `Token` del contrato se acumulan en el bloque del
+      asistente y se repintan a ~20 fps (la v1 solo mostraba "pensando…" y volcaba
+      la respuesta entera al final).
+- [x] **Fix bug UTF-8 del cursor** (causa probable del exit 1 escribiendo acentos):
+      `UiEstado::insertar/retroceder` usaban un índice de *bytes* incrementado por
+      *carácter* → panic "char boundary" con "café". Ahora el cursor es índice de
+      chars y `byte_index` lo convierte a byte antes de `String::insert`. Verificado
+      en vivo: escribir "café" y editar ya no paniquea.
+- [x] **Scroll correcto**: texto pre-envuelto en filas visuales exactas
+      (`envolver_linea`/`envolver_con_prefijo`) → se conoce el nº real de filas sin
+      APIs privadas de ratatui 0.29 (`line_count`/`WordWrapper` son `mod` internos,
+      confirmado leyendo el source del crate). Auto-scroll al final; PgUp/PgDn o
+      rueda del ratón desplazan manualmente (estilo claurst).
+- [x] **Bloques por turno y tools inline**: cabecera `tú ·`/`asistente ·`, cuerpo con
+      markdown ligero (`**negrita**`, `` `código` ``), tools inline con iconos
+      `→`/`✓`/`✗` (estilo opencode).
+- [x] **Prompt inferior** con borde, auto-scroll horizontal si la entrada supera el
+      ancho y cursor seguro; barra de estado bajo el prompt.
+- [x] **Fix bug "Cannot block the current thread"**: el worker publica eventos por un
+      canal `UnboundedSender` (`send` síncrono, no bloquea, no paniquea).
+- [x] **Consistencia de glifos REPL**: `chat.rs` cambia `⏱` → `→` para tools en
+      curso (coincide con la TUI).
+- [x] 14 tests nuevos en `tui.rs` (UTF-8, envolver, markdown, tools, scroll);
+      workspace 60/60 tests (44 core + 16 cli), clippy `-D warnings` limpio en todo
+      el workspace.
+- [x] Verificación funcional real en terminal interactiva: arranque con cabecera/
+      paneles/prompt/barra de estado, `/ayuda`, escribir "café" sin pánico, turno
+      usuario→asistente con respuesta real del LLM, `/salir` restaura el terminal.
+- [x] Commit `058f280` — `318A-13 (Fase 5): feat(tui) - rediseño estilo
+      opencode-ligero (streaming, tools inline, scroll, fix UTF-8 cursor)`.
+
 ## 5. Siguiente paso
 
 1. ~~Validar con el usuario la opción de UI (3.1)~~ ✅ cerrado: se implementó la
