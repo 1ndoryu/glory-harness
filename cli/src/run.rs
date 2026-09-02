@@ -46,7 +46,9 @@ pub struct SalidaTurno {
 
 /// Default del CLI: Laguna S 2.1 free (commandcode directo). Si falla, el
 /// núcleo salta solo a la cadena de respaldo (glory/auto, deepseek, …).
-fn turno_config_default(workspace: Option<PathBuf>) -> TurnoConfig {
+/// Compartido con `chat` (Fase 5): ambos subcomandos construyen el mismo
+/// runtime con la misma configuración por defecto.
+pub(crate) fn turno_config_default(workspace: Option<PathBuf>) -> TurnoConfig {
     TurnoConfig {
         provider: "commandcode".into(),
         modelo: "poolside/laguna-s-2.1-free".into(),
@@ -57,7 +59,8 @@ fn turno_config_default(workspace: Option<PathBuf>) -> TurnoConfig {
 
 /// En Windows `canonicalize` devuelve rutas con prefijo verbatim `\\?\C:\...`;
 /// se quita para que el sandbox y los mensajes usen la forma legible `C:\...`.
-fn quitar_prefijo_verbatim(p: PathBuf) -> PathBuf {
+/// Compartido con `chat` (Fase 5).
+pub(crate) fn quitar_prefijo_verbatim(p: PathBuf) -> PathBuf {
     let s = p.to_string_lossy();
     let limpio = s.strip_prefix(r"\\?\").unwrap_or(&s);
     PathBuf::from(limpio)

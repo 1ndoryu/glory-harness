@@ -1,16 +1,20 @@
-//! Binario `glory-harness` (Fase 3): subcomandos `run`, `daemon`, `tools`,
-//! `doctor` y `--version`.
+//! Binario `glory-harness` (Fases 3-5): subcomandos `run`, `chat`, `daemon`,
+//! `tools`, `doctor` y `--version`.
 //!
 //! - `run [--prompt "..." | --stdin] [--provider P] [--modelo M] [--dir R]`
 //!   → un turno one-shot. Trabaja en la carpeta actual (o `--dir`); usa por
 //!   defecto Laguna S 2.1 free (`commandcode/poolside/laguna-s-2.1-free`) y
 //!   salta a gloryapi/otros si falla.
+//! - `chat [--provider P] [--modelo M] [--dir R]` → sesión interactiva (REPL
+//!   lineal `gh> `) que mantiene la misma conversación entre turnos; comandos
+//!   `/salir`, `/nuevo`, `/ayuda`; Ctrl+C o EOF terminan.
 //! - `daemon [--puerto N] [--mostrar-token]` → proceso de fondo NDJSON en
 //!   `127.0.0.1`, multi-sesión, token obligatorio.
 //! - `tools` → lista las tools agnósticas del núcleo.
 //! - `doctor` → comprueba configuración (envs de proveedores) y salida.
 //! - `--version`/`-V` → versión del binario + contrato core.
 
+mod chat;
 mod daemon;
 mod persistencia;
 mod run;
@@ -56,6 +60,26 @@ fn main() -> ExitCode {
                 }
             }
         }
+        Some("chat") => {
+            let opciones = run::OpcionesRun {
+                provider: extraer_opcion(&args, &["--provider", "--proveedor"]),
+                modelo: extraer_opcion(&args, &["--modelo", "--model"]),
+                dir: extraer_opcion(&args, &["--dir", "--cwd", "--workspace"]).map(std::path::PathBuf::from),
+            };
+            match tokio::runtime::Runtime::new() {
+                Ok(rt) => match rt.block_on(chat::chat(opciones)) {
+                    Ok(()) => ExitCode::SUCCESS,
+                    Err(e) => {
+                        eprintln!("glory-harness chat: {e}");
+                        ExitCode::from(1)
+                    }
+                },
+                Err(e) => {
+                    eprintln!("glory-harness chat: no se pudo iniciar el runtime tokio: {e}");
+                    ExitCode::from(1)
+                }
+            }
+        }
         Some("daemon") => {
             let puerto = extraer_opcion(&args, &["--puerto", "--port"])
                 .and_then(|p| p.parse::<u16>().ok())
@@ -79,11 +103,11 @@ fn main() -> ExitCode {
         }
         Some(other) => {
             eprintln!("glory-harness: subcomando desconocido '{other}'");
-            eprintln!("uso: glory-harness <run|daemon|tools|doctor|--version>");
+            eprintln!("uso: glory-harness <run|chat|daemon|tools|doctor|--version>");
             ExitCode::from(2)
         }
         None => {
-            eprintln!("glory-harness: falta subcomando (run|daemon|tools|doctor|--version)");
+            eprintln!("glory-harness: falta subcomando (run|chat|daemon|tools|doctor|--version)");
             ExitCode::from(2)
         }
     }

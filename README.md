@@ -48,6 +48,8 @@ consumidores; el frontend no cambia.
 - **Como lib (Fase 2):** `glory-harness-core = { path = "../glory-harness/core" }`.
 - **Como CLI/daemon (Fase 3):** `glory-harness run --prompt "..."` /
   `glory-harness daemon` (NDJSON TCP en loopback, token de sesión, multi-sesión).
+- **Como chat interactivo (Fase 5):** `glory-harness chat` (REPL en la terminal
+  que mantiene la misma conversación entre turnos).
 
 ## CLI `run` — un comando, desde cualquier carpeta
 
@@ -80,6 +82,32 @@ glory-harness run --provider glory --modelo commandcode --prompt "hola"
   las variables de entorno correspondientes.
 - Flags de `run`: `--prompt/-p/--mensaje`, `--stdin`, `--provider/--proveedor`,
   `--modelo/--model`, `--dir/--cwd/--workspace`.
+
+## CLI `chat` — sesión interactiva (Fase 5)
+
+Abre un chat en la terminal: escribes un mensaje, el agente responde y la
+conversación **continúa** (el historial acumulado se pasa de un turno al
+siguiente, así el agente recuerda el hilo). Misma configuración por defecto que
+`run` (workspace = cwd o `--dir`, Laguna free con fallback, `AGENTE_MODO=local`
+para tools de archivo) y mismo contrato `AgenteEvento`: las tools ejecutadas se
+muestran discretamente (`⏱ file_read`), los errores también.
+
+```bash
+glory-harness chat                      # chat en la carpeta actual
+cat notas.txt | glory-harness chat      # entrada por pipeline (EOF cierra)
+glory-harness chat --dir "C:\ruta\proyecto" --provider glory --modelo commandcode
+```
+
+Comandos del chat:
+
+- `/salir` (o `/exit`) — termina la sesión (exit 0); también Ctrl+C o EOF
+  (en Windows, Ctrl+Z+Enter).
+- `/nuevo` (o `/reset`) — reinicia la conversación (el agente olvida lo anterior).
+- `/ayuda` — lista los comandos y el estado (workspace, modelo activo).
+
+Un mensaje que empiece por `/` y no sea un comando conocido se avisa y no se
+envía al LLM. Interfaz v1: REPL lineal sin dependencias de TUI; el bucle está
+separado para poder añadir una TUI enriquecida después sin reescribir.
 
 ## Segundo consumidor (Fase 4): cliente del daemon
 
@@ -135,3 +163,11 @@ por máquina en `.sentinel/release-evidence/` (gitignored).
   uso documentado en "Segundo consumidor". Pendiente: elegir el consumidor de
   producción (p. ej. integrar en WANDORIUS) cuando el usuario lo decida, y
   evidencia de turno SSE real con proveedor externo.
+- **Fase 5** ✅ chat interactivo: `glory-harness chat` (REPL lineal `gh> `) con
+  historial acumulado entre turnos (el agente recuerda el hilo), `/nuevo`,
+  `/salir`/`/ayuda`, Ctrl+C/EOF con exit 0, `--dir/--provider/--modelo`, y tools
+  de archivo activas con `AGENTE_MODO=local`. Evidencia funcional real: turno
+  Laguna free, memoria entre turnos verificada (y olvido tras `/nuevo`),
+  `file_read` real sobre el workspace, EOF exit 0. Tests 46/46 (44 core + 2
+  chat), clippy limpio en cli, gate PASS (318A-13). Pendiente (opcional): TUI
+  enriquecida (opción B del plan) si el usuario la pide.
