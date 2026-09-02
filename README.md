@@ -49,6 +49,38 @@ consumidores; el frontend no cambia.
 - **Como CLI/daemon (Fase 3):** `glory-harness run --prompt "..."` /
   `glory-harness daemon` (NDJSON TCP en loopback, token de sesión, multi-sesión).
 
+## CLI `run` — un comando, desde cualquier carpeta
+
+El binario se instala en `~/.cargo/bin/glory-harness.exe` (ya en `PATH`), así que
+se invoca desde cualquier directorio con un solo comando y **trabaja en la carpeta
+donde se ejecuta** (o en `--dir`):
+
+```bash
+# Desde cualquier carpeta (usa el cwd como workspace y laguna free por defecto)
+glory-harness run --prompt "¿qué hace este proyecto?"
+
+# Pipeline (stdin)
+echo "resume este README" | glory-harness run --stdin
+
+# Otra carpeta de trabajo y/o forzar proveedor/modelo
+glory-harness run --dir "C:\ruta\proyecto" --prompt "lista los archivos"
+glory-harness run --provider glory --modelo commandcode --prompt "hola"
+```
+
+- **Modelo por defecto:** Laguna S 2.1 free (`commandcode/poolside/laguna-s-2.1-free`,
+  cuesta $0). Si falla (sin key, 401/503), el núcleo **salta solo** a la cadena de
+  respaldo: gloryapi/auto → DeepSeek directo → groq/cerebras (orden en
+  `CHAT_FALLBACK_CHAIN` del core).
+- **Workspace:** la raíz es el cwd (o `--dir`). Con `AGENTE_MODO=local` (default del
+  CLI) se activan las tools de archivo (`file_read/file_write/…`) acotadas a esa
+  carpeta: el agente puede leer/escribir el proyecto real.
+- **Claves LLM:** el CLI carga `~/.glory-harness.env` si existe (formato
+  `CLAVE=valor`, solo define las que falten; nunca las imprime). Cópialo una vez
+  desde las claves de tu proyecto para que funcione en cualquier carpeta, o define
+  las variables de entorno correspondientes.
+- Flags de `run`: `--prompt/-p/--mensaje`, `--stdin`, `--provider/--proveedor`,
+  `--modelo/--model`, `--dir/--cwd/--workspace`.
+
 ## Segundo consumidor (Fase 4): cliente del daemon
 
 `examples/consumidor-daemon.mjs` es un cliente de ejemplo que consume
