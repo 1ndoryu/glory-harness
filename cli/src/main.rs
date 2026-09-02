@@ -1,11 +1,22 @@
-//! Binario `glory-harness` (Fase 3: `run` one-shot y `daemon` SSE en
-//! loopback). Fase 0: verifica el arranque y reporta la versión del contrato.
+//! Binario `glory-harness` (Fase 3): subcomandos `run`, `daemon`, `tools`,
+//! `doctor` y `--version`.
+//!
+//! - `run --prompt "..."` → un turno one-shot, respuesta a stdout.
+//! - `daemon [--puerto N] [--mostrar-token]` → proceso de fondo NDJSON en
+//!   `127.0.0.1`, multi-sesión, token obligatorio.
+//! - `tools` → lista las tools agnósticas del núcleo.
+//! - `doctor` → comprueba configuración (envs de proveedores) y salida.
+//! - `--version`/`-V` → versión del binario + contrato core.
+
+mod daemon;
+mod persistencia;
+mod run;
 
 use std::process::ExitCode;
 
 fn main() -> ExitCode {
-    let args: Vec<String> = std::env::args().collect();
-    match args.get(1).map(String::as_str) {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    match args.first().map(String::as_str) {
         Some("--version" | "-V") => {
             println!(
                 "glory-harness {} (contrato core {})",
@@ -14,12 +25,36 @@ fn main() -> ExitCode {
             );
             ExitCode::SUCCESS
         }
-        Some("run" | "daemon" | "tools" | "doctor") => {
-            eprintln!(
-                "glory-harness: el subcomando '{}' estará disponible en la Fase 3 del plan 318A-13.",
-                args[1],
-            );
-            ExitCode::from(2)
+        Some("run") => {
+            let prompt = extraer_opcion(&args, &["--prompt", "--mensaje", "-p"]);
+            match tokio::runtime::Runtime::new() {
+                Ok(rt) => rt.block_on(run::run(prompt)),
+                Err(e) => {
+                    eprintln!("glory-harness run: no se pudo iniciar el runtime tokio: {e}");
+                    ExitCode::from(1)
+                }
+            }
+        }
+        Some("daemon") => {
+            let puerto = extraer_opcion(&args, &["--puerto", "--port"])
+                .and_then(|p| p.parse::<u16>().ok())
+                .unwrap_or(8798);
+            let mostrar = args.iter().any(|a| a == "--mostrar-token");
+            match tokio::runtime::Runtime::new() {
+                Ok(rt) => rt.block_on(daemon::run(puerto, mostrar)),
+                Err(e) => {
+                    eprintln!("glory-harness daemon: no se pudo iniciar el runtime tokio: {e}");
+                    ExitCode::from(1)
+                }
+            }
+        }
+        Some("tools") => {
+            listar_tools();
+            ExitCode::SUCCESS
+        }
+        Some("doctor") => {
+            doctor();
+            ExitCode::SUCCESS
         }
         Some(other) => {
             eprintln!("glory-harness: subcomando desconocido '{other}'");
@@ -31,4 +66,82 @@ fn main() -> ExitCode {
             ExitCode::from(2)
         }
     }
+}
+
+/// Lee el valor de la primera opción que coincida con uno de `nombres`,
+/// devolviendo el siguiente argumento. `None` si no aparece.
+fn extraer_opcion(args: &[String], nombres: &[&str]) -> Option<String> {
+    for (i, arg) in args.iter().enumerate() {
+        if nombres.contains(&arg.as_str()) {
+            return args.get(i + 1).cloned();
+        }
+    }
+    None
+}
+
+/// `doctor`: valida la configuración del entorno (proveedores LLM) y reporta
+/// el estado. No toca red ni requiere gate; es una comprobación local.
+fn doctor() {
+    let llaves = glory_harness_core::llm::LlavesProveedor::from_env();
+    let con_key = [
+        ("cerebras", llaves.cerebras.len()),
+        ("groq", llaves.groq.len()),
+        ("deepseek", llaves.deepseek.len()),
+        ("glory/empero", llaves.glory.len()),
+        ("commandcode", llaves.commandcode.len()),
+    ]
+    .into_iter()
+    .map(|(nombre, n)| format!("  {nombre}: {} clave(s)", n))
+    .collect::<Vec<_>>()
+    .join("\n");
+    let proveedores = llaves.cerebras.len()
+        + llaves.groq.len()
+        + llaves.deepseek.len()
+        + llaves.glory.len()
+        + llaves.commandcode.len();
+    println!("glory-harness doctor");
+    println!("  contrato core: {}", glory_harness_core::CONTRATO_VERSION);
+    println!("  proveedores LLM (claves en env):\n{con_key}");
+    if proveedores == 0 {
+        eprintln!(
+            "  AVISO: no hay claves LLM en el entorno (CEREBRAS_API_KEY, GROQ_API, \
+             DEEPSEEK_API, GLORY_API_KEY, COMMAND_CODE_API_KEY). 'run' fallará sin una."
+        );
+    } else {
+        println!("  total: {proveedores} clave(s) disponibles");
+    }
+}
+
+/// Lista las tools agnósticas del núcleo (las que el runtime registra en cada
+/// runtime nuevo: web_search siempre; file_* solo con sandbox local).
+fn listar_tools() {
+    use std::sync::Arc;
+
+    use glory_harness_core::runtime::AgentRuntime;
+    use glory_harness_core::tool::AgentToolRegistry;
+
+    print!("tools agnósticas del núcleo: ");
+    let persistencia = Arc::new(persistencia::PersistenciaMemoria::nuevo());
+    let persistencia_port: Arc<dyn glory_harness_core::AgentPersistence> = persistencia.clone();
+    let llm = Arc::new(glory_harness_core::llm::LlmProviderService::new(
+        glory_harness_core::llm::LlavesProveedor::default(),
+    ));
+    let puertos = glory_harness_core::runtime::PuertosHarness {
+        persistencia: persistencia_port,
+        llm,
+        web_search: None,
+        dominio: None,
+    };
+    let runtime = AgentRuntime::nuevo(
+        AgentToolRegistry::new(),
+        puertos,
+        glory_harness_core::runtime::TurnoConfig::default(),
+    );
+    let ids = runtime.tools_registradas();
+    if ids.is_empty() {
+        println!("(ninguna)");
+    } else {
+        println!("{}", ids.join(", "));
+    }
+    println!("  (file_* requiere AGENTE_MODO=local + workspace accesible; web_search siempre)");
 }
