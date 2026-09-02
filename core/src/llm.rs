@@ -186,7 +186,7 @@ JSON format:
 /// o array (multimodal, p. ej. vision) — igual que en PHP validarMensajes().
 /// `tool_calls`/`tool_call_id` son del agente (contrato OpenAI para tools);
 /// el front los omite (default).
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, utoipa::ToSchema)]
 pub struct AiMessage {
     pub role: String,
     pub content: serde_json::Value,
