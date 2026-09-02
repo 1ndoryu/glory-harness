@@ -44,6 +44,73 @@ pub struct SalidaTurno {
     pub ok: bool,
 }
 
+/// Harness compartido del CLI (run/chat/tui): runtime del núcleo con la misma
+/// construcción — persistencia en memoria, proveedor LLM de las envs,
+/// workspace = cwd (o `--dir`) y `AGENTE_MODO=local` para las tools de archivo.
+/// [318A-13] Un único constructor para los tres subcomandos, sin duplicar.
+pub(crate) struct HarnessCli {
+    pub runtime: Arc<AgentRuntime>,
+    pub persistencia: Arc<PersistenciaMemoria>,
+    pub user_id: Uuid,
+    pub workspace: Option<PathBuf>,
+    pub config: TurnoConfig,
+}
+
+pub(crate) fn construir_harness(opciones: &OpcionesRun) -> HarnessCli {
+    let persistencia = Arc::new(PersistenciaMemoria::nuevo());
+    // Añadir una skill base para dar contexto útil (standalone sin BD).
+    let user_id = Uuid::new_v4();
+    persistencia.con_skills_base(user_id);
+
+    /* La raíz del workspace: `--dir`, o el cwd donde se invocó el comando.
+     * Así el agente "trabaja en esa carpeta" con sus tools de archivo. */
+    let workspace = opciones
+        .dir
+        .clone()
+        .or_else(|| std::env::current_dir().ok())
+        .map(|p| p.canonicalize().unwrap_or(p))
+        .map(quitar_prefijo_verbatim);
+
+    /* [02-09-2026] En el CLI standalone queremos tools de archivo sobre el
+     * workspace, que el núcleo solo activa con AGENTE_MODO=local. Fijamos
+     * `local` por defecto salvo que el usuario ya haya elegido otro modo
+     * explícitamente (p. ej. prod). */
+    if std::env::var_os("AGENTE_MODO").is_none() {
+        // edition 2021: set_var es seguro (sin unsafe).
+        std::env::set_var("AGENTE_MODO", "local");
+    }
+
+    let llm = Arc::new(LlmProviderService::new(LlavesProveedor::from_env()));
+    let persistencia_port: Arc<dyn AgentPersistence> = persistencia.clone();
+
+    let mut config = turno_config_default(workspace.clone());
+    if let Some(provider) = opciones.provider.as_deref().map(str::trim).filter(|p| !p.is_empty()) {
+        config.provider = provider.to_string();
+    }
+    if let Some(modelo) = opciones.modelo.as_deref().map(str::trim).filter(|m| !m.is_empty()) {
+        config.modelo = modelo.to_string();
+    }
+
+    let runtime = Arc::new(AgentRuntime::nuevo(
+        AgentToolRegistry::new(),
+        PuertosHarness {
+            persistencia: persistencia_port,
+            llm,
+            web_search: None,
+            dominio: None,
+        },
+        config.clone(),
+    ));
+
+    HarnessCli {
+        runtime,
+        persistencia,
+        user_id,
+        workspace,
+        config,
+    }
+}
+
 /// Default del CLI: Laguna S 2.1 free (commandcode directo). Si falla, el
 /// núcleo salta solo a la cadena de respaldo (glory/auto, deepseek, …).
 /// Compartido con `chat` (Fase 5): ambos subcomandos construyen el mismo
@@ -69,49 +136,9 @@ pub(crate) fn quitar_prefijo_verbatim(p: PathBuf) -> PathBuf {
 /// Ejecuta un turno con el mensaje dado y recoge la respuesta de texto.
 /// Devuelve la salida o un error presentable al usuario de la CLI.
 pub async fn ejecutar_turno_run(mensaje: String, opciones: OpcionesRun) -> Result<SalidaTurno, String> {
-    let persistencia = Arc::new(PersistenciaMemoria::nuevo());
-    // Añadir una skill base para dar contexto útil (standalone sin BD).
-    let user_id = Uuid::new_v4();
-    persistencia.con_skills_base(user_id);
-
-    /* La raíz del workspace: `--dir`, o el cwd donde se invocó el comando.
-     * Así el agente "trabaja en esa carpeta" con sus tools de archivo. */
-    let workspace = opciones
-        .dir
-        .or_else(|| std::env::current_dir().ok())
-        .map(|p| p.canonicalize().unwrap_or(p))
-        .map(quitar_prefijo_verbatim);
-
-    /* [02-09-2026] En el CLI standalone queremos tools de archivo sobre el
-     * workspace, que el núcleo solo activa con AGENTE_MODO=local. Fijamos
-     * `local` por defecto salvo que el usuario ya haya elegido otro modo
-     * explícitamente (p. ej. prod). */
-    if std::env::var_os("AGENTE_MODO").is_none() {
-        // edition 2021: set_var es seguro (sin unsafe).
-        std::env::set_var("AGENTE_MODO", "local");
-    }
-
-    let llm = Arc::new(LlmProviderService::new(LlavesProveedor::from_env()));
-    let persistencia_port: Arc<dyn AgentPersistence> = persistencia.clone();
-
-    let registry = AgentToolRegistry::new();
-    // El runtime añade web_search + file_* (fail-closed sin sandbox local).
-    let puertos = PuertosHarness {
-        persistencia: persistencia_port,
-        llm,
-        web_search: None,
-        dominio: None,
-    };
-
-    let mut config = turno_config_default(workspace.clone());
-    if let Some(provider) = opciones.provider.as_deref().map(str::trim).filter(|p| !p.is_empty()) {
-        config.provider = provider.to_string();
-    }
-    if let Some(modelo) = opciones.modelo.as_deref().map(str::trim).filter(|m| !m.is_empty()) {
-        config.modelo = modelo.to_string();
-    }
-
-    let runtime = Arc::new(AgentRuntime::nuevo(registry, puertos, config));
+    let harness = construir_harness(&opciones);
+    let user_id = harness.user_id;
+    let runtime = harness.runtime;
 
     let turno_id = Uuid::new_v4();
     let conversacion_id = Uuid::new_v4();

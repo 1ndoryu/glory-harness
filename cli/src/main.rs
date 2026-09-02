@@ -5,9 +5,10 @@
 //!   → un turno one-shot. Trabaja en la carpeta actual (o `--dir`); usa por
 //!   defecto Laguna S 2.1 free (`commandcode/poolside/laguna-s-2.1-free`) y
 //!   salta a gloryapi/otros si falla.
-//! - `chat [--provider P] [--modelo M] [--dir R]` → sesión interactiva (REPL
-//!   lineal `gh> `) que mantiene la misma conversación entre turnos; comandos
-//!   `/salir`, `/nuevo`, `/ayuda`; Ctrl+C o EOF terminan.
+//! - `chat [--provider P] [--modelo M] [--dir R] [--tui]` → sesión interactiva
+//!   que mantiene la misma conversación entre turnos. Default: REPL lineal
+//!   `gh> ` (comandos `/salir`, `/nuevo`, `/ayuda`; Ctrl+C o EOF terminan).
+//!   Con `--tui`: pantalla completa ratatui (paneles mensajes/estado/entrada).
 //! - `daemon [--puerto N] [--mostrar-token]` → proceso de fondo NDJSON en
 //!   `127.0.0.1`, multi-sesión, token obligatorio.
 //! - `tools` → lista las tools agnósticas del núcleo.
@@ -18,6 +19,7 @@ mod chat;
 mod daemon;
 mod persistencia;
 mod run;
+mod tui;
 
 use std::process::ExitCode;
 
@@ -66,14 +68,22 @@ fn main() -> ExitCode {
                 modelo: extraer_opcion(&args, &["--modelo", "--model"]),
                 dir: extraer_opcion(&args, &["--dir", "--cwd", "--workspace"]).map(std::path::PathBuf::from),
             };
+            let usa_tui = args.iter().any(|a| a == "--tui");
             match tokio::runtime::Runtime::new() {
-                Ok(rt) => match rt.block_on(chat::chat(opciones)) {
-                    Ok(()) => ExitCode::SUCCESS,
-                    Err(e) => {
-                        eprintln!("glory-harness chat: {e}");
-                        ExitCode::from(1)
+                Ok(rt) => {
+                    let res = if usa_tui {
+                        rt.block_on(tui::tui(opciones))
+                    } else {
+                        rt.block_on(chat::chat(opciones))
+                    };
+                    match res {
+                        Ok(()) => ExitCode::SUCCESS,
+                        Err(e) => {
+                            eprintln!("glory-harness chat: {e}");
+                            ExitCode::from(1)
+                        }
                     }
-                },
+                }
                 Err(e) => {
                     eprintln!("glory-harness chat: no se pudo iniciar el runtime tokio: {e}");
                     ExitCode::from(1)

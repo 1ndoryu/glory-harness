@@ -96,6 +96,7 @@ muestran discretamente (`⏱ file_read`), los errores también.
 glory-harness chat                      # chat en la carpeta actual
 cat notas.txt | glory-harness chat      # entrada por pipeline (EOF cierra)
 glory-harness chat --dir "C:\ruta\proyecto" --provider glory --modelo commandcode
+glory-harness chat --tui                # TUI enriquecida (paneles, scroll, atajos)
 ```
 
 Comandos del chat:
@@ -106,8 +107,13 @@ Comandos del chat:
 - `/ayuda` — lista los comandos y el estado (workspace, modelo activo).
 
 Un mensaje que empiece por `/` y no sea un comando conocido se avisa y no se
-envía al LLM. Interfaz v1: REPL lineal sin dependencias de TUI; el bucle está
-separado para poder añadir una TUI enriquecida después sin reescribir.
+envía al LLM. Interfaz híbrida (opción C del plan): REPL lineal por defecto y
+`--tui` para la versión enriquecida (ratatui + crossterm: panel de conversación,
+panel de entrada, atajos de teclado); ambas comparten el mismo bucle
+(`procesar_turno`) y el mismo contrato `AgenteEvento`. En `--tui`: `Ctrl+C`
+limpia la entrada, `Ctrl+Q`/`Esc`/`Ctrl+D` salen, `Ctrl+L` limpia pantalla,
+`PageUp`/`PageDown` desplazan el historial y `Enter` envía (con Shift+Enter
+para saltos de línea).
 
 ## Segundo consumidor (Fase 4): cliente del daemon
 
@@ -163,11 +169,13 @@ por máquina en `.sentinel/release-evidence/` (gitignored).
   uso documentado en "Segundo consumidor". Pendiente: elegir el consumidor de
   producción (p. ej. integrar en WANDORIUS) cuando el usuario lo decida, y
   evidencia de turno SSE real con proveedor externo.
-- **Fase 5** ✅ chat interactivo: `glory-harness chat` (REPL lineal `gh> `) con
-  historial acumulado entre turnos (el agente recuerda el hilo), `/nuevo`,
-  `/salir`/`/ayuda`, Ctrl+C/EOF con exit 0, `--dir/--provider/--modelo`, y tools
-  de archivo activas con `AGENTE_MODO=local`. Evidencia funcional real: turno
-  Laguna free, memoria entre turnos verificada (y olvido tras `/nuevo`),
-  `file_read` real sobre el workspace, EOF exit 0. Tests 46/46 (44 core + 2
-  chat), clippy limpio en cli, gate PASS (318A-13). Pendiente (opcional): TUI
-  enriquecida (opción B del plan) si el usuario la pide.
+- **Fase 5** ✅ chat interactivo completo: `glory-harness chat` (REPL lineal
+  `gh> `) y `glory-harness chat --tui` (TUI enriquecida con ratatui, opción C
+  del plan). Historial acumulado entre turnos (el agente recuerda el hilo),
+  `/nuevo`, `/salir`/`/ayuda`, Ctrl+C/EOF con exit 0, `--dir/--provider/--modelo`
+  y `--tui`, y tools de archivo activas con `AGENTE_MODO=local`. Evidencia
+  funcional real: turno Laguna free, memoria entre turnos verificada (y olvido
+  tras `/nuevo`), `file_read` real sobre el workspace, EOF exit 0, TUI
+  renderizando (cabecera con modelo/workspace, paneles de conversación y
+  entrada, cursor). Tests 49/49 (44 core + 2 chat + 3 TUI), clippy limpio en
+  todo el workspace (core incluido, 0 warnings), gate PASS (318A-13).

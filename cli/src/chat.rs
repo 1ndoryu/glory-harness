@@ -17,19 +17,18 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 use glory_harness_core::evento::AgenteEvento;
-use glory_harness_core::llm::{AiMessage, LlmProviderService, LlavesProveedor};
+use glory_harness_core::llm::AiMessage;
 use glory_harness_core::ports::MensajePersistido;
-use glory_harness_core::runtime::{AgentRuntime, PuertosHarness};
-use glory_harness_core::tool::AgentToolRegistry;
+use glory_harness_core::runtime::AgentRuntime;
 use glory_harness_core::AgentPersistence;
 
-use crate::persistencia::PersistenciaMemoria;
-use crate::run::{quitar_prefijo_verbatim, turno_config_default, OpcionesRun};
+use crate::run::{construir_harness, OpcionesRun};
 
 /// Convierte los mensajes persistidos de una conversación en el historial que
 /// el runtime espera (`AiMessage`). Es la fuente entre turnos del chat: el
 /// agente recuerda el hilo porque cada turno recibe todo lo anterior.
-fn historial_desde_persistencia(mensajes: Vec<MensajePersistido>) -> Vec<AiMessage> {
+/// Compartido con la TUI (`tui.rs`, Fase 5 opción B): misma fuente, otra UI.
+pub(crate) fn historial_desde_persistencia(mensajes: Vec<MensajePersistido>) -> Vec<AiMessage> {
     mensajes
         .into_iter()
         .map(|m| AiMessage::texto(&m.rol, m.contenido))
@@ -39,45 +38,12 @@ fn historial_desde_persistencia(mensajes: Vec<MensajePersistido>) -> Vec<AiMessa
 /// Ejecuta el subcomando `chat`: abre la sesión interactiva y no devuelve
 /// hasta que el usuario salga (`/salir`, Ctrl+C o EOF).
 pub async fn chat(opciones: OpcionesRun) -> Result<(), String> {
-    let persistencia = Arc::new(PersistenciaMemoria::nuevo());
-    let user_id = Uuid::new_v4();
-    persistencia.con_skills_base(user_id);
-
-    let workspace = opciones
-        .dir
-        .clone()
-        .or_else(|| std::env::current_dir().ok())
-        .map(|p| p.canonicalize().unwrap_or(p))
-        .map(quitar_prefijo_verbatim);
-
-    /* Tools de archivo sobre el workspace (igual que `run`): el núcleo solo
-     * las activa con AGENTE_MODO=local. */
-    if std::env::var_os("AGENTE_MODO").is_none() {
-        // edition 2021: set_var es seguro (sin unsafe).
-        std::env::set_var("AGENTE_MODO", "local");
-    }
-
-    let llm = Arc::new(LlmProviderService::new(LlavesProveedor::from_env()));
-    let persistencia_port: Arc<dyn AgentPersistence> = persistencia.clone();
-
-    let mut config = turno_config_default(workspace.clone());
-    if let Some(provider) = opciones.provider.as_deref().map(str::trim).filter(|p| !p.is_empty()) {
-        config.provider = provider.to_string();
-    }
-    if let Some(modelo) = opciones.modelo.as_deref().map(str::trim).filter(|m| !m.is_empty()) {
-        config.modelo = modelo.to_string();
-    }
-
-    let runtime = Arc::new(AgentRuntime::nuevo(
-        AgentToolRegistry::new(),
-        PuertosHarness {
-            persistencia: persistencia_port,
-            llm,
-            web_search: None,
-            dominio: None,
-        },
-        config.clone(),
-    ));
+    let harness = construir_harness(&opciones);
+    let persistencia = harness.persistencia;
+    let user_id = harness.user_id;
+    let workspace = harness.workspace;
+    let config = harness.config;
+    let runtime = harness.runtime;
 
     let raiz = workspace
         .map(|p| p.to_string_lossy().into_owned())
@@ -162,61 +128,93 @@ pub async fn chat(opciones: OpcionesRun) -> Result<(), String> {
             }
         };
 
-        let turno_id = Uuid::new_v4();
-        let (tx, mut rx) = tokio::sync::mpsc::channel::<AgenteEvento>(64);
-        let handle = tokio::spawn({
-            let runtime = Arc::clone(&runtime);
-            async move {
-                runtime
-                    .ejecutar_turno(user_id, turno_id, conversacion_id, historial, texto, &tx)
-                    .await
-            }
-        });
-
-        let mut respuesta = String::new();
-        let mut tools = Vec::new();
-        while let Some(evento) = rx.recv().await {
+        /* El runtime persiste ambos mensajes vía puerto (`guardar_mensaje`);
+         * aquí solo se reporta el resultado. Un fallo no acaba el chat: se
+         * muestra y se vuelve al prompt para reintentar. */
+        match procesar_turno(Arc::clone(&runtime), user_id, conversacion_id, historial, texto, |evento| {
             match evento {
-                AgenteEvento::Token { texto: t } => respuesta.push_str(&t),
-                AgenteEvento::ToolStart { tool, .. } => {
-                    eprintln!("  ⏱ {tool}");
-                    tools.push(tool);
-                }
+                AgenteEvento::Token { .. } => {}
+                AgenteEvento::ToolStart { tool, .. } => eprintln!("  ⏱ {tool}"),
                 AgenteEvento::RequiereAprobacion { tool, .. } => {
-                    eprintln!("  ⚠ {tool} requiere aprobación (modo predeterminado)");
+                    eprintln!("  ⚠ {tool} requiere aprobación (modo predeterminado)")
                 }
                 AgenteEvento::ToolResult {
                     tool,
                     ok: false,
                     resumen,
                     ..
-                } => {
-                    eprintln!("  ✗ {tool}: {resumen}");
-                }
-                AgenteEvento::Error { mensaje, .. } => {
-                    eprintln!("  ✗ error: {mensaje}");
-                }
-                AgenteEvento::Done { .. } => break,
+                } => eprintln!("  ✗ {tool}: {resumen}"),
+                AgenteEvento::Error { mensaje, .. } => eprintln!("  ✗ error: {mensaje}"),
+                AgenteEvento::Done { .. } => {}
                 _ => {}
             }
-        }
-
-        /* El runtime persiste ambos mensajes vía puerto (`guardar_mensaje`);
-         * aquí solo se reporta el resultado. Un fallo no acaba el chat: se
-         * muestra y se vuelve al prompt para reintentar. */
-        let resultado = handle.await;
-        match resultado {
-            Ok(Ok(())) => {
-                if !tools.is_empty() {
-                    eprintln!("  tools: {}", tools.join(", "));
+        })
+        .await
+        {
+            Ok(respuesta) => {
+                if !respuesta.tools.is_empty() {
+                    eprintln!("  tools: {}", respuesta.tools.join(", "));
                 }
                 println!();
-                println!("{respuesta}");
+                println!("{}", respuesta.texto);
                 println!();
             }
-            Ok(Err(err)) => eprintln!("[chat] el turno falló: {err} (puedes reintentar)"),
-            Err(err) => eprintln!("[chat] el turno abortó con pánico: {err}"),
+            Err(err) => eprintln!("[chat] el turno falló: {err} (puedes reintentar)"),
         }
+    }
+}
+
+/// Resultado de un turno de chat: texto del asistente + tools ejecutadas.
+/// Compartido entre el REPL lineal y la TUI (`chat --tui`). Los errores se
+/// muestran en vivo por el callback de eventos, no se acumulan aquí.
+pub struct TurnoResultado {
+    pub texto: String,
+    pub tools: Vec<String>,
+}
+
+/// Ejecuta un turno sobre la conversación y consume el contrato `AgenteEvento`
+/// con un callback por evento (cada UI decide cómo pintarlo: el REPL imprime
+/// en vivo; la TUI lo acumula en sus paneles). El runtime persiste ambos
+/// mensajes vía puerto; aquí solo se recolecta el resultado. Un fallo se
+/// devuelve como `Err` y no acaba la sesión: el llamador puede reintentar.
+pub(crate) async fn procesar_turno(
+    runtime: Arc<AgentRuntime>,
+    user_id: Uuid,
+    conversacion_id: Uuid,
+    historial: Vec<AiMessage>,
+    texto: String,
+    mut on_evento: impl FnMut(AgenteEvento),
+) -> Result<TurnoResultado, String> {
+    let turno_id = Uuid::new_v4();
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<AgenteEvento>(64);
+    let handle = tokio::spawn({
+        let runtime = Arc::clone(&runtime);
+        async move {
+            runtime
+                .ejecutar_turno(user_id, turno_id, conversacion_id, historial, texto, &tx)
+                .await
+        }
+    });
+
+    let mut texto_respuesta = String::new();
+    let mut tools = Vec::new();
+    while let Some(evento) = rx.recv().await {
+        match &evento {
+            AgenteEvento::Token { texto: t } => texto_respuesta.push_str(t),
+            AgenteEvento::ToolStart { tool, .. } => tools.push(tool.clone()),
+            AgenteEvento::Done { .. } => break,
+            _ => {}
+        }
+        on_evento(evento);
+    }
+
+    match handle.await {
+        Ok(Ok(())) => Ok(TurnoResultado {
+            texto: texto_respuesta,
+            tools,
+        }),
+        Ok(Err(err)) => Err(err.to_string()),
+        Err(err) => Err(format!("el turno abortó con pánico: {err}")),
     }
 }
 

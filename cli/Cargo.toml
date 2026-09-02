@@ -18,3 +18,8 @@ serde_json = "1"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "io-util", "sync", "time", "signal"] }
 tracing = "0.1"
 uuid = { version = "1", features = ["v4", "serde"] }
+
+# TUI enriquecida (Fase 5, opción B): paneles, scroll y markdown ligero.
+# Se usa solo con `chat --tui`; el REPL lineal sigue siendo el default.
+ratatui = "0.29"
+crossterm = "0.28"

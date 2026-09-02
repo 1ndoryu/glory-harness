@@ -2,7 +2,7 @@
 
 - **Fecha:** 2026-09-02
 - **ID:** 318A-13 · Fase 5 (extiende el plan base; **no** usar `318A-14`: ya existe en el roadmap de PROYECTO TASKS para otra tarea, tabs compartidos — evitar colisión)
-- **Estado:** ✅ completado (02-09-2026, v1 REPL lineal — opción A)
+- **Estado:** ✅ completado (02-09-2026, REPL lineal + TUI — opción C híbrida)
 - **Plan base:** `plan-glory-harness-2026-09-01.md` (318A-13, Fases 0-4 ✅)
 - **Tipo:** nueva interfaz de consumo (TUI/REPL interactiva sobre el contrato `AgenteEvento`)
 - **Referencias de código (clonadas localmente, solo lectura):** ver
@@ -176,11 +176,43 @@ para no duplicar la construcción del runtime/config/workspace. Sin tocar el cor
 - [x] Commit por bloque con mensaje `318A-13 (Fase 5): ...`; README actualizado con
       el modo `chat`.
 
+### Bloque 2 (02-09-2026): pendientes cerrados — clippy core + TUI + Ctrl+C
+
+- [x] **Clippy `-D warnings` verde en todo el workspace**: corregidos los 6
+      warnings preexistentes en `core/` (2 `too_many_arguments` en `llm.rs`
+      mediante struct `SolicitudStream`; 2 `redundant_closure` en `context.rs`;
+      2 `bool_assert_comparison` en tests de `sandbox.rs`/`scheduler.rs`/
+      `contrato_tests.rs`). Tests 46/46 tras el refactor (sin cambio de
+      semántica).
+- [x] **TUI enriquecida (opción C, `--tui`)**: `cli/src/tui.rs` (ratatui +
+      crossterm) con panel de conversación, panel de entrada, cabecera con
+      modelo/workspace y barra de estado. Comparte el bucle con el REPL vía
+      `procesar_turno`/`construir_harness` extraídos en `run.rs` (sin tocar el
+      core, R1). Atajos: Enter enviar, Shift+Enter salto de línea, Ctrl+C
+      limpiar, Ctrl+Q/Esc/Ctrl+D salir, Ctrl+L limpiar, PageUp/PageDown scroll.
+      `Right` ya no sobrepasa el final del buffer (bug real corregido con test
+      unitario). Render verificado con pipeline: pantalla alterna, cabecera,
+      paneles y cursor estables; entrada por pipe no llega a crossterm en
+      Windows (limitación de verificación interactiva, no defecto).
+- [x] **Ctrl+C en REPL**: verificado en terminal interactiva real (sale con
+      exit 0); en `--tui` se limpia la entrada (segundo Ctrl+C sale).
+- [x] Gate Sentinel tras el bloque: `quality:analyze` → 0 errores (6 warnings
+      preexistentes en core/chat, 0 en `tui.rs` tras dividir `tui()` y
+      `spawn_worker`).
+
 ## 5. Siguiente paso
 
-1. **Validar con el usuario** la opción de UI (3.1): REPL lineal (A) vs TUI (B) vs
-   híbrido (C) — o arrancar con A si la indicación es "hazlo simple".
-2. Elegir el crate de lectura de línea ligero compatible Windows (evaluar
-   `rustyline` vs implementación con `stdin`/`crossterm`).
-3. Implementar `chat.rs` + dispatch en `main.rs` + helper compartido.
-4. Probar funcional (turno real, historial, `/nuevo`, `/salir`) y gate.
+1. ~~Validar con el usuario la opción de UI (3.1)~~ ✅ cerrado: se implementó la
+   opción C híbrida (`--tui`) — REPL lineal por defecto + TUI enriquecida a
+   demanda, compartiendo bucle y contrato.
+2. ~~Elegir el crate de lectura de línea~~ ✅ resuelto sin dependencias para el
+   REPL (hilo de stdin + `tokio::select!`); ratatui + crossterm solo en `--tui`.
+3. ~~Implementar `chat.rs` + dispatch en `main.rs` + helper compartido~~ ✅ hecho
+   (bloques 1 y 2).
+4. ~~Probar funcional (turno real, historial, `/nuevo`, `/salir`) y gate~~ ✅
+   hecho: 49/49 tests, clippy `-D warnings` limpio en todo el workspace, gate
+   Sentinel 0 errores, commits por bloque.
+
+Pendiente fuera de alcance (reportado, no oculto): ningún consumidor de
+producción del daemon elegido aún (Fase 4, decisión del usuario) y evidencia de
+turno SSE real con proveedor externo en task (Fase 2).
