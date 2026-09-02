@@ -19,7 +19,9 @@ tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "io-uti
 tracing = "0.1"
 uuid = { version = "1", features = ["v4", "serde"] }
 
-# TUI enriquecida (Fase 5, opción B): paneles, scroll y markdown ligero.
-# Se usa solo con `chat --tui`; el REPL lineal sigue siendo el default.
+# TUI enriquecida (Fase 5, opción B sobre el híbrido C): bloques por turno,
+# streaming en vivo, tools inline y scroll (estilo opencode-ligero). Se usa
+# solo con `chat --tui`; el REPL lineal sigue siendo el default.
 ratatui = "0.29"
 crossterm = "0.28"
+unicode-width = "0.1"

@@ -134,7 +134,7 @@ pub async fn chat(opciones: OpcionesRun) -> Result<(), String> {
         match procesar_turno(Arc::clone(&runtime), user_id, conversacion_id, historial, texto, |evento| {
             match evento {
                 AgenteEvento::Token { .. } => {}
-                AgenteEvento::ToolStart { tool, .. } => eprintln!("  ⏱ {tool}"),
+                AgenteEvento::ToolStart { tool, .. } => eprintln!("  → {tool}"),
                 AgenteEvento::RequiereAprobacion { tool, .. } => {
                     eprintln!("  ⚠ {tool} requiere aprobación (modo predeterminado)")
                 }
