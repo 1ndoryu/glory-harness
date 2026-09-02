@@ -188,12 +188,17 @@ para no duplicar la construcción del runtime/config/workspace. Sin tocar el cor
       crossterm) con panel de conversación, panel de entrada, cabecera con
       modelo/workspace y barra de estado. Comparte el bucle con el REPL vía
       `procesar_turno`/`construir_harness` extraídos en `run.rs` (sin tocar el
-      core, R1). Atajos: Enter enviar, Shift+Enter salto de línea, Ctrl+C
-      limpiar, Ctrl+Q/Esc/Ctrl+D salir, Ctrl+L limpiar, PageUp/PageDown scroll.
-      `Right` ya no sobrepasa el final del buffer (bug real corregido con test
-      unitario). Render verificado con pipeline: pantalla alterna, cabecera,
-      paneles y cursor estables; entrada por pipe no llega a crossterm en
-      Windows (limitación de verificación interactiva, no defecto).
+      core, R1). Atajos: `Enter` envía, `Esc`/`Ctrl+C` salen, `Backspace`/
+      flechas editan; los comandos `/salir` `/nuevo` `/ayuda` aplican igual que
+      en el REPL. `Right` ya no sobrepasa el final del buffer (bug real
+      corregido con test unitario). Fix posterior (02-09-2026): los dos
+      `blocking_send` a canales tokio paniqueaban con "Cannot block the current
+      thread from within a runtime" al enviar un mensaje o al llegar un evento
+      de tool; sustituidos por `.await` y una tarea independiente
+      (`relevar_estado`) con test de regresión. Render verificado con pipeline:
+      pantalla alterna, cabecera, paneles y cursor estables; entrada por pipe no
+      llega a crossterm en Windows (limitación de verificación interactiva, no
+      defecto).
 - [x] **Ctrl+C en REPL**: verificado en terminal interactiva real (sale con
       exit 0); en `--tui` se limpia la entrada (segundo Ctrl+C sale).
 - [x] Gate Sentinel tras el bloque: `quality:analyze` → 0 errores (6 warnings

@@ -110,10 +110,9 @@ Un mensaje que empiece por `/` y no sea un comando conocido se avisa y no se
 envía al LLM. Interfaz híbrida (opción C del plan): REPL lineal por defecto y
 `--tui` para la versión enriquecida (ratatui + crossterm: panel de conversación,
 panel de entrada, atajos de teclado); ambas comparten el mismo bucle
-(`procesar_turno`) y el mismo contrato `AgenteEvento`. En `--tui`: `Ctrl+C`
-limpia la entrada, `Ctrl+Q`/`Esc`/`Ctrl+D` salen, `Ctrl+L` limpia pantalla,
-`PageUp`/`PageDown` desplazan el historial y `Enter` envía (con Shift+Enter
-para saltos de línea).
+(`procesar_turno`) y el mismo contrato `AgenteEvento`. En `--tui`: `Enter`
+envía el mensaje, `Esc` o `Ctrl+C` salen (restaurando la terminal), y los
+comandos `/salir`, `/nuevo`, `/ayuda` funcionan igual que en el REPL.
 
 ## Segundo consumidor (Fase 4): cliente del daemon
 

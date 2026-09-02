@@ -194,11 +194,7 @@ fn spawn_worker(
                 conversacion_id,
                 historial,
                 texto,
-                move |evento| {
-                    if let Some(e) = estado_desde_evento(&evento) {
-                        let _ = tx_ev.blocking_send(EventoTui::Estado(e));
-                    }
-                },
+                move |evento| relevar_estado(&tx_ev, &evento),
             )
             .await
             {
@@ -221,6 +217,19 @@ fn spawn_worker(
             let _ = tx_eventos.send(EventoTui::Estado(String::new())).await;
         }
     });
+}
+
+/// Publica una línea de estado hacia la UI desde el hilo del runtime. Se lanza
+/// como tarea independiente: un `blocking_send` aquí paniquea con "Cannot
+/// block the current thread from within a runtime" (bug real visto en
+/// `chat --tui` 02-09-2026).
+fn relevar_estado(tx: &tokio::sync::mpsc::Sender<EventoTui>, evento: &AgenteEvento) {
+    if let Some(e) = estado_desde_evento(evento) {
+        let tx = tx.clone();
+        tokio::spawn(async move {
+            let _ = tx.send(EventoTui::Estado(e)).await;
+        });
+    }
 }
 
 /// Traduce un evento del contrato a la línea de estado de la TUI (o `None` si
@@ -278,7 +287,9 @@ async fn bucle_ui(
                         KeyCode::Enter => {
                             let texto = std::mem::take(&mut ui.entrada);
                             ui.cursor = 0;
-                            let _ = tx_entrada.blocking_send(texto);
+                            // `.await` (no `blocking_send`): esto se ejecuta dentro
+                            // del runtime y bloqueando paniquea (bug real 02-09-2026).
+                            let _ = tx_entrada.send(texto).await;
                         }
                         KeyCode::Backspace => ui.retroceder(),
                         KeyCode::Left => ui.cursor = ui.cursor.saturating_sub(1),
@@ -431,5 +442,24 @@ mod tests {
         ui.insertar('X');
         assert_eq!(ui.entrada, "aXb");
         assert_eq!(ui.cursor, 2);
+    }
+
+    #[tokio::test]
+    async fn relevar_estado_no_paniquea_dentro_del_runtime() {
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<EventoTui>(4);
+        let evento = AgenteEvento::ToolStart {
+            tool: "file_read".into(),
+            argumentos: serde_json::json!({}),
+        };
+        // Llamado desde el runtime (mismo contexto que el worker del turno):
+        // con `blocking_send` esto paniqueaba con "Cannot block the current
+        // thread from within a runtime" (bug real 02-09-2026).
+        relevar_estado(&tx, &evento);
+        match rx.recv().await {
+            Some(EventoTui::Estado(e)) => {
+                assert!(e.contains("file_read"), "estado inesperado: {e}")
+            }
+            _ => panic!("se esperaba una línea de estado (canal cerrado o variante distinta)"),
+        }
     }
 }
