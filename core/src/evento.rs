@@ -36,11 +36,20 @@ pub enum AgenteEvento {
     RequiereAprobacion { tool: String, argumentos: serde_json::Value },
     /// Uso parcial/final de tokens. `ocupacion_pct` lo emite el runtime tras
     /// cada compactación (barra de contexto del front); `None` en los demás.
+    /// [02-09-2026] `provider`/`modelo` son el proveedor/modelo REAL que
+    /// respondió (el fallback del core puede saltar a otro distinto del
+    /// solicitado en `turno_config`); los emite `llm_llamada` tras resolver
+    /// la cadena de candidatos. Campos opcionales: retrocompatibles para los
+    /// consumidores (CLI/daemon/task) que aún no los leen.
     Usage {
         tokens_prompt: u32,
         tokens_complecion: u32,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         ocupacion_pct: Option<f32>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        provider: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        modelo: Option<String>,
     },
     /// [31-08-2026] Fase 3 (skills v1): cuántas skills activas se inyectaron
     /// como contexto en este turno (observabilidad real; el front lo ignora

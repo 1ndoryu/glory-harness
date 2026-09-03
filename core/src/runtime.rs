@@ -291,6 +291,8 @@ impl AgentRuntime {
                         tokens_prompt: 0,
                         tokens_complecion: 0,
                         ocupacion_pct: Some(m.occupancy_pct),
+                        provider: None,
+                        modelo: None,
                     })
                     .await;
                 tracing::info!(before = m.tokens_before, after = m.tokens_after, savings = %m.savings_pct, "compactación de contexto");
@@ -344,6 +346,8 @@ impl AgentRuntime {
                         tokens_prompt: tokens_prompt_total,
                         tokens_complecion: tokens_complecion_total,
                         ocupacion_pct: None,
+                        provider: None,
+                        modelo: None,
                     })
                     .await;
                 if !ultimo_contenido.trim().is_empty() {
@@ -533,11 +537,18 @@ impl AgentRuntime {
                 on_token,
             )
             .await?;
+        /* [02-09-2026] El resultado del stream lleva el provider/modelo REAL
+         * tras resolver la cadena de fallback (enviar_chat_stream devuelve el
+         * primer candidato que respondió, no el solicitado). Se propagan en el
+         * evento Usage para que el front muestre qué modelo respondió de
+         * verdad (puede saltar de commandcode a glory/deepseek, etc.). */
         let _ = tx
             .send(AgenteEvento::Usage {
                 tokens_prompt: resultado.tokens_prompt,
                 tokens_complecion: resultado.tokens_complecion,
                 ocupacion_pct: None,
+                provider: Some(resultado.provider.clone()),
+                modelo: Some(resultado.modelo.clone()),
             })
             .await;
         Ok(resultado.tool_calls)
