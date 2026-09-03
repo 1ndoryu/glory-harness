@@ -1,6 +1,6 @@
 # Comparativa: opencode vs agente Glory Harness / IA de Tasks — propuesta de mejora
 
-Fecha: 2026-09-03 (revisión 2: diseño detallado por área + alternativas globales) · Estado: **propuesta** (sin implementar)
+Fecha: 2026-09-03 (revisión 3: verificación de las afirmaciones contra los 5 clones locales de `data/referencias-cli/`, §11) · Estado: **propuesta** (sin implementar)
 Alcance: núcleo `glory-harness/core` + CLI (`glory-harness chat`) + la IA de `PROYECTO TASKS` (dominio productividad).
 Hechos de opencode verificados contra docs oficiales, su código fuente y el deep-dive de cefboud.com (fuentes en §10).
 Hechos de nuestro agente verificados en el código actual (señalo archivo:línea cuando aplica).
@@ -36,7 +36,9 @@ opencode NO tiene un solo "system prompt". Lo ensambla en tiempo de ejecución:
 
 ```text
 capa 1  prompt del proveedor/modelo (o prompt del agente si está definido)
-capa 2  entorno: Working directory, Platform, Today's date
+capa 2  entorno: <env> con Working directory, Workspace root folder, git repo sí/no,
+        Platform y Today's date (verificado en `packages/opencode/src/session/system.ts:73-83`,
+        que también antepone la línea "You are powered by the model named… exact model ID…")
 capa 3  reglas: AGENTS.md local (subiendo directorios), ~/.config/opencode/AGENTS.md,
         CLAUDE.md como fallback, y archivos de "instructions" extra
 ```
@@ -284,13 +286,15 @@ Cada subsección sigue el mismo esquema: **cómo lo hace opencode** (hecho verif
 6. **Perfiles por dominio**:
    - CLI (agente de código): `explorar` (file_read/search/glob/web_search, todo deny), `planificar` (lectura + todo_write), `revisar` (lectura + diff), `redactar` (escribe solo en un dir temporal del workspace).
    - IA de tasks (productividad): `planificar` y `revisar` sobre el contexto de la conversación (tareas/hábitos/notas); `explorar` con web solo si `permitir_busqueda_web`. **Ningún perfil ejecuta comandos ni edita archivos del sistema** (la restricción de seguridad de §3.2 se mantiene también para subagentes).
-7. **Reglas de oro heredadas**: el subagente nunca confirma acciones con efecto (su policy es allow para lectura y deny/ask para escritura según perfil; `redactar` escribe en dir temporal sin preguntar porque es descartable); un subagente no puede lanzar otro subagente en v1 (profundidad 1) — evita árboles de coste incontrolados.
+7. **Reglas de oro heredadas**: el subagente nunca confirma acciones con efecto (su policy es allow para lectura y deny/ask para escritura según perfil; `redactar` escribe en dir temporal sin preguntar porque es descartable); un subagente no puede lanzar otro subagente en v1 (profundidad 1) — evita árboles de coste incontrolados. Mecanismo (no policy, schema): la tool `task` se **excluye de las tools del hijo**, patrón verificado en claurst `query/src/agent_tool.rs:247-249` (siempre excluye `AgentTool` para impedir recursión y además acepta allow-list de tools).
 
 **Alternativas consideradas:**
 - (a) Tool `task` con sesiones efímeras (arriba) — **recomendada**: aislamiento natural, coste acotado, compatible con el SSE actual.
 - (b) "Multi-agente" en un solo contexto: el system prompt alterna roles por tramos (ahora actúas como explorador). Cero infraestructura nueva, pero contamina el contexto, no permite paralelismo real y el modelo se confunde de rol. Solo como truco puntual de prompt, no como arquitectura.
 - (c) Hilo independiente que publica eventos al canal y el padre "decide después": más potente (el padre podría continuar mientras el hijo trabaja) pero duplica la complejidad de estado (¿qué hace el padre mientras espera? ¿cancela al hijo?) — posponer.
 - (d) Sin subagentes: "modos de profundidad" (el system prompt del único agente cambia según el objetivo). Barato, pero el mismo contexto sirve para explorar y para editar; en la práctica los modelos rinden peor mezclando fases — es lo que ya hacemos hoy.
+- (e) **Manager-executor con presupuesto (claurst, `src-rust/crates/commands/src/managed_agents.rs`)**: roles manager (planea y delega) y executor, modelos independientes (`manager-model`/`executor-model`), `executor-turns`, `concurrent`, `isolation on|off` y presupuesto USD con split (shared/percentage/fixed). Más rígida que (a) pero con control de coste explícito — evolución natural de F4 si el coste escala.
+- (f) **Delegación en proceso hijo (grok-cli, `src/agent/delegations.ts`)**: el subagente `explore` corre como child process con su propio modelo, cwd, sandbox y `maxToolRounds`/`maxTokens`. Aislamiento máximo (un crash del hijo no tumba al padre); viable cuando el CLI tenga daemon, no en v1.
 
 **Riesgos concretos:** coste ×2-3 por turno si el padre abusa de `task` (mitigar con tope de concurrencia y `max_pasos`); el resumen del hijo puede perder detalle crítico (mitigar con `secciones` estructuradas y, para `redactar`, devolver también el diff/archivos); loops padre↔hijo (prohibir que el hijo invoque `task` en v1).
 
@@ -521,14 +525,41 @@ lectura; índice con rutas de interés en su `README.md`):
 
 | Proyecto | URL | Local | Relevancia |
 |---|---|---|---|
-| claurst (clean-room Rust de Claude Code) | https://github.com/Kuberwastaken/claurst | `data/referencias-cli/claurst` | Prompt modular con `SYSTEM_PROMPT_DYNAMIC_BOUNDARY`, `spec/` conductual, subagentes con worktree, managed agents |
+| claurst (clean-room Rust de Claude Code) | https://github.com/Kuberwastaken/claurst | `data/referencias-cli/claurst` | Prompt modular con `SYSTEM_PROMPT_DYNAMIC_BOUNDARY` (`core/src/system_prompt.rs`), `spec/` conductual, subagente con contexto propio (`query/src/agent_tool.rs`), manager-executor con presupuesto (`commands/src/managed_agents.rs`) |
 | hermes-agent (Nous Research) | https://github.com/NousResearch/hermes-agent | `data/referencias-cli/hermes-agent` | Memoria persistente, skills auto-creadas, cron, subagentes (análogo IA de Tasks) |
 | opencode | https://github.com/anomalyco/opencode | `data/referencias-cli/opencode` | Prompt por capas, primary/subagents, permisos ask/allow/deny |
-| grok-cli | https://github.com/superagent-ai/grok-cli | `data/referencias-cli/grok-cli` | UX chat/plan (OpenTUI), compactación |
+| grok-cli | https://github.com/superagent-ai/grok-cli | `data/referencias-cli/grok-cli` | OpenTUI; delegación a subagente en proceso hijo (`src/agent/delegations.ts`), compactación persistida (`src/agent/compaction.ts`), daemon/LSP/MCP |
 | VS Code (agente del editor) | https://github.com/microsoft/vscode | `data/referencias-cli/vscode` | Plan agent, tool editing, sesiones (sparse `contrib/chat`) |
 
 Hechos verificados en este documento contra claurst `main@b0637c9`
-(`src-rust/crates/core/src/system_prompt.rs`, `context_collapse.rs`, `query/src/agent_tool.rs`,
-`commands/src/managed_agents.rs`) y hermes-agent `main@6327930` (`agent/`, `skills/`, `tools/`).
+(`src-rust/crates/core/src/system_prompt.rs`, `src-rust/crates/core/src/context_collapse.rs`
+y los crates hermanos `src-rust/crates/query/src/agent_tool.rs`,
+`src-rust/crates/commands/src/managed_agents.rs`) y hermes-agent `main@6327930`
+(`agent/skill_*.py`, `skills/`, `hermes_state_*.py`, `trajectory_compressor.py`, `cron/`).
 Claude Code (Anthropic) es cerrado: no se clona; su comportamiento se estudia vía el
 spec clean-room de claurst (`spec/`).
+
+---
+
+## 11. Revisión 3 — verificación de las afirmaciones contra los clones locales (anexo)
+
+Revisado de principio a fin el 2026-09-03, contrastando las afirmaciones sobre agentes
+externos (§2–§5 y §10.1) con los clones de `data/referencias-cli/` (commits en §10.1).
+Veredicto por afirmación:
+
+| # | Afirmación (§) | Evidencia local | Veredicto |
+|---|---|---|---|
+| 1 | opencode inyecta bloque de entorno con "You are powered by the model named…", Working directory, Workspace root y Today's date (§2.2) | `opencode/packages/opencode/src/session/system.ts:74-81` | ✅ confirmada (la cita apunta a `session/system.ts`, no a `prompt.ts`) |
+| 2 | claurst separa prompt estático/dinámico con un marcador y cachea lo estático (§10.1) | `claurst/src-rust/crates/core/src/system_prompt.rs:18` (`SYSTEM_PROMPT_DYNAMIC_BOUNDARY`), `:246 build_system_prompt`, `:344 build_env_info_section` | ✅ confirmada, con rutas exactas |
+| 3 | subagente con contexto propio, tools acotadas y permisos heredados del padre (§5.2) | `claurst/src-rust/crates/query/src/agent_tool.rs:1-9` (nested query loop con contexto propio), `:166-168` (hereda permiso del padre), `:247-249` (excluye `AgentTool` para impedir recursión; allow-list opcional) | ✅ confirmada; añade el matiz de **exclusión del schema** incorporado en la regla 7 de §5.2 |
+| 4 | claurst: "subagentes con worktree" (§10.1, fila antigua) | no hay worktree en `agent_tool.rs`; el mecanismo real de delegación es el de la fila 3, y `/managed-agents` (`claurst/src-rust/crates/commands/src/managed_agents.rs`) implementa otra topología: manager-executor con modelos separados, `concurrent`, `isolation` y presupuesto USD | ⚠️ corregida: la fila mezclaba dos mecanismos; separados en §10.1 y añadidos como alternativa (e) de §5.2 |
+| 5 | hermes: memoria persistente, skills, cron (§10.1) | `hermes-agent/hermes_state_*.py` (schema/search/registry), `hermes-agent/agent/skill_*.py` + `hermes-agent/skills/`, `hermes-agent/trajectory_compressor.py`, `hermes-agent/cron/` | ✅ confirmada, con rutas |
+| 6 | grok-cli: UX OpenTUI y compactación (§10.1) | `grok-cli/package.json` (`@opentui/core` + `@opentui/react`), `grok-cli/src/index.ts:71-72`, `grok-cli/src/agent/compaction.ts` (cut-point + resumen persistido) y su test | ✅ confirmada |
+| 7 | (no constaba) grok-cli delega trabajo a subagentes | `grok-cli/src/agent/delegations.ts`: subagente `explore` lanzado como **child process** con modelo, cwd, sandbox, `maxToolRounds` y `maxTokens` propios | ➕ capacidad nueva documentada como alternativa (f) de §5.2 y fila enriquecida en §10.1 |
+| 8 | VS Code: código del agente en el repo principal, `contrib/chat` (§10.1) | sparse presente en `vscode/src/vs/workbench/contrib/chat/` (`browser/`, `common/`, `electron-browser/`) | ✅ confirmada (solo orquestación local; los prompts del backend Copilot no son revisables) |
+
+**Resultado:** ninguna contradicción con el diseño propuesto. 1 corrección (fila/rutas de
+claurst en §10.1), 2 ampliaciones de diseño (exclusión de `task` del schema del hijo en la
+regla 7 de §5.2; topologías manager-executor y child-process como alternativas e/f de §5.2)
+y 1 enriquecimiento de referencia (fila de grok-cli en §10.1). Se mantiene la recomendación
+de §6 (alternativa B: F1+F5 como primer bloque) y el orden de §9.
