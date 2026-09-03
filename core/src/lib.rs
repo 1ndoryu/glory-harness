@@ -25,6 +25,7 @@ pub mod tools_archivo;
 pub mod tools_web;
 pub mod scheduler;
 pub mod runtime;
+pub mod subagente;
 #[cfg(test)]
 pub mod contrato_tests;
 

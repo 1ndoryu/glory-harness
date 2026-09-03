@@ -679,6 +679,17 @@ fn relevar_evento(tx: &tokio::sync::mpsc::UnboundedSender<EventoTui>, evento: &A
                 Some(resumen.clone())
             },
         },
+        AgenteEvento::SubagenteInicio {
+            perfil,
+            instruccion,
+        } => EventoTui::Estado(format!(
+            "[subagente {perfil}] {}",
+            instruccion.lines().next().unwrap_or("")
+        )),
+        AgenteEvento::SubagenteFin { ok, .. } => EventoTui::Estado(format!(
+            "[subagente] {}",
+            if *ok { "fin" } else { "sin resumen" }
+        )),
         AgenteEvento::RequiereAprobacion { tool, .. } => EventoTui::Estado(format!(
             "{tool} requiere aprobación (modo predeterminado)"
         )),

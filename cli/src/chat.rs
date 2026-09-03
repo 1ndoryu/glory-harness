@@ -138,6 +138,16 @@ pub async fn chat(opciones: OpcionesRun) -> Result<(), String> {
                 AgenteEvento::RequiereAprobacion { tool, .. } => {
                     eprintln!("  ⚠ {tool} requiere aprobación (modo predeterminado)")
                 }
+                AgenteEvento::SubagenteInicio {
+                    perfil,
+                    instruccion,
+                } => {
+                    eprintln!(
+                        "  └ subagente [{perfil}]: {}",
+                        instruccion.lines().next().unwrap_or("")
+                    )
+                }
+                AgenteEvento::SubagenteFin { ok, .. } => eprintln!("  └ subagente: {}", if ok { "fin" } else { "sin resumen" }),
                 AgenteEvento::ToolResult {
                     tool,
                     ok: false,

@@ -182,29 +182,39 @@ usuario negar una tool concreta.
 **Problema:** un único agente mezcla fases; las tareas largas (explorar + planear +
 editar) degradan por contaminación de contexto.
 
-- [ ] Core: tool `task { agente, objetivo, contexto?, max_pasos? }` con perfiles
-      registrados por el consumidor (`explorar|planificar|revisar|redactar` en CLI;
-      `planificar|revisar` en IA de PT) — contrato comparativa §5.2.
-- [ ] Sesión hija: `AgentRuntime` propio con system prompt del perfil,
-      `max_turns = max_pasos` (default 8), tools restringidas al perfil; historial
-      arranca en el objetivo (sin heredar el del padre).
-- [ ] **Exclusión del schema:** la tool `task` se excluye de las tools del hijo
-      (imposible recursión, no solo policy) — patrón claurst.
-- [ ] Aislamiento: la hija comparte `AgentPersistence` pero persiste en sesión
-      efímera `tipo='subagente'`; la única salida al padre es el `resultado`
-      estructurado `{ resumen, secciones?, parcial }`.
-- [ ] Eventos SSE `SubagenteInicio`/`SubagenteFin` para la UI (tarjeta colapsable).
-- [ ] Presupuesto: tope de concurrentes (default 2); al agotar pasos → `parcial:
-      true` con "lo hecho / lo que falta" (no fallar).
-- [ ] Perfiles de la IA de PT: **ninguno ejecuta comandos ni edita archivos del
-      sistema** (invariante §2).
+- [x] Core: tool `task { agente, objetivo, contexto?, max_pasos? }` con perfiles
+      `explorar|planificar|revisar|redactar` — contrato comparativa §5.2. Nota:
+      los 4 perfiles viven en el núcleo (agnósticos) y el consumidor puede
+      añadir los suyos con el mismo tipo `PerfilSubagente` (PT restringe a
+      `planificar|revisar` cuando registre su whitelist de dominio).
+- [x] Sesión hija: system prompt del perfil, `max_turns = presupuesto_pasos`
+      (default 8), tools restringidas al perfil; historial arranca en el
+      objetivo (sin heredar el del padre).
+- [x] **Exclusión del schema:** la tool `task` se excluye de las tools del hijo
+      (imposible recursión, no solo policy) — patrón claurst (`schema_hijo`).
+- [x] Aislamiento: la sesión hija NUNCA escribe en persistencia (ni mensajes ni
+      turnos); su única salida al padre es el `ResultadoSubagente` estructurado
+      `{ ok, resumen, parcial, pasos_usados }` → `enmarcar_resultado_para_padre`.
+      Nota: sin marcador BD `tipo='subagente'` — `TurnoPersistido` no tiene ese
+      campo y PT lo construye literal; el aislamiento real es no-persistir.
+- [x] Eventos SSE `SubagenteInicio { perfil, instruccion }` / `SubagenteFin {
+      resumen, ok, parcial }` emitidos por el runtime y visibles en la UI del
+      CLI (chat.rs y tui.rs).
+- [x] Presupuesto: tope de concurrentes global (default 2, rechazo sin cola) y
+      tope de profundidad 1; al agotar pasos → `parcial: true` con el wrap-up
+      "lo hecho / lo que falta" (no falla; el padre ve `[SUBAGENTE PARCIAL …]`).
+- [x] Perfiles: **ninguno incluye ejecución de comandos ni edición del sistema**
+      (invariante §2; `file_write`/`file_patch` solo en `redactar`, whitelist
+      acotada al workspace) — verificado por test.
 - [ ] Alternativas documentadas (comparativa §5.2 e/f): manager-executor con
       presupuesto (claurst) y delegación en proceso hijo (grok-cli) — evaluar si
-      el coste o el aislamiento lo piden tras medir.
-- [ ] Tests: hija no contamina padre, exclusión de `task`, `parcial` al agotar
-      pasos, resultado estructurado.
-- [ ] E2E: "explora este módulo y resume qué hace" → tarjeta con resumen del
-      subagente en la conversación padre.
+      el coste o el aislamiento lo piden tras medir (depende de F0/telemetría).
+- [x] Tests: hija no contamina padre (no persiste nada), exclusión de `task`,
+      `parcial` al agotar pasos, resultado estructurado.
+- [x] E2E: fixture determinista sin proveedor (`f4_e2e_fixture_resultado_…`)
+      que recorre sesión hija → resultado estructurado → mensaje que ve el
+      padre (resumen acotado, marcador PARCIAL con pasos, rechazo por tope);
+      el E2E con modelo real queda para la verificación en vivo con clave.
 
 ### Fase 5 — Contratos de tools ricos + todo + límite de pasos
 
@@ -331,7 +341,7 @@ flags de contexto reales; contrato SSE existente (las fases solo **añaden** eve
 | F1 | Capas + `[ENTORNO]` | ✅ 6/6 |
 | F2 | Reglas (AGENTS.md / skills) | ☐ 0/5 |
 | F3 | Permisos por tool | ✅ 7/7 |
-| F4 | Subagentes (tool `task`) | ☐ 0/10 |
+| F4 | Subagentes (tool `task`) | ✅ 9/10 |
 | F5 | Tools ricos + todo + pasos | ✅ 7/7 |
 | F6 | Compactación dirigida | ☐ 0/7 |
 

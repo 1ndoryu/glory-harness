@@ -44,6 +44,22 @@ pub enum AgenteEvento {
         /// Motivo presentable: "denegada_por_usuario" | "denegada_por_politica".
         motivo: String,
     },
+    /// [318A-15 F4] Inicio de una sesión hija (subagente): la tool `task`
+    /// del modelo padre delegó trabajo a un perfil efímero con presupuesto
+    /// propio. La sesión hija nunca escribe en la conversación del padre.
+    SubagenteInicio {
+        perfil: String,
+        instruccion: String,
+    },
+    /// [318A-15 F4] Fin de la sesión hija: resumen acotado devuelto al
+    /// padre como resultado de la tool `task`. `parcial=true` cuando el
+    /// presupuesto de pasos se agotó sin respuesta final del hijo (cierre
+    /// estructurado "hecho / pendiente / siguiente paso" en vez de fallar).
+    SubagenteFin {
+        resumen: String,
+        ok: bool,
+        parcial: bool,
+    },
     /// Uso parcial/final de tokens. `ocupacion_pct` lo emite el runtime tras
     /// cada compactación (barra de contexto del front); `None` en los demás.
     /// [02-09-2026] `provider`/`modelo` son el proveedor/modelo REAL que
