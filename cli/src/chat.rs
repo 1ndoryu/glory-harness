@@ -16,6 +16,7 @@ use std::sync::Arc;
 
 use uuid::Uuid;
 
+use glory_harness_core::aprobacion::{PeticionAprobacion, RespuestaAprobacion};
 use glory_harness_core::evento::AgenteEvento;
 use glory_harness_core::llm::AiMessage;
 use glory_harness_core::ports::MensajePersistido;
@@ -75,19 +76,25 @@ pub async fn chat(opciones: OpcionesRun) -> Result<(), String> {
     });
 
     let mut conversacion_id = Uuid::new_v4();
+    /* [318A-16 F2] Texto que reintentar tras resolver aprobaciones (tres
+     * vías). El REPL reenvía el último mensaje para que el agente ejecute lo
+     * aprobado SIN que el usuario escriba dos veces; el CLI no persiste
+     * mensajes de usuario, así que no duplica historial. */
+    let mut reintento: Option<String> = None;
     loop {
-        print!("gh> ");
-        let _ = std::io::stdout().flush();
-
-        let linea = tokio::select! {
-            _ = tokio::signal::ctrl_c() => {
-                println!();
-                return Ok(());
+        let linea = match reintento.take() {
+            Some(linea) => linea,
+            None => {
+                print!("gh> ");
+                let _ = std::io::stdout().flush();
+                match leer_linea(&mut rx_lineas).await {
+                    Some(linea) => linea,
+                    None => {
+                        println!();
+                        return Ok(()); // Ctrl+C o EOF
+                    }
+                }
             }
-            opt = rx_lineas.recv() => match opt {
-                Some(Some(l)) => l,
-                _ => return Ok(()), // EOF o canal cerrado
-            },
         };
         let texto = linea.trim().to_string();
         if texto.is_empty() {
@@ -130,11 +137,18 @@ pub async fn chat(opciones: OpcionesRun) -> Result<(), String> {
 
         /* El runtime persiste ambos mensajes vía puerto (`guardar_mensaje`);
          * aquí solo se reporta el resultado. Un fallo no acaba el chat: se
-         * muestra y se vuelve al prompt para reintentar. */
-        match procesar_turno(Arc::clone(&runtime), user_id, conversacion_id, historial, texto, |evento| {
+         * muestra y se vuelve al prompt para reintentar. `texto.clone()`:
+         * el resolver de aprobaciones (F2) reintenta el mismo mensaje tras
+         * decidir, así que el texto se conserva tras el turno. */
+        match procesar_turno(Arc::clone(&runtime), user_id, conversacion_id, historial, texto.clone(), |evento| {
             match evento {
                 AgenteEvento::Token { .. } => {}
                 AgenteEvento::ToolStart { tool, .. } => eprintln!("  → {tool}"),
+                AgenteEvento::PeticionAprobacion {
+                    tool,
+                    clasificacion,
+                    ..
+                } => eprintln!("  ⚠ {tool} pide aprobación (clase: {clasificacion})"),
                 AgenteEvento::RequiereAprobacion { tool, .. } => {
                     eprintln!("  ⚠ {tool} requiere aprobación (modo predeterminado)")
                 }
@@ -181,7 +195,144 @@ pub async fn chat(opciones: OpcionesRun) -> Result<(), String> {
             }
             Err(err) => eprintln!("[chat] el turno falló: {err} (puedes reintentar)"),
         }
+
+        /* [318A-16 F2] Tras cada turno, resolver las peticiones `ask` que
+         * quedaron pendientes (el SSE es unidireccional: la decisión se aplica
+         * entre turnos y el re-envío del mensaje la consume). Si el usuario
+         * escribe texto libre en vez de una opción, ese texto es su mensaje al
+         * agente (p. ej. "adelante" responde a la pregunta del modelo). */
+        match resolver_aprobaciones(&runtime, &mut rx_lineas, &texto).await {
+            Siguiente::Reenviar(texto) => reintento = Some(texto),
+            Siguiente::Prompt => {}
+            Siguiente::Salir => return Ok(()),
+        }
     }
+}
+
+/// Línea siguiente del hilo de stdin del REPL. `None` = Ctrl+C o EOF (fin de
+/// sesión). Comparte la semántica de cancelación del bucle principal.
+async fn leer_linea(rx: &mut tokio::sync::mpsc::Receiver<Option<String>>) -> Option<String> {
+    tokio::select! {
+        _ = tokio::signal::ctrl_c() => None,
+        opt = rx.recv() => match opt {
+            Some(Some(linea)) => Some(linea),
+            _ => None,
+        },
+    }
+}
+
+/// Qué hacer tras resolver (o no) las peticiones de aprobación del turno.
+enum Siguiente {
+    /// Volver al prompt `gh> ` normal (sin peticiones pendientes).
+    Prompt,
+    /// Reenviar este texto al agente (decisión tomada o texto libre del usuario).
+    Reenviar(String),
+    /// Fin de sesión (Ctrl+C/EOF durante una pregunta).
+    Salir,
+}
+
+/// Pinta una petición de aprobación con su detalle para que el humano decida.
+fn pintar_peticion(peticion: &PeticionAprobacion) {
+    println!();
+    println!("⚠ {} pide aprobación (clase: {})", peticion.tool, peticion.clasificacion);
+    if let Some(objeto) = peticion.argumentos.as_object() {
+        for (clave, valor) in objeto {
+            println!("    {clave}: {valor}");
+        }
+    }
+}
+
+/// Resuelve las peticiones de aprobación pendientes con tres vías (paridad
+/// opencode `permission.shared.ts`): Rechazar / Permitir una vez / Permitir
+/// siempre. "Permitir siempre" pide confirmación antes de persistir la regla
+/// de la CLASE (categoría + `**`), no del comando exacto.
+async fn resolver_aprobaciones(
+    runtime: &Arc<AgentRuntime>,
+    rx_lineas: &mut tokio::sync::mpsc::Receiver<Option<String>>,
+    ultimo_texto: &str,
+) -> Siguiente {
+    /* Paso único: si tras responder quedan nuevas peticiones (turno re-enviado
+     * con más `ask`), el llamador vuelve a invocar esta función — el bucle
+     * externo no iteraría nunca porque toda vía acaba en `return`. */
+    let pendientes = runtime.peticiones_aprobacion_pendientes();
+    if pendientes.is_empty() {
+        return Siguiente::Prompt;
+    }
+        for peticion in &pendientes {
+            pintar_peticion(peticion);
+            let decision = loop {
+                print!("  [n] Rechazar · [p] Permitir una vez · [s] Permitir siempre → ");
+                let _ = std::io::stdout().flush();
+                match leer_linea(rx_lineas).await {
+                    Some(linea) => {
+                        let d = linea.trim().to_lowercase();
+                        if !d.is_empty() {
+                            break d;
+                        }
+                    }
+                    None => return Siguiente::Salir,
+                }
+            };
+            match decision.as_str() {
+                "n" | "no" | "rechazar" | "denegar" => {
+                    if let Err(e) = runtime.responder_aprobacion(
+                        &peticion.id,
+                        RespuestaAprobacion::Rechazar,
+                    ) {
+                        eprintln!("[chat] {e}");
+                    } else {
+                        println!("  ✗ rechazada (la clase queda denegada en esta conversación)");
+                    }
+                }
+                "p" | "permitir" | "si" | "aprobar" | "ok" => {
+                    if let Err(e) = runtime
+                        .responder_aprobacion(&peticion.id, RespuestaAprobacion::Aprobar)
+                    {
+                        eprintln!("[chat] {e}");
+                    } else {
+                        println!("  ✓ permitida (solo esta vez)");
+                    }
+                }
+                "s" | "siempre" | "always" | "allow" => {
+                    /* opencode exige confirmación antes de persistir "always". */
+                    print!(
+                        "  ¿Permitir SIEMPRE la clase '{}'? [s/n] → ",
+                        peticion.clasificacion
+                    );
+                    let _ = std::io::stdout().flush();
+                    match leer_linea(rx_lineas).await {
+                        Some(linea)
+                            if matches!(
+                                linea.trim().to_lowercase().as_str(),
+                                "s" | "si" | "siempre" | "y" | "yes" | "confirmar"
+                            ) =>
+                        {
+                            if let Err(e) = runtime
+                                .responder_aprobacion(&peticion.id, RespuestaAprobacion::Siempre)
+                            {
+                                eprintln!("[chat] {e}");
+                            } else {
+                                println!("  ✓ permitida siempre: la clase '{}' ya no preguntará", peticion.clasificacion);
+                            }
+                        }
+                        Some(_) => {
+                            println!("  (cancelado — la petición sigue pendiente)");
+                            return Siguiente::Prompt;
+                        }
+                        None => return Siguiente::Salir,
+                    }
+                }
+                _ => {
+                    /* Texto libre: el humano respondió al agente (p. ej.
+                     * "adelante"). No resuelve la petición estructurada; se
+                     * reenvía como mensaje. */
+                    return Siguiente::Reenviar(decision);
+                }
+            }
+        }
+        /* Todas las peticiones se respondieron con palabras clave: reintentar
+         * el último mensaje para que el agente ejecute lo aprobado. */
+        Siguiente::Reenviar(ultimo_texto.to_string())
 }
 
 /// Resultado de un turno de chat: texto del asistente + tools ejecutadas.

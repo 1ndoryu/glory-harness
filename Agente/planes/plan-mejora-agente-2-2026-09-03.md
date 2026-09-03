@@ -2,8 +2,9 @@
 
 - **Fecha:** 2026-09-03
 - **ID:** 318A-16 (libre; no usar en PT hasta cerrar este plan)
-- **Estado:** 🚧 en ejecución — F1 ✅ (motor de reglas v2 cerrado; tests 108+21
-  verdes, clippy limpio, gate Sentinel 0 errores); F2-F6 pendientes.
+- **Estado:** 🚧 en ejecución — F1 ✅ (motor de reglas v2; tests 108+21) y F2
+  parte GH ✅ (canal de aprobación + 3 vías REPL/TUI; tests 116+21, clippy
+  limpio). Pendientes: F2 ítems 3-4 (lado PT), F3-F6.
 - **Base:** plan `318A-15` (`plan-mejora-agente-2026-09-03.md`, completo salvo
   pendientes ajenos) y comparativa `Agente/documentacion/comparativa-opencode-agente-2026-09-03.md`.
 - **Referencias (clonadas en `data/referencias-cli/`, solo lectura):** claurst,
@@ -172,21 +173,32 @@ acción siempre permitida" sin abrir la tool entera.
 `permission → [Allow once / Always / Reject]`, y `always` exige **paso de
 confirmación** (`Confirm/Cancel`) antes de persistir la regla.
 
-- [ ] Core: evento de aprobación con `id` de petición y respuesta:
+- [x] Core: evento de aprobación con `id` de petición y respuesta:
       `RespuestaAprobacion { aprobar | rechazar | siempre }` como método del runtime
       (canal explícito; el modelo NO reintenta tras rechazo explícito — hoy solo no
-      reintenta tras deny).
-- [ ] CLI REPL+TUI: ante `RequiereAprobacion`, 3 opciones tecladas/botones
+      reintenta tras deny). Hecho: `core/aprobacion.rs` + `PeticionAprobacion` en el
+      contrato + `responder_aprobacion` en el runtime; rechazo/deny sin reintento.
+- [x] CLI REPL+TUI: ante `RequiereAprobacion`, 3 opciones tecladas/botones
       (Rechazar / Permitir / Permitir siempre + confirmación); "siempre" guarda la
-      regla (F1) en la persistencia del CLI.
+      regla (F1) en la persistencia del CLI. Hecho: `resolver_aprobaciones` en
+      `cli/chat.rs` y gate equivalente en `cli/tui.rs` (resolución entre turnos;
+      la regla de clase se persiste en el registry compartido del runtime).
 - [ ] Front PT (`PanelAgente`/`mensajes.tsx`): reemplazar la insignia por 3 botones;
       "Permitir siempre" persiste vía endpoint nuevo de overrides por conversación.
 - [ ] Backend PT: endpoint para responder la aprobación y para listar/borrar reglas
       de la conversación (aditivo al SSE).
-- [ ] Tests: rechazo explícito → sin reintento en el turno; siempre → regla creada y
-      aplicada en la siguiente petición igual.
-- [ ] E2E: simular una petición `ask`, responder las 3 vías y verificar el evento y
-      la regla resultante.
+- [x] Tests: rechazo explícito → sin reintento en el turno; siempre → regla creada y
+      aplicada en la siguiente petición igual. Hecho: `f2_*` en `core/tool.rs`
+      (aprobar una vez consume token, siempre crea regla de clase, rechazar crea
+      deny y no reintenta, id desconocido → error, misma tool supersede).
+- [x] E2E: simular una petición `ask`, responder las 3 vías y verificar el evento y
+      la regla resultante. Hecho: los tests `f2_*` recorren el ciclo completo
+      registrar-petición → responder → volver a decidir (determinista, sin
+      proveedor); más los unit de `aprobacion.rs`.
+
+**Nota (pendiente PT, ítems 3-4):** el front `PanelAgente`/`mensajes.tsx` y el
+endpoint backend de PT se ejecutan en la fase siguiente (dependen del árbol de
+PROYECTO TASKS; no hay diffs ajenos que lo bloqueen hoy).
 
 **Criterio de éxito:** cada `ask` se resuelve con 3 botones y el "siempre" crea una
 regla por categoría que evita volver a preguntar para la misma *clase* de acción.

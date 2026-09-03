@@ -13,6 +13,7 @@
 
 pub mod ports;
 pub mod evento;
+pub mod aprobacion;
 pub mod permiso;
 pub mod regla;
 pub mod telemetria;

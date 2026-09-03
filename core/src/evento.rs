@@ -44,6 +44,20 @@ pub enum AgenteEvento {
     /// La tool requiere aprobación del usuario (política de permisos: modo
     /// predeterminado / override `ask`).
     RequiereAprobacion { tool: String, argumentos: serde_json::Value },
+    /// [318A-16 F2] Petición de aprobación con `id` para responder por canal
+    /// explícito (`AgentRuntime::responder_aprobacion`) con tres vías
+    /// (Rechazar / Permitir / Permitir siempre). Se emite junto a
+    /// `RequiereAprobacion` (que se conserva por compatibilidad); `ask` NO
+    /// suspende el turno: el modelo pide confirmación y la UI responde entre
+    /// turnos, o el humano confirma en texto (flujo conversacional previo).
+    PeticionAprobacion {
+        id: String,
+        tool: String,
+        argumentos: serde_json::Value,
+        /// Clase derivada F1 ("categoría:patrón" o "tool:*"): lo que
+        /// "Permitir siempre" recordará como regla.
+        clasificacion: String,
+    },
     /// [318A-15 F3] La tool fue denegada por política (`deny` silencioso por
     /// override o modo meta) o por negación del usuario en la UI. El runtime
     /// no reintenta la tool en ese turno: el modelo recibe el estado como

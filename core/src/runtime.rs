@@ -264,6 +264,29 @@ impl AgentRuntime {
         *self.reglas.lock().unwrap_or_else(|p| p.into_inner()) = reglas.into();
     }
 
+    /* [318A-16 F2] Canal de aprobación explícito: la UI responde las
+     * peticiones emitidas como `PeticionAprobacion` (id) entre turnos. Las
+     * tres vías — Aprobar (una vez), Rechazar (regla deny de la clase),
+     * Siempre (regla allow de la clase) — se aplican en el registro, que es
+     * el mismo que consulta la decisión del siguiente turno. */
+
+    /// Responde una petición de aprobación pendiente (tres vías).
+    /// `Err` si el id es desconocido o ya fue respondido.
+    pub fn responder_aprobacion(
+        &self,
+        id: &str,
+        respuesta: crate::aprobacion::RespuestaAprobacion,
+    ) -> std::result::Result<(), String> {
+        self.registry.responder_peticion(id, respuesta)
+    }
+
+    /// Peticiones de aprobación pendientes sin responder (para que la UI
+    /// ofrezca las tres vías después del turno).
+    #[must_use]
+    pub fn peticiones_aprobacion_pendientes(&self) -> Vec<crate::aprobacion::PeticionAprobacion> {
+        self.registry.peticiones_pendientes()
+    }
+
     #[must_use]
     pub fn tools_registradas(&self) -> Vec<&'static str> {
         self.registry.ids()
@@ -457,20 +480,44 @@ impl AgentRuntime {
                      * tool_call_id que la tool_call del assistant previo
                      * (contrato OpenAI). */
                     let primera_vez = denegadas_en_turno.insert(call.nombre.clone());
-                    let (evento, mensaje_tool, resumen) = match verdicto {
-                        VerdictoPermiso::Preguntar => (
-                            Some(AgenteEvento::RequiereAprobacion {
-                                tool: call.nombre.clone(),
-                                argumentos: call.argumentos.clone(),
-                            }),
-                            format!(
-                                "[{} REQUIERE APROBACIÓN DEL USUARIO] La acción no se ejecutó; explica al usuario qué se hará y pide confirmación.",
-                                call.nombre
-                            ),
-                            "requiere_aprobacion".to_string(),
-                        ),
+                    let (eventos, mensaje_tool, resumen) = match verdicto {
+                        VerdictoPermiso::Preguntar => {
+                            /* [318A-16 F2] Canal explícito: cada `ask` registra
+                             * una petición con `id` y la emite para que la UI
+                             * responda (Rechazar / Permitir / Permitir
+                             * siempre). `RequiereAprobacion` se conserva por
+                             * compatibilidad con los consumidores previos. */
+                            let id = Uuid::new_v4().to_string();
+                            let clasificacion =
+                                self.registry.clasificar_llamada(&call.nombre, &call.argumentos);
+                            self.registry.registrar_peticion(crate::aprobacion::PeticionAprobacion::nueva(
+                                &id,
+                                call.nombre.clone(),
+                                call.argumentos.clone(),
+                                clasificacion.clone(),
+                            ));
+                            (
+                                vec![
+                                    AgenteEvento::PeticionAprobacion {
+                                        id,
+                                        tool: call.nombre.clone(),
+                                        argumentos: call.argumentos.clone(),
+                                        clasificacion,
+                                    },
+                                    AgenteEvento::RequiereAprobacion {
+                                        tool: call.nombre.clone(),
+                                        argumentos: call.argumentos.clone(),
+                                    },
+                                ],
+                                format!(
+                                    "[{} REQUIERE APROBACIÓN DEL USUARIO] La acción no se ejecutó; explica al usuario qué se hará y pide confirmación.",
+                                    call.nombre
+                                ),
+                                "requiere_aprobacion".to_string(),
+                            )
+                        }
                         VerdictoPermiso::RepetidoPregunta => (
-                            None,
+                            vec![],
                             format!(
                                 "[{} REQUIERE APROBACIÓN DEL USUARIO (repetido)] Sigue pendiente de aprobación: no insistas, explica y espera la confirmación del usuario.",
                                 call.nombre
@@ -488,13 +535,13 @@ impl AgentRuntime {
                             } else {
                                 "denegada_por_usuario".to_string()
                             };
-                            let evento = if verdicto == VerdictoPermiso::Denegar {
-                                Some(AgenteEvento::PermisoDenegado {
+                            let eventos = if verdicto == VerdictoPermiso::Denegar {
+                                vec![AgenteEvento::PermisoDenegado {
                                     tool: call.nombre.clone(),
                                     motivo: motivo.clone(),
-                                })
+                                }]
                             } else {
-                                None
+                                vec![]
                             };
                             let mensaje = if primera_vez {
                                 format!(
@@ -507,14 +554,16 @@ impl AgentRuntime {
                                     call.nombre, motivo
                                 )
                             };
-                            (evento, mensaje, "permiso_denegado".to_string())
+                            (eventos, mensaje, "permiso_denegado".to_string())
                         }
                         VerdictoPermiso::Ejecutar => unreachable!("filtrado arriba"),
                     };
-                    if let Some(ev) = evento {
-                        /* [318A-15 F0] Telemetría: denegación emitida. */
+                    if !eventos.is_empty() {
+                        /* [318A-15 F0] Telemetría: acción bloqueada emitida. */
                         self.telemetria().registrar_denegacion();
-                        let _ = tx.send(ev).await;
+                        for ev in eventos {
+                            let _ = tx.send(ev).await;
+                        }
                     }
                     let _ = tx
                         .send(AgenteEvento::ToolResult {

@@ -8,6 +8,7 @@
  * crear_habito, ...) reciben sus servicios por `dominio` (slot opaco que el
  * consumidor downcastea); el núcleo nunca lo interpreta (DIP). */
 
+use crate::aprobacion::{PeticionAprobacion, RespuestaAprobacion};
 use crate::error::{Error, Result};
 use crate::permiso::{permiso_por_modo, resolver_permiso, Permiso};
 use crate::ports::{AgentPersistence, ProviderPort, WebSearchProvider};
@@ -142,6 +143,13 @@ pub struct AgentToolRegistry {
     /// de resolución cuando la llamada no lleva argumento clasificable y para
     /// el ocultado de schema por regla deny de categoría).
     categorias: HashMap<&'static str, &'static str>,
+    /// [318A-16 F2] Peticiones de aprobación pendientes por `id` (canal
+    /// explícito de respuesta). Arc compartido con los clones del registro.
+    pendientes: Arc<RwLock<HashMap<String, PeticionAprobacion>>>,
+    /// [318A-16 F2] Tokens de "permitir una vez" como (categoría, patrón) de
+    /// la clase aprobada: se consumen en la primera llamada cuya clave
+    /// coincida (una vez, sin regla persistente).
+    una_vez: Arc<RwLock<Vec<(String, String)>>>,
 }
 
 impl Default for AgentToolRegistry {
@@ -172,6 +180,8 @@ impl AgentToolRegistry {
             reglas: Arc::new(RwLock::new(Vec::new())),
             clasificadores,
             categorias,
+            pendientes: Arc::new(RwLock::new(HashMap::new())),
+            una_vez: Arc::new(RwLock::new(Vec::new())),
         }
     }
 
@@ -330,8 +340,33 @@ impl AgentToolRegistry {
              * reglas (orden 1 de `resolver_permiso`). */
             return Permiso::Deny;
         }
+        let claves = self.claves_para(tool_id, args);
+        /* [318A-16 F2] Aislamiento de clases: una llamada CLASIFICADA (clave
+         * derivada del argumento) se resuelve SOLO contra su clase derivada.
+         * Las claves estáticas (categoría de la tool con patrón `*`, id de la
+         * tool) son el fallback para llamadas SIN clasificar; evaluarlas aquí
+         * filtraría reglas de clase amplias (p. ej. `escritura:**` creada por
+         * "permitir siempre") hacia otra clase (escritura_fuera_repo) a través
+         * del patrón estático `*` (que `**` coincide). */
+        let hay_clave_derivada = self
+            .clasificadores
+            .get(tool_id)
+            .is_some_and(|cl| cl(args).is_some());
+        let limite = if hay_clave_derivada { 1 } else { claves.len() };
+        /* [318A-16 F2] "Permitir una vez": el token de la clase aprobada se
+         * consume en la primera llamada cuya clave coincida y NO vuelve a
+         * preguntar en ese mismo turno. */
+        {
+            let mut tokens = self.una_vez.write().unwrap_or_else(|p| p.into_inner());
+            if let Some(pos) = tokens.iter().position(|(cat, pat)| {
+                claves[..limite].iter().any(|(c, p)| c == cat && p == pat)
+            }) {
+                tokens.remove(pos);
+                return Permiso::Allow;
+            }
+        }
         let reglas = self.reglas.read().unwrap_or_else(|p| p.into_inner());
-        for (categoria, patron) in self.claves_para(tool_id, args) {
+        for (categoria, patron) in claves.into_iter().take(limite) {
             let coincidentes = crate::regla::reglas_coincidentes(&categoria, &patron, &reglas);
             if !coincidentes.is_empty() {
                 return resolver_permiso(default, override_conv, &coincidentes);
@@ -346,6 +381,86 @@ impl AgentToolRegistry {
     #[must_use]
     pub fn esta_denegada(&self, tool_id: &str, modo: &str) -> bool {
         self.permiso_para(tool_id, modo) == Permiso::Deny
+    }
+
+    /* [318A-16 F2] Canal de aprobación explícito: peticiones con `id` y
+     * respuesta de tres vías (Rechazar / Permitir / Permitir siempre). El
+     * estado vive aquí (Arc compartido) para que la conversación responda
+     * entre turnos sin reconstruir el registro. */
+
+    /// Clasificación presentable de una llamada (la clave más específica F1,
+    /// "categoría:patrón" o "tool:*") para el evento y la UI.
+    #[must_use]
+    pub fn clasificar_llamada(&self, tool_id: &str, args: &Value) -> String {
+        match self.claves_para(tool_id, args).first() {
+            Some((cat, pat)) => format!("{cat}:{pat}"),
+            None => format!("{tool_id}:*"),
+        }
+    }
+
+    /// Registra una petición de aprobación pendiente (una por tool: la nueva
+    /// deja obsoleta la anterior sin responder si el turno siguió adelante).
+    pub fn registrar_peticion(&self, peticion: PeticionAprobacion) {
+        let mut guard = self.pendientes.write().unwrap_or_else(|p| p.into_inner());
+        guard.retain(|_, p| p.tool != peticion.tool);
+        guard.insert(peticion.id.clone(), peticion);
+    }
+
+    /// Peticiones pendientes sin responder (la UI las muestra mientras
+    /// existan; se retiran al responder).
+    #[must_use]
+    pub fn peticiones_pendientes(&self) -> Vec<PeticionAprobacion> {
+        let mut v: Vec<_> = self
+            .pendientes
+            .read()
+            .unwrap_or_else(|p| p.into_inner())
+            .values()
+            .cloned()
+            .collect();
+        v.sort_by(|a, b| a.id.cmp(&b.id));
+        v
+    }
+
+    /// Responde una petición pendiente aplicando la decisión y retirándola de
+    /// la cola. `Aprobar` deja un token de una vez (clase derivada);
+    /// `Siempre`/`Rechazar` crean la regla F1 de esa clase (la última regla
+    /// coincide primero: la decisión del usuario manda sobre reglas previas).
+    pub fn responder_peticion(
+        &self,
+        id: &str,
+        respuesta: RespuestaAprobacion,
+    ) -> std::result::Result<(), String> {
+        let peticion = {
+            let mut guard = self.pendientes.write().unwrap_or_else(|p| p.into_inner());
+            guard
+                .remove(id)
+                .ok_or_else(|| format!("petición de aprobación desconocida o ya respondida: {id}"))?
+        };
+        let clave = self
+            .claves_para(&peticion.tool, &peticion.argumentos)
+            .into_iter()
+            .next()
+            .unwrap_or_else(|| (peticion.tool.clone(), "*".to_string()));
+        match respuesta {
+            RespuestaAprobacion::Aprobar => {
+                /* Una vez: token de la clase EXACTA (categoría + valor). */
+                self.una_vez
+                    .write()
+                    .unwrap_or_else(|p| p.into_inner())
+                    .push(clave);
+            }
+            RespuestaAprobacion::Siempre | RespuestaAprobacion::Rechazar => {
+                /* Siempre/Rechazar = CLASE (categoría derivada, `**`): la
+                 * categoría ya separa escritura/escritura_fuera_repo/
+                 * lectura_fuera_repo/red/...; `**` cubre cualquier valor de
+                 * esa clase sin abrir la tool entera. (Plan: "no exactamente
+                 * el mismo comando sino tipos de comando".) */
+                if let Some(regla) = respuesta.regla_para(&clave.0, "**") {
+                    self.establecer_regla(regla);
+                }
+            }
+        }
+        Ok(())
     }
 
     pub async fn ejecutar(
@@ -797,5 +912,115 @@ mod tests {
             ),
             Permiso::Deny
         );
+    }
+
+    /* [318A-16 F2] Canal de aprobación explícito (Rechazar / Permitir una
+     * vez / Permitir siempre): fixture determinista sobre el registro, sin
+     * LLM. Las peticiones llevan id; la respuesta aplica token de una vez o
+     * regla F1 de la CLASE derivada. */
+
+    fn peticion_file_write(id: &str, ruta: &str) -> PeticionAprobacion {
+        let registry = registry_con_fixture();
+        PeticionAprobacion::nueva(
+            id,
+            "file_write",
+            json!({ "ruta": ruta }),
+            registry.clasificar_llamada("file_write", &json!({ "ruta": ruta })),
+        )
+    }
+
+    #[test]
+    fn f2_aprobar_una_vez_ejecuta_y_consume_el_token() {
+        let registry = registry_con_fixture();
+        let llamada = |ruta: &str| {
+            registry.permiso_para_llamada(
+                "file_write",
+                &json!({ "ruta": ruta }),
+                "predeterminado",
+            )
+        };
+        assert_eq!(llamada("src/a.rs"), Permiso::Ask, "base: ask");
+        registry.registrar_peticion(peticion_file_write("p1", "src/a.rs"));
+        registry
+            .responder_peticion("p1", RespuestaAprobacion::Aprobar)
+            .expect("responde p1");
+        assert_eq!(
+            llamada("src/a.rs"),
+            Permiso::Allow,
+            "permitida una vez: el re-envío del turno ejecuta sin preguntar"
+        );
+        assert_eq!(
+            llamada("src/a.rs"),
+            Permiso::Ask,
+            "token consumido: la siguiente petición vuelve a preguntar"
+        );
+    }
+
+    #[test]
+    fn f2_siempre_crea_regla_de_clase_que_no_vuelve_a_preguntar() {
+        let registry = registry_con_fixture();
+        let llamada = |ruta: &str| {
+            registry.permiso_para_llamada(
+                "file_write",
+                &json!({ "ruta": ruta }),
+                "predeterminado",
+            )
+        };
+        registry.registrar_peticion(peticion_file_write("p2", "src/a.rs"));
+        registry
+            .responder_peticion("p2", RespuestaAprobacion::Siempre)
+            .expect("responde p2");
+        /* Misma CLASE (escritura dentro del workspace), distinto valor: ya no
+         * pregunta — el "siempre" recuerda el tipo, no el comando exacto. */
+        assert_eq!(llamada("src/b.rs"), Permiso::Allow);
+        assert_eq!(llamada("src/sub/c.rs"), Permiso::Allow);
+        /* La clase fuera del workspace sigue pidiendo aprobación. */
+        assert_eq!(llamada("../fuera.txt"), Permiso::Ask);
+    }
+
+    #[test]
+    fn f2_rechazar_crea_regla_deny_de_clase_y_no_reintenta() {
+        let registry = registry_con_fixture();
+        let llamada = |ruta: &str| {
+            registry.permiso_para_llamada(
+                "file_write",
+                &json!({ "ruta": ruta }),
+                "predeterminado",
+            )
+        };
+        registry.registrar_peticion(peticion_file_write("p3", "../fuera.txt"));
+        registry
+            .responder_peticion("p3", RespuestaAprobacion::Rechazar)
+            .expect("responde p3");
+        assert_eq!(
+            llamada("../otro.txt"),
+            Permiso::Deny,
+            "la clase escritura_fuera_repo queda denegada (no solo el archivo)"
+        );
+        assert_eq!(
+            llamada("src/a.rs"),
+            Permiso::Ask,
+            "la deny de fuera no afecta las escrituras dentro"
+        );
+    }
+
+    #[test]
+    fn f2_respuesta_a_id_desconocido_es_error() {
+        let registry = registry_con_fixture();
+        let err = registry
+            .responder_peticion("no-existe", RespuestaAprobacion::Siempre)
+            .expect_err("id desconocido debe fallar");
+        assert!(err.contains("desconocida o ya respondida"), "{err}");
+        assert!(registry.peticiones_pendientes().is_empty());
+    }
+
+    #[test]
+    fn f2_registrar_peticion_de_la_misma_tool_supersede_la_anterior() {
+        let registry = registry_con_fixture();
+        registry.registrar_peticion(peticion_file_write("p-old", "src/a.rs"));
+        registry.registrar_peticion(peticion_file_write("p-nueva", "src/b.rs"));
+        let pendientes = registry.peticiones_pendientes();
+        assert_eq!(pendientes.len(), 1, "la petición vieja deja de estar pendiente");
+        assert_eq!(pendientes[0].id, "p-nueva");
     }
 }
