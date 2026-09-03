@@ -513,3 +513,22 @@ Fase 6 (compactación)   ──┘ independiente
 - opencode source (prompt assembly, tools): https://github.com/sst/opencode (paquete `packages/opencode/src/session/prompt.ts`, `src/tool/*`)
 - Código propio verificado: `glory-harness/core/src/runtime.rs`, `context.rs`, `tools_archivo.rs`, `tools_web.rs`; `PROYECTO TASKS/src/handlers/agente.rs`, `src/agent/tools.rs`.
 - Commits propios referenciados: `6f84859` (diff por hunks), `b971e4f` (Usage provider/modelo), `19d0241` (primera versión de este documento).
+
+### 10.1 Repos de referencia clonados localmente (siempre a mano, lectura)
+
+Clones shallow en `data/referencias-cli/` (zona fuera de cualquier repo git, solo
+lectura; índice con rutas de interés en su `README.md`):
+
+| Proyecto | URL | Local | Relevancia |
+|---|---|---|---|
+| claurst (clean-room Rust de Claude Code) | https://github.com/Kuberwastaken/claurst | `data/referencias-cli/claurst` | Prompt modular con `SYSTEM_PROMPT_DYNAMIC_BOUNDARY`, `spec/` conductual, subagentes con worktree, managed agents |
+| hermes-agent (Nous Research) | https://github.com/NousResearch/hermes-agent | `data/referencias-cli/hermes-agent` | Memoria persistente, skills auto-creadas, cron, subagentes (análogo IA de Tasks) |
+| opencode | https://github.com/anomalyco/opencode | `data/referencias-cli/opencode` | Prompt por capas, primary/subagents, permisos ask/allow/deny |
+| grok-cli | https://github.com/superagent-ai/grok-cli | `data/referencias-cli/grok-cli` | UX chat/plan (OpenTUI), compactación |
+| VS Code (agente del editor) | https://github.com/microsoft/vscode | `data/referencias-cli/vscode` | Plan agent, tool editing, sesiones (sparse `contrib/chat`) |
+
+Hechos verificados en este documento contra claurst `main@b0637c9`
+(`src-rust/crates/core/src/system_prompt.rs`, `context_collapse.rs`, `query/src/agent_tool.rs`,
+`commands/src/managed_agents.rs`) y hermes-agent `main@6327930` (`agent/`, `skills/`, `tools/`).
+Claude Code (Anthropic) es cerrado: no se clona; su comportamiento se estudia vía el
+spec clean-room de claurst (`spec/`).
