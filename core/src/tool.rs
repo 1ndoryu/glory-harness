@@ -9,8 +9,9 @@
  * consumidor downcastea); el núcleo nunca lo interpreta (DIP). */
 
 use crate::error::{Error, Result};
-use crate::permiso::{permiso_efectivo, permiso_por_modo, Permiso};
+use crate::permiso::{permiso_por_modo, resolver_permiso, Permiso};
 use crate::ports::{AgentPersistence, ProviderPort, WebSearchProvider};
+use crate::regla::{categorias_core, Clasificador, ReglaPermiso};
 use crate::sandbox::SandboxArchivos;
 use crate::todo::TodoCompartida;
 use async_trait::async_trait;
@@ -129,6 +130,18 @@ pub struct AgentToolRegistry {
     /// (el runtime se clona el registro y ambos deben ver los mismos
     /// overrides). `None` (eliminado) → vuelve al default del modo.
     overrides: Arc<RwLock<HashMap<&'static str, Permiso>>>,
+    /// [318A-16 F1] Reglas v2 por categoría+patrón (ver `regla.rs`): lista
+    /// ordenada por inserción, última coincidencia gana. `Arc` compartido por
+    /// el mismo motivo que `overrides` (clones del registro en subagentes).
+    reglas: Arc<RwLock<Vec<ReglaPermiso>>>,
+    /// [318A-16 F1] Clasificadores de las tools del núcleo: de los argumentos
+    /// de una llamada a su (categoría derivada, patrón). Las tools del
+    /// consumidor sin entrada caen a su id como clave con patrón `*`.
+    clasificadores: HashMap<&'static str, Clasificador>,
+    /// [318A-16 F1] Categoría estática de cada tool del núcleo (para la clave
+    /// de resolución cuando la llamada no lleva argumento clasificable y para
+    /// el ocultado de schema por regla deny de categoría).
+    categorias: HashMap<&'static str, &'static str>,
 }
 
 impl Default for AgentToolRegistry {
@@ -140,11 +153,25 @@ impl Default for AgentToolRegistry {
 impl AgentToolRegistry {
     #[must_use]
     pub fn new() -> Self {
+        let mut clasificadores = HashMap::new();
+        let mut categorias = HashMap::new();
+        /* [318A-16 F1] Tabla estática de clasificación de las tools del
+         * núcleo (semántica central, no por-tool para no acoplar cada tool a
+         * la política de permisos). */
+        for (tool_id, categoria, clasificador) in categorias_core() {
+            categorias.insert(tool_id, categoria);
+            if let Some(cl) = clasificador {
+                clasificadores.insert(tool_id, cl);
+            }
+        }
         Self {
             tools: HashMap::new(),
             sandbox_archivos: None,
             todo: None,
             overrides: Arc::new(RwLock::new(HashMap::new())),
+            reglas: Arc::new(RwLock::new(Vec::new())),
+            clasificadores,
+            categorias,
         }
     }
 
@@ -186,18 +213,15 @@ impl AgentToolRegistry {
     /// después, sobre el conjunto ya filtrado.
     #[must_use]
     pub fn schemas_openai(&self, solo_ids: Option<&[&str]>, modo: &str) -> Vec<Value> {
-        let overrides = self
-            .overrides
-            .read()
-            .unwrap_or_else(|p| p.into_inner());
         let mut schemas: Vec<Value> = self
             .tools
             .iter()
             .filter(|(id, _)| solo_ids.map(|ids| ids.contains(id)).unwrap_or(true))
             .filter(|(id, _)| {
-                /* deny silencioso: override `deny` o modo meta con efecto. */
-                let default = permiso_por_modo(modo, self.tools.get(*id).map(|t| t.efecto()).unwrap_or(false));
-                permiso_efectivo(default, overrides.get(*id).copied()) != Permiso::Deny
+                /* deny silencioso: override `deny`, modo meta con efecto o
+                 * regla v2 deny con patrón `*` (opencode `visibleTools`) — la
+                 * tool no se ofrece (no solo policy). */
+                !self.esta_denegada(id, modo)
             })
             .map(|(id, tool)| {
                 serde_json::json!({
@@ -210,7 +234,6 @@ impl AgentToolRegistry {
                 })
             })
             .collect();
-        drop(overrides);
         schemas.sort_by(|a, b| {
             a["function"]["name"]
                 .as_str()
@@ -224,6 +247,42 @@ impl AgentToolRegistry {
     #[must_use]
     pub fn tiene_efecto(&self, tool_id: &str) -> bool {
         self.tools.get(tool_id).map(|t| t.efecto()).unwrap_or(false)
+    }
+
+    /* [318A-16 F1] Reglas v2: `establecer_regla` agrega al final (las
+     * aprobaciones de la sesión se escriben después de las reglas de
+     * configuración → última coincidencia gana). */
+
+    /// Agrega una regla de permiso por categoría+patrón (F1). Se apila al
+    /// final de la lista: la última coincidencia decide (findLast opencode).
+    pub fn establecer_regla(&self, regla: ReglaPermiso) {
+        let mut guard = self.reglas.write().unwrap_or_else(|p| p.into_inner());
+        guard.push(regla);
+    }
+
+    /// Reglas vigentes (para la UI de F2 y tests deterministas).
+    #[must_use]
+    pub fn reglas(&self) -> Vec<ReglaPermiso> {
+        self.reglas.read().unwrap_or_else(|p| p.into_inner()).clone()
+    }
+
+    /// Claves de resolución de una llamada en orden de especificidad:
+    /// 1. (categoría derivada del argumento, patrón concreto) si hay
+    ///    clasificador para la tool y el argumento aplica;
+    /// 2. (categoría estática de la tool, `*`);
+    /// 3. (id de la tool, `*`) — herramientas del consumidor sin clasificar.
+    fn claves_para(&self, tool_id: &str, args: &Value) -> Vec<(String, String)> {
+        let mut claves: Vec<(String, String)> = Vec::new();
+        if let Some(clasificador) = self.clasificadores.get(tool_id) {
+            if let Some(derivada) = clasificador(args) {
+                claves.push(derivada);
+            }
+        }
+        if let Some(categoria) = self.categorias.get(tool_id) {
+            claves.push((categoria.to_string(), "*".to_string()));
+        }
+        claves.push((tool_id.to_string(), "*".to_string()));
+        claves
     }
 
     /* [318A-15 F3] Permisos por tool con herencia default-del-modo y override
@@ -247,18 +306,38 @@ impl AgentToolRegistry {
 
     /// Permiso efectivo de una tool para esta conversación: override si
     /// existe; si no, default del modo actual según tenga efecto o no.
+    /// (Sin argumentos: cubre F3 y el ocultado de schema por reglas.)
     #[must_use]
     pub fn permiso_para(&self, tool_id: &str, modo: &str) -> Permiso {
+        self.permiso_para_llamada(tool_id, &Value::Null, modo)
+    }
+
+    /// [318A-16 F1] Permiso efectivo de una LLAMADA concreta: clasifica los
+    /// argumentos, evalúa las reglas v2 sobre la clave más específica que
+    /// tenga coincidencias y resuelve contra override de conversación y
+    /// default del modo (orden en `resolver_permiso`).
+    #[must_use]
+    pub fn permiso_para_llamada(&self, tool_id: &str, args: &Value, modo: &str) -> Permiso {
+        let default = permiso_por_modo(modo, self.tiene_efecto(tool_id));
         let override_conv = self
             .overrides
             .read()
             .unwrap_or_else(|p| p.into_inner())
             .get(tool_id)
             .copied();
-        permiso_efectivo(
-            permiso_por_modo(modo, self.tiene_efecto(tool_id)),
-            override_conv,
-        )
+        if override_conv == Some(Permiso::Deny) {
+            /* Fail-closed: la denegación de conversación no se abre con
+             * reglas (orden 1 de `resolver_permiso`). */
+            return Permiso::Deny;
+        }
+        let reglas = self.reglas.read().unwrap_or_else(|p| p.into_inner());
+        for (categoria, patron) in self.claves_para(tool_id, args) {
+            let coincidentes = crate::regla::reglas_coincidentes(&categoria, &patron, &reglas);
+            if !coincidentes.is_empty() {
+                return resolver_permiso(default, override_conv, &coincidentes);
+            }
+        }
+        resolver_permiso(default, override_conv, &[])
     }
 
     /// ¿La tool está denegada (`deny`) en esta conversación? El runtime usa
@@ -509,4 +588,214 @@ mod tests {
         assert!(validar_contra_schema(json!({}), &json!([1, 2])).is_err());
     }
 
+    /* [318A-16 F1] Motor de reglas v2 integrado en el registro: fixture
+     * determinista (sin LLM) que ejercita clasificación por argumentos,
+     * evaluación findLast y ocultado de schema por regla deny. */
+
+    struct StubFileWrite;
+
+    #[async_trait]
+    impl AgentTool for StubFileWrite {
+        fn id(&self) -> &'static str {
+            "file_write"
+        }
+        fn descripcion(&self) -> &'static str {
+            "Escribe un archivo (stub F1)"
+        }
+        fn schema(&self) -> Value {
+            json!({ "type": "object", "properties": { "ruta": {"type": "string"} } })
+        }
+        fn efecto(&self) -> bool {
+            true
+        }
+        async fn ejecutar(
+            &self,
+            _ctx: &AgentToolContext<'_>,
+            _argumentos: Value,
+        ) -> Result<AgentToolResult> {
+            Ok(AgentToolResult::ok("escrito", "file_write"))
+        }
+    }
+
+    struct StubWeb;
+
+    #[async_trait]
+    impl AgentTool for StubWeb {
+        fn id(&self) -> &'static str {
+            "web_search"
+        }
+        fn descripcion(&self) -> &'static str {
+            "Busca en la web (stub F1)"
+        }
+        fn schema(&self) -> Value {
+            json!({ "type": "object", "properties": { "query": {"type": "string"} } })
+        }
+        async fn ejecutar(
+            &self,
+            _ctx: &AgentToolContext<'_>,
+            _argumentos: Value,
+        ) -> Result<AgentToolResult> {
+            Ok(AgentToolResult::ok("resultados", "web_search"))
+        }
+    }
+
+    fn registry_con_fixture() -> AgentToolRegistry {
+        let mut registry = AgentToolRegistry::new();
+        registry.registrar(Box::new(StubFileWrite));
+        registry.registrar(Box::new(StubWeb));
+        registry
+    }
+
+    #[test]
+    fn f1_escribir_dentro_permitido_por_regla_fuera_pide_aprobacion() {
+        /* Criterio del plan: regla allow por categoría con patrón de
+         * escritura dentro del árbol del proyecto (src/) permite escribir
+         * AUNQUE el default del modo sea ask, y una escritura FUERA sin
+         * regla sigue pidiendo aprobación. Sin LLM: la decisión es pura
+         * sobre la llamada. */
+        let registry = registry_con_fixture();
+        registry.establecer_regla(crate::regla::ReglaPermiso::nueva(
+            "escritura",
+            "src/**",
+            Permiso::Allow,
+        ));
+        assert_eq!(
+            registry.permiso_para_llamada(
+                "file_write",
+                &json!({ "ruta": "src/main.rs" }),
+                "predeterminado"
+            ),
+            Permiso::Allow,
+            "regla allow de categoría gana al ask del modo (criterio F1)"
+        );
+        assert_eq!(
+            registry.permiso_para_llamada(
+                "file_write",
+                &json!({ "ruta": "../fuera.txt" }),
+                "predeterminado"
+            ),
+            Permiso::Ask,
+            "escritura fuera del workspace sin regla → sigue pidiendo aprobación"
+        );
+    }
+
+    #[test]
+    fn f1_deny_de_escritura_fuera_no_afecta_lecturas_ni_escrituras_dentro() {
+        /* Patrón `**`: la clase entera (los valores de rutas fuera llevan
+         * separador, y `*` no cruza `/` — glob(7), igual que las referencias). */
+        let registry = registry_con_fixture();
+        registry.establecer_regla(crate::regla::ReglaPermiso::nueva(
+            "escritura_fuera_repo",
+            "**",
+            Permiso::Deny,
+        ));
+        assert_eq!(
+            registry.permiso_para_llamada(
+                "file_write",
+                &json!({ "ruta": "../x.txt" }),
+                "autonomo"
+            ),
+            Permiso::Deny,
+            "deny fuera gana incluso en modo autonomo (fail-closed)"
+        );
+        assert_eq!(
+            registry.permiso_para_llamada(
+                "file_write",
+                &json!({ "ruta": "src/x.txt" }),
+                "autonomo"
+            ),
+            Permiso::Allow,
+            "la regla deny de FUERA no bloquea la escritura dentro"
+        );
+        assert_eq!(
+            registry.permiso_para_llamada(
+                "file_read",
+                &json!({ "ruta": "notas.md" }),
+                "autonomo"
+            ),
+            Permiso::Allow
+        );
+    }
+
+    #[test]
+    fn f1_deny_de_categoria_con_patron_asterisco_oculta_la_tool_del_schema() {
+        /* opencode `visibleTools`: una regla deny con patrón `*` retira la
+         * tool del schema (no solo policy). */
+        let registry = registry_con_fixture();
+        registry.establecer_regla(crate::regla::ReglaPermiso::nueva(
+            "red",
+            "*",
+            Permiso::Deny,
+        ));
+        let nombres: Vec<String> = registry
+            .schemas_openai(None, "predeterminado")
+            .iter()
+            .filter_map(|s| s["function"]["name"].as_str().map(String::from))
+            .collect();
+        assert!(
+            !nombres.contains(&"web_search".to_string()),
+            "deny red:* oculta web_search del schema: {nombres:?}"
+        );
+        assert!(
+            nombres.contains(&"file_write".to_string()),
+            "la deny de red no oculta las tools de archivo"
+        );
+    }
+
+    #[test]
+    fn f1_regla_allow_no_tapa_deny_mas_reciente_para_subconjunto() {
+        /* Plan: "regla 'git *' no tapa 'git push' cuando existe una regla
+         * deny más específica" — con el wildcard propio sobre la categoría
+         * `comando` cuando la tool exista (F3); aquí el mismo principio con
+         * rutas: deny más reciente y más estrecha gana a allow genérico. */
+        let registry = registry_con_fixture();
+        registry.establecer_regla(crate::regla::ReglaPermiso::nueva(
+            "escritura",
+            "**",
+            Permiso::Allow,
+        ));
+        registry.establecer_regla(crate::regla::ReglaPermiso::nueva(
+            "escritura",
+            "**/secretos/**",
+            Permiso::Deny,
+        ));
+        assert_eq!(
+            registry.permiso_para_llamada(
+                "file_write",
+                &json!({ "ruta": "src/main.rs" }),
+                "predeterminado"
+            ),
+            Permiso::Allow
+        );
+        assert_eq!(
+            registry.permiso_para_llamada(
+                "file_write",
+                &json!({ "ruta": "src/secretos/claves.rs" }),
+                "predeterminado"
+            ),
+            Permiso::Deny,
+            "la deny más reciente y específica gana (findLast)"
+        );
+    }
+
+    #[test]
+    fn f1_override_deny_de_conversacion_gana_a_regla_allow() {
+        let registry = registry_con_fixture();
+        registry.establecer_regla(crate::regla::ReglaPermiso::nueva(
+            "escritura",
+            "**",
+            Permiso::Allow,
+        ));
+        /* El usuario deniega la tool en la conversación (F3): fail-closed,
+         * ninguna regla la vuelve a abrir. */
+        registry.establecer_permiso("file_write", Some(Permiso::Deny));
+        assert_eq!(
+            registry.permiso_para_llamada(
+                "file_write",
+                &json!({ "ruta": "src/x.rs" }),
+                "predeterminado"
+            ),
+            Permiso::Deny
+        );
+    }
 }

@@ -66,6 +66,31 @@ pub fn permiso_efectivo(default: Permiso, override_conv: Option<Permiso>) -> Per
     override_conv.unwrap_or(default)
 }
 
+/* [318A-16 F1] Resolución extendida con reglas v2 (ver `regla.rs`). Orden
+ * decidido y testeado (plan: "la regla gana al override explícito solo si es
+ * más específica"):
+ * 1. `override_conv == Deny` → Deny SIEMPRE (fail-closed): una denegación
+ *    explícita de conversación (F3) no se abre con reglas posteriores.
+ * 2. Reglas coincidentes (categoría + patrón): la ÚLTIMA decide, deny o
+ *    allow (findLast de opencode). La llamada llega ya con las reglas de la
+ *    clave MÁS ESPECÍFICA (derivada del argumento), que por diseño gana al
+ *    override de tool-entera (menos específico).
+ * 3. Si no hay regla: override de conversación; si no, default del modo. */
+#[must_use]
+pub fn resolver_permiso(
+    default: Permiso,
+    override_conv: Option<Permiso>,
+    reglas: &[crate::regla::ReglaPermiso],
+) -> Permiso {
+    if override_conv == Some(Permiso::Deny) {
+        return Permiso::Deny;
+    }
+    if let Some(ultima) = reglas.last() {
+        return ultima.accion;
+    }
+    override_conv.unwrap_or(default)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -105,5 +130,49 @@ mod tests {
             Permiso::Deny
         );
         assert_eq!(permiso_efectivo(Permiso::Deny, None), Permiso::Deny);
+    }
+
+    /* [318A-16 F1] Orden de resolución con reglas v2. */
+    use crate::regla::ReglaPermiso;
+
+    #[test]
+    fn f1_regla_allow_gana_al_ask_del_modo() {
+        /* default ask (efecto en predeterminado) + regla allow de la
+         * categoría derivada → la regla (específica) gana. */
+        let reglas = vec![ReglaPermiso::nueva("escritura", "src/**", Permiso::Allow)];
+        assert_eq!(
+            resolver_permiso(Permiso::Ask, None, &reglas),
+            Permiso::Allow
+        );
+    }
+
+    #[test]
+    fn f1_regla_deny_mas_especifica_gana_al_override_allow() {
+        /* El plan: la regla gana al override explícito solo si es más
+         * específica (categoría derivada + patrón > tool entera). */
+        let reglas = vec![ReglaPermiso::nueva("escritura_fuera_repo", "*", Permiso::Deny)];
+        assert_eq!(
+            resolver_permiso(Permiso::Ask, Some(Permiso::Allow), &reglas),
+            Permiso::Deny
+        );
+    }
+
+    #[test]
+    fn f1_override_deny_fail_closed_gana_a_toda_regla() {
+        /* Una denegación explícita de conversación no se abre con reglas. */
+        let reglas = vec![ReglaPermiso::nueva("escritura", "*", Permiso::Allow)];
+        assert_eq!(
+            resolver_permiso(Permiso::Ask, Some(Permiso::Deny), &reglas),
+            Permiso::Deny
+        );
+    }
+
+    #[test]
+    fn f1_sin_reglas_vuelve_override_y_default() {
+        assert_eq!(
+            resolver_permiso(Permiso::Ask, Some(Permiso::Allow), &[]),
+            Permiso::Allow
+        );
+        assert_eq!(resolver_permiso(Permiso::Ask, None, &[]), Permiso::Ask);
     }
 }

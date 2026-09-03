@@ -434,7 +434,11 @@ impl AgentRuntime {
                  * LLM recibe el estado y pide confirmación); `deny` (override
                  * o modo meta) deniega y NO se reintenta en el turno. La
                  * decisión es pura (`decidir_permiso`); aquí solo se emite. */
-                let permiso = self.registry.permiso_para(&call.nombre, &self.turno_config.modo);
+                let permiso = self.registry.permiso_para_llamada(
+                    &call.nombre,
+                    &call.argumentos,
+                    &self.turno_config.modo,
+                );
                 let verdicto = decidir_permiso(permiso, denegadas_en_turno.contains(&call.nombre));
                 if verdicto != VerdictoPermiso::Ejecutar {
                     /* Assistant con la tool_call: obligatorio antes del tool
@@ -941,7 +945,11 @@ impl AgentRuntime {
             }
             for call in llamadas {
                 /* Herencia de política F3: mismo registro y overrides. */
-                let permiso = self.registry.permiso_para(&call.nombre, &self.turno_config.modo);
+                let permiso = self.registry.permiso_para_llamada(
+                    &call.nombre,
+                    &call.argumentos,
+                    &self.turno_config.modo,
+                );
                 let verdicto = decidir_permiso(permiso, denegadas_hijo.contains(&call.nombre));
                 let mensaje_tool = match verdicto {
                     VerdictoPermiso::Ejecutar => {
