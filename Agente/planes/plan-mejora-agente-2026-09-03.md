@@ -126,20 +126,20 @@ y produce el informe de línea base sin tocar producción.
 **Problema:** el modelo no sabe fecha, workspace, git, ni distingue qué capas del
 prompt son inmutables.
 
-- [ ] `core`: separar el system prompt en capas con marcadores
+- [x] `core`: separar el system prompt en capas con marcadores
       `[ENTORNO]`/`[REGLAS]` (patrón claurst `SYSTEM_PROMPT_DYNAMIC_BOUNDARY`,
       `core/src/system_prompt.rs:18`): lo estático/cacheable antes, lo dinámico
       después.
-- [ ] Bloque `[ENTORNO]`: fecha, workspace/`--dir`, repo git sí/no + rama, modelo
+- [x] Bloque `[ENTORNO]`: fecha, workspace/`--dir`, repo git sí/no + rama, modelo
       activo (patrón opencode `session/system.ts:74-81`).
-- [ ] `[REGLAS]` vacío por defecto en el núcleo; expuesto para que el consumidor
+- [x] `[REGLAS]` vacío por defecto en el núcleo; expuesto para que el consumidor
       inyecte (CLI: AGENTS.md; PT: skills/reglas) — mismo mecanismo que hoy usa la
       IA de PT con memoria/skills, ahora con ranura propia.
-- [ ] Compactación/head protegido: `[ENTORNO]` y `[REGLAS]` recién inyectados cada
+- [x] Compactación/head protegido: `[ENTORNO]` y `[REGLAS]` recién inyectados cada
       turno, nunca compactados (extender `context.rs`).
-- [ ] Tests: prompt resultante contiene fecha + workspace + marcadores; capa reglas
+- [x] Tests: prompt resultante contiene fecha + workspace + marcadores; capa reglas
       vacía sin `[REGLAS]` huérfana.
-- [ ] E2E: turno real (o con fixture) donde el modelo refiere el workspace/fecha.
+- [x] E2E: turno real (o con fixture) donde el modelo refiere el workspace/fecha.
 
 ### Fase 2 — Capa de reglas (AGENTS.md CLI / skills PT)
 
@@ -326,7 +326,7 @@ flags de contexto reales; contrato SSE existente (las fases solo **añaden** eve
 | Fase | Contenido | Estado |
 |---|---|---|
 | F0 | Telemetría y línea base | ☐ 0/4 |
-| F1 | Capas + `[ENTORNO]` | ☐ 0/6 |
+| F1 | Capas + `[ENTORNO]` | ✅ 6/6 |
 | F2 | Reglas (AGENTS.md / skills) | ☐ 0/5 |
 | F3 | Permisos por tool | ☐ 0/7 |
 | F4 | Subagentes (tool `task`) | ☐ 0/10 |

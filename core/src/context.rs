@@ -12,6 +12,29 @@
 use crate::llm::AiMessage;
 use serde::{Deserialize, Serialize};
 
+/// Marcadores de capas del system prompt (318A-15 F1). El runtime ensambla el
+/// prompt con `[ENTORNO]` (dinámico: fecha/workspace/git/modelo, recién
+/// inyectado cada turno) y, si el consumidor aporta reglas, `[REGLAS]` (ranura
+/// AGENTS.md/skills; vacía por defecto, sin encabezado huérfano). La
+/// compactación trata como head protegido cualquier mensaje system que
+/// contenga estos marcadores: nunca se resume ni se pierde.
+pub const MARCA_ENTORNO: &str = "[ENTORNO]";
+pub const CIERRE_ENTORNO: &str = "[/ENTORNO]";
+pub const MARCA_REGLAS: &str = "[REGLAS]";
+pub const CIERRE_REGLAS: &str = "[/REGLAS]";
+
+/// ¿El mensaje es un system prompt por capas (lleva marcadores [ENTORNO] o
+/// [REGLAS])? Usado por la compactación para protegerlo y por los tests.
+#[must_use]
+pub fn es_prompt_con_marcadores(mensaje: &AiMessage) -> bool {
+    match &mensaje.content {
+        serde_json::Value::String(texto) => {
+            texto.contains(MARCA_ENTORNO) || texto.contains(MARCA_REGLAS)
+        }
+        _ => false,
+    }
+}
+
 /// Estimación de tokens: chars/4 (aproximación estándar para texto mixto).
 /// Suficiente para el presupuesto de v1; documentado como heurística.
 #[must_use]
@@ -176,8 +199,13 @@ impl AgentContextManager {
         let mut medio: Vec<AiMessage> = Vec::new();
         let mut cola: Vec<AiMessage> = Vec::new();
 
+        /* [318A-15 F1] Head protegido: además del system del índice dado, todo
+         * mensaje system con marcadores [ENTORNO]/[REGLAS] se conserva verbatim
+         * (nunca se resume ni cae al medio). El runtime lo reinyecta fresco en
+         * cada turno, pero si un consumidor persistió uno anterior, tampoco se
+         * pierde ni se corrompe con el resumen. */
         for (i, m) in mensajes.iter().enumerate() {
-            if i <= indice_system {
+            if i <= indice_system || (m.role == "system" && es_prompt_con_marcadores(m)) {
                 head.push(m.clone());
             } else {
                 medio.push(m.clone());
@@ -360,6 +388,56 @@ mod tests {
             // El último mensaje de la cola debe ser un assistant (par completo).
             let ultimo = r.mensajes.last().expect("cola");
             assert_eq!(ultimo.role, "assistant");
+        }
+    }
+
+    /* [318A-15 F1] Un mensaje system con marcadores [ENTORNO]/[REGLAS] es head
+     * protegido aunque no esté en el índice del system (p. ej. un prompt de un
+     * turno anterior persistido por el consumidor): nunca se resume ni se pierde. */
+
+    #[test]
+    fn system_con_marcadores_se_protege_de_la_compactacion() {
+        let config = ContextoConfig {
+            max_ventana: 20_000,
+            reserva_salida: 2_000,
+            cola_verbatim: 0.005,
+            umbral: 0.0, // compactar siempre que haya material que resumir
+            ..ContextoConfig::default()
+        };
+        let mut cm = AgentContextManager::new(config);
+        let mut msgs = vec![mensaje("system", "Eres un asistente.")];
+        /* Suficientes turnos para superar el piso 75% de la ventana efectiva
+         * (18K de 18K en ventanas < 512K, ver umbral_efectivo). */
+        for i in 0..200 {
+            msgs.push(mensaje("user", &format!("Pregunta {i}: {}", "x".repeat(400))));
+            msgs.push(mensaje("assistant", &format!("Respuesta {i}: {}", "y".repeat(400))));
+        }
+        /* Un system con entorno (como el que el runtime ensambla cada turno)
+         * colocado después de los turnos, con marca y contenido único. */
+        let entorno = format!("{MARCA_ENTORNO}\nFecha: 2026-09-03\nWorkspace: C:/ruta/única\n{CIERRE_ENTORNO}");
+        msgs.push(mensaje("system", &entorno));
+        msgs.push(mensaje("user", "Pregunta final"));
+
+        let r = cm.preparar(&msgs, 0);
+        assert!(r.compactado, "debe compactar el medio");
+        assert!(r.mensajes.len() < msgs.len(), "el medio se resumió");
+        /* El system con marcadores sobrevive verbatim (nunca al resumen). */
+        let sobrevive = r.mensajes.iter().any(|m| {
+            m.role == "system"
+                && matches!(&m.content, serde_json::Value::String(s) if s.contains("C:/ruta/única"))
+        });
+        assert!(sobrevive, "el entorno marcado se conserva verbatim");
+        /* Y la marca no aparece embebida en el resumen del medio. */
+        let resumen = r
+            .mensajes
+            .iter()
+            .find(|m| matches!(&m.content, serde_json::Value::String(s) if s.starts_with("## RESUMEN")))
+            .map(|m| match &m.content {
+                serde_json::Value::String(s) => s.clone(),
+                _ => String::new(),
+            });
+        if let Some(resumen) = resumen {
+            assert!(!resumen.contains(MARCA_ENTORNO), "el resumen no duplica el entorno");
         }
     }
 }
