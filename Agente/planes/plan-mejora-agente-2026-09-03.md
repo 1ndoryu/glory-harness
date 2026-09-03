@@ -209,21 +209,21 @@ editar) degradan por contaminación de contexto.
 **Problema:** descripciones de una línea; sin formato de salida, límites ni
 consejos; sin planificación visible; sin wrap-up al agotar pasos.
 
-- [ ] Core: reescribir descripciones de tools con: qué hace, **formato de salida**,
+- [x] Core: reescribir descripciones de tools con: qué hace, **formato de salida**,
       **límites** (tamaño/timeout/encoding), **consejo de cuándo usarla** y error
       esperado. Prioridad: `file_write`/`file_patch`/`file_read`/`file_search`/
       `web_search` (+ `web_fetch` si F4/F5 lo trae).
-- [ ] Regla write-vs-patch en las descripciones: "cambio < 20% del archivo →
+- [x] Regla write-vs-patch en las descripciones: "cambio < 20% del archivo →
       `file_patch`; crear o reescribir casi todo → `file_write`".
-- [ ] `file_patch`: validar que cada `old` exista y sea **único** (error claro si
+- [x] `file_patch`: validar que cada `old` exista y sea **único** (error claro si
       ambiguo — paridad opencode `edit`).
-- [ ] Tool `todo { crear|actualizar|completar }` en el núcleo: plan visible de la
+- [x] Tool `todo { crear|actualizar|completar }` en el núcleo: plan visible de la
       tarea; el modelo la usa para tareas de varios pasos.
-- [ ] Límite de pasos con wrap-up: al llegar a `max_turns`, pedir resumen de cierre
+- [x] Límite de pasos con wrap-up: al llegar a `max_turns`, pedir resumen de cierre
       ("hecho / pendiente / siguiente paso") en lugar de cortar en seco.
-- [ ] Tests: descripciones renderizadas sin saltos rotos; `file_patch` con `old`
+- [x] Tests: descripciones renderizadas sin saltos rotos; `file_patch` con `old`
       duplicado falla con mensaje claro; `todo` se refleja en el contexto.
-- [ ] E2E: tarea de 2 ediciones → el modelo usa `todo`, hace patch, y el turno
+- [x] E2E: tarea de 2 ediciones → el modelo usa `todo`, hace patch, y el turno
       cierra con wrap-up.
 
 ### Fase 6 — Compactación dirigida
@@ -330,7 +330,7 @@ flags de contexto reales; contrato SSE existente (las fases solo **añaden** eve
 | F2 | Reglas (AGENTS.md / skills) | ☐ 0/5 |
 | F3 | Permisos por tool | ☐ 0/7 |
 | F4 | Subagentes (tool `task`) | ☐ 0/10 |
-| F5 | Tools ricos + todo + pasos | ☐ 0/7 |
+| F5 | Tools ricos + todo + pasos | ✅ 7/7 |
 | F6 | Compactación dirigida | ☐ 0/7 |
 
 Primer bloque a ejecutar: **F1 + F5** (alternativa B de la comparativa §6), luego

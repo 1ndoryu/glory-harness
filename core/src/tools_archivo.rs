@@ -30,7 +30,7 @@ impl AgentTool for ToolFileRead {
         "file_read"
     }
     fn descripcion(&self) -> &'static str {
-        "Lee un archivo del workspace local del proyecto. Solo rutas dentro del workspace; archivos de secretos bloqueados."
+        "Lee un archivo del workspace local y devuelve su contenido.\nFORMATO DE SALIDA: el contenido crudo dentro de un bloque ``` (con aviso si se truncó).\nLÍMITES: máx 1 MB por lectura (se trunca con aviso); solo rutas dentro del workspace; archivos de secretos bloqueados.\nCUÁNDO USARLA: antes de editar un archivo (file_patch/file_write) o para responder sobre código existente. Para localizar archivos usa file_search.\nERRORES: ruta inexistente, fuera del workspace o bloqueada por secreto."
     }
     fn schema(&self) -> Value {
         json!({
@@ -76,7 +76,7 @@ impl AgentTool for ToolFileWrite {
         "file_write"
     }
     fn descripcion(&self) -> &'static str {
-        "Escribe un archivo completo en el workspace local (reemplaza el contenido). Requiere aprobación en modo predeterminado."
+        "Escribe un archivo COMPLETO en el workspace (crea o sobrescribe). Requiere aprobación en modo predeterminado.\nREGLAS DE USO: archivo nuevo o reescritura de casi todo (~>= 80%) → file_write. Cambio puntual de < ~20% del archivo → file_patch (más seguro).\nFORMATO DE SALIDA: confirmación con ruta y bytes escritos.\nLÍMITES: contenido no vacío, máx 1 MB; solo rutas dentro del workspace.\nERRORES: ruta fuera del workspace o bloqueada por el sandbox."
     }
     fn efecto(&self) -> bool {
         true
@@ -86,7 +86,7 @@ impl AgentTool for ToolFileWrite {
             "type": "object",
             "properties": {
                 "ruta": {"type": "string", "description": "Ruta relativa al workspace"},
-                "contenido": {"type": "string", "description": "Contenido completo del archivo"}
+                "contenido": {"type": "string", "description": "Contenido COMPLETO del archivo (reescribe todo; para cambios puntuales usa file_patch)"}
             },
             "required": ["ruta", "contenido"]
         })
@@ -132,7 +132,7 @@ impl AgentTool for ToolFilePatch {
         "file_patch"
     }
     fn descripcion(&self) -> &'static str {
-        "Aplica un reemplazo puntual (viejo → nuevo) en un archivo del workspace. Requiere aprobación en modo predeterminado."
+        "Aplica un reemplazo puntual (buscar → reemplazar) dentro de un archivo. Requiere aprobación en modo predeterminado.\nREGLAS DE USO: cambio puntual de < ~20% del archivo → file_patch; crear o reescribir casi todo → file_write.\nREQUISITOS: 'buscar' debe ser texto EXACTO y ÚNICO en el archivo (respeta indentación). Si aparece N veces la tool falla con error claro: amplía el fragmento hasta que sea único o usa file_write.\nFORMATO DE SALIDA: confirmación con la ruta parcheada.\nERRORES: buscar vacío, no encontrado, o ambiguo (N ocurrencias)."
     }
     fn efecto(&self) -> bool {
         true
@@ -141,9 +141,9 @@ impl AgentTool for ToolFilePatch {
         json!({
             "type": "object",
             "properties": {
-                "ruta": {"type": "string"},
-                "buscar": {"type": "string", "description": "Texto exacto a reemplazar"},
-                "reemplazar": {"type": "string", "description": "Texto nuevo"}
+                "ruta": {"type": "string", "description": "Ruta relativa al workspace"},
+                "buscar": {"type": "string", "description": "Texto EXACTO y ÚNICO a reemplazar (incluye indentación; si aparece varias veces, amplía el fragmento)"},
+                "reemplazar": {"type": "string", "description": "Texto nuevo que sustituye a 'buscar'"}
             },
             "required": ["ruta", "buscar", "reemplazar"]
         })
@@ -203,7 +203,7 @@ impl AgentTool for ToolFileSearch {
         "file_search"
     }
     fn descripcion(&self) -> &'static str {
-        "Busca archivos por nombre/patrón dentro del workspace (acotado a 50 resultados, profundidad 6, 2MB agregados)."
+        "Busca archivos por nombre o patrón dentro del workspace y devuelve rutas relativas.\nFORMATO DE SALIDA: una ruta relativa por línea (máx 50).\nLÍMITES: profundidad 6, 2 MB agregados; ignora node_modules, target, .git, .next y dist. Patrones: subcadena ('main'), '*.rs' (termina en) o 'main*' (empieza por).\nCUÁNDO USARLA: localizar archivos antes de leer/editarlos; NO devuelve contenido.\nERRORES: sin resultados → 'Sin resultados.'"
     }
     fn schema(&self) -> Value {
         json!({
@@ -366,5 +366,137 @@ mod tests {
         assert!(registry.tiene_efecto("file_write"));
         assert!(registry.tiene_efecto("file_patch"));
         assert!(!registry.tiene_efecto("file_read"));
+    }
+
+    fn dir_aislada(nombre: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "gh-f5-{}-{}-{nombre}",
+            std::process::id(),
+            chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("crear dir temporal");
+        dir
+    }
+
+    fn ctx_con_sandbox(
+        sandbox: Arc<SandboxArchivos>,
+        persistencia: &crate::contrato_tests::PersistenciaMock,
+    ) -> AgentToolContext<'_> {
+        AgentToolContext {
+            user_id: uuid::Uuid::new_v4(),
+            persistencia,
+            web_search: None,
+            ai_provider: None,
+            sandbox_archivos: Some(sandbox),
+            dominio: None,
+            todo: None,
+        }
+    }
+
+    /* [318A-15 F5] `file_patch` exige que el fragmento `buscar` exista y sea
+     * ÚNICO (paridad opencode `edit`): si no aparece o aparece N veces, falla
+     * con mensaje claro en vez de parchear la primera ocurrencia a ciegas. */
+    #[tokio::test]
+    async fn file_patch_old_duplicado_falla_con_mensaje_claro() {
+        let dir = dir_aislada("patch-duplicado");
+        let sandbox = SandboxArchivos::nuevo(&dir).expect("sandbox");
+        sandbox
+            .escribir("a.txt", "primera x\nsegunda x\n")
+            .expect("escribir");
+        let persistencia = crate::contrato_tests::PersistenciaMock::default();
+        let ctx = ctx_con_sandbox(Arc::new(sandbox), &persistencia);
+
+        let error = ToolFilePatch
+            .ejecutar(&ctx, json!({"ruta": "a.txt", "buscar": "x", "reemplazar": "z"}))
+            .await
+            .expect_err("'x' aparece 2 veces → debe fallar");
+        let mensaje = error.to_string();
+        assert!(
+            mensaje.contains("2 veces") && mensaje.contains("más específico"),
+            "mensaje claro sobre la ambigüedad: {mensaje}"
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[tokio::test]
+    async fn file_patch_old_ausente_falla_no_encontrado() {
+        let dir = dir_aislada("patch-ausente");
+        let sandbox = SandboxArchivos::nuevo(&dir).expect("sandbox");
+        sandbox
+            .escribir("a.txt", "contenido estable\n")
+            .expect("escribir");
+        let persistencia = crate::contrato_tests::PersistenciaMock::default();
+        let ctx = ctx_con_sandbox(Arc::new(sandbox), &persistencia);
+
+        let error = ToolFilePatch
+            .ejecutar(&ctx, json!({"ruta": "a.txt", "buscar": "fantasma", "reemplazar": "z"}))
+            .await
+            .expect_err("sin ocurrencias → debe fallar");
+        let mensaje = error.to_string();
+        assert!(
+            mensaje.contains("No se encontró") && mensaje.contains("fantasma"),
+            "mensaje de no encontrado: {mensaje}"
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /* [318A-15 F5] E2E con fixture (sin proveedor): secuencia scriptada que
+     * replica el flujo real del runtime — el "modelo" crea el plan con `todo`,
+     * edita con file_patch y completa el ítem. Aserciones deterministas sobre
+     * el resultado que el runtime devuelve al contexto del LLM. */
+    #[tokio::test]
+    async fn e2e_fixture_todo_patch_y_cierre_de_plan() {
+        let dir = dir_aislada("e2e-todo-patch");
+        std::fs::write(dir.join("app.txt"), "hola mundo\n").expect("seed");
+        let sandbox = Arc::new(SandboxArchivos::nuevo(&dir).expect("sandbox"));
+        let mut registry = crate::tool::AgentToolRegistry::new();
+        assert!(registrar_tools_archivo(&mut registry, Some(sandbox.clone())));
+        crate::todo::registrar_tool_todo(&mut registry);
+        assert!(registry.ids().contains(&"file_patch"));
+        assert!(registry.ids().contains(&"todo"));
+
+        let persistencia = crate::contrato_tests::PersistenciaMock::default();
+        let ctx = AgentToolContext {
+            user_id: uuid::Uuid::new_v4(),
+            persistencia: &persistencia,
+            web_search: None,
+            ai_provider: None,
+            sandbox_archivos: registry.sandbox(),
+            dominio: None,
+            todo: registry.todo(),
+        };
+
+        let plan = registry
+            .ejecutar("todo", &ctx, json!({"accion": "crear", "texto": "Editar el saludo"}))
+            .await
+            .expect("todo crear");
+        assert!(plan.ok && plan.contenido.contains("[ ] Editar el saludo"));
+
+        let parche = registry
+            .ejecutar(
+                "file_patch",
+                &ctx,
+                json!({"ruta": "app.txt", "buscar": "hola mundo", "reemplazar": "adiós mundo"}),
+            )
+            .await
+            .expect("file_patch");
+        assert!(parche.ok && parche.diff.is_some(), "el patch devuelve su diff");
+
+        let cierre = registry
+            .ejecutar("todo", &ctx, json!({"accion": "completar", "id": 1}))
+            .await
+            .expect("todo completar");
+        assert!(
+            cierre.contenido.contains("[x] Editar el saludo"),
+            "el plan actualizado vuelve al contexto del modelo: {}",
+            cierre.contenido
+        );
+        let leido = SandboxArchivos::nuevo(&dir)
+            .expect("sandbox 2")
+            .leer("app.txt", 1024)
+            .expect("leer");
+        assert_eq!(leido.0, "adiós mundo\n", "la edición quedó aplicada");
+        std::fs::remove_dir_all(&dir).ok();
     }
 }

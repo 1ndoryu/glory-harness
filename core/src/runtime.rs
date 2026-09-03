@@ -27,6 +27,7 @@ use crate::evento::AgenteEvento;
 use crate::llm::{AiChatOptions, AiMessage, AiToolCall, LlmProviderService};
 use crate::ports::{AccionAuditable, AgentPersistence, MensajePersistido, TurnoPersistido, WebSearchProvider};
 use crate::sandbox::SandboxArchivos;
+use crate::todo::registrar_tool_todo;
 use crate::tool::{AgentToolContext, AgentToolRegistry};
 use crate::tools_archivo::registrar_tools_archivo;
 use crate::tools_web::registrar_tools_red;
@@ -204,6 +205,9 @@ impl AgentRuntime {
         turno_config: TurnoConfig,
     ) -> Self {
         registrar_tools_red(&mut registry);
+        /* [318A-15 F5] Tool `todo` (plan visible) siempre disponible: es
+         * agnóstica y efímera (la store vive en este runtime, nunca en BD). */
+        registrar_tool_todo(&mut registry);
         /* [29-08-2026] Fase 2: tools de archivo SOLO en AGENTE_MODO=local.
          * Fail-closed: si el sandbox no se puede construir (raíz inválida o
          * modo no-local), no se registran y el contexto va sin sandbox. */
@@ -464,6 +468,35 @@ impl AgentRuntime {
             }
         }
 
+        /* [318A-15 F5] Límite de pasos con wrap-up: si el turno agotó
+         * `max_turns` sin respuesta final y el cliente sigue conectado, no se
+         * corta en seco: una última llamada SIN tools pide el resumen de
+         * cierre (hecho / pendiente / siguiente paso). Si el cierre también
+         * queda vacío (proveedor caído), el turno queda sin respuesta y el
+         * consumidor decide reintentar (mismo contrato que hoy). */
+        if respuesta_final.is_none() && !tx.is_closed() {
+            let mut mensajes_cierre = mensajes.clone();
+            mensajes_cierre.push(AiMessage::texto("system", wrap_up_instruccion()));
+            let mut ultimo_contenido = String::new();
+            let mut on_token = |texto: &str| -> bool {
+                ultimo_contenido.push_str(texto);
+                !tx.is_closed()
+            };
+            let resultado = self
+                .llm_llamada(&mensajes_cierre, &[], &mut on_token, tx)
+                .await?;
+            if resultado.is_empty() {
+                let _ = tx
+                    .send(AgenteEvento::Token {
+                        texto: ultimo_contenido.clone(),
+                    })
+                    .await;
+                if !ultimo_contenido.trim().is_empty() {
+                    respuesta_final = Some(ultimo_contenido);
+                }
+            }
+        }
+
         /* Auditoría del turno (R3: siempre por el puerto, nunca SQL propio). */
         self.persistencia
             .guardar_turno(&TurnoPersistido {
@@ -566,6 +599,7 @@ impl AgentRuntime {
             ai_provider: None,
             sandbox_archivos: self.registry.sandbox(),
             dominio: self.dominio.as_deref(),
+            todo: self.registry.todo(),
         };
         let resultado = self
             .registry
@@ -592,6 +626,16 @@ impl AgentRuntime {
 
 fn mensajes_usuario_resumen(mensaje: &str) -> String {
     mensaje.chars().take(500).collect()
+}
+
+/// [318A-15 F5] Consigna del wrap-up al agotar `max_turns`: en vez de cortar
+/// en seco, el modelo cierra con un resumen estructurado. Se inyecta como
+/// mensaje system en la última llamada (sin tools).
+const WRAP_UP_TEXTO: &str = "Has agotado el límite de pasos de este turno. NO ejecutes más herramientas.\nCierra con un resumen breve y estructurado:\n- HECHO: qué se completó hasta ahora.\n- PENDIENTE: qué quedó sin hacer y por qué.\n- SIGUIENTE PASO: qué harías si pudieras continuar.\nSi el objetivo ya está cumplido, dilo y resume el resultado.";
+
+#[must_use]
+fn wrap_up_instruccion() -> String {
+    WRAP_UP_TEXTO.to_string()
 }
 
 /// [318A-15 F1] Ensambla el system prompt por capas (patrón claurst
@@ -746,6 +790,22 @@ mod tests {
     fn resumen_acota_prompt() {
         let largo = "x".repeat(2000);
         assert_eq!(mensajes_usuario_resumen(&largo).len(), 500);
+    }
+
+    /* [318A-15 F5] El wrap-up al agotar `max_turns` cierra con estructura
+     * (hecho / pendiente / siguiente) y prohíbe seguir ejecutando tools. */
+    #[test]
+    fn wrap_up_pide_cierre_estructurado_sin_tools() {
+        use super::{wrap_up_instruccion, WRAP_UP_TEXTO};
+        let consigna = wrap_up_instruccion();
+        assert_eq!(consigna, WRAP_UP_TEXTO);
+        for eje in ["HECHO", "PENDIENTE", "SIGUIENTE PASO"] {
+            assert!(
+                consigna.contains(eje),
+                "la consigna de cierre cubre el eje {eje}"
+            );
+        }
+        assert!(consigna.contains("NO ejecutes más herramientas"));
     }
 
     fn config_prueba() -> ContextoConfig {

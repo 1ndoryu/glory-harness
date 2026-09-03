@@ -11,6 +11,7 @@
 use crate::error::{Error, Result};
 use crate::ports::{AgentPersistence, ProviderPort, WebSearchProvider};
 use crate::sandbox::SandboxArchivos;
+use crate::todo::TodoCompartida;
 use async_trait::async_trait;
 use serde_json::Value;
 use std::any::Any;
@@ -38,6 +39,9 @@ pub struct AgentToolContext<'a> {
     /// aquí sus servicios (p. ej. `&PgPool` + repos), y sus tools hacen
     /// `downcast_ref`. El núcleo no interpreta este tipo.
     pub dominio: Option<&'a (dyn Any + Send + Sync)>,
+    /// Plan `todo` compartido del runtime (318A-15 F5). `None` si el runtime
+    /// no registró la tool (no debería pasar: el runtime la crea siempre).
+    pub todo: Option<TodoCompartida>,
 }
 
 /// Resultado de ejecutar una tool: texto legible para el LLM + estado.
@@ -118,6 +122,8 @@ pub struct AgentToolRegistry {
     /// Sandbox compartido (Fase 2). Se fija una vez por runtime; el runtime lo
     /// inyecta en el contexto al ejecutar tools.
     sandbox_archivos: Option<Arc<SandboxArchivos>>,
+    /// Store del plan `todo` (318A-15 F5), mismo patrón que el sandbox.
+    todo: Option<TodoCompartida>,
 }
 
 impl Default for AgentToolRegistry {
@@ -132,6 +138,7 @@ impl AgentToolRegistry {
         Self {
             tools: HashMap::new(),
             sandbox_archivos: None,
+            todo: None,
         }
     }
 
@@ -147,6 +154,16 @@ impl AgentToolRegistry {
     #[must_use]
     pub fn sandbox(&self) -> Option<Arc<SandboxArchivos>> {
         self.sandbox_archivos.clone()
+    }
+
+    /// Fija la store compartida del plan `todo` del runtime (318A-15 F5).
+    pub fn registrar_todo(&mut self, todo: TodoCompartida) {
+        self.todo = Some(todo);
+    }
+
+    #[must_use]
+    pub fn todo(&self) -> Option<TodoCompartida> {
+        self.todo.clone()
     }
 
     #[must_use]
@@ -230,6 +247,48 @@ fn validar_contra_schema(schema: Value, argumentos: &Value) -> Result<()> {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    /* [318A-15 F5] Contratos ricos: toda tool del núcleo documenta formato de
+     * salida, límites y errores. Verifica que las descripciones son
+     * multilínea REAL (sin escapes rotos: ningún backslash literal, cada
+     * `\n` renderizado) y que write/patch anuncian la regla de cuándo usar
+     * cada una. */
+    #[test]
+    fn descripciones_ricas_sin_escapes_rotos() {
+        let descripciones: [(&str, &'static str); 6] = [
+            ("file_read", crate::tools_archivo::ToolFileRead.descripcion()),
+            ("file_write", crate::tools_archivo::ToolFileWrite.descripcion()),
+            ("file_patch", crate::tools_archivo::ToolFilePatch.descripcion()),
+            ("file_search", crate::tools_archivo::ToolFileSearch.descripcion()),
+            ("web_search", crate::tools_web::ToolWebSearch.descripcion()),
+            ("todo", crate::todo::ToolTodo.descripcion()),
+        ];
+        for (nombre, d) in descripciones {
+            assert!(
+                !d.contains('\\'),
+                "{nombre}: backslash literal = escape roto en la descripción"
+            );
+            assert!(d.contains('\n'), "{nombre}: descripción debe ser multilínea");
+            assert!(
+                d.contains("FORMATO DE SALIDA"),
+                "{nombre}: documenta el formato de salida"
+            );
+            assert!(
+                d.contains("ERRORES"),
+                "{nombre}: documenta los errores esperados"
+            );
+        }
+        let escribir = crate::tools_archivo::ToolFileWrite.descripcion();
+        assert!(
+            escribir.contains("file_patch"),
+            "file_write remite a file_patch para cambios puntuales"
+        );
+        let parche = crate::tools_archivo::ToolFilePatch.descripcion();
+        assert!(
+            parche.contains("ÚNICO") && parche.contains("file_write"),
+            "file_patch exige old único y remite a file_write si es ambiguo"
+        );
+    }
 
     struct ToolEcho;
 

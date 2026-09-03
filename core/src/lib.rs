@@ -19,6 +19,7 @@ pub mod diff;
 pub mod context;
 pub mod sandbox;
 pub mod tool;
+pub mod todo;
 pub mod tools_archivo;
 pub mod tools_web;
 pub mod scheduler;

@@ -17,7 +17,7 @@ impl AgentTool for ToolWebSearch {
         "web_search"
     }
     fn descripcion(&self) -> &'static str {
-        "Busca información actual en internet y devuelve resultados resumidos."
+        "Busca información ACTUAL en internet y devuelve resultados resumidos (título + URL).\nFORMATO DE SALIDA: hasta 5 resultados, cada uno '- título: url'.\nLÍMITES: solo texto (sin descarga de páginas; eso es web_fetch); depende del proveedor del consumidor.\nCUÁNDO USARLA: datos recientes (noticias, docs, precios), verificar supuestos o cuando el contexto no alcanza. Para fechas o decisiones del workspace NO la uses.\nERRORES: sin proveedor configurado o sin resultados → mensaje claro, nunca éxito falso."
     }
     fn schema(&self) -> Value {
         json!({
@@ -87,6 +87,7 @@ mod tests {
             ai_provider: None,
             sandbox_archivos: None,
             dominio: None,
+            todo: None,
         }
     }
 
