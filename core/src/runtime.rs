@@ -25,6 +25,7 @@ use crate::context::{
 use crate::error::Result;
 use crate::evento::AgenteEvento;
 use crate::llm::{AiChatOptions, AiMessage, AiToolCall, LlmProviderService};
+use crate::permiso::Permiso;
 use crate::ports::{AccionAuditable, AgentPersistence, MensajePersistido, TurnoPersistido, WebSearchProvider};
 use crate::sandbox::SandboxArchivos;
 use crate::todo::registrar_tool_todo;
@@ -268,6 +269,12 @@ impl AgentRuntime {
          * conserve el historial completo (el mensaje del usuario lo persiste el
          * consumidor antes de llamar). */
         let mut respuesta_final: Option<String> = None;
+        /* [318A-15 F3] Tools denegadas en este turno (por política o por
+         * negación del usuario): si el modelo las vuelve a proponer en el
+         * MISMO turno, no se re-emite el evento ni se le vuelve a explicar —
+         * se le devuelve "denegada" para que cambie de plan (no reintento
+         * automático). */
+        let mut denegadas_en_turno: std::collections::HashSet<String> = std::collections::HashSet::new();
 
         for _turno in 0..self.turno_config.max_turns {
             /* [01-09-2026] Fase 4: cancelación real — si el cliente cortó el
@@ -304,7 +311,10 @@ impl AgentRuntime {
                 ids.retain(|id| *id != "crear_recordatorio");
             }
             let ids_ref: Vec<&str> = ids;
-            let schemas = self.registry.schemas_openai(Some(&ids_ref));
+            /* [318A-15 F3] `schemas_openai` aplica el deny silencioso
+             * (override de la conversación o modo meta): la tool denegada no
+             * aparece en el schema del modelo. */
+            let schemas = self.registry.schemas_openai(Some(&ids_ref), &self.turno_config.modo);
             /* [318A-7] Desglose de contexto: emitir el desglose de la ventana
              * (system, tools, mensajes, resultados, reserva de salida) para que
              * el front muestre la barra de uso con secciones. */
@@ -362,28 +372,19 @@ impl AgentRuntime {
                     })
                     .await;
 
-                /* [29-08-2026] Política de modos (sección 9.2): en
-                 * predeterminado, una tool con efectos requiere aprobación. El
-                 * SSE es unidireccional: se emite `RequiereAprobacion` y la
-                 * ejecución se omite (el LLM recibe el estado como resultado de
-                 * tool y puede responder pidiendo confirmación). */
-                let requiere_aprobacion = self.turno_config.modo == "predeterminado"
-                    && self.registry.tiene_efecto(&call.nombre);
-                if requiere_aprobacion {
-                    let _ = tx
-                        .send(AgenteEvento::RequiereAprobacion {
-                            tool: call.nombre.clone(),
-                            argumentos: call.argumentos.clone(),
-                        })
-                        .await;
-                    let _ = tx
-                        .send(AgenteEvento::ToolResult {
-                            tool: call.nombre.clone(),
-                            ok: false,
-                            resumen: "requiere_aprobacion".to_string(),
-                            diff: None,
-                        })
-                        .await;
+                /* [318A-15 F3] Permisos por tool (ask/allow/deny): política
+                 * por tool con herencia del modo (predeterminado → ask para
+                 * efecto; meta → deny para efecto; autonomo → allow) y
+                 * override por conversación. El SSE es unidireccional:
+                 * `ask` emite `RequiereAprobacion` y omite la ejecución (el
+                 * LLM recibe el estado y pide confirmación); `deny` (override
+                 * o modo meta) deniega y NO se reintenta en el turno. La
+                 * decisión es pura (`decidir_permiso`); aquí solo se emite. */
+                let permiso = self.registry.permiso_para(&call.nombre, &self.turno_config.modo);
+                let verdicto = decidir_permiso(permiso, denegadas_en_turno.contains(&call.nombre));
+                if verdicto != VerdictoPermiso::Ejecutar {
+                    /* Assistant con la tool_call: obligatorio antes del tool
+                     * (contrato OpenAI; sin él el proveedor responde 400). */
                     mensajes.push(AiMessage {
                         role: "assistant".into(),
                         content: serde_json::Value::Null,
@@ -394,19 +395,78 @@ impl AgentRuntime {
                         }]),
                         tool_call_id: None,
                     });
-                    /* [318A-10 02-09-2026] El tool del "requiere aprobación"
-                     * DEBE llevar el mismo tool_call_id que la tool_call del
-                     * assistant previo (contrato OpenAI); sin él el proveedor
-                     * responde 400 "Tool message must have tool_call_id". */
-                    let mut tool_aprobacion = AiMessage::texto(
-                        "tool",
-                        format!(
-                            "[{} REQUIERE APROBACIÓN DEL USUARIO] La acción no se ejecutó; explica al usuario qué se hará y pide confirmación.",
-                            call.nombre
+                    /* [318A-10 02-09-2026] El tool DEBE llevar el mismo
+                     * tool_call_id que la tool_call del assistant previo
+                     * (contrato OpenAI). */
+                    let primera_vez = denegadas_en_turno.insert(call.nombre.clone());
+                    let (evento, mensaje_tool, resumen) = match verdicto {
+                        VerdictoPermiso::Preguntar => (
+                            Some(AgenteEvento::RequiereAprobacion {
+                                tool: call.nombre.clone(),
+                                argumentos: call.argumentos.clone(),
+                            }),
+                            format!(
+                                "[{} REQUIERE APROBACIÓN DEL USUARIO] La acción no se ejecutó; explica al usuario qué se hará y pide confirmación.",
+                                call.nombre
+                            ),
+                            "requiere_aprobacion".to_string(),
                         ),
-                    );
-                    tool_aprobacion.tool_call_id = Some(call.id.clone());
-                    mensajes.push(tool_aprobacion);
+                        VerdictoPermiso::RepetidoPregunta => (
+                            None,
+                            format!(
+                                "[{} REQUIERE APROBACIÓN DEL USUARIO (repetido)] Sigue pendiente de aprobación: no insistas, explica y espera la confirmación del usuario.",
+                                call.nombre
+                            ),
+                            "requiere_aprobacion".to_string(),
+                        ),
+                        VerdictoPermiso::Denegar | VerdictoPermiso::RepetidoDenegado => {
+                            /* deny: silencioso de schema (arriba) + fail-closed
+                             * si aun así se propone (override cambiado a mitad
+                             * de turno, modo meta, etc.). Motivo para la UI. */
+                            let motivo = if self.registry.tiene_efecto(&call.nombre)
+                                && self.turno_config.modo == "meta"
+                            {
+                                "denegada_por_politica".to_string()
+                            } else {
+                                "denegada_por_usuario".to_string()
+                            };
+                            let evento = if verdicto == VerdictoPermiso::Denegar {
+                                Some(AgenteEvento::PermisoDenegado {
+                                    tool: call.nombre.clone(),
+                                    motivo: motivo.clone(),
+                                })
+                            } else {
+                                None
+                            };
+                            let mensaje = if primera_vez {
+                                format!(
+                                    "[{} DENEGADA ({})] El usuario no autorizó esta acción; NO la reintentes. Continúa con otras herramientas o explica el plan alternativo.",
+                                    call.nombre, motivo
+                                )
+                            } else {
+                                format!(
+                                    "[{} DENEGADA ({}) — repetida] Ya se te indicó que esta tool está denegada; NO la vuelvas a proponer en este turno.",
+                                    call.nombre, motivo
+                                )
+                            };
+                            (evento, mensaje, "permiso_denegado".to_string())
+                        }
+                        VerdictoPermiso::Ejecutar => unreachable!("filtrado arriba"),
+                    };
+                    if let Some(ev) = evento {
+                        let _ = tx.send(ev).await;
+                    }
+                    let _ = tx
+                        .send(AgenteEvento::ToolResult {
+                            tool: call.nombre.clone(),
+                            ok: false,
+                            resumen,
+                            diff: None,
+                        })
+                        .await;
+                    let mut tool_msg = AiMessage::texto("tool", mensaje_tool);
+                    tool_msg.tool_call_id = Some(call.id.clone());
+                    mensajes.push(tool_msg);
                     continue;
                 }
 
@@ -624,6 +684,45 @@ impl AgentRuntime {
     }
 }
 
+/* [318A-15 F3] Decisión del gate de permisos para una tool propuesta en un
+ * turno. Devuelve si se omite la ejecución y qué evento emitir. La lógica
+ * vive aquí (función pura) para poder testear ask/deny/no-reintento sin un
+ * proveedor LLM: `ejecutar_turno` solo la consume y emite. */
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum VerdictoPermiso {
+    /// `allow`: ejecutar normal.
+    Ejecutar,
+    /// `ask` (primera vez en el turno): emitir `RequiereAprobacion`.
+    Preguntar,
+    /// `ask` repetido en el mismo turno: el modelo ya fue informado;
+    /// emitir ToolResult sin re-preguntar.
+    RepetidoPregunta,
+    /// `deny` (primera vez en el turno): emitir `PermisoDenegado`.
+    Denegar,
+    /// `deny` repetido: la tool ya fue denegada; no re-emitir, solo informar.
+    RepetidoDenegado,
+}
+
+fn decidir_permiso(permiso: Permiso, ya_denegada: bool) -> VerdictoPermiso {
+    match permiso {
+        Permiso::Allow => VerdictoPermiso::Ejecutar,
+        Permiso::Ask => {
+            if ya_denegada {
+                VerdictoPermiso::RepetidoPregunta
+            } else {
+                VerdictoPermiso::Preguntar
+            }
+        }
+        Permiso::Deny => {
+            if ya_denegada {
+                VerdictoPermiso::RepetidoDenegado
+            } else {
+                VerdictoPermiso::Denegar
+            }
+        }
+    }
+}
+
 fn mensajes_usuario_resumen(mensaje: &str) -> String {
     mensaje.chars().take(500).collect()
 }
@@ -790,6 +889,51 @@ mod tests {
     fn resumen_acota_prompt() {
         let largo = "x".repeat(2000);
         assert_eq!(mensajes_usuario_resumen(&largo).len(), 500);
+    }
+
+    /* [318A-15 F3] Gate de permisos: ask emite la pregunta, deny deniega,
+     * y ninguno de los dos se reintenta en el mismo turno (el repetido no
+     * vuelve a emitir el evento: el modelo ya fue informado). */
+    #[test]
+    fn f3_ask_pregunta_y_el_repetido_no_reeventa() {
+        use super::{decidir_permiso, VerdictoPermiso};
+        use crate::permiso::Permiso;
+        assert_eq!(
+            decidir_permiso(Permiso::Ask, false),
+            VerdictoPermiso::Preguntar
+        );
+        assert_eq!(
+            decidir_permiso(Permiso::Ask, true),
+            VerdictoPermiso::RepetidoPregunta
+        );
+    }
+
+    #[test]
+    fn f3_deny_deniega_y_el_repetido_no_reeventa() {
+        use super::{decidir_permiso, VerdictoPermiso};
+        use crate::permiso::Permiso;
+        assert_eq!(
+            decidir_permiso(Permiso::Deny, false),
+            VerdictoPermiso::Denegar
+        );
+        assert_eq!(
+            decidir_permiso(Permiso::Deny, true),
+            VerdictoPermiso::RepetidoDenegado
+        );
+    }
+
+    #[test]
+    fn f3_allow_ejecuta_siempre() {
+        use super::{decidir_permiso, VerdictoPermiso};
+        use crate::permiso::Permiso;
+        assert_eq!(
+            decidir_permiso(Permiso::Allow, false),
+            VerdictoPermiso::Ejecutar
+        );
+        assert_eq!(
+            decidir_permiso(Permiso::Allow, true),
+            VerdictoPermiso::Ejecutar
+        );
     }
 
     /* [318A-15 F5] El wrap-up al agotar `max_turns` cierra con estructura

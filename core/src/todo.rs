@@ -291,7 +291,7 @@ mod tests {
         assert!(registry.ids().contains(&"todo"));
         assert!(!registry.tiene_efecto("todo"), "todo no requiere aprobación");
         assert!(registry.todo().is_some(), "la store queda registrada");
-        let schemas = registry.schemas_openai(None);
+        let schemas = registry.schemas_openai(None, "predeterminado");
         assert!(schemas.iter().any(|s| s["function"]["name"] == "todo"));
     }
 }

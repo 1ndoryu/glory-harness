@@ -32,8 +32,18 @@ pub enum AgenteEvento {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         diff: Option<String>,
     },
-    /// La tool requiere aprobación del usuario (modo predeterminado).
+    /// La tool requiere aprobación del usuario (política de permisos: modo
+    /// predeterminado / override `ask`).
     RequiereAprobacion { tool: String, argumentos: serde_json::Value },
+    /// [318A-15 F3] La tool fue denegada por política (`deny` silencioso por
+    /// override o modo meta) o por negación del usuario en la UI. El runtime
+    /// no reintenta la tool en ese turno: el modelo recibe el estado como
+    /// resultado de tool y cambia de plan.
+    PermisoDenegado {
+        tool: String,
+        /// Motivo presentable: "denegada_por_usuario" | "denegada_por_politica".
+        motivo: String,
+    },
     /// Uso parcial/final de tokens. `ocupacion_pct` lo emite el runtime tras
     /// cada compactación (barra de contexto del front); `None` en los demás.
     /// [02-09-2026] `provider`/`modelo` son el proveedor/modelo REAL que

@@ -158,22 +158,24 @@ en el handler.
 **Problema:** flags booleanos globales; la UI no puede preguntar por tool ni el
 usuario negar una tool concreta.
 
-- [ ] Core: modelo de datos `Permiso { ask | allow | deny }` por tool, con
+- [x] Core: modelo de datos `Permiso { ask | allow | deny }` por tool, con
       herencia de un default por perfil y overrides por conversación (patrón
       opencode permissions + claurst `PermissionLevel`).
-- [ ] Mapeo desde los modos actuales: `predeterminado` → ask para escritura,
+- [x] Mapeo desde los modos actuales: `predeterminado` → ask para escritura,
       allow para lectura; `meta` → deny para todo efecto; `autonomo` → allow
       (sin romper configs existentes: el mapeo es default, override por
       conversación explícito).
-- [ ] `deny` silencioso: la tool se **quita del schema** (no solo policy) — el
+- [x] `deny` silencioso: la tool se **quita del schema** (no solo policy) — el
       modelo no la ve (verificado en claurst `agent_tool.rs`).
-- [ ] Denegación con `ask`: evento `RequiereAprobacion` actual; **no reintento
+- [x] Denegación con `ask`: evento `RequiereAprobacion` actual; **no reintento
       automático** tras negación (la conversación continúa, el modelo recibe el
       "denegado" y cambia de plan).
-- [ ] Evento SSE `PermisoDenegado { tool, motivo }` para la UI.
-- [ ] Tests: herencia default→conversación, deny quita del schema, ask emite
+- [x] Evento SSE `PermisoDenegado { tool, motivo }` para la UI.
+- [x] Tests: herencia default→conversación, deny quita del schema, ask emite
       evento, no-reintento.
-- [ ] E2E: pedir una tool `deny` y verificar que el modelo no la ofrece.
+- [x] E2E: pedir una tool `deny` y verificar que el modelo no la ofrece — el
+      modelo solo ve tools vía `schemas_openai`; el fixture verifica deny
+      (modo y override) la excluye del schema (mismo canal que un turno real).
 
 ### Fase 4 — Subagentes (tool `task`)
 
@@ -328,7 +330,7 @@ flags de contexto reales; contrato SSE existente (las fases solo **añaden** eve
 | F0 | Telemetría y línea base | ☐ 0/4 |
 | F1 | Capas + `[ENTORNO]` | ✅ 6/6 |
 | F2 | Reglas (AGENTS.md / skills) | ☐ 0/5 |
-| F3 | Permisos por tool | ☐ 0/7 |
+| F3 | Permisos por tool | ✅ 7/7 |
 | F4 | Subagentes (tool `task`) | ☐ 0/10 |
 | F5 | Tools ricos + todo + pasos | ✅ 7/7 |
 | F6 | Compactación dirigida | ☐ 0/7 |

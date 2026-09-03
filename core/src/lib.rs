@@ -13,6 +13,7 @@
 
 pub mod ports;
 pub mod evento;
+pub mod permiso;
 pub mod error;
 pub mod llm;
 pub mod diff;

@@ -9,6 +9,7 @@
  * consumidor downcastea); el núcleo nunca lo interpreta (DIP). */
 
 use crate::error::{Error, Result};
+use crate::permiso::{permiso_efectivo, permiso_por_modo, Permiso};
 use crate::ports::{AgentPersistence, ProviderPort, WebSearchProvider};
 use crate::sandbox::SandboxArchivos;
 use crate::todo::TodoCompartida;
@@ -16,7 +17,7 @@ use async_trait::async_trait;
 use serde_json::Value;
 use std::any::Any;
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 use uuid::Uuid;
 
 /// Contexto que recibe cada tool al ejecutarse. El núcleo solo expone puertos
@@ -124,6 +125,10 @@ pub struct AgentToolRegistry {
     sandbox_archivos: Option<Arc<SandboxArchivos>>,
     /// Store del plan `todo` (318A-15 F5), mismo patrón que el sandbox.
     todo: Option<TodoCompartida>,
+    /// [318A-15 F3] Overrides de permiso por conversación: `Arc` compartido
+    /// (el runtime se clona el registro y ambos deben ver los mismos
+    /// overrides). `None` (eliminado) → vuelve al default del modo.
+    overrides: Arc<RwLock<HashMap<&'static str, Permiso>>>,
 }
 
 impl Default for AgentToolRegistry {
@@ -139,6 +144,7 @@ impl AgentToolRegistry {
             tools: HashMap::new(),
             sandbox_archivos: None,
             todo: None,
+            overrides: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
@@ -173,13 +179,26 @@ impl AgentToolRegistry {
         ids
     }
 
-    /// Schemas en formato OpenAI `tools` para el request al LLM.
+    /// Schemas en formato OpenAI `tools` para el request al LLM. [318A-15 F3]
+    /// El `deny` silencioso se aplica AQUÍ: una tool denegada no aparece en el
+    /// schema (el modelo no la ve; no solo policy). `solo_ids` filtra el
+    /// subconjunto del turno (web/recordatorios apagados); el deny se aplica
+    /// después, sobre el conjunto ya filtrado.
     #[must_use]
-    pub fn schemas_openai(&self, solo_ids: Option<&[&str]>) -> Vec<Value> {
+    pub fn schemas_openai(&self, solo_ids: Option<&[&str]>, modo: &str) -> Vec<Value> {
+        let overrides = self
+            .overrides
+            .read()
+            .unwrap_or_else(|p| p.into_inner());
         let mut schemas: Vec<Value> = self
             .tools
             .iter()
             .filter(|(id, _)| solo_ids.map(|ids| ids.contains(id)).unwrap_or(true))
+            .filter(|(id, _)| {
+                /* deny silencioso: override `deny` o modo meta con efecto. */
+                let default = permiso_por_modo(modo, self.tools.get(*id).map(|t| t.efecto()).unwrap_or(false));
+                permiso_efectivo(default, overrides.get(*id).copied()) != Permiso::Deny
+            })
             .map(|(id, tool)| {
                 serde_json::json!({
                     "type": "function",
@@ -191,6 +210,7 @@ impl AgentToolRegistry {
                 })
             })
             .collect();
+        drop(overrides);
         schemas.sort_by(|a, b| {
             a["function"]["name"]
                 .as_str()
@@ -204,6 +224,49 @@ impl AgentToolRegistry {
     #[must_use]
     pub fn tiene_efecto(&self, tool_id: &str) -> bool {
         self.tools.get(tool_id).map(|t| t.efecto()).unwrap_or(false)
+    }
+
+    /* [318A-15 F3] Permisos por tool con herencia default-del-modo y override
+     * por conversación. El override vive en un `Arc` compartido: el runtime
+     * clona el registro en `nuevo()` y ambos comparten el mismo mapa, así la
+     * conversación puede establecer overrides sin reconstruir el registro. */
+
+    /// Override de permiso de una tool para esta conversación (F3).
+    /// `Some(Permiso)` reemplaza al default del modo; `None` lo restaura.
+    pub fn establecer_permiso(&self, tool_id: &'static str, permiso: Option<Permiso>) {
+        let mut guard = self.overrides.write().unwrap_or_else(|p| p.into_inner());
+        match permiso {
+            Some(p) => {
+                guard.insert(tool_id, p);
+            }
+            None => {
+                guard.remove(tool_id);
+            }
+        }
+    }
+
+    /// Permiso efectivo de una tool para esta conversación: override si
+    /// existe; si no, default del modo actual según tenga efecto o no.
+    #[must_use]
+    pub fn permiso_para(&self, tool_id: &str, modo: &str) -> Permiso {
+        let override_conv = self
+            .overrides
+            .read()
+            .unwrap_or_else(|p| p.into_inner())
+            .get(tool_id)
+            .copied();
+        permiso_efectivo(
+            permiso_por_modo(modo, self.tiene_efecto(tool_id)),
+            override_conv,
+        )
+    }
+
+    /// ¿La tool está denegada (`deny`) en esta conversación? El runtime usa
+    /// este gate tanto para retirarla del schema como para denegar si llega a
+    /// proponerse.
+    #[must_use]
+    pub fn esta_denegada(&self, tool_id: &str, modo: &str) -> bool {
+        self.permiso_para(tool_id, modo) == Permiso::Deny
     }
 
     pub async fn ejecutar(
@@ -322,9 +385,113 @@ mod tests {
         let mut registry = AgentToolRegistry::new();
         registry.registrar(Box::new(ToolEcho));
         assert_eq!(registry.ids(), vec!["echo"]);
-        let schemas = registry.schemas_openai(None);
+        let schemas = registry.schemas_openai(None, "predeterminado");
         assert_eq!(schemas.len(), 1);
         assert_eq!(schemas[0]["function"]["name"], "echo");
+    }
+
+    /* [318A-15 F3] Permisos por tool: herencia default→conversación,
+     * deny fuera del schema. */
+    struct ToolEfecto;
+
+    #[async_trait]
+    impl AgentTool for ToolEfecto {
+        fn id(&self) -> &'static str {
+            "escribir_demo"
+        }
+        fn descripcion(&self) -> &'static str {
+            "Escribe algo (demo con efecto)"
+        }
+        fn schema(&self) -> Value {
+            json!({ "type": "object", "properties": {} })
+        }
+        fn efecto(&self) -> bool {
+            true
+        }
+        async fn ejecutar(
+            &self,
+            _ctx: &AgentToolContext<'_>,
+            _argumentos: Value,
+        ) -> Result<AgentToolResult> {
+            Ok(AgentToolResult::ok("escrito", "escribir_demo"))
+        }
+    }
+
+    #[test]
+    fn f3_default_del_modo_por_tool_segun_efecto() {
+        let mut registry = AgentToolRegistry::new();
+        registry.registrar(Box::new(ToolEfecto));
+        registry.registrar(Box::new(ToolEcho));
+        assert_eq!(
+            registry.permiso_para("escribir_demo", "predeterminado"),
+            Permiso::Ask,
+            "efecto en predeterminado → ask"
+        );
+        assert_eq!(
+            registry.permiso_para("echo", "predeterminado"),
+            Permiso::Allow,
+            "sin efecto en predeterminado → allow"
+        );
+        assert_eq!(
+            registry.permiso_para("escribir_demo", "meta"),
+            Permiso::Deny,
+            "efecto en meta → deny"
+        );
+        assert_eq!(
+            registry.permiso_para("escribir_demo", "autonomo"),
+            Permiso::Allow,
+            "efecto en autonomo → allow"
+        );
+    }
+
+    #[test]
+    fn f3_override_de_conversacion_gana_al_default_y_se_puede_restaurar() {
+        let mut registry = AgentToolRegistry::new();
+        registry.registrar(Box::new(ToolEfecto));
+        /* predeterminado → ask; la conversación lo fuerza a deny. */
+        assert_eq!(
+            registry.permiso_para("escribir_demo", "predeterminado"),
+            Permiso::Ask
+        );
+        registry.establecer_permiso("escribir_demo", Some(Permiso::Deny));
+        assert_eq!(
+            registry.permiso_para("escribir_demo", "predeterminado"),
+            Permiso::Deny
+        );
+        /* Restaurar (None) vuelve al default del modo. */
+        registry.establecer_permiso("escribir_demo", None);
+        assert_eq!(
+            registry.permiso_para("escribir_demo", "predeterminado"),
+            Permiso::Ask
+        );
+        /* Allow explícito gana incluso al deny del modo meta. */
+        registry.establecer_permiso("escribir_demo", Some(Permiso::Allow));
+        assert_eq!(registry.permiso_para("escribir_demo", "meta"), Permiso::Allow);
+    }
+
+    #[test]
+    fn f3_deny_silencioso_quita_la_tool_del_schema() {
+        let mut registry = AgentToolRegistry::new();
+        registry.registrar(Box::new(ToolEfecto));
+        registry.registrar(Box::new(ToolEcho));
+        let nombres = |schemas: &[Value]| -> Vec<String> {
+            schemas
+                .iter()
+                .filter_map(|s| s["function"]["name"].as_str().map(String::from))
+                .collect()
+        };
+        /* En modo meta la tool con efecto no se ofrece (no solo policy). */
+        let schemas_meta = registry.schemas_openai(None, "meta");
+        assert!(!nombres(&schemas_meta).contains(&"escribir_demo".to_string()));
+        assert!(nombres(&schemas_meta).contains(&"echo".to_string()));
+        /* En predeterminado sí aparece (ask) pero con deny por override
+         * desaparece. */
+        assert!(nombres(&registry.schemas_openai(None, "predeterminado"))
+            .contains(&"escribir_demo".to_string()));
+        registry.establecer_permiso("escribir_demo", Some(Permiso::Deny));
+        let schemas = registry.schemas_openai(None, "predeterminado");
+        assert!(!nombres(&schemas).contains(&"escribir_demo".to_string()));
+        assert!(nombres(&schemas).contains(&"echo".to_string()));
     }
 
     #[test]
