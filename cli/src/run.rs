@@ -101,6 +101,12 @@ pub(crate) fn construir_harness(opciones: &OpcionesRun) -> HarnessCli {
         },
         config.clone(),
     ));
+    /* [318A-15 F2] Reglas del repositorio (AGENTS.md, jerarquía: la raíz gana
+     * a subcarpetas) → ranura `[REGLAS]` del system prompt. Sin AGENTS.md la
+     * ranura queda vacía (el núcleo no emite encabezado huérfano). */
+    if let Some(workspace_dir) = workspace.as_deref() {
+        runtime.establecer_reglas(crate::reglas::cargar_reglas(workspace_dir).unwrap_or_default());
+    }
 
     HarnessCli {
         runtime,

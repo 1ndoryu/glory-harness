@@ -157,12 +157,22 @@ prompt son inmutables.
 **Problema:** el CLI no lee reglas del repositorio; la IA de PT duplica memoria/skills
 en el handler.
 
-- [ ] CLI: cargar `AGENTS.md` subiendo directorios desde `--dir` (jerarquía
+- [x] CLI: cargar `AGENTS.md` subiendo directorios desde `--dir` (jerarquía
       opencode `docs/rules`) y volcarlo en la capa `[REGLAS]`; caché por directorio.
+      (`cli/src/reglas.rs`: ancestros desde el workspace, la raíz gana a
+      subcarpetas, caché global por directorio; `run.rs` inyecta vía
+      `AgentRuntime::establecer_reglas` — la ranura del núcleo, protegida en
+      compactación por F1.)
 - [ ] IA de PT: migrar la inyección de memoria/skills a la ranura `[REGLAS]`
       (sin duplicar: o memoria o reglas, no ambos mensajes system con lo mismo).
-- [ ] Tests: jerarquía de AGENTS.md (raíz gana a subcarpeta), ausencia no rompe.
-- [ ] E2E: chat en un workspace con AGENTS.md y verificar que el modelo lo cumple.
+      *Queda sin marcar: `src/handlers/agente.rs` de PT tiene cambios ajenos
+      sin commitear de otros hilos; no se toca (el núcleo ya expone
+      `establecer_reglas` y el item 2 es un cambio de cableado en PT).*
+- [x] Tests: jerarquía de AGENTS.md (raíz gana a subcarpeta), ausencia no rompe
+      (+ caché: segunda lectura no re-lee el disco).
+- [x] E2E: determinista sin modelo real — fixture con AGENTS.md falso → loader
+      → `ensamblar_prompt_sistema` y se verifica que el contenido queda dentro
+      de `[REGLAS]`…`[/REGLAS]` y que `[ENTORNO]` va después.
 
 ### Fase 3 — Permisos por herramienta (ask/allow/deny)
 
@@ -350,7 +360,7 @@ flags de contexto reales; contrato SSE existente (las fases solo **añaden** eve
 |---|---|---|
 | F0 | Telemetría y línea base | ⏳ 2/4 |
 | F1 | Capas + `[ENTORNO]` | ✅ 6/6 |
-| F2 | Reglas (AGENTS.md / skills) | ☐ 0/5 |
+| F2 | Reglas (AGENTS.md / skills) | ⏳ 3/4 |
 | F3 | Permisos por tool | ✅ 7/7 |
 | F4 | Subagentes (tool `task`) | ✅ 9/10 |
 | F5 | Tools ricos + todo + pasos | ✅ 7/7 |

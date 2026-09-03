@@ -18,6 +18,7 @@
 mod chat;
 mod daemon;
 mod persistencia;
+mod reglas;
 mod run;
 mod tui;
 

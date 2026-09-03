@@ -208,6 +208,10 @@ pub struct AgentRuntime {
     /// [318A-15 F0] Acumulador de telemetría del turno (interior-mutable;
     /// reseteado al emitir `Telemetria` justo antes de `Done`).
     telemetria: std::sync::Mutex<TelemetriaTurno>,
+    /// [318A-15 F2] Reglas del consumidor (AGENTS.md / skills) inyectadas en
+    /// la ranura `[REGLAS]`. Interior-mutable: el CLI la fija tras construir
+    /// el runtime; vacía por defecto (ranura nunca huérfana).
+    reglas: std::sync::Mutex<String>,
 }
 
 impl AgentRuntime {
@@ -246,7 +250,14 @@ impl AgentRuntime {
             dominio: puertos.dominio,
             profundidad_subagente: std::sync::atomic::AtomicU8::new(0),
             telemetria: std::sync::Mutex::new(TelemetriaTurno::nuevo()),
+            reglas: std::sync::Mutex::new(String::new()),
         }
+    }
+
+    /// [318A-15 F2] Fija las reglas del consumidor (contenido de AGENTS.md o
+    /// skills) que se inyectan en la ranura `[REGLAS]` del system prompt.
+    pub fn establecer_reglas(&self, reglas: impl Into<String>) {
+        *self.reglas.lock().unwrap_or_else(|p| p.into_inner()) = reglas.into();
     }
 
     #[must_use]
@@ -261,11 +272,12 @@ impl AgentRuntime {
         self.telemetria.lock().unwrap_or_else(|p| p.into_inner())
     }
 
-    /// [318A-15 F1] Ensambla el system prompt de capas para el turno actual
-    /// (base estática → ranura [REGLAS] → bloque [ENTORNO] con la fecha real).
-    /// Sin reglas del consumidor (hoy el núcleo no las recibe; F2 las cablea).
+    /// [318A-15 F1/F2] Ensambla el system prompt de capas para el turno actual
+    /// (base estática → ranura [REGLAS] con las reglas del consumidor → bloque
+    /// [ENTORNO] con la fecha real).
     fn prompt_sistema(&self) -> String {
-        ensamblar_prompt_sistema(&self.turno_config, "", &fecha_hoy())
+        let reglas = self.reglas.lock().unwrap_or_else(|p| p.into_inner()).clone();
+        ensamblar_prompt_sistema(&self.turno_config, &reglas, &fecha_hoy())
     }
 
     /// Ejecuta un turno completo del agente: sistema + historial + mensaje del
@@ -1085,7 +1097,7 @@ fn wrap_up_instruccion() -> String {
 ///
 /// La `fecha` es parámetro para que el E2E sea determinista; en producción
 /// viene de [`fecha_hoy`].
-fn ensamblar_prompt_sistema(config: &TurnoConfig, reglas: &str, fecha: &str) -> String {
+pub fn ensamblar_prompt_sistema(config: &TurnoConfig, reglas: &str, fecha: &str) -> String {
     let mut base = if config.prompt_sistema.trim().is_empty() {
         SYSTEM_PROMPT.to_string()
     } else {
