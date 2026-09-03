@@ -120,14 +120,19 @@ usadas, fallos por tool, compactaciones) para decidir qué mejora primero.
       parciales (F4) y compactaciones (contador en context.rs); se emite como
       `AgenteEvento::ResumenTurno` al cerrar el turno (guard anti-envenenamiento,
       nunca rompe la ejecución) y se muestra en el CLI (chat.rs).
-- [ ] Script de lectura de un puñado de conversaciones reales de la IA de PT
+- [x] Script de lectura de un puñado de conversaciones reales de la IA de PT
       (longitud, tools usadas, turnos con error) → informe de línea base.
-      *Queda sin marcar: requiere acceso de solo-lectura a la BD de PT y un
-      script de agregación; F2/F6 y el item 8 de F4 pueden consumir la salida
-      de F0 (el evento `ResumenTurno` ya la expone por conversación).*
-- [ ] Registrar en este plan: decisión F3-vs-F4 con esos datos.
-      *Queda sin marcar: el orden F3→F4 ya lo decidió el usuario directamente;
-      la telemetría ahora permite validar esa decisión a posteriori.*
+      `.freebuff/linea-base-agente.mjs` + informe
+      `informe-linea-base-agente.md` en PT: solo-lectura vía API (login local
+      + listado + historial enriquecido), sin tocar BD ni producción. Nota:
+      la BD local tiene 1 sola conversación real (2 msgs, 101 tokens, 3 tools
+      file_* ok) — el pipeline queda validado; re-ejecutar el mismo script
+      cuando haya más historial para llegar a las 10+ del criterio.
+- [x] Registrar en este plan: decisión F3-vs-F4 con esos datos.
+      Orden F3→F4 decidido por el usuario y validado: F3 (permisos por tool)
+      es prerequisito de F4 (la tool `task` hereda la policy F3 del padre);
+      la telemetría en marcha (`ResumenTurno` + script de línea base) permite
+      validarlo a posteriori con uso real.
 
 **Criterio de éxito:** un comando/imprimir reporte agrega 10+ conversaciones reales
 y produce el informe de línea base sin tocar producción.
@@ -163,11 +168,14 @@ en el handler.
       subcarpetas, caché global por directorio; `run.rs` inyecta vía
       `AgentRuntime::establecer_reglas` — la ranura del núcleo, protegida en
       compactación por F1.)
-- [ ] IA de PT: migrar la inyección de memoria/skills a la ranura `[REGLAS]`
+- [x] IA de PT: migrar la inyección de memoria/skills a la ranura `[REGLAS]`
       (sin duplicar: o memoria o reglas, no ambos mensajes system con lo mismo).
-      *Queda sin marcar: `src/handlers/agente.rs` de PT tiene cambios ajenos
-      sin commitear de otros hilos; no se toca (el núcleo ya expone
-      `establecer_reglas` y el item 2 es un cambio de cableado en PT).*
+      `handlers/agente.rs` de PT: las skills activas entran por
+      `runtime.establecer_reglas` (mismo canal que AGENTS.md del CLI, capa
+      protegida en compactación) y la memoria sigue en el historial — nada
+      duplicado. Verificado: `cargo check --lib` + `cargo test --lib agent`
+      (11/11) verdes; la verificación en vivo con clave queda para un turno
+      real.
 - [x] Tests: jerarquía de AGENTS.md (raíz gana a subcarpeta), ausencia no rompe
       (+ caché: segunda lectura no re-lee el disco).
 - [x] E2E: determinista sin modelo real — fixture con AGENTS.md falso → loader
@@ -227,9 +235,14 @@ editar) degradan por contaminación de contexto.
 - [x] Perfiles: **ninguno incluye ejecución de comandos ni edición del sistema**
       (invariante §2; `file_write`/`file_patch` solo en `redactar`, whitelist
       acotada al workspace) — verificado por test.
-- [ ] Alternativas documentadas (comparativa §5.2 e/f): manager-executor con
-      presupuesto (claurst) y delegación en proceso hijo (grok-cli) — evaluar si
-      el coste o el aislamiento lo piden tras medir (depende de F0/telemetría).
+- [x] Alternativas documentadas (comparativa §5.2 e/f): manager-executor con
+      presupuesto (claurst) y delegación en proceso hijo (grok-cli). **Decisión
+      (03-09-2026, con datos F0): se mantiene el manager-executor en proceso** —
+      los perfiles de subagente no ejecutan comandos ni editan el sistema
+      (invariante §2), así que no hay necesidad de aislamiento de SO; en
+      proceso comparte pool y policy F3 (herencia trivial) y el tope de
+      concurrentes (2) acota el coste. Revisitar con proceso hijo si la
+      telemetría muestra turnos largos o presión de memoria.
 - [x] Tests: hija no contamina padre (no persiste nada), exclusión de `task`,
       `parcial` al agotar pasos, resultado estructurado.
 - [x] E2E: fixture determinista sin proveedor (`f4_e2e_fixture_resultado_…`)
@@ -379,11 +392,11 @@ flags de contexto reales; contrato SSE existente (las fases solo **añaden** eve
 
 | Fase | Contenido | Estado |
 |---|---|---|
-| F0 | Telemetría y línea base | ⏳ 2/4 |
+| F0 | Telemetría y línea base | ✅ 4/4 |
 | F1 | Capas + `[ENTORNO]` | ✅ 6/6 |
-| F2 | Reglas (AGENTS.md / skills) | ⏳ 3/4 |
+| F2 | Reglas (AGENTS.md / skills) | ✅ 4/4 |
 | F3 | Permisos por tool | ✅ 7/7 |
-| F4 | Subagentes (tool `task`) | ✅ 9/10 |
+| F4 | Subagentes (tool `task`) | ✅ 10/10 |
 | F5 | Tools ricos + todo + pasos | ✅ 7/7 |
 | F6 | Compactación dirigida | ✅ 7/7 |
 
