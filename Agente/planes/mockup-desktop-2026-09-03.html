@@ -1,0 +1,853 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>glory-harness desktop — boceto v2 (plan 039A-1)</title>
+<style>
+/* ============================================================
+   Boceto UI Glory Harness Desktop — estilo v2 del workspace-manager
+   Monocromo estricto: solo blanco y negro, sin radius, sin sombras,
+   sin bold; estados por patrones (relleno negro / tramas) y bordes.
+   Fuente: Departure Mono (misma del workspace-manager).
+   ============================================================ */
+
+@font-face {
+    font-family: 'Departure Mono';
+    src: url('DepartureMono-Regular.woff2') format('woff2');
+    font-weight: normal;
+    font-style: normal;
+    font-display: swap;
+}
+
+:root {
+    --fondo: #ffffff;
+    --texto: #000000;
+    --invertido: #ffffff;
+    --borde: #000000;
+    --font: 'Departure Mono', ui-monospace, SFMono-Regular, 'SF Mono', Consolas, 'Liberation Mono', Menlo, monospace;
+    --xs: 0.72rem;   /* ~9.4px  */
+    --sm: 0.85rem;   /* ~11px   */
+    --md: 1rem;      /* 13px    */
+    --lg: 1.15rem;   /* ~15px   */
+    --sp-xs: 6px;
+    --sp-sm: 10px;
+    --sp-md: 16px;
+    --sp-lg: 24px;
+}
+
+html { font-size: 13px; }
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+    background: var(--fondo);
+    color: var(--texto);
+    font-family: var(--font);
+    line-height: 1.55;
+}
+
+/* ---------- Patrones monocromo ---------- */
+.trama-45  { background-image: repeating-linear-gradient(45deg,  #000 0 1.5px, transparent 1.5px 6px); }
+.trama-135 { background-image: repeating-linear-gradient(-45deg, #000 0 1.5px, transparent 1.5px 6px); }
+.trama-puntos { background-image: radial-gradient(#000 1px, transparent 1.5px); background-size: 4px 4px; }
+
+/* ---------- Layout de la ventana ---------- */
+#app {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+}
+
+#cuerpo {
+    flex: 1;
+    display: flex;
+    min-height: 0;
+}
+
+/* ---------- Barras ---------- */
+.barra {
+    background: #000;
+    color: #fff;
+    font-size: var(--xs);
+    display: flex;
+    align-items: center;
+    gap: var(--sp-sm);
+    padding: 0 var(--sp-md);
+    height: 30px;
+    white-space: nowrap;
+    overflow: hidden;
+}
+
+/* ---------- Sidebar ---------- */
+#sidebar {
+    width: 260px;
+    border-right: 1px solid var(--borde);
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+#sidebar .nav-botones {
+    display: flex;
+    flex-direction: column;
+    padding: var(--sp-xs) 0 var(--sp-lg);
+}
+#sidebar .nav-boton {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-sm);
+    width: 100%;
+    background: #fff;
+    color: #000;
+    border: none;
+    font-family: inherit;
+    font-size: var(--sm);
+    padding: var(--sp-xs) var(--sp-md);
+    cursor: pointer;
+    text-align: left;
+    opacity: 0.8;
+}
+#sidebar .nav-boton:hover { opacity: 1; }
+
+#lista-conversaciones {
+    flex: 1;
+    overflow-y: auto;
+    padding-top: var(--sp-sm);
+}
+.conv {
+    padding: var(--sp-xs) var(--sp-md);
+    cursor: pointer;
+    opacity: 0.5;
+}
+.conv:not(.sel):hover { opacity: 1; }
+.conv.sel {
+    opacity: 1;
+    background: transparent;
+    color: #000;
+}
+.conv .t { font-size: var(--sm); }
+
+#sidebar .pie {
+    border-top: 1px solid var(--borde);
+    padding: var(--sp-sm) var(--sp-md);
+}
+#sidebar .pie-boton {
+    width: 100%;
+    font-family: inherit;
+    font-size: var(--sm);
+    background: #fff;
+    color: #000;
+    border: none;
+    padding: var(--sp-xs) var(--sp-md);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: var(--sp-sm);
+    text-align: left;
+    opacity: 0.8;
+}
+#sidebar .pie-boton:hover { opacity: 1; }
+
+/* ---------- Chat ---------- */
+#chat { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+
+#cabecera-chat {
+    border-bottom: 1px solid var(--borde);
+    padding: var(--sp-sm) var(--sp-md);
+    display: flex;
+    align-items: baseline;
+    gap: var(--sp-md);
+    font-size: var(--xs);
+}
+#cabecera-chat .titulo { font-size: var(--lg); }
+
+#mensajes {
+    flex: 1;
+    overflow-y: auto;
+    padding: var(--sp-lg);
+    display: flex;
+    flex-direction: column;
+    gap: var(--sp-md);
+    max-width: 860px;
+    width: 100%;
+    margin: 0 auto;
+}
+
+.msg-user {
+    align-self: flex-start;
+    background: #000;
+    color: #fff;
+    border: 1px solid #000;
+    padding: var(--sp-sm) var(--sp-md);
+    max-width: 70%;
+}
+
+.msg-asis { max-width: 92%; }
+.msg-asis .texto { font-size: var(--md); white-space: pre-wrap; }
+
+/* cursor de streaming */
+.cursor {
+    display: inline-block;
+    width: 7px;
+    height: 13px;
+    background: #000;
+    vertical-align: -2px;
+    margin-left: 2px;
+    animation: parpadeo 1s steps(1) infinite;
+}
+@keyframes parpadeo { 0%, 49% { opacity: 1; } 50%, 100% { opacity: 0; } }
+
+/* ---------- Tarjetas de tools ---------- */
+.tarjeta { border: 1px solid var(--borde); font-size: var(--sm); }
+.tarjeta .cab {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-sm);
+    padding: var(--sp-xs) var(--sp-sm);
+    border-bottom: 1px solid var(--borde);
+    cursor: pointer;
+}
+.tarjeta .cab .nombre { font-size: var(--sm); }
+.tarjeta .cab .estado { margin-left: auto; font-size: var(--xs); }
+.tarjeta .cuerpo { padding: var(--sp-sm); font-size: var(--xs); }
+
+.tarjeta.ejecutando .cab { background: #000; color: #fff; }
+.tarjeta.error .cab { background: #000; color: #fff; }
+.tarjeta.denegada .cab { background: #fff; color: #000; }
+.tarjeta.denegada .cuerpo { background-image: repeating-linear-gradient(-45deg, #000 0 1px, transparent 1px 5px); background-size: 7.07px 7.07px; }
+
+/* ---------- Iconos lucide (svg en línea, monocromo) ---------- */
+.ic {
+    display: inline-block;
+    width: 14px;
+    height: 14px;
+    vertical-align: -3px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+.ic-xs { width: 11px; height: 11px; vertical-align: -1px; }
+.ic-spin { animation: giro .9s linear infinite; transform-origin: center; }
+@keyframes giro { to { transform: rotate(360deg); } }
+
+/* diff */
+.diff { margin-top: var(--sp-sm); border: 1px solid var(--borde); font-size: var(--xs); }
+.diff summary { padding: 2px var(--sp-sm); cursor: pointer; border-bottom: 1px solid var(--borde); }
+.diff pre { padding: var(--sp-sm); overflow-x: auto; white-space: pre; }
+.diff .add { background-image: repeating-linear-gradient(45deg, #000 0 1px, transparent 1px 5px); background-size: 7.07px 7.07px; }
+.diff .del { border-left: 3px solid #000; }
+.diff .ctx { color: #000; }
+
+/* ---------- Tarjeta de aprobación ---------- */
+.aprobacion { border: 1px solid var(--borde); }
+.aprobacion .cab { font-size: var(--sm); padding: var(--sp-sm); }
+.aprobacion .args { margin: 0 var(--sp-sm) var(--sp-sm); border: 1px solid var(--borde); padding: var(--sp-sm); font-size: var(--xs); white-space: pre-wrap; background: #fff; }
+.aprobacion .acciones { display: flex; gap: var(--sp-sm); padding: 0 var(--sp-sm) var(--sp-sm); }
+
+.btn {
+    border: 1px solid #000;
+    background: #fff;
+    color: #000;
+    font-family: inherit;
+    font-size: var(--sm);
+    padding: 3px 14px;
+    cursor: pointer;
+    opacity: 0.8;
+}
+.btn:hover { opacity: 1; }
+.btn.primario { background: #000; color: #fff; }
+.btn.primario:hover { opacity: 1; }
+.btn:disabled { opacity: .35; cursor: default; }
+.btn:disabled:hover { opacity: .35; }
+
+/* ---------- Barra de contexto ---------- */
+#contexto { border-top: 1px solid var(--borde); padding: var(--sp-sm) var(--sp-lg); }
+#contexto .fila { display: flex; align-items: center; gap: var(--sp-md); }
+#contexto .etiqueta { font-size: var(--xs); }
+#contexto .barra {
+    flex: 1; height: 16px; border: 1px solid #000; background: #fff;
+    display: flex; padding: 0;
+    height: 16px;
+}
+#contexto .seg { height: 100%; }
+
+/* ---------- Entrada ---------- */
+#entrada { border-top: 1px solid var(--borde); padding: var(--sp-md) var(--sp-lg); }
+#entrada .caja {
+    display: flex; align-items: center; gap: var(--sp-sm);
+    border: 1px solid #000; padding: var(--sp-xs) var(--sp-sm);
+    background: #fff;
+}
+#entrada .prompt { font-size: var(--sm); }
+#entrada input {
+    flex: 1; border: none; outline: none; background: #fff; color: #000;
+    font-family: inherit; font-size: var(--sm);
+}
+#entrada .modo { font-size: var(--xs); border-left: 1px solid #000; padding-left: var(--sp-sm); }
+
+/* ---------- Modal configuración ---------- */
+.modal-fondo {
+    position: fixed;
+    inset: 0;
+    background: rgba(255, 255, 255, 0.55);
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 10;
+}
+.modal-fondo[hidden] { display: none; }
+.modal {
+    background: #fff;
+    border: 1px solid #000;
+    width: 580px;
+    max-width: calc(100vw - 48px);
+    max-height: calc(100vh - 48px);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+.modal-cab {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--sp-sm) var(--sp-md);
+    border-bottom: 1px solid #000;
+}
+.modal-titulo { font-size: var(--md); }
+.modal-cerrar { padding: 2px 6px; display: inline-flex; align-items: center; }
+.modal-cuerpo {
+    flex: 1;
+    min-height: 0;
+    min-height: 320px;
+    display: flex;
+    flex-direction: row;
+    align-items: stretch;
+    overflow: hidden;
+}
+.config-nav {
+    width: 140px;
+    flex-shrink: 0;
+    border-right: 1px solid #000;
+    padding: var(--sp-sm) 0;
+    overflow-y: auto;
+}
+.config-item {
+    padding: var(--sp-xs) var(--sp-md);
+    font-size: var(--xs);
+    cursor: pointer;
+}
+.config-item:hover { background: #000; color: #fff; }
+.config-item.sel { background: #000; color: #fff; }
+.config-paneles {
+    flex: 1;
+    min-width: 0;
+    overflow-y: auto;
+    padding: var(--sp-md);
+}
+.config-panel[hidden] { display: none; }
+.modal-pie {
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--sp-sm);
+    padding: var(--sp-sm) var(--sp-md);
+    border-top: 1px solid #000;
+}
+
+.grupo { display: flex; flex-direction: column; gap: var(--sp-sm); }
+.grupo-titulo {
+    font-size: var(--xs);
+    border-bottom: 1px solid #000;
+    padding-bottom: 2px;
+}
+
+.campo { display: flex; flex-direction: column; gap: 4px; }
+.campo .etiqueta { font-size: var(--xs); }
+.campo .valor {
+    border: 1px solid #000;
+    padding: var(--sp-xs) var(--sp-sm);
+    font-size: var(--sm);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: var(--sp-sm);
+}
+.campo .valor .texto { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.campo .valor .accion { font-size: var(--xs); text-decoration: underline; cursor: pointer; white-space: nowrap; }
+.campo .nota { font-size: var(--xs); }
+
+.toggle { display: inline-flex; border: 1px solid #000; align-self: flex-start; }
+.toggle .opt {
+    font-size: var(--xs);
+    padding: 3px 10px;
+    cursor: pointer;
+    background: #fff;
+    color: #000;
+    border-right: 1px solid #000;
+}
+.toggle .opt:last-child { border-right: none; }
+.toggle .opt.sel { background: #000; color: #fff; }
+
+.fila-dato {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: var(--sp-md);
+    font-size: var(--xs);
+}
+.fila-dato span:last-child { text-align: right; }
+.check {
+    border: 1px solid #000;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+}
+.check .ic { width: 12px; height: 12px; vertical-align: 0; }
+</style>
+</head>
+<body>
+<div id="app">
+
+  <div id="cuerpo">
+
+    <!-- ======================= SIDEBAR ======================= -->
+    <aside id="sidebar">
+      <nav class="nav-botones" aria-label="crear y tipos de conversación">
+        <button type="button" class="nav-boton" title="nueva conversación">
+          <svg class="ic ic-xs" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path><line x1="9" y1="10" x2="15" y2="10"></line><line x1="12" y1="7" x2="12" y2="13"></line></svg>
+          <span>Nueva conversación</span>
+        </button>
+        <button type="button" class="nav-boton" title="agentes">
+          <svg class="ic ic-xs" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8V4H8"></path><rect width="16" height="12" x="4" y="8" rx="2"></rect><path d="M2 14h2"></path><path d="M20 14h2"></path><path d="M15 13v2"></path><path d="M9 13v2"></path></svg>
+          <span>Agentes</span>
+        </button>
+        <button type="button" class="nav-boton" title="flujo">
+          <svg class="ic ic-xs" viewBox="0 0 24 24" aria-hidden="true"><rect width="8" height="8" x="3" y="3" rx="2"></rect><path d="M7 11v4a2 2 0 0 0 2 2h4"></path><rect width="8" height="8" x="13" y="13" rx="2"></rect></svg>
+          <span>Flujo</span>
+        </button>
+        <button type="button" class="nav-boton" title="complementos">
+          <svg class="ic ic-xs" viewBox="0 0 24 24" aria-hidden="true"><path d="M19.439 7.85c-.049.322.059.648.289.878l1.568 1.568c.47.47.706 1.087.706 1.704s-.235 1.233-.706 1.704l-1.611 1.611a.98.98 0 0 1-.837.276c-.47-.07-.802-.48-.968-.925a2.501 2.501 0 1 0-3.214 3.214c.446.166.855.497.925.968a.98.98 0 0 1-.276.837l-1.61 1.61a2.404 2.404 0 0 1-1.705.707 2.402 2.402 0 0 1-1.704-.706l-1.568-1.568a1.026 1.026 0 0 0-.877-.29c-.493.074-.84.504-1.02.968a2.5 2.5 0 1 1-3.237-3.237c.464-.18.894-.527.967-1.02a1.026 1.026 0 0 0-.289-.877l-1.568-1.568A2.402 2.402 0 0 1 1.998 12c0-.617.236-1.234.706-1.704L4.23 8.77c.24-.24.581-.353.917-.303.515.077.877.528 1.073 1.01a2.5 2.5 0 1 0 3.259-3.259c-.482-.196-.933-.558-1.01-1.073-.05-.336.062-.676.303-.917l1.525-1.525A2.402 2.402 0 0 1 12 1.998c.617 0 1.234.236 1.704.706l1.568 1.568c.23.23.556.338.877.29.493-.074.84-.504 1.02-.968a2.5 2.5 0 1 1 3.237 3.237c-.464.18-.894.527-.967 1.02Z"></path></svg>
+          <span>Complementos</span>
+        </button>
+      </nav>
+
+      <div id="lista-conversaciones">
+        <div class="conv sel">
+          <div class="t">Refactor CLI a lib+bin</div>
+        </div>
+        <div class="conv">
+          <div class="t">file_patch diff único</div>
+        </div>
+        <div class="conv">
+          <div class="t">Proveedor Glory caído</div>
+        </div>
+        <div class="conv">
+          <div class="t">Plan 039A-1 — boceto UI</div>
+        </div>
+        <div class="conv">
+          <div class="t">web_fetch SSRF</div>
+        </div>
+        <div class="conv">
+          <div class="t">Subagente explorar</div>
+        </div>
+      </div>
+      <div class="pie">
+        <button class="pie-boton" id="btn-config" title="abrir configuración">
+          <svg class="ic ic-xs" viewBox="0 0 24 24" aria-hidden="true"><line x1="21" x2="14" y1="4" y2="4"></line><line x1="10" x2="3" y1="4" y2="4"></line><line x1="21" x2="12" y1="12" y2="12"></line><line x1="8" x2="3" y1="12" y2="12"></line><line x1="21" x2="16" y1="20" y2="20"></line><line x1="12" x2="3" y1="20" y2="20"></line><line x1="14" x2="14" y1="2" y2="6"></line><line x1="8" x2="8" y1="10" y2="14"></line><line x1="16" x2="16" y1="18" y2="22"></line></svg>
+          <span>Configuración</span>
+        </button>
+      </div>
+    </aside>
+
+    <!-- ======================= CHAT ======================= -->
+    <section id="chat">
+      <div id="cabecera-chat">
+        <span class="titulo">Refactor CLI a lib+bin</span>
+      </div>
+
+      <div id="mensajes">
+        <!-- historial estático: estados que el boceto debe revisar -->
+
+        <div class="msg-user">
+          <div>extrae construir_harness y procesar_turno a una lib compartida, sin cambiar comportamiento</div>
+        </div>
+
+        <div class="msg-asis">
+          <div class="texto">Voy a revisar la estructura del crate cli y localizar los módulos que dependen de la lógica de sesión.</div>
+        </div>
+
+        <!-- tool completada con diff colapsable -->
+        <div class="tarjeta">
+          <div class="cab">
+            <span class="nombre">file_read</span>
+            <span class="estado">ok · 3.1 KB · 2 ms</span>
+          </div>
+          <div class="cuerpo">
+            cli\src\main.rs · cli\src\run.rs · cli\src\chat.rs
+            <details class="diff">
+              <summary>ver fragmento (primeras 12 líneas)</summary>
+              <pre><span class="ctx">pub(crate) fn construir_harness(opciones: &amp;OpcionesRun) -&gt; HarnessCli {</span>
+<span class="ctx">    let persistencia = Arc::new(PersistenciaMemoria::nuevo());</span>
+<span class="del">    let user_id = Uuid::new_v4();</span>
+<span class="add">    let user_id = Uuid::new_v4(); // se conserva en la lib</span>
+<span class="ctx">    persistencia.con_skills_base(user_id);</span></pre>
+            </details>
+          </div>
+        </div>
+
+        <!-- error -->
+        <div class="tarjeta error">
+          <div class="cab">
+            <span class="nombre">web_search</span>
+            <span class="estado"><svg class="ic ic-xs" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><path d="m15 9-6 6"></path><path d="m9 9 6 6"></path></svg> error</span>
+          </div>
+          <div class="cuerpo">no se pudo contactar el proveedor (503) · reintentable: sí · el modelo cambió de plan</div>
+        </div>
+
+        <div class="msg-asis">
+          <div class="texto">El crate cli es binario puro; moveré la sesión a src/lib.rs y dejaré main.rs como despachador fino. El CLI y la app desktop compartirán la misma implementación.</div>
+        </div>
+      </div>
+
+      <!-- barra de contexto -->
+      <div id="contexto">
+        <div class="barra">
+          <div class="seg" style="width:41%; background:#000;" title="3328/8192 en uso"></div>
+        </div>
+      </div>
+
+      <!-- entrada -->
+      <div id="entrada">
+        <div class="caja">
+          <span class="prompt">&gt;</span>
+          <input id="input" type="text" placeholder="escribe un mensaje (Enter simula un turno)…" autocomplete="off">
+          <span class="modo">modo: <span id="modo-valor">predeterminado</span> <span style="cursor:pointer;" id="modo-cambiar">[toggle]</span></span>
+          <button class="btn primario" id="btn-enviar">enviar</button>
+          <button class="btn" id="btn-cancelar" disabled>cancelar</button>
+        </div>
+      </div>
+    </section>
+  </div>
+</div>
+
+<!-- ======================= MODAL CONFIGURACIÓN ======================= -->
+<div class="modal-fondo" id="modal-fondo" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-titulo">
+    <div class="modal-cab">
+      <span class="modal-titulo" id="modal-titulo">configuración</span>
+      <button class="btn modal-cerrar" id="modal-cerrar" title="cerrar"><svg class="ic ic-xs" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg></button>
+    </div>
+    <div class="modal-cuerpo">
+      <nav class="config-nav" aria-label="categorías de configuración">
+        <div class="config-item sel" data-panel="panel-modelo">modelo</div>
+        <div class="config-item" data-panel="panel-sesion">sesión</div>
+        <div class="config-item" data-panel="panel-persistencia">persistencia</div>
+      </nav>
+
+      <div class="config-paneles">
+        <section class="config-panel" id="panel-modelo">
+          <div class="grupo">
+            <div class="grupo-titulo">modelo</div>
+            <div class="campo">
+              <span class="etiqueta">proveedor / modelo</span>
+              <div class="valor"><span class="texto">commandcode / poolside/laguna-s-2.1-free</span><span class="accion">[cambiar]</span></div>
+            </div>
+            <div class="campo">
+              <span class="etiqueta">claves</span>
+              <div class="valor"><span class="texto">~/.glory-harness.env (cargadas)</span><span class="accion">[editar]</span></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="config-panel" id="panel-sesion" hidden>
+          <div class="grupo">
+            <div class="grupo-titulo">sesión</div>
+            <div class="campo">
+              <span class="etiqueta">modo</span>
+              <div class="toggle">
+                <span class="opt sel">predeterminado</span>
+                <span class="opt">autonomo</span>
+              </div>
+              <span class="nota">autonomo ejecuta las tools sin aprobar en cada paso</span>
+            </div>
+            <div class="campo">
+              <span class="etiqueta">workspace</span>
+              <div class="valor"><span class="texto">C:\area-trabajo\glory-harness</span><span class="accion">[cambiar]</span></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="config-panel" id="panel-persistencia" hidden>
+          <div class="grupo">
+            <div class="grupo-titulo">persistencia</div>
+            <div class="fila-dato"><span>motor</span><span>sqlite (WAL)</span></div>
+            <div class="fila-dato"><span>historial en disco</span><span class="check" title="activado"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 11 3 3L22 4"></path><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path></svg></span></div>
+            <div class="fila-dato"><span>ruta</span><span>%APPDATA%\glory-harness\glory-harness.db</span></div>
+            <div class="fila-dato"><span>conversaciones</span><span>6</span></div>
+          </div>
+        </section>
+      </div>
+    </div>
+    <div class="modal-pie">
+      <button class="btn" id="btn-modal-cancelar">cancelar</button>
+      <button class="btn primario" id="btn-modal-guardar">guardar cambios</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ============================================================
+   Simulación local del boceto (sin backend): Enter ejecuta un
+   turno de ejemplo — streaming, tool cards, aprobación, cancelar.
+   Solo para revisar el diseño; la app real usará el contrato
+   AgenteEvento vía IPC de Tauri.
+   ============================================================ */
+(function () {
+  var msgs = document.getElementById('mensajes');
+  var input = document.getElementById('input');
+  var btnEnviar = document.getElementById('btn-enviar');
+  var btnCancelar = document.getElementById('btn-cancelar');
+  var modoValor = document.getElementById('modo-valor');
+  var modoCambiar = document.getElementById('modo-cambiar');
+  var modo = 'predeterminado';
+  var corriendo = false;
+  var timers = [];
+
+  function later(fn, ms) { var t = setTimeout(fn, ms); timers.push(t); return t; }
+  function limpiarTimers() { timers.forEach(clearTimeout); timers = []; }
+
+  function el(tag, cls, html) {
+    var e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (html !== undefined) e.innerHTML = html;
+    return e;
+  }
+
+  function msgUsuario(texto) {
+    var m = el('div', 'msg-user');
+    m.innerHTML = '<div></div>';
+    m.lastChild.textContent = texto;
+    msgs.appendChild(m);
+    msgs.scrollTop = msgs.scrollHeight;
+  }
+
+  function msgAsistente(textoInicial) {
+    var m = el('div', 'msg-asis');
+    m.innerHTML = '<div class="texto"></div>';
+    var txt = m.querySelector('.texto');
+    txt.textContent = textoInicial;
+    var cur = el('span', 'cursor');
+    txt.appendChild(cur);
+    msgs.appendChild(m);
+    msgs.scrollTop = msgs.scrollHeight;
+    return { nodo: txt, cursor: cur };
+  }
+
+  function stream(m, texto, paso, cb) {
+    var i = 0;
+    (function pasoStream() {
+      if (i >= texto.length) { cb && cb(); return; }
+      m.nodo.textContent = texto.slice(0, ++i);
+      m.nodo.appendChild(m.cursor);
+      msgs.scrollTop = msgs.scrollHeight;
+      later(pasoStream, paso);
+    })();
+  }
+
+  /* icono lucide en línea (para contenido generado en runtime) */
+  function ico(inner, cls) {
+    return '<svg class="ic' + (cls ? ' ' + cls : '') + '" viewBox="0 0 24 24" aria-hidden="true">' + inner + '</svg>';
+  }
+
+  function toolCard(nombre, estadoHtml, cuerpoHtml) {
+    var t = el('div', 'tarjeta ' + (estadoHtml.indexOf('error') >= 0 ? 'error' : ''));
+    t.innerHTML = '<div class="cab"><span class="nombre"></span><span class="estado"></span></div><div class="cuerpo"></div>';
+    t.querySelector('.nombre').textContent = nombre;
+    t.querySelector('.estado').innerHTML = estadoHtml;
+    t.querySelector('.cuerpo').innerHTML = cuerpoHtml;
+    msgs.appendChild(t);
+    msgs.scrollTop = msgs.scrollHeight;
+    return t;
+  }
+
+  function tarjetaAprobacion(nombre, argsHtml, onDecidir) {
+    var t = el('div', 'tarjeta aprobacion');
+    t.innerHTML =
+      '<div class="cab"><span class="nombre">' + ico('<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 20h16a2 2 0 0 0 1.73-2Z"></path><path d="M12 9v4"></path><path d="M12 17h.01"></path>', 'ic-xs') + ' ' + nombre + '</span><span class="estado">requiere aprobación · política ask</span></div>' +
+      '<div class="args"></div>' +
+      '<div class="acciones">' +
+      '  <button class="btn primario" data-ok="1">aprobar</button>' +
+      '  <button class="btn" data-ok="0">denegar</button>' +
+      '</div>';
+    t.querySelector('.args').textContent = argsHtml;
+    t.querySelector('[data-ok="1"]').onclick = function () { onDecidir(true, t); };
+    t.querySelector('[data-ok="0"]').onclick = function () { onDecidir(false, t); };
+    msgs.appendChild(t);
+    msgs.scrollTop = msgs.scrollHeight;
+    return t;
+  }
+
+  function estadoEjecutando() {
+    return ico('<path d="M21 12a9 9 0 1 1-6.219-8.56"></path>', 'ic-spin') + ' ejecutando…';
+  }
+
+  /* Turno de ejemplo. `auto` = modo autonomo (sin aprobación). */
+  function turnoEjemplo(texto, auto) {
+    corriendo = true;
+    btnEnviar.disabled = true;
+    btnCancelar.disabled = false;
+
+    msgUsuario(texto);
+
+    var m = msgAsistente('Perfecto. Reviso los módulos y preparo el cambio.');
+    stream(m, 'Perfecto. Reviso la estructura del crate cli: main.rs es despachador, la lógica vive en run.rs/chat.rs. Localizo los símbolos a exponer y verifico que la TUI y el daemon los reutilicen sin duplicar.', 14, function () {
+      if (!corriendo) return;
+
+      /* tool 1: file_search ejecutándose */
+      var t1 = toolCard('file_search', estadoEjecutando(), 'buscando "construir_harness" en cli/src…');
+      later(function () {
+        if (!corriendo) return;
+        t1.querySelector('.estado').textContent = 'ok · 3 coincidencias · 12 ms';
+        t1.querySelector('.cuerpo').textContent = 'run.rs:91 · chat.rs:38 · tui.rs:52';
+
+        /* tool 2: file_patch -> aprobación */
+        var nombreTool = 'file_patch';
+        if (auto) {
+          var t2 = toolCard(nombreTool, estadoEjecutando(), 'cli/src/run.rs · "pub(crate) fn construir_harness" → "pub fn construir_harness"');
+          later(function () {
+            if (!corriendo) return;
+            t2.querySelector('.estado').textContent = 'ok · 1 reemplazo · 4 ms';
+            t2.querySelector('.cuerpo').innerHTML =
+              'cli/src/run.rs · 1 reemplazo (buscar único)<details class="diff"><summary>ver diff</summary><pre>' +
+              '<span class="del">pub(crate) fn construir_harness</span>\n<span class="add">pub fn construir_harness</span></pre></details>';
+            cierre();
+          }, 900);
+        } else {
+          tarjetaAprobacion(nombreTool, '{ "ruta": "cli/src/run.rs", "buscar": "pub(crate) fn construir_harness", "reemplazar": "pub fn construir_harness" }', function (ok, tarjeta) {
+            if (!corriendo) return;
+            if (ok) {
+              tarjeta.querySelector('.cab').innerHTML = '<span class="nombre">file_patch</span><span class="estado">aprobada · ejecutando…</span>';
+              tarjeta.querySelector('.acciones').remove();
+              later(function () {
+                if (!corriendo) return;
+                tarjeta.classList.remove('aprobacion');
+                tarjeta.querySelector('.estado').textContent = 'ok · 1 reemplazo · 4 ms';
+                tarjeta.querySelector('.args').innerHTML =
+                  'cli/src/run.rs · 1 reemplazo (buscar único)<details class="diff"><summary>ver diff</summary><pre>' +
+                  '<span class="del">pub(crate) fn construir_harness</span>\n<span class="add">pub fn construir_harness</span></pre></details>';
+                cierre();
+              }, 900);
+            } else {
+              tarjeta.querySelector('.cab').innerHTML = '<span class="nombre">file_patch</span><span class="estado">denegada por usuario</span>';
+              tarjeta.querySelector('.acciones').remove();
+              tarjeta.classList.add('denegada');
+              cierreDenegado();
+            }
+          });
+        }
+      }, 900);
+    });
+
+    function cierre() {
+      var m2 = msgAsistente('Listo. La lib queda en cli/src/lib.rs y main.rs despacha; el CLI y la desktop usan el mismo código. Sin cambios de comportamiento: tests 49/49.');
+      stream(m2, 'Listo. La lib queda en cli/src/lib.rs y main.rs despacha; el CLI y la desktop usan el mismo código. Sin cambios de comportamiento: tests 49/49.', 12, function () { finTurno('turno_done'); });
+    }
+
+    function cierreDenegado() {
+      var m2 = msgAsistente('Entendido, no aplico el patch. Puedes revisar el diff en la tarjeta y volver a pedírmelo cuando quieras.');
+      stream(m2, 'Entendido, no aplico el patch. Puedes revisar el diff en la tarjeta y volver a pedírmelo cuando quieras.', 12, function () { finTurno('permiso_denegado'); });
+    }
+
+    function finTurno(motivo) {
+      if (!corriendo) return;
+      corriendo = false;
+      limpiarTimers();
+      btnEnviar.disabled = false;
+      btnCancelar.disabled = true;
+      var nota = el('div', 'msg-asis');
+      nota.innerHTML = '<div class="texto" style="font-size:var(--xs);">sistema · ' + motivo + ' — evento de cierre emitido por el runtime (contrato AgenteEvento)</div>';
+      msgs.appendChild(nota);
+      msgs.scrollTop = msgs.scrollHeight;
+    }
+  }
+
+  function enviar() {
+    var texto = input.value.trim();
+    if (!texto || corriendo) return;
+    input.value = '';
+    turnoEjemplo(texto, modo === 'autonomo');
+  }
+
+  btnEnviar.onclick = enviar;
+  input.addEventListener('keydown', function (e) { if (e.key === 'Enter') enviar(); });
+
+  btnCancelar.onclick = function () {
+    if (!corriendo) return;
+    corriendo = false;
+    limpiarTimers();
+    btnEnviar.disabled = false;
+    btnCancelar.disabled = true;
+    var m = msgAsistente('');
+    m.nodo.removeChild(m.cursor);
+    m.nodo.textContent = '[turno cancelado por el usuario]';
+    var nota = el('div', 'msg-asis');
+    nota.innerHTML = '<div class="texto" style="font-size:var(--xs);">sistema · cancelado — receiver dropeado → el runtime cortó el stream y las tools (tx.is_closed)</div>';
+    msgs.appendChild(nota);
+    msgs.scrollTop = msgs.scrollHeight;
+  };
+
+  modoCambiar.onclick = function () {
+    modo = modo === 'predeterminado' ? 'autonomo' : 'predeterminado';
+    modoValor.textContent = modo;
+  };
+
+  /* modal de configuración (solo visual) */
+  var modalFondo = document.getElementById('modal-fondo');
+  function abrirModal() { modalFondo.hidden = false; }
+  function cerrarModal() { modalFondo.hidden = true; }
+
+  document.getElementById('btn-config').onclick = abrirModal;
+  document.getElementById('modal-cerrar').onclick = cerrarModal;
+  document.getElementById('btn-modal-cancelar').onclick = cerrarModal;
+  document.getElementById('btn-modal-guardar').onclick = cerrarModal;
+  modalFondo.addEventListener('click', function (e) { if (e.target === modalFondo) cerrarModal(); });
+
+  /* sidebar interno del modal: cambia de panel (visual) */
+  var configItems = document.querySelectorAll('.config-item');
+  var configPaneles = document.querySelectorAll('.config-panel');
+  configItems.forEach(function (it) {
+    it.onclick = function () {
+      configItems.forEach(function (x) { x.classList.remove('sel'); });
+      it.classList.add('sel');
+      var objetivo = document.getElementById(it.getAttribute('data-panel'));
+      configPaneles.forEach(function (p) { p.hidden = p !== objetivo; });
+    };
+  });
+
+  /* toggles segmentados del modal (visual) */
+  document.querySelectorAll('.toggle').forEach(function (g) {
+    g.querySelectorAll('.opt').forEach(function (o) {
+      o.onclick = function () {
+        g.querySelectorAll('.opt').forEach(function (x) { x.classList.remove('sel'); });
+        o.classList.add('sel');
+      };
+    });
+  });
+
+  /* selección en la sidebar (solo visual) */
+  var convs = document.querySelectorAll('.conv');
+  convs.forEach(function (c) {
+    c.onclick = function () {
+      convs.forEach(function (x) { x.classList.remove('sel'); });
+      c.classList.add('sel');
+    };
+  });
+})();
+</script>
+</body>
+</html>
