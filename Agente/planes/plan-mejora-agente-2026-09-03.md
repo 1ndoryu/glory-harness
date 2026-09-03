@@ -263,22 +263,43 @@ consejos; sin planificación visible; sin wrap-up al agotar pasos.
 
 **Problema:** resumen genérico que pierde decisiones/pendientes/preferencias.
 
-- [ ] Plantilla de resumen con secciones `[DECISIONES]`, `[PENDIENTES]`,
+- [x] Plantilla de resumen con secciones `[DECISIONES]`, `[PENDIENTES]`,
       `[PREFERENCIAS]`, `[RESTRICCIONES]` y consigna "no añadas nada que no esté en
       la conversación" (evitar alucinación).
-- [ ] Variante A (LLM, mismo proveedor) con fallback B (determinista: conservar
+      (`context.rs: plantilla_resumen_dirigido()`; molde de la variante A y del
+      resumen que aporte el consumidor.)
+- [x] Variante A (LLM, mismo proveedor) con fallback B (determinista: conservar
       instrucciones/preferencias verbatim + último intercambio).
-- [ ] Compactación por **tramos fechados** (cada tramo deja un resumen system con
+      (Seam `resumen_llm` en `preparar_con`: si llega vacío/`None` cae al
+      fallback B — `fallback_determinista`, verbatim por construcción; el
+      runtime usa B por defecto, `resumir_con_llm=false` según §8.4, y los
+      tests nunca requieren proveedor.)
+- [x] Compactación por **tramos fechados** (cada tramo deja un resumen system con
       fecha), nunca "todo lo anterior".
-- [ ] Umbrales configurables por consumidor: `max_tokens_contexto`,
+      (`resumen_dirigido` con `fecha_hoy()`; cada compactación deja su resumen
+      system fechado y se acumula el contador de tramos.)
+- [x] Umbrales configurables por consumidor: `max_tokens_contexto`,
       `pct_compactar`, `ventana_seguridad` (no compactar durante un tool_call
       largo).
-- [ ] Observabilidad: nº de tramos compactados y tamaño del resumen en el evento
+      (`ContextoConfig.pct_compactar` (0.80) + `ventana_seguridad` (0.15),
+      disparo efectivo `umbral_disparo()`; el runtime marca `tool_en_curso`
+      durante la ejecución de tools y `preparar_con` omite la compactación
+      salvo ocupación degenerada.)
+- [x] Observabilidad: nº de tramos compactados y tamaño del resumen en el evento
       `Usage`.
-- [ ] Tests: tramos fechados, no compacta head, fallback determinista si el LLM
+      (`CompactionMetrics.resumen_tokens` + `tramos`, rellenos en `preparar_con`
+      y emitidos en el `AgenteEvento::Usage` de compactación; reutiliza la
+      telemetría de F0.)
+- [x] Tests: tramos fechados, no compacta head, fallback determinista si el LLM
       falla, no compacta dos veces seguidas sin mensajes nuevos.
-- [ ] E2E: conversación larga (fixture) → tras compactar, el modelo refiere una
+      (5 tests F6 en context.rs: umbral_disparo configurable, ventana de
+      seguridad, tramos fechados + no-recompactación, fallback si el LLM
+      falla/vacío, variante A con plantilla.)
+- [x] E2E: conversación larga (fixture) → tras compactar, el modelo refiere una
       decisión que solo está en el resumen.
+      (`f6_e2e_fixture_decision_solo_en_resumen`: decisión en el medio del
+      historial sobrevive únicamente vía el resumen del tramo; head protegido y
+      cola verbatim verificados.)
 
 ## 5. Orden, dependencias y verificación por fase
 
@@ -364,7 +385,7 @@ flags de contexto reales; contrato SSE existente (las fases solo **añaden** eve
 | F3 | Permisos por tool | ✅ 7/7 |
 | F4 | Subagentes (tool `task`) | ✅ 9/10 |
 | F5 | Tools ricos + todo + pasos | ✅ 7/7 |
-| F6 | Compactación dirigida | ☐ 0/7 |
+| F6 | Compactación dirigida | ✅ 7/7 |
 
 Primer bloque a ejecutar: **F1 + F5** (alternativa B de la comparativa §6), luego
 F3 → F4, y F2/F6 cuando la telemetría lo justifique.

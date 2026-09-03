@@ -212,6 +212,9 @@ pub struct AgentRuntime {
     /// la ranura `[REGLAS]`. Interior-mutable: el CLI la fija tras construir
     /// el runtime; vacía por defecto (ranura nunca huérfana).
     reglas: std::sync::Mutex<String>,
+    /// [318A-15 F6] ¿Una tool está en curso? La compactación se omite durante
+    /// tool_calls largos (ventana de seguridad configurable, item 4).
+    tool_en_curso: std::sync::atomic::AtomicBool,
 }
 
 impl AgentRuntime {
@@ -251,6 +254,7 @@ impl AgentRuntime {
             profundidad_subagente: std::sync::atomic::AtomicU8::new(0),
             telemetria: std::sync::Mutex::new(TelemetriaTurno::nuevo()),
             reglas: std::sync::Mutex::new(String::new()),
+            tool_en_curso: std::sync::atomic::AtomicBool::new(false),
         }
     }
 
@@ -326,7 +330,17 @@ impl AgentRuntime {
             /* Contexto: preparar (compactar si hace falta) ANTES de cada llamada. */
             let (mensajes_prep, metricas) = {
                 let mut cm = self.contexto.lock().await;
-                let resultado = cm.preparar(&mensajes, 0);
+                /* [318A-15 F6] Compactación dirigida: `resumen_llm=None` usa el
+                 * fallback B determinista (la variante A es activable por el
+                 * consumidor vía `preparar_con`; `resumir_con_llm=false` por
+                 * defecto según §8.4 del plan). Con una tool en curso no se
+                 * compacta salvo ocupación degenerada (ventana de seguridad). */
+                let resultado = cm.preparar_con(
+                    &mensajes,
+                    0,
+                    None,
+                    self.tool_en_curso.load(std::sync::atomic::Ordering::Relaxed),
+                );
                 (resultado.mensajes, resultado.metricas)
             };
             if let Some(m) = &metricas {
@@ -514,6 +528,14 @@ impl AgentRuntime {
 
                 /* [318A-15 F4] tool `task`: sesión hija efímera (ver
                  * `ejecutar_subagente`). El resto de tools van con timeout. */
+                /* [318A-15 F6] Ventana de seguridad: marcar la tool en curso
+                 * durante la ejecución para que el siguiente `preparar_con` no
+                 * compacte en medio de un tool_call largo. Un panic que aborta
+                 * el turno deja el flag en true, pero el runtime del turno se
+                 * descarta igualmente (la siguiente conversación crea uno
+                 * nuevo). */
+                self.tool_en_curso
+                    .store(true, std::sync::atomic::Ordering::Relaxed);
                 let t0_ejecucion = std::time::Instant::now();
                 let resultado: Result<crate::tool::AgentToolResult> =
                     if call.nombre == "task" {
@@ -533,6 +555,8 @@ impl AgentRuntime {
                             )))
                         })
                     };
+                self.tool_en_curso
+                    .store(false, std::sync::atomic::Ordering::Relaxed);
                 let (ok, contenido, resumen, diff) = match resultado {
                     Ok(r) => (r.ok, r.contenido.clone(), r.resumen.clone(), r.diff.clone()),
                     Err(error) => (false, format!("Error: {error}"), "error".to_string(), None),
@@ -1153,8 +1177,9 @@ pub fn ensamblar_prompt_sistema(config: &TurnoConfig, reglas: &str, fecha: &str)
     base
 }
 
-/// Fecha actual en formato ISO (YYYY-MM-DD) para el bloque [ENTORNO].
-fn fecha_hoy() -> String {
+/// Fecha actual en formato ISO (YYYY-MM-DD) para el bloque [ENTORNO] y los
+/// tramos fechados de la compactación dirigida (318A-15 F6).
+pub(crate) fn fecha_hoy() -> String {
     chrono::Utc::now().format("%Y-%m-%d").to_string()
 }
 
@@ -1309,6 +1334,7 @@ mod tests {
             cola_verbatim: 0.025,
             umbral_piso: 0.75,
             umbral_degenerado: 0.85,
+            ..ContextoConfig::default()
         }
     }
 
