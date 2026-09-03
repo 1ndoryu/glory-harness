@@ -113,6 +113,10 @@ pub struct AgentContextManager {
     config: ContextoConfig,
     /// Historial de ahorros de las últimas compactaciones (anti-thrash).
     ahorros_recientes: Vec<f32>,
+    /// [318A-15 F0] Nº de compactaciones automáticas realizadas desde que el
+    /// gestor existe (per-conversación cuando el runtime vive por
+    /// conversación). Solo observa; no cambia la lógica de compactación.
+    compactaciones: u32,
 }
 
 impl AgentContextManager {
@@ -121,7 +125,14 @@ impl AgentContextManager {
         Self {
             config,
             ahorros_recientes: Vec::new(),
+            compactaciones: 0,
         }
+    }
+
+    /// [318A-15 F0] Compactaciones acumuladas del gestor (telemetría).
+    #[must_use]
+    pub fn compactaciones(&self) -> u32 {
+        self.compactaciones
     }
 
     #[must_use]
@@ -160,6 +171,7 @@ impl AgentContextManager {
         if self.ahorros_recientes.len() > 2 {
             self.ahorros_recientes.remove(0);
         }
+        self.compactaciones += 1;
 
         CompactarResultado {
             mensajes: nuevos,

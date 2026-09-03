@@ -35,6 +35,7 @@ use crate::subagente::{
     SUBAGENTES_EN_CURSO, concurrencia_permitida, perfil_subagente, perfiles_disponibles,
     presupuesto_efectivo, profundidad_permitida, registrar_tool_task, schema_hijo,
 };
+use crate::telemetria::{TelemetriaTurno, construir_evento, motivo_cierre};
 use crate::todo::registrar_tool_todo;
 use crate::tool::{AgentToolContext, AgentToolRegistry};
 use crate::tools_archivo::registrar_tools_archivo;
@@ -204,6 +205,9 @@ pub struct AgentRuntime {
     /// del hijo excluye `task` (sin recursión por contrato); el contador es
     /// fail-closed para llamadas directas.
     profundidad_subagente: std::sync::atomic::AtomicU8,
+    /// [318A-15 F0] Acumulador de telemetría del turno (interior-mutable;
+    /// reseteado al emitir `Telemetria` justo antes de `Done`).
+    telemetria: std::sync::Mutex<TelemetriaTurno>,
 }
 
 impl AgentRuntime {
@@ -241,12 +245,20 @@ impl AgentRuntime {
             web_search: puertos.web_search,
             dominio: puertos.dominio,
             profundidad_subagente: std::sync::atomic::AtomicU8::new(0),
+            telemetria: std::sync::Mutex::new(TelemetriaTurno::nuevo()),
         }
     }
 
     #[must_use]
     pub fn tools_registradas(&self) -> Vec<&'static str> {
         self.registry.ids()
+    }
+
+    /// [318A-15 F0] Acceso a la telemetría tolerante a envenenamiento:
+    /// un panic en otro hilo no debe abortar el turno (la telemetría nunca
+    /// debe poder romper la ejecución — es observación, no contrato).
+    fn telemetria(&self) -> std::sync::MutexGuard<'_, TelemetriaTurno> {
+        self.telemetria.lock().unwrap_or_else(|p| p.into_inner())
     }
 
     /// [318A-15 F1] Ensambla el system prompt de capas para el turno actual
@@ -470,6 +482,8 @@ impl AgentRuntime {
                         VerdictoPermiso::Ejecutar => unreachable!("filtrado arriba"),
                     };
                     if let Some(ev) = evento {
+                        /* [318A-15 F0] Telemetría: denegación emitida. */
+                        self.telemetria().registrar_denegacion();
                         let _ = tx.send(ev).await;
                     }
                     let _ = tx
@@ -488,6 +502,7 @@ impl AgentRuntime {
 
                 /* [318A-15 F4] tool `task`: sesión hija efímera (ver
                  * `ejecutar_subagente`). El resto de tools van con timeout. */
+                let t0_ejecucion = std::time::Instant::now();
                 let resultado: Result<crate::tool::AgentToolResult> =
                     if call.nombre == "task" {
                         self.ejecutar_subagente_desde_llamada(user_id, turno_id, call, tx)
@@ -511,6 +526,14 @@ impl AgentRuntime {
                     Err(error) => (false, format!("Error: {error}"), "error".to_string(), None),
                 };
                 tools_ejecutadas += 1;
+                /* [318A-15 F0] Telemetría: uso/fallo/duración de la tool
+                 * (el timeout cuenta como fallo; `task` registra la
+                 * delegación aquí y las tools del hijo en su propio bucle). */
+                self.telemetria().registrar_uso(
+                    &call.nombre,
+                    ok,
+                    t0_ejecucion.elapsed().as_millis() as u64,
+                );
                 let _ = tx
                     .send(AgenteEvento::ToolResult {
                         tool: call.nombre.clone(),
@@ -618,6 +641,28 @@ impl AgentRuntime {
             }
         }
 
+        /* [318A-15 F0] Telemetría del turno (no invasiva): agregados ya
+         * observados durante la ejecución, emitidos justo antes de `Done` y
+         * reseteados para el siguiente turno. Los turnos fallidos no llegan
+         * aquí (emiten `Error` con motivo y retryable). */
+        {
+            let compactaciones = self.contexto.lock().await.compactaciones();
+            let motivo = motivo_cierre(
+                respuesta_final.is_some(),
+                respuesta_final.is_none() && !tx.is_closed(),
+                tx.is_closed(),
+            );
+            let evento = {
+                /* [318A-15 F0] El guard de la telemetría no debe cruzar un
+                 * await (el runtime exige futures Send): se construye y
+                 * resetea el acumulador en un bloque propio y se envía fuera. */
+                let mut acumulador = self.telemetria();
+                let e = construir_evento(conversacion_id, motivo, compactaciones, &acumulador);
+                *acumulador = TelemetriaTurno::nuevo();
+                e
+            };
+            let _ = tx.send(evento).await;
+        }
         let _ = tx.send(AgenteEvento::Done { turno_id }).await;
         Ok(())
     }
@@ -870,6 +915,7 @@ impl AgentRuntime {
                                 argumentos: call.argumentos.clone(),
                             })
                             .await;
+                        let t0_ejecucion = std::time::Instant::now();
                         let resultado = self
                             .ejecutar_tool(user_id, turno_id, &call, tx)
                             .await?;
@@ -881,6 +927,13 @@ impl AgentRuntime {
                                 diff: resultado.diff.clone(),
                             })
                             .await;
+                        /* [318A-15 F0] Telemetría del hijo: las tools del
+                         * subagente cuentan en el acumulador del turno. */
+                        self.telemetria().registrar_uso(
+                            &call.nombre,
+                            resultado.ok,
+                            t0_ejecucion.elapsed().as_millis() as u64,
+                        );
                         resultado.contenido
                     }
                     VerdictoPermiso::Preguntar => {
@@ -908,6 +961,7 @@ impl AgentRuntime {
                                 motivo: "denegada_por_usuario".into(),
                             })
                             .await;
+                        self.telemetria().registrar_denegacion();
                         format!("[{} DENEGADA] NO la reintentes; cambia de plan.", call.nombre)
                     }
                     VerdictoPermiso::RepetidoDenegado => format!(
@@ -935,6 +989,8 @@ impl AgentRuntime {
          * parcial (mismo contrato del wrap-up de F5) en vez de cortar. */
         if texto_final.is_empty() {
             parcial_final = true;
+            /* [318A-15 F0] Telemetría: subagente cerrado como parcial. */
+            self.telemetria().registrar_subagente_parcial();
             mensajes.push(AiMessage::texto("system", wrap_up_instruccion()));
             let mut parcial = String::new();
             let mut on_token = |t: &str| {

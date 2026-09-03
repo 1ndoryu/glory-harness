@@ -14,6 +14,15 @@ use uuid::Uuid;
 /// Stream de tokens de un turno: canal mpsc sin límite; `None`/cierre = fin.
 pub type TokenStream = tokio::sync::mpsc::UnboundedReceiver<crate::ports::EventoTurno>;
 
+/// [318A-15 F0] Agregado por tool de un turno (telemetría).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TelemetriaTool {
+    pub tool: String,
+    pub usos: u32,
+    pub fallos: u32,
+    pub duracion_ms_total: u64,
+}
+
 /// Un evento emitido durante un turno del agente. Este es el contrato público
 /// estable; el transporte (SSE de task, daemon loopback) serializa estos
 /// eventos igual en todos los consumidores.
@@ -93,6 +102,31 @@ pub enum AgenteEvento {
         resultados_tools: u32,
         total_entrada: u32,
         ocupacion_pct: f32,
+    },
+    /// [318A-15 F0] Telemetría del turno (no invasiva): agregados que el
+    /// runtime ya observa durante la ejecución (usos/fallos/duración por
+    /// tool, compactaciones, denegaciones y subagentes parciales). Evento
+    /// nuevo en el contrato SSE; los consumidores existentes lo ignoran de
+    /// forma segura. Se emite una sola vez, justo antes de `Done`; los turnos
+    /// fallidos emiten `Error` (motivo + retryable) sin `Telemetria`.
+    /// Diseñado para que F2/F6 (umbrales) y la decisión F4 item-8 la
+    /// consuman: `herramientas`/`denegaciones`/`subagentes_parciales` son
+    /// agregables por `conversacion_id`.
+    Telemetria {
+        conversacion_id: Uuid,
+        /// Cierre del turno: `respuesta_final` | `limite_pasos` |
+        /// `sse_cortado` | `sin_respuesta`.
+        motivo_cierre: String,
+        /// Compactaciones registradas por el gestor de contexto de esta
+        /// conversación (acumulado desde que el runtime existe; en el CLI el
+        /// runtime vive por sesión de chat).
+        compactaciones: u32,
+        /// Denegaciones de permiso (política o usuario) emitidas en el turno.
+        denegaciones: u32,
+        /// Subagentes cerrados como parciales (presupuesto agotado) en el
+        /// turno.
+        subagentes_parciales: u32,
+        herramientas: Vec<TelemetriaTool>,
     },
     /// Error del turno (mensaje presentable, sin detalles internos).
     /// `retryable` lo decide el consumidor (el handler de task marca

@@ -155,6 +155,16 @@ pub async fn chat(opciones: OpcionesRun) -> Result<(), String> {
                     ..
                 } => eprintln!("  ✗ {tool}: {resumen}"),
                 AgenteEvento::Error { mensaje, .. } => eprintln!("  ✗ error: {mensaje}"),
+                AgenteEvento::Telemetria {
+                    motivo_cierre,
+                    compactaciones,
+                    denegaciones,
+                    herramientas,
+                    ..
+                } => eprintln!(
+                    "  ─ telemetría: {motivo_cierre} · {compactaciones} compactaciones · {denegaciones} denegaciones · {} tools",
+                    herramientas.len()
+                ),
                 AgenteEvento::Done { .. } => {}
                 _ => {}
             }

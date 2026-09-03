@@ -110,13 +110,24 @@ Fase 6 (compactación dirigida)        ──┘ independiente
 **Problema:** no hay métricas de uso real (longitud de conversaciones, tools más
 usadas, fallos por tool, compactaciones) para decidir qué mejora primero.
 
-- [ ] Inventariar qué emite ya `Usage`/`Contexto` (tokens, `ocupacion_pct`,
-      provider/modelo reales — `b971e4f`).
-- [ ] Añadir al evento (core) contadores por tool (usos/fallos/duraciones) y
-      nº de compactaciones por conversación.
+- [x] Inventariar qué emite ya `Usage`/`Contexto` (tokens, `ocupacion_pct`,
+      provider/modelo reales — `b971e4f`): el núcleo ya emite `AgenteEvento::Usage`
+      con `tokens_prompt/complecion` y `ocupacion_pct` (context.rs); F0 lo
+      reutiliza sin cambiar el contrato.
+- [x] Añadir al evento (core) contadores por tool (usos/fallos/duraciones) y
+      nº de compactaciones por conversación: `TelemetriaTurno` (telemetria.rs)
+      acumula usos/fallos/duración por tool, denegaciones (F3), subagentes
+      parciales (F4) y compactaciones (contador en context.rs); se emite como
+      `AgenteEvento::ResumenTurno` al cerrar el turno (guard anti-envenenamiento,
+      nunca rompe la ejecución) y se muestra en el CLI (chat.rs).
 - [ ] Script de lectura de un puñado de conversaciones reales de la IA de PT
       (longitud, tools usadas, turnos con error) → informe de línea base.
+      *Queda sin marcar: requiere acceso de solo-lectura a la BD de PT y un
+      script de agregación; F2/F6 y el item 8 de F4 pueden consumir la salida
+      de F0 (el evento `ResumenTurno` ya la expone por conversación).*
 - [ ] Registrar en este plan: decisión F3-vs-F4 con esos datos.
+      *Queda sin marcar: el orden F3→F4 ya lo decidió el usuario directamente;
+      la telemetría ahora permite validar esa decisión a posteriori.*
 
 **Criterio de éxito:** un comando/imprimir reporte agrega 10+ conversaciones reales
 y produce el informe de línea base sin tocar producción.
@@ -337,7 +348,7 @@ flags de contexto reales; contrato SSE existente (las fases solo **añaden** eve
 
 | Fase | Contenido | Estado |
 |---|---|---|
-| F0 | Telemetría y línea base | ☐ 0/4 |
+| F0 | Telemetría y línea base | ⏳ 2/4 |
 | F1 | Capas + `[ENTORNO]` | ✅ 6/6 |
 | F2 | Reglas (AGENTS.md / skills) | ☐ 0/5 |
 | F3 | Permisos por tool | ✅ 7/7 |
