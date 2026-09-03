@@ -276,6 +276,18 @@ impl AgentToolRegistry {
         self.reglas.read().unwrap_or_else(|p| p.into_inner()).clone()
     }
 
+    /// [318A-16 F2] Siembra una aprobación de UNA vez (categoría + patrón
+    /// exacto derivado) sin petición pendiente. Lo usan los consumidores cuyo
+    /// runtime se reconstruye por turno (PT): el "Permitir una vez" se
+    /// persiste al final del turno anterior y se reinyecta aquí antes de que
+    /// el siguiente stream evalúe la misma llamada.
+    pub fn aprobacion_una_vez(&self, categoria: impl Into<String>, patron: impl Into<String>) {
+        self.una_vez
+            .write()
+            .unwrap_or_else(|p| p.into_inner())
+            .push((categoria.into(), patron.into()));
+    }
+
     /// Claves de resolución de una llamada en orden de especificidad:
     /// 1. (categoría derivada del argumento, patrón concreto) si hay
     ///    clasificador para la tool y el argumento aplica;
@@ -1005,6 +1017,21 @@ mod tests {
     }
 
     #[test]
+    fn f2_aprobacion_una_vez_sembrada_se_consume_en_la_primera_llamada_igual() {
+        let registry = registry_con_fixture();
+        let llamada = |ruta: &str| {
+            registry.permiso_para_llamada(
+                "file_write",
+                &json!({ "ruta": ruta }),
+                "predeterminado",
+            )
+        };
+        /* Consumidor con runtime por turno (PT): siembra sin petición. */
+        registry.aprobacion_una_vez("escritura", "src/a.rs");
+        assert_eq!(llamada("src/a.rs"), Permiso::Allow, "siembra: ejecuta sin preguntar");
+        assert_eq!(llamada("src/a.rs"), Permiso::Ask, "token consumido: vuelve a preguntar");
+    }
+
     fn f2_respuesta_a_id_desconocido_es_error() {
         let registry = registry_con_fixture();
         let err = registry
