@@ -2,9 +2,9 @@
 
 - **Fecha:** 2026-09-03
 - **ID:** 318A-16 (libre; no usar en PT hasta cerrar este plan)
-- **Estado:** 🚧 en ejecución — F1 ✅ (motor de reglas v2; tests 108+21) y F2
-  parte GH ✅ (canal de aprobación + 3 vías REPL/TUI; tests 116+21, clippy
-  limpio). Pendientes: F2 ítems 3-4 (lado PT), F3-F6.
+- **Estado:** 🚧 en ejecución — F1 ✅ (motor de reglas v2; tests 108+21) y F2 ✅
+  completo (canal de aprobación + 3 vías REPL/TUI en GH; botones y endpoint en PT;
+  tests 116+21 core/cli + 5 PT, verificado en vivo :3001). Pendientes: F3-F6.
 - **Base:** plan `318A-15` (`plan-mejora-agente-2026-09-03.md`, completo salvo
   pendientes ajenos) y comparativa `Agente/documentacion/comparativa-opencode-agente-2026-09-03.md`.
 - **Referencias (clonadas en `data/referencias-cli/`, solo lectura):** claurst,
@@ -183,10 +183,18 @@ confirmación** (`Confirm/Cancel`) antes de persistir la regla.
       regla (F1) en la persistencia del CLI. Hecho: `resolver_aprobaciones` en
       `cli/chat.rs` y gate equivalente en `cli/tui.rs` (resolución entre turnos;
       la regla de clase se persiste en el registry compartido del runtime).
-- [ ] Front PT (`PanelAgente`/`mensajes.tsx`): reemplazar la insignia por 3 botones;
+- [x] Front PT (`PanelAgente`/`mensajes.tsx`): reemplazar la insignia por 3 botones;
       "Permitir siempre" persiste vía endpoint nuevo de overrides por conversación.
-- [ ] Backend PT: endpoint para responder la aprobación y para listar/borrar reglas
-      de la conversación (aditivo al SSE).
+      Hecho: `responderAprobacion` en `service.ts`+`store.ts`, tarjeta de 3 botones
+      (Rechazar/Permitir/Permitir siempre) en `mensajes.tsx`, estilos en
+      `panelIA.css`; la petición llega por el evento SSE `peticion_aprobacion`.
+- [x] Backend PT: endpoint para responder la aprobación y para listar/borrar reglas
+      de la conversación (aditivo al SSE). Hecho: `handlers/agente_aprobacion.rs`
+      (POST aprobación con 3 decisiones, GET/DELETE reglas; almacén por conversación
+      en `AppState.agente_permisos`, TTL 10 min para tokens de una vez); el stream
+      siembra reglas/tokens en el registry antes del primer tool_call. Verificado en
+      vivo contra :3001: login → aprobación "siempre" → regla `categoria/** allow`;
+      "aprobar" → token de una vez; GET/DELETE reglas OK.
 - [x] Tests: rechazo explícito → sin reintento en el turno; siempre → regla creada y
       aplicada en la siguiente petición igual. Hecho: `f2_*` en `core/tool.rs`
       (aprobar una vez consume token, siempre crea regla de clase, rechazar crea
