@@ -129,7 +129,7 @@ body {
 
 #sidebar .pie {
     border-top: 1px solid var(--borde);
-    padding: var(--sp-sm) var(--sp-md);
+    padding: var(--sp-xs) 0 var(--sp-xs);
 }
 #sidebar .pie-boton {
     width: 100%;
@@ -159,7 +159,7 @@ body {
     gap: var(--sp-md);
     font-size: var(--xs);
 }
-#cabecera-chat .titulo { font-size: var(--lg); }
+#cabecera-chat .titulo { font-size: var(--sm); }
 
 #mensajes {
     flex: 1;
@@ -174,16 +174,17 @@ body {
 }
 
 .msg-user {
-    align-self: flex-start;
-    background: #000;
-    color: #fff;
+    align-self: flex-end;
+    background: #fff;
+    color: #000;
     border: 1px solid #000;
     padding: var(--sp-sm) var(--sp-md);
     max-width: 70%;
+    font-size: var(--sm);
 }
 
-.msg-asis { max-width: 92%; }
-.msg-asis .texto { font-size: var(--md); white-space: pre-wrap; }
+.msg-asis { max-width: 92%; font-size: var(--sm); }
+.msg-asis .texto { white-space: pre-wrap; }
 
 /* cursor de streaming */
 .cursor {
