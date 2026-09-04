@@ -10,6 +10,7 @@
  *   canónica (no escapa del workspace). */
 
 use crate::error::Error;
+use std::io::BufRead;
 use std::path::{Component, Path, PathBuf};
 
 /// Nombres de archivo/segmento que el agente NUNCA puede leer (secretos).
@@ -150,6 +151,71 @@ impl SandboxArchivos {
         let truncado = datos.len() > max_bytes;
         let contenido = String::from_utf8_lossy(&datos[..datos.len().min(max_bytes)]).to_string();
         Ok((contenido, truncado))
+    }
+
+    /// Lee una ventana de líneas (1-based) del archivo, materializando solo el
+    /// rango pedido (plan 318A-16 F4). Devuelve el texto del rango, el total de
+    /// líneas del archivo y si quedan más líneas después del rango.
+    /// Fail-closed: `offset` 0 o mayor que el total de líneas es error, salvo
+    /// archivo vacío con `offset` 1 (ventana vacía válida).
+    pub fn leer_rango_lineas(
+        &self,
+        relativa: &str,
+        offset: usize,
+        limite: usize,
+    ) -> Result<(String, usize, bool), Error> {
+        if offset == 0 || limite == 0 {
+            return Err(Error::Argumentos(
+                "offset_linea >= 1 y limite_lineas >= 1".into(),
+            ));
+        }
+        if self.es_secreto(relativa) {
+            return Err(Error::Sandbox(
+                "El archivo está en la lista negra de secretos y no se puede leer".into(),
+            ));
+        }
+        let ruta = self.resolver(relativa)?;
+        let archivo = std::fs::File::open(&ruta)
+            .map_err(|error| Error::NoEncontrado(format!("No se pudo leer: {error}")))?;
+        let lector = std::io::BufReader::new(archivo);
+        let mut lineas = lector.lines();
+        // Avanzamos hasta la primera línea del rango (guardando su texto).
+        let mut total = 0usize;
+        let mut saltadas = 0usize;
+        let mut recogidas: Vec<String> = Vec::with_capacity(limite);
+        loop {
+            match lineas.next() {
+                None => break,
+                Some(linea) => {
+                    total += 1;
+                    let linea = linea.map_err(|error| {
+                        Error::Validacion(format!("No se pudo leer línea: {error}"))
+                    })?;
+                    if saltadas < offset - 1 {
+                        saltadas += 1;
+                    } else if recogidas.len() < limite {
+                        recogidas.push(linea);
+                    } else {
+                        // Ya completamos la ventana; solo contamos el resto.
+                        total += lineas.count();
+                        break;
+                    }
+                }
+            }
+        }
+        if offset > total && total != 0 {
+            return Err(Error::Argumentos(format!(
+                "offset_linea {offset} fuera de rango: el archivo tiene {total} líneas"
+            )));
+        }
+        if offset > 1 && total == 0 {
+            return Err(Error::Argumentos(
+                "offset_linea fuera de rango: el archivo está vacío".into(),
+            ));
+        }
+        let fin_rango = offset + recogidas.len() - 1;
+        let hay_mas = fin_rango < total;
+        Ok((recogidas.join("\n"), total, hay_mas))
     }
 
     /// Escribe un archivo (crea directorios intermedios). Solo archivos.

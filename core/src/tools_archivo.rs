@@ -30,13 +30,15 @@ impl AgentTool for ToolFileRead {
         "file_read"
     }
     fn descripcion(&self) -> &'static str {
-        "Lee un archivo del workspace local y devuelve su contenido.\nFORMATO DE SALIDA: el contenido crudo dentro de un bloque ``` (con aviso si se truncó).\nLÍMITES: máx 1 MB por lectura (se trunca con aviso); solo rutas dentro del workspace; archivos de secretos bloqueados.\nCUÁNDO USARLA: antes de editar un archivo (file_patch/file_write) o para responder sobre código existente. Para localizar archivos usa file_search.\nERRORES: ruta inexistente, fuera del workspace o bloqueada por secreto."
+        "Lee un archivo del workspace local y devuelve su contenido.\nFORMATO DE SALIDA: el contenido crudo dentro de un bloque ``` (con aviso si se truncó); con rango, el encabezado declara el rango leído (p. ej. líneas 1-40 de 200).\nLÍMITES: máx 1 MB por lectura (se trunca con aviso); con `offset_linea`/`limite_lineas` (1-based, opcionales) solo se lee esa ventana y se indica si hay más; solo rutas dentro del workspace; archivos de secretos bloqueados.\nCUÁNDO USARLA: antes de editar un archivo (file_patch/file_write) o para responder sobre código existente; para archivos grandes lee por rangos de ~40-100 líneas encadenando `offset_linea`. Para localizar archivos usa file_search.\nERRORES: ruta inexistente, fuera del workspace, bloqueada por secreto o rango fuera de límites."
     }
     fn schema(&self) -> Value {
         json!({
             "type": "object",
             "properties": {
-                "ruta": {"type": "string", "description": "Ruta relativa al workspace (ej. src/main.rs)"}
+                "ruta": {"type": "string", "description": "Ruta relativa al workspace (ej. src/main.rs)"},
+                "offset_linea": {"type": "integer", "minimum": 1, "description": "Primera línea a leer (1-based). Opcional: sin él se lee desde el inicio."},
+                "limite_lineas": {"type": "integer", "minimum": 1, "description": "Máximo de líneas de la ventana. Opcional (defecto: archivo completo hasta 1 MB)."}
             },
             "required": ["ruta"]
         })
@@ -51,19 +53,60 @@ impl AgentTool for ToolFileRead {
             .get("ruta")
             .and_then(Value::as_str)
             .ok_or_else(|| Error::Argumentos("ruta requerida".into()))?;
-        let (contenido, truncado) = sandbox.leer(ruta, MAX_LECTURA_BYTES)?;
-        let aviso = if truncado {
-            "\n[AVISO: archivo truncado a 1MB]".to_string()
-        } else {
-            String::new()
+        let offset = argumentos.get("offset_linea").and_then(Value::as_u64);
+        let limite = argumentos.get("limite_lineas").and_then(Value::as_u64);
+        // Sin rango: comportamiento actual (archivo completo, truncado a 1 MB).
+        let (contenido, aviso, resumen_rango) = match (offset, limite) {
+            (None, None) => {
+                let (contenido, truncado) = sandbox.leer(ruta, MAX_LECTURA_BYTES)?;
+                let aviso = if truncado {
+                    "\n[AVISO: archivo truncado a 1MB]".to_string()
+                } else {
+                    String::new()
+                };
+                (contenido, aviso, None)
+            }
+            (Some(off), Some(lim)) => {
+                let (texto, total, hay_mas) =
+                    sandbox.leer_rango_lineas(ruta, off as usize, lim as usize)?;
+                // Línea final real de la ventana: el archivo pudo acabar antes
+                // de `lim`, así que se deriva del texto devuelto (las líneas se
+                // unen con `\n`, luego el nº de saltos = líneas devueltas − 1).
+                let fin = if texto.is_empty() {
+                    off.saturating_sub(1)
+                } else {
+                    off + texto.matches('\n').count() as u64
+                };
+                let ventana = if hay_mas {
+                    format!(" (hay más; usa offset_linea: {} para continuar)", fin + 1)
+                } else {
+                    String::new()
+                };
+                let resumen = format!("líneas {off}-{fin} de {total}{ventana}");
+                (texto, String::new(), Some(resumen))
+            }
+            // Solo uno de los dos: sin ventana completa, no tiene sentido.
+            _ => {
+                return Err(Error::Argumentos(
+                    "offset_linea y limite_lineas deben ir juntos".into(),
+                ));
+            }
         };
-        Ok(AgentToolResult::ok(
-            format!("```\n{contenido}\n```{aviso}"),
-            format!(
+        let cabecera = match &resumen_rango {
+            Some(rango) => format!("[lectura de {rango}]\n"),
+            None => String::new(),
+        };
+        let resumen = match &resumen_rango {
+            Some(rango) => format!("lectura {} · {rango}", sandbox.ruta_presentable(ruta)),
+            None => format!(
                 "lectura {} ({} bytes)",
                 sandbox.ruta_presentable(ruta),
                 contenido.len()
             ),
+        };
+        Ok(AgentToolResult::ok(
+            format!("{cabecera}```\n{contenido}\n```{aviso}"),
+            resumen,
         ))
     }
 }
@@ -497,6 +540,116 @@ mod tests {
             .leer("app.txt", 1024)
             .expect("leer");
         assert_eq!(leido.0, "adiós mundo\n", "la edición quedó aplicada");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    // ── [318A-16 F4] file_read por rangos de líneas ────────────────────────
+
+    /// Fixture: archivo de `n` líneas "línea k" (1-based).
+    fn archivo_de_lineas(sandbox: &SandboxArchivos, nombre: &str, n: usize) {
+        let contenido = (1..=n)
+            .map(|k| format!("línea {k}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        sandbox.escribir(nombre, &contenido).expect("escribir fixture");
+    }
+
+    #[tokio::test]
+    async fn file_read_rango_valido_devuelve_ventana_con_cabecera() {
+        let dir = dir_aislada("f4-rango");
+        let sandbox = SandboxArchivos::nuevo(&dir).expect("sandbox");
+        archivo_de_lineas(&sandbox, "grande.rs", 200);
+        let persistencia = crate::contrato_tests::PersistenciaMock::default();
+        let ctx = ctx_con_sandbox(Arc::new(sandbox), &persistencia);
+
+        let resultado = ToolFileRead
+            .ejecutar(
+                &ctx,
+                json!({"ruta": "grande.rs", "offset_linea": 1, "limite_lineas": 40}),
+            )
+            .await
+            .expect("lectura por rango");
+        let contenido = resultado.contenido;
+        assert!(
+            contenido.contains("[lectura de líneas 1-40 de 200 (hay más"),
+            "cabecera con rango y total: {contenido}"
+        );
+        assert!(contenido.contains("línea 1") && contenido.contains("línea 40"));
+        assert!(!contenido.contains("línea 41"), "no debe salir la ventana");
+        assert!(
+            resultado.resumen.contains("líneas 1-40 de 200"),
+            "resumen con rango: {}",
+            resultado.resumen
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[tokio::test]
+    async fn file_read_rango_medio_sugiere_continuar_desde_el_fin_real() {
+        let dir = dir_aislada("f4-rango-medio");
+        let sandbox = SandboxArchivos::nuevo(&dir).expect("sandbox");
+        archivo_de_lineas(&sandbox, "grande.rs", 200);
+        let persistencia = crate::contrato_tests::PersistenciaMock::default();
+        let ctx = ctx_con_sandbox(Arc::new(sandbox), &persistencia);
+
+        let resultado = ToolFileRead
+            .ejecutar(
+                &ctx,
+                json!({"ruta": "grande.rs", "offset_linea": 41, "limite_lineas": 40}),
+            )
+            .await
+            .expect("lectura por rango");
+        assert!(resultado.contenido.contains("línea 41"));
+        assert!(resultado.contenido.contains("línea 80"));
+        assert!(!resultado.contenido.contains("línea 81"));
+        assert!(resultado.contenido.contains("offset_linea: 81"));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[tokio::test]
+    async fn file_read_rango_fuera_de_limites_falla_cerrado() {
+        let dir = dir_aislada("f4-fuera");
+        let sandbox = SandboxArchivos::nuevo(&dir).expect("sandbox");
+        archivo_de_lineas(&sandbox, "corto.txt", 10);
+        let persistencia = crate::contrato_tests::PersistenciaMock::default();
+        let ctx = ctx_con_sandbox(Arc::new(sandbox), &persistencia);
+
+        let error = ToolFileRead
+            .ejecutar(
+                &ctx,
+                json!({"ruta": "corto.txt", "offset_linea": 50, "limite_lineas": 5}),
+            )
+            .await
+            .expect_err("offset 50 sobre 10 líneas → fuera de rango");
+        assert!(error.to_string().contains("fuera de rango"));
+
+        // Un solo parámetro sin el otro: también fail-closed.
+        let error2 = ToolFileRead
+            .ejecutar(
+                &ctx,
+                json!({"ruta": "corto.txt", "offset_linea": 2}),
+            )
+            .await
+            .expect_err("offset sin límite → error");
+        assert!(error2.to_string().contains("juntos"));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[tokio::test]
+    async fn file_read_sin_rango_conserva_comportamiento_anterior() {
+        let dir = dir_aislada("f4-sin-rango");
+        let sandbox = SandboxArchivos::nuevo(&dir).expect("sandbox");
+        archivo_de_lineas(&sandbox, "corto.txt", 3);
+        let persistencia = crate::contrato_tests::PersistenciaMock::default();
+        let ctx = ctx_con_sandbox(Arc::new(sandbox), &persistencia);
+
+        let resultado = ToolFileRead
+            .ejecutar(&ctx, json!({"ruta": "corto.txt"}))
+            .await
+            .expect("lectura completa");
+        assert!(resultado.contenido.contains("línea 1"));
+        assert!(resultado.contenido.contains("línea 3"));
+        assert!(!resultado.contenido.contains("[lectura de líneas"), "sin cabecera de rango");
         std::fs::remove_dir_all(&dir).ok();
     }
 }

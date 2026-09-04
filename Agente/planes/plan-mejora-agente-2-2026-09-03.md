@@ -2,11 +2,9 @@
 
 - **Fecha:** 2026-09-03
 - **ID:** 318A-16 (libre; no usar en PT hasta cerrar este plan)
-- **Estado:** 🚧 en ejecución — F1 ✅ (motor de reglas v2), F2 ✅ completo (canal
-  de aprobación + 3 vías REPL/TUI en GH; botones y endpoint en PT; verificado en
-  vivo :3001) y F3 ✅ (clasificador claurst + runner CLI timeout/truncado/background;
-  tests 154 workspace; habilitación por defecto pendiente de decisión del usuario).
-  Pendientes: F4-F6.
+- **Estado:** 🚧 en ejecución — F1 ✅, F2 ✅ (verificado en vivo :3001), F3 ✅
+  (clasificador + runner CLI; decisión de habilitación del usuario) y F4 ✅
+  (file_read por rangos; tests 158 workspace). Pendientes: F5-F6.
 - **Base:** plan `318A-15` (`plan-mejora-agente-2026-09-03.md`, completo salvo
   pendientes ajenos) y comparativa `Agente/documentacion/comparativa-opencode-agente-2026-09-03.md`.
 - **Referencias (clonadas en `data/referencias-cli/`, solo lectura):** claurst,
@@ -267,17 +265,21 @@ de 5.000 líneas de una vez es caro.
 **Referencia:** herramientas de lectura por rango de Codebuff/opencode (offset+límite
 de líneas).
 
-- [ ] `file_read` acepta `offset_línea` y `límite_líneas` opcionales (1-based), con
+- [x] `file_read` acepta `offset_linea` y `limite_lineas` opcionales (1-based), con
       aviso de trunción y total de líneas del archivo.
-- [ ] El resultado informa el rango leído y sugiere continuar si hay más (formato de
-      salida rico, reutilizar F5 de 318A-15).
-- [ ] Tests: rango válido, rango fuera de límites (fail-closed), archivo grande sin
-      rango (comportamiento actual conservado).
-- [ ] E2E determinista: fixture de archivo de 200 líneas, leer 1-40 y verificar el
-      contrato del resultado.
+      *(sandbox.leer_rango_lineas: ventana por líneas sin materializar el archivo
+      entero; fail-closed si van por separado o el offset excede el total)*
+- [x] El resultado informa el rango leído y sugiere continuar si hay más (formato de
+      salida rico: cabecera `[lectura de líneas X-Y de N (hay más; usa
+      offset_linea: N+1…)]`).
+- [x] Tests: rango válido, rango fuera de límites (fail-closed), archivo grande sin
+      rango (comportamiento actual conservado). *(4 tests nuevos, 158 workspace)*
+- [x] E2E determinista: fixture de archivo de 200 líneas, leer 1-40 y verificar el
+      contrato del resultado. *(test `file_read_rango_valido_devuelve_ventana_con_cabecera`)*
 
-**Criterio de éxito:** `file_read` con `{offset_línea: 1, límite_líneas: 40}` devuelve
-solo esas 40 líneas con el rango declarado.
+**Criterio de éxito:** `file_read` con `{offset_linea: 1, limite_lineas: 40}` devuelve
+solo esas 40 líneas con el rango declarado. *(cumplido: 158 tests verdes, clippy
+limpio, sentinel analyze 0 errores)*
 
 ### Fase 5 — Modo plan explícito (plan → propuesta → aplicar)
 
