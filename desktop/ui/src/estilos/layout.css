@@ -1,0 +1,163 @@
+/* ============================================================
+   Layout de ventana y barras — port 1:1 del mockup.
+   ============================================================ */
+
+#app {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+}
+
+#cuerpo {
+    flex: 1;
+    display: flex;
+    min-height: 0;
+}
+
+/* ---------- Barras ---------- */
+.barra {
+    background: #000;
+    color: #fff;
+    font-size: var(--xs);
+    display: flex;
+    align-items: center;
+    gap: var(--sp-sm);
+    padding: 0 var(--sp-md);
+    height: 30px;
+    white-space: nowrap;
+    overflow: hidden;
+}
+
+/* ---------- Sidebar ---------- */
+#sidebar {
+    width: 260px;
+    border-right: 1px solid var(--borde);
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+#sidebar .nav-botones {
+    display: flex;
+    flex-direction: column;
+    padding: var(--sp-xs) 0 var(--sp-lg);
+}
+#sidebar .nav-boton {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-sm);
+    width: 100%;
+    background: #fff;
+    color: #000;
+    border: none;
+    font-family: inherit;
+    font-size: var(--sm);
+    padding: var(--sp-xs) var(--sp-md);
+    cursor: pointer;
+    text-align: left;
+    opacity: 0.8;
+}
+#sidebar .nav-boton:hover { opacity: 1; }
+
+#lista-conversaciones {
+    flex: 1;
+    overflow-y: auto;
+    padding-top: var(--sp-sm);
+}
+.conv {
+    padding: var(--sp-xs) var(--sp-md);
+    cursor: pointer;
+    opacity: 0.5;
+    display: flex;
+    align-items: center;
+    gap: var(--sp-sm);
+    position: relative;
+}
+.conv:not(.sel):hover { opacity: 1; }
+.conv.sel {
+    opacity: 1;
+    background: transparent;
+    color: #000;
+}
+.conv .t {
+    flex: 1;
+    min-width: 0;
+    font-size: var(--sm);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.conv .t.renombrar {
+    font-family: inherit;
+    font-size: var(--sm);
+    background: #fff;
+    color: #000;
+    border: 1px solid #000;
+    padding: 1px 2px;
+}
+.conv.archivada { opacity: 0.35; }
+.conv .conv-mas {
+    flex: none;
+    display: none; /* visible al hover/foco, como apps de escritorio */
+    background: transparent;
+    color: #000;
+    border: none;
+    font-family: inherit;
+    font-size: var(--sm);
+    line-height: 1;
+    padding: 0 2px;
+    cursor: pointer;
+}
+.conv:hover .conv-mas,
+.conv:focus-within .conv-mas,
+.conv.sel .conv-mas { display: inline-block; }
+.conv-sep {
+    padding: var(--sp-xs) var(--sp-md) 2px;
+    font-size: var(--xs);
+    opacity: 0.4;
+}
+
+#sidebar .pie {
+    border-top: 1px solid var(--borde);
+    padding: var(--sp-xs) 0 var(--sp-xs);
+}
+#sidebar .pie-boton {
+    width: 100%;
+    font-family: inherit;
+    font-size: var(--sm);
+    background: #fff;
+    color: #000;
+    border: none;
+    padding: var(--sp-xs) var(--sp-md);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: var(--sp-sm);
+    text-align: left;
+    opacity: 0.8;
+}
+#sidebar .pie-boton:hover { opacity: 1; }
+
+/* ---------- Chat ---------- */
+#chat { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+
+#cabecera-chat {
+    border-bottom: 1px solid var(--borde);
+    padding: var(--sp-sm) var(--sp-md);
+    display: flex;
+    align-items: baseline;
+    gap: var(--sp-md);
+    font-size: var(--xs);
+}
+#cabecera-chat .titulo { font-size: var(--sm); }
+
+#mensajes {
+    flex: 1;
+    overflow-y: auto;
+    padding: var(--sp-lg);
+    display: flex;
+    flex-direction: column;
+    gap: var(--sp-md);
+    max-width: 860px;
+    width: 100%;
+    margin: 0 auto;
+}

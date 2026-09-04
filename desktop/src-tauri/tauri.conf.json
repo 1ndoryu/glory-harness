@@ -1,0 +1,30 @@
+{
+  "$schema" : "https://schema.tauri.app/config/2",
+  "productName" : "Glory Harness",
+  "version" : "0.1.0",
+  "identifier" : "us.glory.harness",
+  "build" : {
+    "frontendDist" : "../ui/dist",
+    "devUrl" : "http://localhost:1420",
+    "beforeDevCommand" : "npm run dev -- --port 1420",
+    "beforeBuildCommand" : "npm run build"
+  },
+  "app" : {
+    "windows" : [
+      {
+        "title" : "Glory Harness",
+        "width" : 1100,
+        "height" : 700
+      }
+    ],
+    "security" : {
+      "csp" : null
+    }
+  },
+  "bundle" : {
+    "active" : true,
+    "targets" : "all",
+    "category" : "DeveloperTool",
+    "shortDescription" : "Agente local ligero con UI nativa"
+  }
+}

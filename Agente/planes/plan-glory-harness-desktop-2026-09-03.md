@@ -2,7 +2,7 @@
 
 - **Fecha:** 2026-09-03
 - **ID:** 039A-1 (libre; el 039A-2 lo usa el plan de mejora del agente en `core/src/diff.rs`)
-- **Estado:** 📋 propuesta sin implementar (0/6 fases)
+- **Estado:** F1 hecha (lib compartida, 2026-09-04); F2 cubierta por 318A-16 F2 sin hook nuevo; F4 en curso (src-tauri + adaptador TS real). Detour egui nativo probado y retirado el mismo día por decisión del usuario (UI TS).
 - **Decisiones tomadas con el usuario:** UI **Tauri 2 + TypeScript vanilla/Preact** (sin React); backend **in-process** (enlazar `glory-harness-core` + lib de sesión compartida con el CLI; sin sidecar del daemon).
 - **Contexto:** el otro agente trabaja en `plan-mejora-agente-2026-09-03.md` (318A-15, núcleo/comportamiento del agente). Este plan toca core solo con un hook **aditivo** (aprobación); se coordina por gate ff-only para no pisarse.
 
@@ -169,9 +169,9 @@ edición visual de archivos, auto-update. Todo ello puede ser plan posterior.
 
 | Fase | Contenido | Estado |
 |---|---|---|
-| F1 | Refactor CLI → lib+bin (sesión compartida) | ☐ 0/3 |
-| F2 | Aprobación real en core (aditivo) | ☐ 0/4 |
+| F1 | Refactor CLI → lib+bin (sesión compartida) | ☑ hecha 2026-09-04 (183/183 tests, clippy limpio) |
+| F2 | Aprobación real en core (aditivo) | ☑ cubierta por canal 318A-16 F2 (sin hook nuevo) |
 | F3 | PersistenciaSqlite (historial durable) | ☐ 0/3 |
-| F4 | App Tauri + sesión GUI + IPC | ☐ 0/4 |
-| F5 | UI Vite + TS vanilla/Preact | ☐ 0/4 |
+| F4 | App Tauri + sesión GUI + IPC | ◐ en curso (src-tauri in-process + adaptador real.ts, turno real verificado vía CLI) |
+| F5 | UI Vite + TS vanilla/Preact | ◐ en curso por el usuario (adaptador real cableado en main.ts; mock solo con VITE_MOCK=1) |
 | F6 | Empaquetado, medición RAM y gate | ☐ 0/3 |

@@ -1,0 +1,22 @@
+[package]
+name = "glory-harness-desktop"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Backend Tauri in-process de Glory Harness: la UI TS habla al núcleo real sin daemon ni simulación."
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+glory-harness = { path = "../../cli" }
+glory-harness-core = { path = "../../core" }
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["sync"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+
+[features]
+default = ["custom-protocol"]
+custom-protocol = ["tauri/custom-protocol"]

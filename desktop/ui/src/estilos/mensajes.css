@@ -1,0 +1,129 @@
+/* ============================================================
+   Mensajes, herramientas, razonamiento y avisos — port 1:1.
+   ============================================================ */
+
+.msg-user {
+    align-self: flex-end;
+    background: #fff;
+    color: #000;
+    border: 1px solid #000;
+    padding: var(--sp-sm) var(--sp-md);
+    max-width: 70%;
+    font-size: var(--sm);
+}
+
+.msg-asis { max-width: 92%; font-size: var(--sm); }
+.msg-asis .texto { white-space: pre-wrap; }
+
+/* cursor de streaming */
+.cursor {
+    display: inline-block;
+    width: 7px;
+    height: 13px;
+    background: #000;
+    vertical-align: -2px;
+    margin-left: 2px;
+    animation: parpadeo 1s steps(1) infinite;
+}
+@keyframes parpadeo { 0%, 49% { opacity: 1; } 50%, 100% { opacity: 0; } }
+
+/* ---------- Herramientas: fila corta + resultado desplegable ---------- */
+.herramienta,
+.razonamiento,
+.aviso-sistema {
+    width: 100%;
+    font-size: var(--sm);
+}
+.herramienta summary,
+.razonamiento summary,
+.aviso-sistema summary {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-sm);
+    list-style: none;
+    cursor: pointer;
+    padding: 1px 0;
+    opacity: 0.6;
+}
+.herramienta summary::-webkit-details-marker,
+.razonamiento summary::-webkit-details-marker,
+.aviso-sistema summary::-webkit-details-marker { display: none; }
+.herramienta summary::marker,
+.razonamiento summary::marker,
+.aviso-sistema summary::marker { content: ''; }
+.herramienta summary:hover,
+.razonamiento summary:hover,
+.aviso-sistema summary:hover { opacity: 1; }
+.herramienta summary .ic,
+.razonamiento summary .ic,
+.aviso-sistema summary .ic { flex: none; }
+.herramienta .texto,
+.razonamiento .texto,
+.aviso-sistema .texto { min-width: 0; }
+.herramienta .meta,
+.razonamiento .meta,
+.aviso-sistema .meta { margin-left: auto; font-size: var(--xs); opacity: 0.65; white-space: nowrap; }
+
+/* en ejecución: fila no abrible (se distingue por el icono de acción, no por opacidad) */
+.herramienta.ejecutando summary { cursor: default; pointer-events: none; }
+.herramienta.ejecutando .meta { display: none; }
+
+/* cuadro de resultado: ancho completo con altura máxima (scroll interno) */
+.herramienta .resultado,
+.razonamiento .resultado,
+.aviso-sistema .resultado {
+    margin: var(--sp-sm) 0 0;
+    width: 100%;
+    border: 1px solid var(--borde);
+    max-height: 200px;
+    overflow: auto;
+    padding: var(--sp-sm);
+    font-size: var(--xs);
+    white-space: pre-wrap;
+    background: #fff;
+    color: #000;
+}
+.herramienta .resultado pre { overflow-x: auto; }
+/* el razonamiento es pensamiento interno: el texto va algo más tenue que un resultado */
+.razonamiento .resultado { opacity: 0.75; }
+/* cambio visible: líneas eliminadas con '-' y añadidas con '+' (sin fondos) */
+.herramienta .resultado .del { opacity: 0.45; }
+.herramienta .resultado .del::before { content: '-'; }
+.herramienta .resultado .add::before { content: '+'; }
+
+/* ---------- Tarjeta de aprobación ---------- */
+.aprobacion { border: 1px solid var(--borde); }
+.aprobacion .cab {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-sm);
+    font-size: var(--sm);
+    padding: var(--sp-sm);
+}
+.aprobacion .cab .estado { margin-left: auto; font-size: var(--xs); opacity: 0.6; }
+.aprobacion .args { margin: 0 var(--sp-sm) var(--sp-sm); border: 1px solid var(--borde); padding: var(--sp-sm); font-size: var(--xs); white-space: pre-wrap; background: #fff; }
+.aprobacion .args .del { opacity: 0.45; }
+.aprobacion .args .del::before { content: '-'; }
+.aprobacion .args .add::before { content: '+'; }
+.aprobacion .acciones { display: flex; gap: var(--sp-sm); padding: 0 var(--sp-sm) var(--sp-sm); }
+.aprobacion.denegada .args {
+    background-image: repeating-linear-gradient(-45deg, #000 0 1px, transparent 1px 5px);
+    background-size: 7.07px 7.07px;
+}
+
+/* ---------- Botones genéricos ---------- */
+.btn {
+    border: 1px solid #000;
+    background: #fff;
+    color: #000;
+    font-family: inherit;
+    font-size: var(--sm);
+    padding: 3px 14px;
+    cursor: pointer;
+    opacity: 0.8;
+}
+.btn:hover { opacity: 1; }
+.btn.primario { background: #000; color: #fff; }
+.btn.primario:hover { opacity: 1; }
+.btn:disabled { opacity: .35; cursor: default; }
+.btn:disabled:hover { opacity: .35; }

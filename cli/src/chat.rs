@@ -30,7 +30,7 @@ use crate::run::{construir_harness, OpcionesRun};
 /// el runtime espera (`AiMessage`). Es la fuente entre turnos del chat: el
 /// agente recuerda el hilo porque cada turno recibe todo lo anterior.
 /// Compartido con la TUI (`tui.rs`, Fase 5 opción B): misma fuente, otra UI.
-pub(crate) fn historial_desde_persistencia(mensajes: Vec<MensajePersistido>) -> Vec<AiMessage> {
+pub fn historial_desde_persistencia(mensajes: Vec<MensajePersistido>) -> Vec<AiMessage> {
     mensajes
         .into_iter()
         .map(|m| AiMessage::texto(&m.rol, m.contenido))
@@ -483,7 +483,7 @@ pub struct TurnoResultado {
 /// en vivo; la TUI lo acumula en sus paneles). El runtime persiste ambos
 /// mensajes vía puerto; aquí solo se recolecta el resultado. Un fallo se
 /// devuelve como `Err` y no acaba la sesión: el llamador puede reintentar.
-pub(crate) async fn procesar_turno(
+pub async fn procesar_turno(
     runtime: Arc<AgentRuntime>,
     user_id: Uuid,
     conversacion_id: Uuid,

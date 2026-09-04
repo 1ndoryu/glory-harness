@@ -1,0 +1,62 @@
+/* ============================================================
+   Tokens y base — Glory Harness Desktop (port 1:1 del mockup
+   del plan 039A-1). Monocromo estricto: blanco/negro, sin radius,
+   sin sombras, sin bold; estados por patrones y bordes.
+   Fuente: Departure Mono.
+   ============================================================ */
+
+@font-face {
+    font-family: 'Departure Mono';
+    src: url('/fonts/DepartureMono-Regular.woff2') format('woff2');
+    font-weight: normal;
+    font-style: normal;
+    font-display: swap;
+}
+
+:root {
+    --fondo: #ffffff;
+    --texto: #000000;
+    --invertido: #ffffff;
+    --borde: #000000;
+    --font: 'Departure Mono', ui-monospace, SFMono-Regular, 'SF Mono', Consolas, 'Liberation Mono', Menlo, monospace;
+    --xs: 0.72rem;   /* ~9.4px  */
+    --sm: 0.85rem;   /* ~11px   */
+    --md: 1rem;      /* 13px    */
+    --lg: 1.15rem;   /* ~15px   */
+    --sp-xs: 6px;
+    --sp-sm: 10px;
+    --sp-md: 16px;
+    --sp-lg: 24px;
+}
+
+html { font-size: 13px; }
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+    background: var(--fondo);
+    color: var(--texto);
+    font-family: var(--font);
+    line-height: 1.55;
+}
+
+/* ---------- Patrones monocromo ---------- */
+.trama-45  { background-image: repeating-linear-gradient(45deg,  #000 0 1.5px, transparent 1.5px 6px); }
+.trama-135 { background-image: repeating-linear-gradient(-45deg, #000 0 1.5px, transparent 1.5px 6px); }
+.trama-puntos { background-image: radial-gradient(#000 1px, transparent 1.5px); background-size: 4px 4px; }
+
+/* ---------- Iconos lucide (svg en línea, monocromo) ---------- */
+.ic {
+    display: inline-block;
+    width: 14px;
+    height: 14px;
+    vertical-align: -3px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+.ic-xs { width: 11px; height: 11px; vertical-align: -1px; }
+.ic-spin { animation: giro .9s linear infinite; transform-origin: center; }
+@keyframes giro { to { transform: rotate(360deg); } }

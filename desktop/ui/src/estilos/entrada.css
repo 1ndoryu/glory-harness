@@ -1,0 +1,132 @@
+/* ============================================================
+   Entrada (compositor), controles y menú contextual — port 1:1.
+   ============================================================ */
+
+#entrada {
+    max-width: 860px;
+    width: 100%;
+    margin: 0 auto;
+    padding: 0 var(--sp-lg) var(--sp-lg);
+}
+#entrada .caja {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: var(--sp-sm);
+    border: 1px solid #000;
+    padding: var(--sp-sm);
+    background: #fff;
+}
+#entrada textarea {
+    flex: 1 1 auto;
+    min-width: 0;
+    border: none;
+    outline: none;
+    resize: none;
+    background: #fff;
+    color: #000;
+    font-family: inherit;
+    font-size: var(--sm);
+    line-height: 1.45;
+    padding: 0;
+    overflow-y: hidden;
+}
+/* barra de controles bajo el textarea, dentro de la misma caja */
+#entrada .controles {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--sp-sm);
+    flex-basis: 100%;
+    padding-top: var(--sp-xs);
+}
+#entrada .controles .control {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-family: inherit;
+    font-size: var(--xs);
+    color: #000;
+    background: transparent;
+    border: none;
+    padding: 0;
+    opacity: 0.6;
+    white-space: nowrap;
+}
+#entrada .controles button.control { cursor: pointer; }
+#entrada .controles button.control:hover { opacity: 1; }
+#entrada .controles button.control:disabled { opacity: 0.35; cursor: default; }
+#entrada .controles .control .ic { flex: none; opacity: 0.7; }
+/* selector de modelo en la barra: el nombre no debe estirarse (control compacto) */
+#entrada .controles .selector-modelo .nombre { flex: none; }
+
+/* botón enviar/detener: icono único, anclado a la derecha de la barra */
+#entrada .btn-enviar {
+    margin-left: auto;
+    width: 24px;
+    height: 24px;
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid #000;
+    background: #000;
+    color: #fff;
+    cursor: pointer;
+    padding: 0;
+}
+#entrada .btn-enviar .ic { color: #fff; }
+#entrada .btn-enviar:hover { opacity: 0.85; }
+#entrada .btn-enviar:disabled { opacity: 0.3; cursor: default; }
+#entrada .btn-enviar:disabled:hover { opacity: 0.3; }
+
+/* ---------- Menú contextual de modelo (doble: proveedor → modelo) ---------- */
+.menu-ctx {
+    position: fixed;
+    z-index: 100;
+    background: #fff;
+    border: 1px solid #000;
+    min-width: 230px;
+    padding: 4px 0;
+}
+.menu-ctx .menu-grupo { position: relative; }
+.menu-ctx .menu-item {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-sm);
+    width: 100%;
+    background: transparent;
+    border: none;
+    color: #000;
+    font-family: inherit;
+    font-size: var(--sm);
+    text-align: left;
+    padding: 6px var(--sp-sm);
+    cursor: pointer;
+    white-space: nowrap;
+}
+.menu-ctx .menu-item:hover { background: #000; color: #fff; }
+.menu-ctx .menu-item .marca { display: inline-flex; flex: none; align-items: center; }
+.menu-ctx .menu-item .etiqueta { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.menu-ctx .menu-item .flecha { display: inline-flex; flex: none; align-items: center; opacity: 0.5; }
+.menu-ctx .menu-item:hover .flecha { opacity: 1; }
+.menu-ctx .menu-sep {
+    border-top: 1px solid #000;
+    margin: 4px 0;
+}
+/* submenú de modelos: se muestra/oculta por JS (hover sobre el proveedor) */
+.menu-ctx .menu-sub {
+    display: none;
+    position: absolute;
+    top: -5px;
+    left: 100%;
+    margin-left: -1px;
+    background: #fff;
+    border: 1px solid #000;
+    min-width: 250px;
+    padding: 4px 0;
+    z-index: 101;
+}
+.menu-ctx .menu-sub.voltear { left: auto; right: 100%; margin-left: 0; margin-right: -1px; }
+.menu-ctx .menu-grupo:hover > .menu-item,
+.menu-ctx .menu-grupo:hover > .menu-sub .menu-item:hover { background: #000; color: #fff; }

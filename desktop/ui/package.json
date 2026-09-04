@@ -1,0 +1,21 @@
+{
+  "name": "glory-harness-desktop-ui",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "UI de glory-harness desktop (boceto 039A-1) — Vite + TypeScript vanilla, sin framework. Solo componentes visuales y simulación local desmontable.",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "type-check": "tsc --noEmit",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.11.4",
+    "typescript": "^5.6.3",
+    "vite": "^6.0.5"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2.11.1"
+  }
+}

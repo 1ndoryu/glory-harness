@@ -1,0 +1,6 @@
+/* Punto de entrada de estilos: orden de cascada intencional. */
+@import './variables.css';
+@import './layout.css';
+@import './mensajes.css';
+@import './entrada.css';
+@import './modal.css';

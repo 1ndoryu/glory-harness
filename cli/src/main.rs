@@ -15,14 +15,8 @@
 //! - `doctor` → comprueba configuración (envs de proveedores) y salida.
 //! - `--version`/`-V` → versión del binario + contrato core.
 
-mod chat;
-mod daemon;
-mod ejecutor;
-mod persistencia;
-mod reglas;
-mod run;
-mod tui;
-
+use glory_harness::cargar_env_usuario;
+use glory_harness::{chat, daemon, ejecutor, persistencia, run, tui};
 use glory_harness_core::{HarnessError, ProgramadorTareas};
 use std::process::ExitCode;
 use std::sync::Arc;
@@ -330,41 +324,6 @@ fn leer_stdin() -> Option<String> {
         .unwrap_or(None)
 }
 
-/// Carga `~/.glory-harness.env` si existe (formato `CLAVE=valor`, `#` = comentario).
-/// Solo define variables aún ausentes, así el entorno real del proceso (o las
-/// de un proyecto) siempre tienen prioridad. Nunca imprime valores.
-fn cargar_env_usuario() {
-    let Some(home) = std::env::var_os("USERPROFILE")
-        .or_else(|| std::env::var_os("HOME"))
-        .map(std::path::PathBuf::from)
-    else {
-        return;
-    };
-    let ruta = home.join(".glory-harness.env");
-    let contenido = match std::fs::read_to_string(&ruta) {
-        Ok(c) => c,
-        Err(_) => return, // no existe o no legible: sin claves extra, no es error
-    };
-    for linea in contenido.lines() {
-        let linea = linea.trim();
-        if linea.is_empty() || linea.starts_with('#') {
-            continue;
-        }
-        let Some((clave, valor)) = linea.split_once('=') else {
-            continue;
-        };
-        let clave = clave.trim();
-        let valor = valor.trim();
-        if clave.is_empty() || valor.is_empty() {
-            continue;
-        }
-        // Solo si no está ya definida (edition 2021: set_var es seguro).
-        if std::env::var_os(clave).is_none() {
-            std::env::set_var(clave, valor);
-        }
-    }
-}
-
 /// `doctor`: valida la configuración del entorno (proveedores LLM) y reporta
 /// el estado. No toca red ni requiere gate; es una comprobación local.
 fn doctor() {
@@ -417,8 +376,8 @@ fn listar_tools() {
         llm,
         web_search: None,
         dominio: None,
-        ejecutor_comando: Some(Arc::new(crate::ejecutor::EjecutorCliente::nuevo())),
-        programador_tareas: Some(Arc::new(crate::persistencia::ProgramadorMemoria::nuevo())),
+        ejecutor_comando: Some(Arc::new(ejecutor::EjecutorCliente::nuevo())),
+        programador_tareas: Some(Arc::new(persistencia::ProgramadorMemoria::nuevo())),
     };
     let runtime = AgentRuntime::nuevo(
         AgentToolRegistry::new(),

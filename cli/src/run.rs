@@ -51,7 +51,7 @@ pub struct SalidaTurno {
 /// construcción — persistencia en memoria, proveedor LLM de las envs,
 /// workspace = cwd (o `--dir`) y `AGENTE_MODO=local` para las tools de archivo.
 /// [318A-13] Un único constructor para los tres subcomandos, sin duplicar.
-pub(crate) struct HarnessCli {
+pub struct HarnessCli {
     pub runtime: Arc<AgentRuntime>,
     pub persistencia: Arc<PersistenciaMemoria>,
     pub user_id: Uuid,
@@ -59,7 +59,7 @@ pub(crate) struct HarnessCli {
     pub config: TurnoConfig,
 }
 
-pub(crate) fn construir_harness(opciones: &OpcionesRun) -> HarnessCli {
+pub fn construir_harness(opciones: &OpcionesRun) -> HarnessCli {
     let persistencia = Arc::new(PersistenciaMemoria::nuevo());
     // Añadir una skill base para dar contexto útil (standalone sin BD).
     let user_id = Uuid::new_v4();
@@ -134,7 +134,7 @@ pub(crate) fn construir_harness(opciones: &OpcionesRun) -> HarnessCli {
 /// núcleo salta solo a la cadena de respaldo (glory/auto, deepseek, …).
 /// Compartido con `chat` (Fase 5): ambos subcomandos construyen el mismo
 /// runtime con la misma configuración por defecto.
-pub(crate) fn turno_config_default(workspace: Option<PathBuf>) -> TurnoConfig {
+pub fn turno_config_default(workspace: Option<PathBuf>) -> TurnoConfig {
     TurnoConfig {
         provider: "commandcode".into(),
         modelo: "poolside/laguna-s-2.1-free".into(),
@@ -146,7 +146,7 @@ pub(crate) fn turno_config_default(workspace: Option<PathBuf>) -> TurnoConfig {
 /// En Windows `canonicalize` devuelve rutas con prefijo verbatim `\\?\C:\...`;
 /// se quita para que el sandbox y los mensajes usen la forma legible `C:\...`.
 /// Compartido con `chat` (Fase 5).
-pub(crate) fn quitar_prefijo_verbatim(p: PathBuf) -> PathBuf {
+pub fn quitar_prefijo_verbatim(p: PathBuf) -> PathBuf {
     let s = p.to_string_lossy();
     let limpio = s.strip_prefix(r"\\?\").unwrap_or(&s);
     PathBuf::from(limpio)

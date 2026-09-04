@@ -1,0 +1,182 @@
+/* ============================================================
+   Modal de configuración — sin cabecera ni pie, guardado
+   automático. Las opciones vienen del esquema centralizado
+   dominio/opciones.ts y se renderizan con componentes/formulario.ts.
+   ============================================================ */
+
+.modal-fondo {
+    position: fixed;
+    inset: 0;
+    background: rgba(255, 255, 255, 0.55);
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 10;
+}
+.modal-fondo[hidden] { display: none; }
+.modal {
+    background: #fff;
+    border: 1px solid #000;
+    width: 580px;
+    height: 560px;
+    max-width: calc(100vw - 48px);
+    max-height: calc(100vh - 48px);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+.modal-cuerpo {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: row;
+    align-items: stretch;
+    overflow: hidden;
+}
+.config-nav {
+    width: 140px;
+    flex-shrink: 0;
+    border-right: 1px solid #000;
+    padding: var(--sp-sm) 0;
+    overflow-y: auto;
+}
+.config-item {
+    padding: var(--sp-xs) var(--sp-md);
+    font-size: var(--xs);
+    cursor: pointer;
+}
+.config-item:hover { background: #000; color: #fff; }
+.config-item.sel { background: #000; color: #fff; }
+.config-paneles {
+    flex: 1;
+    min-width: 0;
+    overflow-y: auto;
+    padding: var(--sp-md);
+}
+.config-paneles .formulario[hidden] { display: none; }
+.config-paneles .formulario { display: flex; flex-direction: column; gap: var(--sp-lg); }
+
+.grupo { display: flex; flex-direction: column; gap: var(--sp-md); }
+.grupo-titulo {
+    font-size: calc(var(--xs) + 1px);
+    border-bottom: 1px solid #000;
+    padding-bottom: 2px;
+}
+
+.campo { display: flex; flex-direction: column; gap: 4px; }
+.campo .etiqueta { font-size: calc(var(--xs) + 1px); }
+.campo .nota { font-size: var(--xs); opacity: 0.6; }
+
+/* control segmentado */
+.toggle { display: inline-flex; border: 1px solid #000; align-self: flex-start; }
+.toggle .opt {
+    font-size: var(--xs);
+    padding: 3px 10px;
+    cursor: pointer;
+    background: #fff;
+    color: #000;
+    border-right: 1px solid #000;
+}
+.toggle .opt:last-child { border-right: none; }
+.toggle .opt.sel { background: #000; color: #fff; }
+
+/* entrada de texto (guardado al perder foco / Enter) */
+.input-texto {
+    border: 1px solid #000;
+    background: #fff;
+    color: #000;
+    font-family: inherit;
+    font-size: var(--sm);
+    padding: var(--sp-xs) var(--sp-sm);
+    width: 100%;
+}
+.input-texto:focus { outline: none; background: #fff; }
+
+/* selector desplegable */
+.select {
+    border: 1px solid #000;
+    background: #fff;
+    color: #000;
+    font-family: inherit;
+    font-size: var(--sm);
+    padding: var(--sp-xs) var(--sp-sm);
+    width: 100%;
+    cursor: pointer;
+}
+.select:focus { outline: none; }
+
+/* fila en línea (etiqueta izq. · control/valor der.) — lectura y booleano */
+.fila-dato {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: var(--sp-md);
+    font-size: var(--xs);
+}
+.fila-dato span:last-child { text-align: right; }
+
+/* control al final de una fila-dato (booleano) — alineado vertical al centro */
+.fila-dato .al-final {
+    align-self: center;
+    flex-shrink: 0;
+}
+
+/* casilla booleana (check / vacía) — guardado automático al hacer click */
+.check-box {
+    border: 1px solid #000;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    cursor: pointer;
+}
+.check-box .ic { width: 12px; height: 12px; vertical-align: 0; }
+
+/* valor de solo lectura en caja con borde (modelo / claves) */
+.campo .valor {
+    border: 1px solid #000;
+    padding: var(--sp-xs) var(--sp-sm);
+    font-size: var(--sm);
+    display: flex;
+    align-items: center;
+    gap: var(--sp-sm);
+}
+.campo .valor .texto {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1;
+}
+
+/* selector de modelo dentro del modal: botón con borde a lo ancho (mismo
+   lenguaje que .campo .valor, que reemplaza) + chevron a la derecha.
+   La clase de la variante es 'selector-modal' (NO 'modal', que es la clase
+   del diálogo y estiraría el botón a height:560px / flex-direction:column). */
+.campo .selector-modelo.selector-modal {
+    border: 1px solid #000;
+    background: #fff;
+    color: #000;
+    font-family: inherit;
+    font-size: var(--sm);
+    padding: var(--sp-xs) var(--sp-sm);
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: var(--sp-sm);
+    cursor: pointer;
+    text-align: left;
+}
+.campo .selector-modelo.selector-modal .nombre {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.campo .selector-modelo.selector-modal .ic { flex: none; opacity: 0.7; }
+.campo .selector-modelo.selector-modal:hover .ic { opacity: 1; }
+.campo .selector-modelo.selector-modal:focus { outline: none; }
