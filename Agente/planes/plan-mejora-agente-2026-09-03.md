@@ -2,7 +2,11 @@
 
 - **Fecha:** 2026-09-03
 - **ID:** 318A-15 (libre; no usar en PT hasta cerrar este plan)
-- **Estado:** 📋 propuesta sin implementar (0/6 fases)
+- **Estado:** ✅ cerrado 2026-09-04 — F1-F6 completas (318A-15), criterios
+  globales §6 verificados contra el código (ver §9 notas de cierre).
+  Pendientes operacionales del usuario (no defectos): línea base con 10+
+  conversaciones reales de PT (script validado, falta historial) y verificación
+  en vivo con clave real de proveedor para un turno de la IA de PT.
 - **Documento base:** `Agente/documentacion/comparativa-opencode-agente-2026-09-03.md`
   (revisiones 1-3: `19d0241`, `3472ca1`, `6cdc13a`)
 - **Alcance:** núcleo agnóstico `glory-harness/core` + CLI `glory-harness chat` +
@@ -341,24 +345,59 @@ flags de contexto reales; contrato SSE existente (las fases solo **añaden** eve
 
 ## 6. Criterios de aceptación (globales, se verifican al cierre del plan)
 
-- [ ] El system prompt del núcleo llega al modelo por capas con `[ENTORNO]`
+- [x] El system prompt del núcleo llega al modelo por capas con `[ENTORNO]`
       (fecha/workspace/git/modelo) y ranura `[REGLAS]` poblada por consumidor.
-- [ ] Las tools del núcleo muestran formato de salida, límites y consejo de uso;
+      Evidencia: `core/src/context.rs` (`MARCA_ENTORNO`/`MARCA_REGLAS` +
+      `ensamblar_prompt_sistema`); F1 `2216070`; CLI inyecta AGENTS.md por
+      jerarquía vía `establecer_reglas` (`cli/src/reglas.rs`, `run.rs`, F2
+      `4628da0`); test `system_con_marcadores_se_protege_de_la_compactacion`.
+- [x] Las tools del núcleo muestran formato de salida, límites y consejo de uso;
       `file_patch` valida unicidad de `old`.
-- [ ] La política de permisos es por tool (`ask|allow|deny`) con herencia y
+      Evidencia: contratos ricos en `core/src/tools_archivo.rs` (F5 `fb46a43`);
+      tests `file_patch_old_ausente_falla_no_encontrado`,
+      `file_patch_old_duplicado_falla_con_mensaje_claro` y
+      `e2e_fixture_todo_patch_y_cierre_de_plan`.
+- [x] La política de permisos es por tool (`ask|allow|deny`) con herencia y
       overrides por conversación; `deny` quita la tool del schema; no hay
       reintento tras denegación.
-- [ ] La tool `task` delega en subagentes aislados con presupuesto; el subagente
+      Evidencia: `core/src/permiso.rs` (`resolver_permiso`/`permiso_efectivo`),
+      F3 `70d03e0`; tests `f1_deny_de_categoria_con_patron_asterisco_oculta_la_tool_del_schema`,
+      `f1_override_deny_fail_closed_gana_a_toda_regla`,
+      `f3_deny_deniega_y_el_repetido_no_reeventa`.
+- [x] La tool `task` delega en subagentes aislados con presupuesto; el subagente
       no ve la tool `task`; los perfiles de PT no ejecutan comandos ni editan
       archivos del sistema.
-- [ ] La compactación es dirigida por plantilla, por tramos fechados, con fallback
+      Evidencia: `core/src/subagente.rs` (F4 `134c40c`); tests
+      `f4_schema_hijo_excluye_task_y_aplica_whitelist`,
+      `f4_perfiles_no_incluyen_ejecucion_ni_edicion_de_sistema`,
+      `f4_presupuesto_efectivo_valida_max_pasos`, `f4_profundidad_maxima_uno`,
+      `f4_e2e_fixture_resultado_estructurado_hacia_el_padre`.
+- [x] La compactación es dirigida por plantilla, por tramos fechados, con fallback
       determinista y umbrales configurables; head/`[ENTORNO]`/`[REGLAS]` nunca se
       compactan.
-- [ ] Tanto el CLI (`chat` REPL y `--tui`) como el chat de la IA de PT siguen
+      Evidencia: `core/src/context.rs` (F6 `bcda2d1`); tests
+      `system_con_marcadores_se_protege_de_la_compactacion`,
+      `f6_tramos_fechados_y_no_recompacta_sin_material_nuevo`,
+      `f6_fallback_determinista_si_el_llm_falla`,
+      `f6_umbral_disparo_configurable_por_consumidor`,
+      `f6_ventana_seguridad_omite_compactar_durante_tool`.
+- [x] Tanto el CLI (`chat` REPL y `--tui`) como el chat de la IA de PT siguen
       funcionando con las mejoras sin regresiones (E2E en vivo, verificación con
       fixture si no hay clave de proveedor).
-- [ ] Gate final verde: `sentinel doctor` + `sentinel check` + `quality:analyze` en
+      Evidencia: 29 tests CLI (incl. `tui::tests::tools_se_marcan_ok_y_error`);
+      REPL/TUI verificados en vivo en Fase 5 (318A-13) y plan 2; PT con
+      `establecer_reglas` + canal de aprobación verificado en vivo (:3001, F2
+      `4289ba0`). Pendiente operacional: turno real de la IA de PT con clave de
+      proveedor (los fixtures E2E no dependen de clave).
+- [x] Gate final verde: `sentinel doctor` + `sentinel check` + `quality:analyze` en
       glory-harness y PT; árbol limpio salvo cambios ajenos.
+      Evidencia 2026-09-04: `cargo test --workspace` 188/188 (159 core + 29 CLI);
+      `cargo clippy -p glory-harness-core -p glory-harness --all-targets
+      -- -D warnings` limpio; `sentinel analyze` 0 errores/0 hallazgos
+      (`.quality-reports/analyze.json`); PT `cargo check --lib` verde (wiring
+      `66d746e`). Salvedad ajena: `cargo clippy --workspace` reporta 1 error en
+      `desktop/src-tauri/src/main.rs:320` — crate 039A-1 de otro hilo, fuera del
+      alcance de este plan (no tocado).
 
 ## 7. Riesgos y mitigaciones
 
@@ -380,13 +419,25 @@ flags de contexto reales; contrato SSE existente (las fases solo **añaden** eve
 
 1. **Orden F3 vs F4 tras F1+F5:** recomendación F3 antes de F4 (F4 requiere policy
    de `task`); la telemetría (F0) puede cambiarlo.
+   → **Resuelta (03-09-2026, con datos F0):** orden F3→F4 ejecutado y validado;
+   registro en la fase F0.
 2. **Perfil "código" con tool `bash` en el CLI** (permisos por patrón de comando,
    paridad opencode) — fuera del alcance actual del CLI (solo archivos/web); decidir
    si se incorpora en una fase posterior del CLI.
+   → **Resuelta en bloque posterior (318A-16 F3, `1ffa060`):** tool `comando` en
+   el CLI con clasificador de riesgo, runner con timeout/background/truncado y
+   permisos por patrón (regla v2). Perfiles de subagente sin ejecución (invariante).
 3. **IA de PT: migrar memoria/skills a la ranura `[REGLAS]`** (F2) — requiere
    revisar qué vive en memoria persistente vs skills vs reglas del momento.
+   → **Resuelta (F2 `4628da0`):** las skills activas de PT entran por
+   `runtime.establecer_reglas` (mismo canal que AGENTS.md del CLI, capa
+   protegida); la memoria sigue en el historial, sin duplicación. Verificación en
+   vivo con clave real de proveedor: pendiente operacional (no defecto).
 4. **Umbrales por consumidor (F6):** valores default propuestos
    (`pct_compactar=80`, `ventana_seguridad` = ~15% del techo); ajustar con telemetría.
+   → **Resuelta (F6 `bcda2d1`):** umbrales configurables por consumidor con los
+   defaults propuestos (test `f6_umbral_disparo_configurable_por_consumidor`);
+   el ajuste fino con telemetría queda abierto al uso real.
 
 ## 9. Checklist resumen de estado
 
@@ -400,5 +451,16 @@ flags de contexto reales; contrato SSE existente (las fases solo **añaden** eve
 | F5 | Tools ricos + todo + pasos | ✅ 7/7 |
 | F6 | Compactación dirigida | ✅ 7/7 |
 
-Primer bloque a ejecutar: **F1 + F5** (alternativa B de la comparativa §6), luego
-F3 → F4, y F2/F6 cuando la telemetría lo justifique.
+### Notas de cierre (2026-09-04)
+
+- Criterios globales §6: 7/7 verificados contra el código (detalle y hashes en §6).
+- Evidencia de cierre: `Agente/completados/tareas-2026-09-04.md` (entrada 318A-15).
+- Pendientes operacionales del usuario (documentados en F0/F2, no defectos):
+  1. Línea base real de PT: re-ejecutar `.freebuff/linea-base-agente.mjs` cuando
+     haya 10+ conversaciones reales (el pipeline está validado).
+  2. Turno en vivo de la IA de PT con clave real de proveedor (los E2E por fixture
+     ya cubren el comportamiento sin clave).
+- Los 4 ítems del bloque 318A-16 (plan 2) que este plan dejaba como
+  decisión/expansión (bash en CLI, plan explícito, permisos finos por categoría,
+  aprobación 3 vías) se implementaron en `plan-mejora-agente-2-2026-09-03.md`.
+
