@@ -10,6 +10,7 @@
 
 use crate::aprobacion::{PeticionAprobacion, RespuestaAprobacion};
 use crate::error::{Error, Result};
+use crate::pregunta::PreguntaPendiente;
 use crate::permiso::{es_tool_propuesta, permiso_por_modo, resolver_permiso, Permiso};
 use crate::ports::{AgentPersistence, ProviderPort, WebFetchProvider, WebSearchProvider};
 use crate::regla::{categorias_core, Clasificador, ReglaPermiso};
@@ -158,6 +159,11 @@ pub struct AgentToolRegistry {
     /// la clase aprobada: se consumen en la primera llamada cuya clave
     /// coincida (una vez, sin regla persistente).
     una_vez: Arc<RwLock<Vec<(String, String)>>>,
+    /// [04-09-2026 B3-F1] Preguntas pendientes de `ask_user` por `id` (canal
+    /// explícito, mismo patrón que `pendientes`): la UI las muestra y la
+    /// respuesta llega como nuevo mensaje de usuario. Arc compartido con los
+    /// clones del registro.
+    preguntas: Arc<RwLock<HashMap<String, PreguntaPendiente>>>,
 }
 
 impl Default for AgentToolRegistry {
@@ -190,6 +196,7 @@ impl AgentToolRegistry {
             categorias,
             pendientes: Arc::new(RwLock::new(HashMap::new())),
             una_vez: Arc::new(RwLock::new(Vec::new())),
+            preguntas: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
@@ -489,6 +496,44 @@ impl AgentToolRegistry {
             }
         }
         Ok(())
+    }
+
+    /* [04-09-2026 B3-F1] Canal de preguntas de `ask_user`: registrar,
+     * listar y consumir. La respuesta NO se almacena (llega como nuevo
+     * mensaje de usuario); consumir = retirar la pendiente. */
+
+    /// Registra una pregunta pendiente al usuario.
+    pub fn registrar_pregunta(&self, pregunta: PreguntaPendiente) {
+        self.preguntas
+            .write()
+            .unwrap_or_else(|p| p.into_inner())
+            .insert(pregunta.id.clone(), pregunta);
+    }
+
+    /// Preguntas pendientes sin responder (la UI las muestra; se retiran al
+    /// recibir la respuesta del usuario en un nuevo turno).
+    #[must_use]
+    pub fn preguntas_pendientes(&self) -> Vec<PreguntaPendiente> {
+        let mut v: Vec<_> = self
+            .preguntas
+            .read()
+            .unwrap_or_else(|p| p.into_inner())
+            .values()
+            .cloned()
+            .collect();
+        v.sort_by(|a, b| a.id.cmp(&b.id));
+        v
+    }
+
+    /// Consume una pregunta pendiente. `Err` si el id es desconocido o ya fue
+    /// respondido.
+    pub fn responder_pregunta(&self, id: &str) -> std::result::Result<(), String> {
+        let mut guard = self.preguntas.write().unwrap_or_else(|p| p.into_inner());
+        if guard.remove(id).is_some() {
+            Ok(())
+        } else {
+            Err(format!("pregunta desconocida o ya respondida: {id}"))
+        }
     }
 
     pub async fn ejecutar(

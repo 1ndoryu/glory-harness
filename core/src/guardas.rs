@@ -77,6 +77,26 @@ pub fn aviso_vacio() -> &'static str {
      repitas herramientas que ya ejecutaste."
 }
 
+/// ¿El runtime debe reintentar la llamada tras una respuesta vacía?
+/// Decisión pura del runtime (la aplica en el bucle del turno): una sola
+/// vez por turno, solo si las guardas están activas.
+#[must_use]
+pub fn decidir_reintento_vacio(guardas: &GuardasTurno, ya_reintentado: bool) -> bool {
+    guardas.habilitadas && guardas.reintento_vacio && !ya_reintentado
+}
+
+/// Si la respuesta nueva repite ≥ umbral las últimas recientes, devuelve el
+/// aviso que el runtime debe anexar a la respuesta (y emitir como Token).
+/// `umbral == 0` desactiva la guarda por completo.
+#[must_use]
+pub fn aviso_por_repeticion(texto: &str, recientes: &[String], umbral: usize) -> Option<String> {
+    if umbral == 0 {
+        return None;
+    }
+    let n = veces_repetida(texto, recientes);
+    (n >= umbral).then(|| aviso_repeticion(n))
+}
+
 /// Aviso cuando la respuesta repite casi verbatim respuestas anteriores.
 #[must_use]
 pub fn aviso_repeticion(n: usize) -> String {
@@ -136,5 +156,40 @@ mod tests {
         let g = GuardasTurno::default();
         assert!(g.habilitadas && g.reintento_vacio);
         assert_eq!(g.umbral_repeticion, 2);
+    }
+
+    #[test]
+    fn reintento_vacio_una_sola_vez_y_respeta_config() {
+        let g = GuardasTurno::default();
+        assert!(decidir_reintento_vacio(&g, false));
+        assert!(!decidir_reintento_vacio(&g, true), "solo un reintento por turno");
+        let desactivado = GuardasTurno {
+            habilitadas: false,
+            ..GuardasTurno::default()
+        };
+        assert!(!decidir_reintento_vacio(&desactivado, false));
+        let sin_reintento = GuardasTurno {
+            reintento_vacio: false,
+            ..GuardasTurno::default()
+        };
+        assert!(!decidir_reintento_vacio(&sin_reintento, false));
+    }
+
+    #[test]
+    fn aviso_por_repeticion_solo_al_superar_umbral() {
+        let recientes = vec!["mismo texto".to_string(), "mismo texto".to_string()];
+        assert!(aviso_por_repeticion("Mismo texto", &recientes, 2).is_some());
+        assert!(
+            aviso_por_repeticion("Mismo texto", &recientes, 3).is_none(),
+            "3 repetidas seguidas necesarias para umbral 3"
+        );
+        assert!(
+            aviso_por_repeticion("Mismo texto", &recientes, 0).is_none(),
+            "umbral 0 = guarda apagada"
+        );
+        assert!(
+            aviso_por_repeticion("texto distinto", &recientes, 2).is_none(),
+            "respuesta nueva sin repetición no avisa"
+        );
     }
 }

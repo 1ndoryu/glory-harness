@@ -15,6 +15,7 @@ pub mod ports;
 pub mod evento;
 pub mod aprobacion;
 pub mod permiso;
+pub mod pregunta;
 pub mod plan;
 pub mod regla;
 pub mod telemetria;

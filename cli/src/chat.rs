@@ -265,6 +265,16 @@ fn imprimir_evento_turno(evento: AgenteEvento) {
             )
         }
         AgenteEvento::SubagenteFin { ok, .. } => eprintln!("  └ subagente: {}", if ok { "fin" } else { "sin resumen" }),
+        /* [Bloque 3, F1] `ask_user`: la pregunta se muestra y el turno
+         * termina; el usuario responde como su siguiente mensaje. */
+        AgenteEvento::Pregunta { texto, opciones, .. } => {
+            eprintln!("  ? {texto}");
+            if !opciones.is_empty() {
+                for (i, opcion) in opciones.iter().enumerate() {
+                    eprintln!("    {}) {opcion}", i + 1);
+                }
+            }
+        }
         AgenteEvento::ToolResult {
             tool,
             ok: false,

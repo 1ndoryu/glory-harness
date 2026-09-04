@@ -58,6 +58,17 @@ pub enum AgenteEvento {
         /// "Permitir siempre" recordará como regla.
         clasificacion: String,
     },
+    /// [04-09-2026 B3-F1] La tool `ask_user` preguntó al usuario con opciones
+    /// (claurst `ask_user.rs` / opencode `question.ts`): la UI la muestra y el
+    /// turno termina — la respuesta llega como nuevo mensaje de usuario (el
+    /// `id` permite correlacionar). Aditivo para los consumidores existentes.
+    Pregunta {
+        id: String,
+        texto: String,
+        /// Opciones sugeridas (vacío = respuesta libre).
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        opciones: Vec<String>,
+    },
     /// [318A-15 F3] La tool fue denegada por política (`deny` silencioso por
     /// override o modo meta) o por negación del usuario en la UI. El runtime
     /// no reintenta la tool en ese turno: el modelo recibe el estado como

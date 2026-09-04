@@ -10,6 +10,9 @@
 - **Estado:** auditoría inicial hecha (04-09). Este documento es la **hoja de
   trabajo**: checklists por referencia para marcar `[x]` y anotar, y al final el
   **Bloque 3 recomendado** (aún NO ejecutado).
+- **Progreso Bloque 3:** Fase 1 ✅ completa (`37d6d83` + `318A-17 (B3-F1)` —
+  guardas puras, `web_fetch` con proveedor HTTP del CLI, `ask_user` con evento
+  `Pregunta` y guardas aplicadas en el runtime). Fases 2–8 pendientes.
 - **IDs sugeridos** para las fases del Bloque 3: `049A-N` (verificar contra
   `Agente/completados/` y `roadmap` antes de asignar).
 
@@ -411,15 +414,24 @@ Prioridad por **valor ÷ esfuerzo** y por dependencias. Cada fase seguirá el fl
 los planes 1-2 (checklist propio, tests deterministas, clippy, gate Sentinel,
 commit por fase). Mover a ejecución solo tras aprobación del usuario.
 
-### Fase 1 — `ask_user` + `webfetch` (barato, alto valor inmediato)
-- [ ] Tool `ask_user`: pregunta con opciones y respuesta acotada (puerto
-      `PreguntaUsuario` o callback), evento SSE `Pregunta`, integración TUI/UI PT.
-      Evidencia: claurst `tools/ask_user.rs`, opencode `tool/question.ts`.
-- [ ] Tool `webfetch`: leer URL → texto limpio (límite bytes/título), distinta de
-      `web_search`. Evidencia: opencode `tool/webfetch.ts`.
-- [ ] Salvaguardas baratas: respuesta vacía → reintento único con aviso; detector
-      de repetición. Evidencia: hermes `empty_response_guard.py`,
-      `repetition_guard.py`.
+### Fase 1 — `ask_user` + `webfetch` (barato, alto valor inmediato) ✅
+- [x] Tool `ask_user`: pregunta con opciones y respuesta acotada, evento SSE
+      `Pregunta`, integración CLI (`chat.rs` muestra la pregunta con opciones).
+      `core/src/pregunta.rs` (tool + `procesar_pregunta` libre determinista),
+      intercepción en `runtime.rs` (patrón `task`, termina el turno, la respuesta
+      del usuario llega como siguiente mensaje). Tests: `intercepcion_valida_emite_y_registra`,
+      `intercepcion_exige_texto`, `canal_pregunta_registra_y_responde_una_vez`.
+      La UI de PT se integra en una fase posterior (evento ya disponible).
+- [x] Tool `webfetch`: leer URL → texto limpio (límite bytes/título), distinta de
+      `web_search`. `core/src/tools_web.rs` (`ToolWebFetch`) + puerto
+      `WebFetchProvider` en `ports.rs` + proveedor HTTP real en
+      `cli/src/fetch.rs` (reqwest, HTML→texto sin scripts/estilos, errores HTTP
+      propagados). Commit `37d6d83`.
+- [x] Salvaguardas baratas: respuesta vacía → reintento único con aviso; detector
+      de repetición. `core/src/guardas.rs` (puro, determinista) aplicadas en la
+      finalización del turno de `runtime.rs` (aviso de repetición anexado;
+      reintento único con `aviso_vacio`; configurables via `set_guardas`,
+      activas por defecto). Tests: 11 en `guardas.rs` + aplicación en runtime.
 
 ### Fase 2 — MCP cliente (núcleo)
 - [ ] Puerto `McpProveedor` (conexión stdio; HTTP evaluar) + registry de tools MCP

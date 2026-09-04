@@ -23,6 +23,9 @@ use crate::context::{
     AgentContextManager, ContextoConfig, CIERRE_ENTORNO, CIERRE_REGLAS, MARCA_ENTORNO, MARCA_REGLAS,
 };
 use crate::error::Result;
+use crate::guardas::{
+    aviso_por_repeticion, aviso_vacio, decidir_reintento_vacio, texto_vacio, GuardasTurno,
+};
 use crate::ports::EjecutorComando;
 use crate::evento::AgenteEvento;
 use crate::llm::{AiChatOptions, AiMessage, AiToolCall, LlmProviderService};
@@ -31,6 +34,7 @@ use crate::ports::{
     AccionAuditable, AgentPersistence, MensajePersistido, ProgramadorTareas, TurnoPersistido,
     WebFetchProvider, WebSearchProvider,
 };
+use crate::pregunta::{procesar_pregunta, registrar_tool_ask_user};
 use crate::sandbox::SandboxArchivos;
 use std::collections::HashSet;
 
@@ -237,6 +241,10 @@ pub struct AgentRuntime {
     /// runtime (efímera, nunca en BD): el consumidor la lee tras el turno
     /// para mostrar el diff acumulado (CLI) o descartarla.
     plan_actual: std::sync::Mutex<Option<crate::plan::PlanCompartida>>,
+    /// [Bloque 3, F1] Guardas de turno (respuesta vacía → reintento único;
+    /// repetición → aviso). Configurables por el consumidor; activas por
+    /// defecto. Deterministas y sin I/O (guardas.rs).
+    guardas: std::sync::Mutex<GuardasTurno>,
 }
 
 impl AgentRuntime {
@@ -257,6 +265,10 @@ impl AgentRuntime {
          * runtime la intercepta en el bucle y ejecuta la sesión hija
          * (`ejecutar_subagente`). */
         registrar_tool_task(&mut registry);
+        /* [Bloque 3, F1] Tool `ask_user`: siempre disponible; el runtime la
+         * intercepta en el bucle (patrón `task`) y termina el turno tras
+         * emitir el evento `Pregunta`. */
+        registrar_tool_ask_user(&mut registry);
         /* [318A-16 F3] Tool `comando` SOLO con runner inyectado (fail-closed:
          * sin ejecutor, el modelo no ve la tool). */
         if let Some(ejecutor) = puertos.ejecutor_comando.clone() {
@@ -290,7 +302,20 @@ impl AgentRuntime {
             reglas: std::sync::Mutex::new(String::new()),
             tool_en_curso: std::sync::atomic::AtomicBool::new(false),
             plan_actual: std::sync::Mutex::new(None),
+            guardas: std::sync::Mutex::new(GuardasTurno::default()),
         }
+    }
+
+    /// [Bloque 3, F1] Guardas de turno activas (respuesta vacía y
+    /// repetición). El consumidor puede afinarlas o desactivarlas; el
+    /// comportamiento por defecto no cambia los contratos previos.
+    #[must_use]
+    pub fn guardas(&self) -> GuardasTurno {
+        *self.guardas.lock().unwrap_or_else(|p| p.into_inner())
+    }
+
+    pub fn set_guardas(&self, guardas: GuardasTurno) {
+        *self.guardas.lock().unwrap_or_else(|p| p.into_inner()) = guardas;
     }
 
     /// [318A-16 F5] Store del plan del turno actual (si el turno corrió en
@@ -366,11 +391,20 @@ impl AgentRuntime {
     ) -> Result<()> {
         let inicio = std::time::Instant::now();
         let mut mensajes: Vec<AiMessage> = Vec::new();
-        /* [318A-15 F1] System prompt por capas: base estática + ranura
-         * [REGLAS] (consumidor, vacía hoy) + [ENTORNO] dinámico recién
-         * inyectado cada turno. La compactación protege los marcadores
-         * (context.rs); aquí el prompt SIEMPRE es fresco. */
         mensajes.push(AiMessage::texto("system", self.prompt_sistema()));
+        /* [Bloque 3, F1] Cola de respuestas previas del asistente (del
+         * historial del consumidor) para el detector de repetición de las
+         * guardas. Solo contenido de texto real; tool_calls/Null no cuentan. */
+        let mut respuestas_asistente: Vec<String> = historial
+            .iter()
+            .filter(|m| m.role == "assistant")
+            .filter_map(|m| match &m.content {
+                Value::String(t) if !t.trim().is_empty() => Some(t.clone()),
+                _ => None,
+            })
+            .collect();
+        /* Un solo reintento por turno tras respuesta vacía. */
+        let mut ya_reintentado = false;
         mensajes.extend(historial);
         mensajes.push(AiMessage::texto("user", mensaje_usuario.clone()));
 
@@ -403,7 +437,7 @@ impl AgentRuntime {
             };
         }
 
-        for _turno in 0..self.turno_config.max_turns {
+        'turnos: for _turno in 0..self.turno_config.max_turns {
             /* [01-09-2026] Fase 4: cancelación real — si el cliente cortó el
              * SSE (receiver dropeado), el sender está cerrado y no se sigue
              * ejecutando tools ni consumiendo tokens. */
@@ -480,6 +514,28 @@ impl AgentRuntime {
             };
 
             if tool_calls.is_empty() {
+                /* [Bloque 3, F1] Guardas de turno en la finalización: una
+                 * respuesta repetida casi verbatim lleva aviso anexado (el
+                 * usuario ve que el modelo sabe que se repite); una respuesta
+                 * vacía permite UN reintento con aviso de sistema (sin
+                 * re-ejecutar tools). Ambas desactivables via `set_guardas`. */
+                let guardas = *self.guardas.lock().unwrap_or_else(|p| p.into_inner());
+                if texto_vacio(&ultimo_contenido) && decidir_reintento_vacio(&guardas, ya_reintentado)
+                {
+                    ya_reintentado = true;
+                    mensajes.push(AiMessage::texto("system", aviso_vacio()));
+                    continue;
+                }
+                if !texto_vacio(&ultimo_contenido) {
+                    if let Some(aviso) = aviso_por_repeticion(
+                        &ultimo_contenido,
+                        &respuestas_asistente,
+                        guardas.umbral_repeticion,
+                    ) {
+                        ultimo_contenido.push('\n');
+                        ultimo_contenido.push_str(&aviso);
+                    }
+                }
                 let _ = tx
                     .send(AgenteEvento::Token {
                         texto: ultimo_contenido.clone(),
@@ -495,7 +551,8 @@ impl AgentRuntime {
                     })
                     .await;
                 if !ultimo_contenido.trim().is_empty() {
-                    respuesta_final = Some(ultimo_contenido);
+                    respuesta_final = Some(ultimo_contenido.clone());
+                    respuestas_asistente.push(ultimo_contenido);
                 }
                 break;
             }
@@ -654,6 +711,11 @@ impl AgentRuntime {
                     if call.nombre == "task" {
                         self.ejecutar_subagente_desde_llamada(user_id, turno_id, call, tx)
                             .await
+                    } else if call.nombre == "ask_user" {
+                        /* [Bloque 3, F1] Pregunta al usuario en medio del
+                         * turno: valida, registra pendiente, emite `Pregunta`
+                         * y el turno termina (abajo, `break 'turnos`). */
+                        procesar_pregunta(&self.registry, call, tx).await
                     } else {
                         tokio::time::timeout(
                             self.turno_config.timeout_tool,
@@ -695,6 +757,13 @@ impl AgentRuntime {
                  * de tools, no seguimos con el resto de tool_calls. */
                 if tx.is_closed() {
                     break;
+                }
+                /* [Bloque 3, F1] `ask_user` termina el turno: el evento
+                 * `Pregunta` ya se emitió y la respuesta del usuario llega
+                 * como su siguiente mensaje. No se persiste respuesta final
+                 * (la pregunta queda pendiente en el registro). */
+                if call.nombre == "ask_user" {
+                    break 'turnos;
                 }
                 /* El resultado vuelve al LLM como mensaje de tool (contrato
                  * OpenAI: assistant con tool_calls + tool con tool_call_id). */
