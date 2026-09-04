@@ -2,9 +2,12 @@
 
 - **Fecha:** 2026-09-03
 - **ID:** 318A-16 (libre; no usar en PT hasta cerrar este plan)
-- **Estado:** 🚧 en ejecución — F1 ✅, F2 ✅ (verificado en vivo :3001), F3 ✅
-  (clasificador + runner CLI; decisión de habilitación del usuario) y F4 ✅
-  (file_read por rangos; tests 158 workspace). Pendientes: F5-F6.
+- **Estado:** ✅ completo — F1 ✅ (motor de reglas), F2 ✅ (UI 3 botones,
+  verificado en vivo :3001), F3 ✅ (clasificador + runner CLI), F4 ✅
+  (file_read por rangos), F5 ✅ (modo plan: diff → aprobar → aplicar) y F6 ✅
+  (tool `programar_tarea` + NL→cron + subcomando `schedule`).
+  Tests workspace 183 verdes, clippy -D warnings limpio, gate Sentinel 0
+  errores / 0 hallazgos en archivos F6.
 - **Base:** plan `318A-15` (`plan-mejora-agente-2026-09-03.md`, completo salvo
   pendientes ajenos) y comparativa `Agente/documentacion/comparativa-opencode-agente-2026-09-03.md`.
 - **Referencias (clonadas en `data/referencias-cli/`, solo lectura):** claurst,
@@ -326,19 +329,22 @@ motor; el hueco real es que **el agente no puede programar desde la conversació
 el CLI no expone nada. Hermes añade la idea de **cron en lenguaje natural** (el LLM
 traduce "cada lunes a las 9" a cron) — reutilizable.
 
-- [ ] Core: tool `programar_tarea` (crear/listar/cancelar/ver-logs) sobre el puerto
-      `tareas_*` existente; cron v1 del scheduler + traducción de lenguaje natural a
-      cron como función pura (inspirada en hermes `cron/`), con fallback explícito si
-      no se entiende la expresión.
-- [ ] CLI: subcomando `schedule` (list/create/remove/logs) que habla con el mismo
-      puerto; el worker corre donde lo corra el consumidor (PT ya lo corre; el CLI
-      documenta el comando para lanzarlo).
-- [ ] Perfiles: `programar_tarea` NO se incluye en subagentes (solo el agente
-      principal, como la tool task).
-- [ ] Tests: traducción NL→cron (casos válidos e inválidos), CRUD a través del
-      puerto con mock, exclusión de subagentes.
-- [ ] E2E determinista: fixture "cada lunes a las 09:00" → cron `0 9 * * 1` → tarea
-      creada en el mock.
+- [x] Core: tool `programar_tarea` (crear/listar/cancelar/ver-logs) sobre el puerto
+      [`ProgramadorTareas`] (`core/src/tareas.rs`); traducción NL→cron pura
+      (`frase_a_cron`) con fallback explícito si no se entiende la frase. El
+      scheduler ganó soporte cron v2 de 5 campos (`M H * * DOW`) además del v1
+      `cada{N}min|h|d` para que las expresiones semanales disparen.
+- [x] CLI: subcomando `schedule` (list/create/remove/logs) con store en memoria
+      (`ProgramadorMemoria`, `cli/src/persistencia.rs` + `cmd_schedule` en
+      `main.rs`); el worker lo corre el consumidor (PT ya lo corre).
+- [x] Perfiles: `programar_tarea` NO se incluye en subagentes (solo agente
+      principal) — verificado por test en `subagente.rs`.
+- [x] Tests: traducción NL→cron válida/inválida, CRUD por el puerto con mock,
+      exclusión de subagentes (12 tests cron v2 + suite `tareas.rs`).
+- [x] E2E determinista: fixture "cada lunes a las 9" → cron `0 9 * * 1` → tarea
+      creada en el mock (`e2e_cada_lunes_crea_tarea_con_cron_correcto`); verificado
+      también en vivo: `schedule create --cuando "cada lunes a las 9"` →
+      cron `0 9 * * 1`, próxima ejecución 2026-09-07 09:00 UTC.
 
 **Criterio de éxito:** el agente crea una tarea programada diciendo "revisa el repo
 cada lunes a las 9" y el scheduler la lista con el cron correcto — sin servidor real.

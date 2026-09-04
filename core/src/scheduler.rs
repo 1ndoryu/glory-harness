@@ -11,7 +11,7 @@
 //! heartbeat vencido la vuelve a encolar, nunca se lanza dos veces el mismo
 //! turno simultáneamente.
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Datelike, Timelike, Utc};
 use std::future::Future;
 use std::time::Duration;
 
@@ -97,7 +97,12 @@ where
     Ok(ejecutadas)
 }
 
-/// Calcula la próxima ejecución para el formato v1 de cron_expr.
+/// Calcula la próxima ejecución para los formatos de cron_expr:
+///
+/// - v1 (heredado de task): `diario`, `cada{N}min`, `cada{N}h`, `cada{N}d`.
+/// - v2 [318A-16 F6]: cron estándar de 5 campos, subconjunto
+///   `M H * * DOW` (dom/mes solo `*`; dow `*` o 0-7, 0 y 7 = domingo) — el
+///   formato que produce la traducción de lenguaje natural (hermes/grok).
 pub fn proxima_ejecucion(expr: &str, desde: DateTime<Utc>) -> Result<DateTime<Utc>> {
     let expr = expr.trim().to_ascii_lowercase();
     if expr == "diario" {
@@ -117,8 +122,67 @@ pub fn proxima_ejecucion(expr: &str, desde: DateTime<Utc>) -> Result<DateTime<Ut
         };
         return Ok(desde + duracion);
     }
+    /* v2: una expresión que arranca con dígito o `*` es cron estándar. */
+    if expr.starts_with('*') || expr.as_bytes().first().is_some_and(u8::is_ascii_digit) {
+        return proxima_cron_v2(&expr, desde);
+    }
     Err(Error::Validacion(format!(
-        "cron_expr no soportado en v1: {expr} (use diario, cadaNmin, cadaNh, cadaNd)"
+        "cron_expr no soportado: {expr} (use diario, cadaNmin, cadaNh, cadaNd o 'M H * * DOW')"
+    )))
+}
+
+/// Próxima ocurrencia de un cron v2 `M H * * DOW` estrictamente posterior a
+/// `desde`. Búsqueda minuto a minuto con horizonte de 8 días (una tarea
+/// semanal siempre cae dentro); si no encaja, error claro en vez de silencio.
+fn proxima_cron_v2(expr: &str, desde: DateTime<Utc>) -> Result<DateTime<Utc>> {
+    let campos: Vec<&str> = expr.split_whitespace().collect();
+    if campos.len() != 5 {
+        return Err(Error::Validacion(format!(
+            "cron v2 inválido: '{expr}' — se esperan 5 campos 'M H * * DOW'"
+        )));
+    }
+    let (minuto, hora, dom, mes, dow) = (campos[0], campos[1], campos[2], campos[3], campos[4]);
+    if dom != "*" || mes != "*" {
+        return Err(Error::Validacion(format!(
+            "cron v2 inválido: '{expr}' — el subconjunto v1 soporta solo día-de-semana (dom y mes deben ser '*')"
+        )));
+    }
+    let parse_rango =
+        |campo: &str, max: u32, nombre: &str| -> Result<Option<u32>> {
+            if campo == "*" {
+                return Ok(None);
+            }
+            let valor: u32 = campo.parse().map_err(|_| {
+                Error::Validacion(format!(
+                    "cron v2 inválido: '{nombre}'='{campo}' (número o '*')"
+                ))
+            })?;
+            if valor > max {
+                return Err(Error::Validacion(format!(
+                    "cron v2 inválido: '{nombre}'={valor} fuera de rango 0-{max}"
+                )));
+            }
+            Ok(Some(valor))
+        };
+    let min = parse_rango(minuto, 59, "minuto")?;
+    let hora = parse_rango(hora, 23, "hora")?;
+    let dow = parse_rango(dow, 7, "dow")?.map(|d| if d == 7 { 0 } else { d });
+
+    let mut candidato = desde + chrono::Duration::seconds(60);
+    /* 8 días × 24 h × 60 min: cota superior para cualquier dow fijo. */
+    let horizonte_minutos: u32 = 8 * 24 * 60;
+    for _ in 0..horizonte_minutos {
+        let dia_semana = candidato.weekday().num_days_from_sunday();
+        let coincide = min.is_none_or(|m| candidato.minute() == m)
+            && hora.is_none_or(|h| candidato.hour() == h)
+            && dow.is_none_or(|d| d == dia_semana);
+        if coincide {
+            return Ok(candidato);
+        }
+        candidato += chrono::Duration::seconds(60);
+    }
+    Err(Error::Validacion(format!(
+        "cron v2 sin ocurrencia en el horizonte de 8 días: '{expr}'"
     )))
 }
 
@@ -309,8 +373,73 @@ mod tests {
         let desde = DateTime::parse_from_rfc3339("2026-08-30T10:00:00Z")
             .expect("fecha")
             .with_timezone(&chrono::Utc);
-        assert!(proxima_ejecucion("0 9 * * *", desde).is_err());
+        /* Campo fuera de rango. */
+        assert!(proxima_ejecucion("61 9 * * *", desde).is_err());
+        /* Subconjunto v2: dom/mes deben ser '*'. */
+        assert!(proxima_ejecucion("0 9 1 * *", desde).is_err());
+        /* Demasiados campos. */
+        assert!(proxima_ejecucion("0 9 * * 1 2026", desde).is_err());
         assert!(proxima_ejecucion("cada0h", desde).is_err());
+        assert!(proxima_ejecucion("semanal", desde).is_err());
+    }
+
+    #[test]
+    fn cron_v2_diario_a_las_9() {
+        /* Domingo 2026-08-30 10:00 → lunes 31 a las 09:00. */
+        let desde = DateTime::parse_from_rfc3339("2026-08-30T10:00:00Z")
+            .expect("fecha")
+            .with_timezone(&chrono::Utc);
+        let prox = proxima_ejecucion("0 9 * * *", desde).expect("válido");
+        assert_eq!(prox, desde.date_naive().succ_opt().unwrap().and_hms_opt(9, 0, 0).unwrap().and_utc());
+    }
+
+    #[test]
+    fn cron_v2_semanal_lunes() {
+        /* Domingo 2026-08-30 10:00 → lunes 31 a las 09:00 (dow 1). */
+        let desde = DateTime::parse_from_rfc3339("2026-08-30T10:00:00Z")
+            .expect("fecha")
+            .with_timezone(&chrono::Utc);
+        let prox = proxima_ejecucion("0 9 * * 1", desde).expect("válido");
+        assert_eq!(prox.weekday().num_days_from_sunday(), 1);
+        assert_eq!((prox.hour(), prox.minute()), (9, 0));
+        assert!(prox > desde);
+    }
+
+    #[test]
+    fn cron_v2_si_el_dia_ya_paso_espera_semana() {
+        /* Lunes 2026-08-31 10:00 → el próximo lunes 09:00 cae el 07-09. */
+        let desde = DateTime::parse_from_rfc3339("2026-08-31T10:00:00Z")
+            .expect("fecha")
+            .with_timezone(&chrono::Utc);
+        let prox = proxima_ejecucion("0 9 * * 1", desde).expect("válido");
+        let esperado = chrono::NaiveDate::from_ymd_opt(2026, 9, 7)
+            .unwrap()
+            .and_hms_opt(9, 0, 0)
+            .unwrap()
+            .and_utc();
+        assert_eq!(prox, esperado);
+    }
+
+    #[test]
+    fn cron_v2_domingo_dow_0_y_7() {
+        let desde = DateTime::parse_from_rfc3339("2026-08-31T10:00:00Z")
+            .expect("fecha")
+            .with_timezone(&chrono::Utc);
+        let prox = proxima_ejecucion("0 9 * * 0", desde).expect("válido");
+        assert_eq!(prox.weekday().num_days_from_sunday(), 0);
+        let prox7 = proxima_ejecucion("0 9 * * 7", desde).expect("válido");
+        assert_eq!(prox, prox7, "0 y 7 son ambos domingo");
+    }
+
+    #[test]
+    fn cron_v2_hora_y_minuto_sin_dow() {
+        let desde = DateTime::parse_from_rfc3339("2026-08-30T10:00:00Z")
+            .expect("fecha")
+            .with_timezone(&chrono::Utc);
+        /* 30 14 * * *: la primera ocurrencia es hoy 14:30. */
+        let prox = proxima_ejecucion("30 14 * * *", desde).expect("válido");
+        assert_eq!((prox.hour(), prox.minute()), (14, 30));
+        assert_eq!(prox.date_naive(), desde.date_naive());
     }
 
     #[tokio::test]

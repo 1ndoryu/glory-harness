@@ -30,6 +30,7 @@ pub mod todo;
 pub mod tools_archivo;
 pub mod tools_web;
 pub mod scheduler;
+pub mod tareas;
 pub mod runtime;
 pub mod subagente;
 #[cfg(test)]
@@ -37,7 +38,7 @@ pub mod contrato_tests;
 
 /// Frontera de puertos (traits) que define el núcleo y que el consumidor
 /// implementa. Ver [`ports`].
-pub use ports::{AgentPersistence, EjecutorComando, ProviderPort, WebSearchProvider};
+pub use ports::{AgentPersistence, EjecutorComando, ProgramadorTareas, ProviderPort, WebSearchProvider};
 /// Errores propios del núcleo (sin dependencia de `AppError` de task).
 pub use error::{Error as HarnessError, Result as HarnessResult};
 

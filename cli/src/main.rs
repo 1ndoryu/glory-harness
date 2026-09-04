@@ -1,5 +1,5 @@
 //! Binario `glory-harness` (Fases 3-5): subcomandos `run`, `chat`, `daemon`,
-//! `tools`, `doctor` y `--version`.
+//! `schedule`, `tools`, `doctor` y `--version`.
 //!
 //! - `run [--prompt "..." | --stdin] [--provider P] [--modelo M] [--dir R]`
 //!   → un turno one-shot. Trabaja en la carpeta actual (o `--dir`); usa por
@@ -23,7 +23,10 @@ mod reglas;
 mod run;
 mod tui;
 
+use glory_harness_core::{HarnessError, ProgramadorTareas};
 use std::process::ExitCode;
+use std::sync::Arc;
+use uuid::Uuid;
 
 fn main() -> ExitCode {
     // Carga opcional de claves LLM desde ~/.glory-harness.env (para que el
@@ -107,6 +110,7 @@ fn main() -> ExitCode {
                 }
             }
         }
+        Some("schedule") => cmd_schedule(&args[1..]),
         Some("tools") => {
             listar_tools();
             ExitCode::SUCCESS
@@ -117,13 +121,188 @@ fn main() -> ExitCode {
         }
         Some(other) => {
             eprintln!("glory-harness: subcomando desconocido '{other}'");
-            eprintln!("uso: glory-harness <run|chat|daemon|tools|doctor|--version>");
+            eprintln!("uso: glory-harness <run|chat|daemon|schedule|tools|doctor|--version>");
             ExitCode::from(2)
         }
         None => {
-            eprintln!("glory-harness: falta subcomando (run|chat|daemon|tools|doctor|--version)");
+            eprintln!("glory-harness: falta subcomando (run|chat|daemon|schedule|tools|doctor|--version)");
             ExitCode::from(2)
         }
+    }
+}
+
+/// `glory-harness schedule <list|create|remove|logs>`: administra las tareas
+/// programadas del CLI standalone (store en memoria, [318A-16 F6]). Usa el
+/// mismo puerto [`ProgramadorTareas`] que registra la tool `programar_tarea`
+/// en las sesiones de `chat`/`daemon`, y la traducción NL→cron pura del
+/// núcleo. El worker de producción lo corre el consumidor (PT ya tiene cron +
+/// heartbeat); este subcomando expone la cara CRUD para el proceso actual.
+/// Resultado del subcomando `schedule`: `Uso` = error de argumentos (exit 2).
+enum SalidaSchedule {
+    Ok,
+    Uso,
+}
+
+fn cmd_schedule(args: &[String]) -> ExitCode {
+    use glory_harness_core::ProgramadorTareas;
+    use std::sync::Arc;
+    use uuid::Uuid;
+
+    let Some(accion) = args.first().map(String::as_str) else {
+        eprintln!("uso: glory-harness schedule <list|create|remove|logs>");
+        return ExitCode::from(2);
+    };
+    let programador: Arc<dyn ProgramadorTareas> =
+        Arc::new(persistencia::ProgramadorMemoria::nuevo());
+    let user_id = Uuid::new_v4();
+
+    let resultado = match tokio::runtime::Runtime::new() {
+        Ok(rt) => rt.block_on(cmd_schedule_impl(accion, args, programador, user_id)),
+        Err(e) => {
+            eprintln!("glory-harness schedule: no se pudo iniciar el runtime tokio: {e}");
+            return ExitCode::from(1);
+        }
+    };
+    match resultado {
+        Ok(SalidaSchedule::Ok) => ExitCode::SUCCESS,
+        Ok(SalidaSchedule::Uso) => ExitCode::from(2),
+        Err(e) => {
+            eprintln!("glory-harness schedule: {e}");
+            ExitCode::from(1)
+        }
+    }
+}
+
+/// Cuerpo asíncrono del subcomando (extraído a `async fn` porque un bloque
+/// `async move` en línea no admite anotación de tipo de retorno).
+async fn cmd_schedule_impl(
+    accion: &str,
+    args: &[String],
+    programador: Arc<dyn ProgramadorTareas>,
+    user_id: Uuid,
+) -> Result<SalidaSchedule, HarnessError> {
+    use glory_harness_core::ports::NuevaTareaProgramada;
+    use glory_harness_core::tareas::frase_a_cron;
+
+    match accion {
+                "list" | "listar" => {
+                    let tareas = programador.tareas_listar(user_id).await?;
+                    if tareas.is_empty() {
+                        println!("(sin tareas programadas en este proceso)");
+                    } else {
+                        for t in &tareas {
+                            let proxima = t
+                                .proxima_ejecucion
+                                .map(|p| p.format("%Y-%m-%d %H:%M UTC").to_string())
+                                .unwrap_or_else(|| "—".into());
+                            println!(
+                                "{} [{}] cron='{}' próximo='{proxima}' estado={} \"{}\"",
+                                t.id,
+                                t.nombre,
+                                t.cron_expr.as_deref().unwrap_or("—"),
+                                t.estado,
+                                t.prompt
+                            );
+                        }
+                    }
+                    Ok(SalidaSchedule::Ok)
+                }
+                "create" | "crear" => {
+                    let nombre = extraer_opcion(args, &["--nombre", "--name"]);
+                    let prompt = extraer_opcion(args, &["--prompt", "--mensaje"]);
+                    let cuando = extraer_opcion(args, &["--cuando", "--cron", "--programacion"]);
+                    let (Some(nombre), Some(prompt), Some(cuando)) = (nombre, prompt, cuando) else {
+                        eprintln!("uso: glory-harness schedule create --nombre <n> --prompt <p> --cuando \"cada lunes a las 9\"");
+                        return Ok(SalidaSchedule::Uso);
+                    };
+                    let cron = match frase_a_cron(&cuando) {
+                        Ok(c) => c,
+                        Err(e) => {
+                            eprintln!("schedule create: {e}");
+                            return Ok(SalidaSchedule::Uso);
+                        }
+                    };
+                    let proxima =
+                        glory_harness_core::scheduler::proxima_ejecucion(&cron, chrono::Utc::now())?;
+                    let id = programador
+                        .tarea_crear(&NuevaTareaProgramada {
+                            user_id,
+                            nombre,
+                            prompt,
+                            tipo: "recurrente".into(),
+                            cron_expr: cron.clone(),
+                            proxima_ejecucion: proxima,
+                        })
+                        .await?;
+                    println!(
+                        "tarea creada: {id} — cron '{cron}' — próxima ejecución {}",
+                        proxima.format("%Y-%m-%d %H:%M UTC")
+                    );
+                    Ok(SalidaSchedule::Ok)
+                }
+                "remove" | "cancelar" => {
+                    let id_texto: String = match args.get(1) {
+                        Some(v) => v.clone(),
+                        None => match extraer_opcion(args, &["--id"]) {
+                            Some(v) => v,
+                            None => {
+                                eprintln!("uso: glory-harness schedule remove <id>");
+                                return Ok(SalidaSchedule::Uso);
+                            }
+                        },
+                    };
+                    let id = match Uuid::parse_str(&id_texto) {
+                        Ok(id) => id,
+                        Err(_) => {
+                            eprintln!("schedule remove: id inválido '{id_texto}'");
+                            return Ok(SalidaSchedule::Uso);
+                        }
+                    };
+                    if programador.tarea_cancelar(id, user_id).await? {
+                        println!("tarea {id} cancelada");
+                        Ok(SalidaSchedule::Ok)
+                    } else {
+                        eprintln!("schedule remove: no existe la tarea {id}");
+                        Ok(SalidaSchedule::Uso)
+                    }
+                }
+                "logs" => {
+                    let id_texto: String = match args.get(1) {
+                        Some(v) => v.clone(),
+                        None => match extraer_opcion(args, &["--id"]) {
+                            Some(v) => v,
+                            None => {
+                                eprintln!("uso: glory-harness schedule logs <id>");
+                                return Ok(SalidaSchedule::Uso);
+                            }
+                        },
+                    };
+                    let id = match Uuid::parse_str(&id_texto) {
+                        Ok(id) => id,
+                        Err(_) => {
+                            eprintln!("schedule logs: id inválido '{id_texto}'");
+                            return Ok(SalidaSchedule::Uso);
+                        }
+                    };
+                    let registros = programador.tarea_logs(id, user_id, 10).await?;
+                    if registros.is_empty() {
+                        println!("(la tarea {id} no tiene ejecuciones registradas)");
+                    } else {
+                        for r in &registros {
+                            let estado = if r.ok { "ok" } else { "fallo" };
+                            println!(
+                                "{} [{estado}] {}",
+                                r.ejecutada_en.format("%Y-%m-%d %H:%M UTC"),
+                                r.resumen
+                            );
+                        }
+                    }
+                    Ok(SalidaSchedule::Ok)
+                }
+                otra => {
+                    eprintln!("schedule: acción desconocida '{otra}' (list|create|remove|logs)");
+                    Ok(SalidaSchedule::Uso)
+                }
     }
 }
 
@@ -239,6 +418,7 @@ fn listar_tools() {
         web_search: None,
         dominio: None,
         ejecutor_comando: Some(Arc::new(crate::ejecutor::EjecutorCliente::nuevo())),
+        programador_tareas: Some(Arc::new(crate::persistencia::ProgramadorMemoria::nuevo())),
     };
     let runtime = AgentRuntime::nuevo(
         AgentToolRegistry::new(),

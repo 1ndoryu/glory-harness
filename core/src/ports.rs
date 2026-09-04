@@ -74,6 +74,48 @@ pub struct TareaProgramadaPendiente {
     pub cron_expr: Option<String>,
 }
 
+/// [318A-16 F6] Registro completo de una tarea programada (cara CRUD de la
+/// tool `programar_tarea` y del subcomando `schedule`). El scheduler solo ve
+/// la vista [`TareaProgramadaPendiente`]; este registro añade estado,
+/// próxima ejecución y fechas para listar/cancelar/auditar.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TareaProgramada {
+    pub id: Uuid,
+    pub user_id: Uuid,
+    pub nombre: String,
+    pub prompt: String,
+    /// "recurrente" | "una_vez".
+    pub tipo: String,
+    pub cron_expr: Option<String>,
+    /// Próxima ejecución calculada (cron v1/v2); `None` = desprogramada.
+    pub proxima_ejecucion: Option<DateTime<Utc>>,
+    /// "pendiente" | "ejecutando" | "cancelada" | "completada" | "fallida".
+    pub estado: String,
+    pub creado_en: DateTime<Utc>,
+}
+
+/// [318A-16 F6] Datos para crear una tarea programada. La próxima ejecución
+/// la calcula el núcleo (lógica agnóstica de cron) antes de llamar al puerto.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NuevaTareaProgramada {
+    pub user_id: Uuid,
+    pub nombre: String,
+    pub prompt: String,
+    pub tipo: String,
+    pub cron_expr: String,
+    pub proxima_ejecucion: DateTime<Utc>,
+}
+
+/// [318A-16 F6] Registro de una ejecución de una tarea programada (log).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LogTareaEjecucion {
+    pub id: Uuid,
+    pub tarea_id: Uuid,
+    pub ok: bool,
+    pub resumen: String,
+    pub ejecutada_en: DateTime<Utc>,
+}
+
 /// Acción auditada de un turno (tool ejecutada).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AccionAuditable {
@@ -132,6 +174,29 @@ pub trait AgentPersistence: Send + Sync {
         user_id: Uuid,
         proxima: Option<DateTime<Utc>>,
     ) -> Result<()>;
+}
+
+/// [318A-16 F6] Puerto CRUD de tareas programadas (tool `programar_tarea` +
+/// subcomando CLI `schedule`). Distinto de las operaciones del scheduler en
+/// [`AgentPersistence`] (recuperar/tomar/reprogramar): este puerto es la cara
+/// de gestión que el agente expone. `None` en el runtime → la tool no se
+/// registra (fail-closed, como `EjecutorComando`); PT conserva su CRUD propio
+/// y lo cableará aquí en una fase posterior (decisión del plan 318A-16 F6).
+#[async_trait]
+pub trait ProgramadorTareas: Send + Sync {
+    /// Crea una tarea; devuelve su id.
+    async fn tarea_crear(&self, nueva: &NuevaTareaProgramada) -> Result<Uuid>;
+    /// Lista las tareas del usuario (orden de creación).
+    async fn tareas_listar(&self, user_id: Uuid) -> Result<Vec<TareaProgramada>>;
+    /// Cancela una tarea del usuario; `false` si no existe o no es suya.
+    async fn tarea_cancelar(&self, id: Uuid, user_id: Uuid) -> Result<bool>;
+    /// Últimos `limite` registros de ejecución de una tarea del usuario.
+    async fn tarea_logs(
+        &self,
+        id: Uuid,
+        user_id: Uuid,
+        limite: u32,
+    ) -> Result<Vec<LogTareaEjecucion>>;
 }
 
 // ---------------------------------------------------------------------------

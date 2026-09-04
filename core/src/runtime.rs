@@ -27,7 +27,10 @@ use crate::ports::EjecutorComando;
 use crate::evento::AgenteEvento;
 use crate::llm::{AiChatOptions, AiMessage, AiToolCall, LlmProviderService};
 use crate::permiso::Permiso;
-use crate::ports::{AccionAuditable, AgentPersistence, MensajePersistido, TurnoPersistido, WebSearchProvider};
+use crate::ports::{
+    AccionAuditable, AgentPersistence, MensajePersistido, ProgramadorTareas, TurnoPersistido,
+    WebSearchProvider,
+};
 use crate::sandbox::SandboxArchivos;
 use std::collections::HashSet;
 
@@ -196,6 +199,11 @@ pub struct PuertosHarness {
     /// `comando` NO se registra (fail-closed: el modelo ni la ve; PT lo deja
     /// en None por invariante).
     pub ejecutor_comando: Option<Arc<dyn EjecutorComando>>,
+    /// [318A-16 F6] Puerto CRUD de tareas programadas. `None` → la tool
+    /// `programar_tarea` NO se registra (fail-closed: el agente no programa
+    /// desde la conversación si el consumidor no gestiona tareas; PT tiene su
+    /// CRUD propio y lo cableará aquí en una fase posterior).
+    pub programador_tareas: Option<Arc<dyn ProgramadorTareas>>,
 }
 
 pub struct AgentRuntime {
@@ -249,6 +257,12 @@ impl AgentRuntime {
          * sin ejecutor, el modelo no ve la tool). */
         if let Some(ejecutor) = puertos.ejecutor_comando.clone() {
             crate::comando::registrar_tools_comando(&mut registry, ejecutor);
+        }
+        /* [318A-16 F6] Tool `programar_tarea` SOLO con puerto de gestión
+         * inyectado (fail-closed: sin ProgramadorTareas el modelo no la ve).
+         * Solo el agente principal: los perfiles de subagente no la incluyen. */
+        if let Some(programador) = puertos.programador_tareas.clone() {
+            crate::tareas::registrar_tool_programar_tarea(&mut registry, programador);
         }
         /* [29-08-2026] Fase 2: tools de archivo SOLO en AGENTE_MODO=local.
          * Fail-closed: si el sandbox no se puede construir (raíz inválida o

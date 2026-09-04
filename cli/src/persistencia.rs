@@ -16,8 +16,8 @@ use std::sync::{Arc, Mutex};
 use uuid::Uuid;
 
 use glory_harness_core::ports::{
-    AccionAuditable, MemoriaEntrada, MensajePersistido, SkillEntrada, TareaProgramadaPendiente,
-    TurnoPersistido,
+    AccionAuditable, LogTareaEjecucion, MemoriaEntrada, MensajePersistido, NuevaTareaProgramada,
+    ProgramadorTareas, SkillEntrada, TareaProgramada, TareaProgramadaPendiente, TurnoPersistido,
 };
 use glory_harness_core::{AgentPersistence, HarnessResult};
 
@@ -201,5 +201,93 @@ impl AgentPersistence for PersistenciaMemoria {
         let mut estado = self.estado.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         estado.tareas_tomadas.remove(&id);
         Ok(())
+    }
+}
+
+// ---------------------------------------------------------------------------
+// [318A-16 F6] ProgramadorTareas en memoria (subcomando `schedule` + tool
+// `programar_tarea` del CLI standalone).
+// ---------------------------------------------------------------------------
+
+/// Estado del [`ProgramadorMemoria`]: tareas por usuario + logs por tarea.
+#[derive(Debug, Default)]
+struct EstadoProgramador {
+    tareas: Vec<TareaProgramada>,
+    logs: HashMap<Uuid, Vec<LogTareaEjecucion>>,
+}
+
+/// Implementación en memoria del puerto [`ProgramadorTareas`] para el binario
+/// standalone (misma filosofía que [`PersistenciaMemoria`]: vive mientras el
+/// proceso corre). El worker de producción corre en el consumidor (PT ya lo
+/// tiene con cron + heartbeat); aquí la cara CRUD existe para `schedule` y
+/// para que la tool `programar_tarea` se registre en las sesiones del CLI.
+#[derive(Debug, Clone, Default)]
+pub struct ProgramadorMemoria {
+    estado: Arc<Mutex<EstadoProgramador>>,
+}
+
+impl ProgramadorMemoria {
+    #[must_use]
+    pub fn nuevo() -> Self {
+        Self::default()
+    }
+}
+
+#[async_trait]
+impl ProgramadorTareas for ProgramadorMemoria {
+    async fn tarea_crear(&self, nueva: &NuevaTareaProgramada) -> HarnessResult<Uuid> {
+        let mut estado = self.estado.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let id = Uuid::new_v4();
+        estado.tareas.push(TareaProgramada {
+            id,
+            user_id: nueva.user_id,
+            nombre: nueva.nombre.clone(),
+            prompt: nueva.prompt.clone(),
+            tipo: nueva.tipo.clone(),
+            cron_expr: Some(nueva.cron_expr.clone()),
+            proxima_ejecucion: Some(nueva.proxima_ejecucion),
+            estado: "pendiente".into(),
+            creado_en: Utc::now(),
+        });
+        Ok(id)
+    }
+
+    async fn tareas_listar(&self, user_id: Uuid) -> HarnessResult<Vec<TareaProgramada>> {
+        let estado = self.estado.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        Ok(estado
+            .tareas
+            .iter()
+            .filter(|t| t.user_id == user_id)
+            .cloned()
+            .collect())
+    }
+
+    async fn tarea_cancelar(&self, id: Uuid, user_id: Uuid) -> HarnessResult<bool> {
+        let mut estado = self.estado.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let Some(pos) = estado
+            .tareas
+            .iter()
+            .position(|t| t.id == id && t.user_id == user_id)
+        else {
+            return Ok(false);
+        };
+        estado.tareas[pos].estado = "cancelada".into();
+        Ok(true)
+    }
+
+    async fn tarea_logs(
+        &self,
+        id: Uuid,
+        user_id: Uuid,
+        limite: u32,
+    ) -> HarnessResult<Vec<LogTareaEjecucion>> {
+        let estado = self.estado.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let es_suya = estado.tareas.iter().any(|t| t.id == id && t.user_id == user_id);
+        if !es_suya {
+            return Ok(Vec::new());
+        }
+        let mut logs = estado.logs.get(&id).cloned().unwrap_or_default();
+        logs.sort_by_key(|l| l.ejecutada_en);
+        logs.truncate(limite as usize);        Ok(logs)
     }
 }

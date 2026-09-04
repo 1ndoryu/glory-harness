@@ -409,6 +409,26 @@ mod tests {
     }
 
     #[test]
+    fn f6_programar_tarea_excluida_de_subagentes() {
+        /* [318A-16 F6] `programar_tarea` solo la usa el agente principal, como
+         * la tool `task` (sin recursión de scheduling desde un hijo). Aunque el
+         * registry la tenga registrada, ningún perfil de subagente la expone. */
+        let mut registry = AgentToolRegistry::new();
+        registry.registrar(Box::new(StubTool { id: "programar_tarea", efecto: true }));
+        registrar_tool_task(&mut registry);
+        for perfil in perfiles_disponibles() {
+            let perfil = perfil_subagente(&perfil).expect("perfil existe");
+            let schemas = schema_hijo(&registry, &perfil, "predeterminado");
+            let nombres: Vec<&str> = schemas.iter().map(nombre_de_schema).collect();
+            assert!(
+                !nombres.contains(&"programar_tarea"),
+                "el perfil '{}' no puede exponer programar_tarea (solo el principal)",
+                perfil.id
+            );
+        }
+    }
+
+    #[test]
     fn f4_schema_hijo_respeta_deny_del_padre() {
         let mut registry = AgentToolRegistry::new();
         registry.registrar(Box::new(StubTool { id: "file_write", efecto: true }));

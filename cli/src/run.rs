@@ -108,6 +108,9 @@ pub(crate) fn construir_harness(opciones: &OpcionesRun) -> HarnessCli {
             web_search: None,
             dominio: None,
             ejecutor_comando: Some(Arc::new(crate::ejecutor::EjecutorCliente::nuevo())),
+            programador_tareas: Some(Arc::new(
+                crate::persistencia::ProgramadorMemoria::nuevo(),
+            )),
         },
         config.clone(),
     ));
