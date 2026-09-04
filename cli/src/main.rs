@@ -381,6 +381,7 @@ fn listar_tools() {
         persistencia: persistencia_port,
         llm,
         web_search: None,
+        web_fetch: None,
         dominio: None,
         ejecutor_comando: Some(Arc::new(ejecutor::EjecutorCliente::nuevo())),
         programador_tareas: Some(Arc::new(persistencia::ProgramadorMemoria::nuevo())),

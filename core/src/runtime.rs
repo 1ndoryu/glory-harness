@@ -29,7 +29,7 @@ use crate::llm::{AiChatOptions, AiMessage, AiToolCall, LlmProviderService};
 use crate::permiso::Permiso;
 use crate::ports::{
     AccionAuditable, AgentPersistence, MensajePersistido, ProgramadorTareas, TurnoPersistido,
-    WebSearchProvider,
+    WebFetchProvider, WebSearchProvider,
 };
 use crate::sandbox::SandboxArchivos;
 use std::collections::HashSet;
@@ -191,6 +191,9 @@ pub struct PuertosHarness {
     /// Búsqueda web agnóstica. `None` si el consumidor no aporta proveedor:
     /// la tool `web_search` falla con error claro (nunca falso éxito).
     pub web_search: Option<Arc<dyn WebSearchProvider>>,
+    /// [Bloque 3, F1] Descarga HTTP (`web_fetch`). `None` → la tool no
+    /// disponible con error claro.
+    pub web_fetch: Option<Arc<dyn WebFetchProvider>>,
     /// Slot de extensión para las tools de dominio del consumidor (opaco al
     /// núcleo; task inyecta aquí sus repos/servicios y sus tools hacen
     /// `downcast_ref`).
@@ -213,6 +216,7 @@ pub struct AgentRuntime {
     persistencia: Arc<dyn AgentPersistence>,
     llm: Arc<LlmProviderService>,
     web_search: Option<Arc<dyn WebSearchProvider>>,
+    web_fetch: Option<Arc<dyn WebFetchProvider>>,
     dominio: Option<Arc<dyn Any + Send + Sync>>,
     /// [318A-15 F4] Profundidad de sesiones hijas activas (máx 1). El schema
     /// del hijo excluye `task` (sin recursión por contrato); el contador es
@@ -279,6 +283,7 @@ impl AgentRuntime {
             persistencia: puertos.persistencia,
             llm: puertos.llm,
             web_search: puertos.web_search,
+            web_fetch: puertos.web_fetch,
             dominio: puertos.dominio,
             profundidad_subagente: std::sync::atomic::AtomicU8::new(0),
             telemetria: std::sync::Mutex::new(TelemetriaTurno::nuevo()),
@@ -861,6 +866,7 @@ impl AgentRuntime {
             user_id,
             persistencia: self.persistencia.as_ref(),
             web_search: self.web_search.as_deref(),
+            web_fetch: self.web_fetch.as_deref(),
             /* [318A-10] `ai_provider` queda reservado para tools que generen
              * texto (ninguna agnóstica lo usa hoy); el runtime usa `llm`
              * directo para el loop. El consumidor puede implementar

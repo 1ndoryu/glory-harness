@@ -11,7 +11,7 @@
 use crate::aprobacion::{PeticionAprobacion, RespuestaAprobacion};
 use crate::error::{Error, Result};
 use crate::permiso::{es_tool_propuesta, permiso_por_modo, resolver_permiso, Permiso};
-use crate::ports::{AgentPersistence, ProviderPort, WebSearchProvider};
+use crate::ports::{AgentPersistence, ProviderPort, WebFetchProvider, WebSearchProvider};
 use crate::regla::{categorias_core, Clasificador, ReglaPermiso};
 use crate::sandbox::SandboxArchivos;
 use crate::todo::TodoCompartida;
@@ -33,6 +33,9 @@ pub struct AgentToolContext<'a> {
     /// Búsqueda web. `None` si el consumidor no aporta proveedor: las tools
     /// que la necesiten fallan con error claro (nunca falso éxito).
     pub web_search: Option<&'a dyn WebSearchProvider>,
+    /// [Bloque 3, F1] Descarga HTTP de una URL (`web_fetch`). Mismo contrato
+    /// que `web_search`: `None` → la tool falla con error claro.
+    pub web_fetch: Option<&'a dyn WebFetchProvider>,
     /// Proveedor LLM (para tools que necesiten generar texto). `None` igual.
     pub ai_provider: Option<&'a dyn ProviderPort>,
     /// Sandbox de archivos (Fase 2). `None` en producción: las tools de

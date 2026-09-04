@@ -28,5 +28,9 @@ uuid = { version = "1", features = ["v4", "serde"] }
 # streaming en vivo, tools inline y scroll (estilo opencode-ligero). Se usa
 # solo con `chat --tui`; el REPL lineal sigue siendo el default.
 ratatui = "0.29"
+
+# web_fetch (Bloque 3, F1): cliente HTTP mínimo con rustls (sin openssl).
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
 crossterm = "0.28"
 unicode-width = "0.1"

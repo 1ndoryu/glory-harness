@@ -60,9 +60,70 @@ impl AgentTool for ToolWebSearch {
     }
 }
 
+/// [Bloque 3, F1] `web_fetch`: descarga UNA url a texto limpio (distinta de
+/// `web_search`, que devuelve resultados). Requiere el puerto `WebFetchProvider`
+/// del consumidor; sin él falla con error claro (nunca falso éxito). El límite
+/// de bytes lo impone el proveedor (el argumento opcional solo lo solicita).
+pub struct ToolWebFetch;
+
+#[async_trait]
+impl AgentTool for ToolWebFetch {
+    fn id(&self) -> &'static str {
+        "web_fetch"
+    }
+    fn descripcion(&self) -> &'static str {
+        "Descarga UNA página web (URL) y devuelve su texto legible acotado.\nFORMATO DE SALIDA: título + texto limpio (sin HTML/scripts), hasta ~20 KB por defecto.\nDIFERENCIA CON web_search: web_search devuelve RESULTADOS de búsqueda; web_fetch lee el CONTENIDO de una url concreta que ya conoces (doc oficial, issue, página).\nCUÁNDO USARLA: necesitas el detalle de una página específica citada en resultados o contexto.\nERRORES: url inválida, sin proveedor configurado o página no legible → mensaje claro, nunca éxito falso."
+    }
+    fn schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "url": {"type": "string", "description": "URL absoluta a descargar"},
+                "limite_bytes": {"type": "integer", "description": "Límite de texto devuelto (opcional, default 20000)"}
+            },
+            "required": ["url"]
+        })
+    }
+    async fn ejecutar(
+        &self,
+        ctx: &AgentToolContext<'_>,
+        argumentos: Value,
+    ) -> Result<AgentToolResult> {
+        let url = argumentos
+            .get("url")
+            .and_then(Value::as_str)
+            .ok_or_else(|| Error::Argumentos("url requerido".into()))?
+            .to_string();
+        let limite = argumentos
+            .get("limite_bytes")
+            .and_then(Value::as_u64)
+            .unwrap_or(20_000)
+            .min(200_000) as usize;
+        let proveedor = ctx.web_fetch.ok_or_else(|| {
+            Error::Validacion(
+                "web_fetch no está disponible: el consumidor no aportó proveedor de descarga HTTP"
+                    .into(),
+            )
+        })?;
+        let contenido = proveedor.obtener(&url, limite).await?;
+        let cuerpo = if contenido.texto.trim().is_empty() {
+            "(página sin texto legible)".to_string()
+        } else {
+            contenido.texto
+        };
+        let cabecera = match &contenido.titulo {
+            Some(t) if !t.trim().is_empty() => format!("# {}\n\n", t.trim()),
+            _ => String::new(),
+        };
+        let resumen = format!("web_fetch {} ({} bytes)", contenido.url, contenido.bytes);
+        Ok(AgentToolResult::ok(format!("{cabecera}{cuerpo}"), resumen))
+    }
+}
+
 /// Registra las tools de red agnósticas en el registry.
 pub fn registrar_tools_red(registry: &mut crate::tool::AgentToolRegistry) {
     registry.registrar(Box::new(ToolWebSearch));
+    registry.registrar(Box::new(ToolWebFetch));
 }
 
 #[cfg(test)]
@@ -71,7 +132,24 @@ mod tests {
     use uuid::Uuid;
 
     use crate::contrato_tests::{PersistenciaMock, WebMock};
-    use crate::ports::WebSearchProvider;
+    use crate::ports::{ContenidoWeb, WebFetchProvider, WebSearchProvider};
+
+    /// Proveedor de descarga de prueba: devuelve contenido acotado al límite.
+    struct FetchMock;
+
+    #[async_trait]
+    impl WebFetchProvider for FetchMock {
+        async fn obtener(&self, url: &str, limite_bytes: usize) -> Result<ContenidoWeb> {
+            let texto = format!("texto legible de {url}");
+            let texto = texto.chars().take(limite_bytes).collect::<String>();
+            Ok(ContenidoWeb {
+                url: url.into(),
+                titulo: Some("Página de prueba".into()),
+                bytes: texto.len(),
+                texto,
+            })
+        }
+    }
     use serde_json::json;
 
     /// Contexto de tool para tests: sin sandbox, sin proveedor LLM, sin
@@ -84,6 +162,7 @@ mod tests {
             user_id: Uuid::new_v4(),
             persistencia,
             web_search,
+            web_fetch: Some(&FetchMock),
             ai_provider: None,
             sandbox_archivos: None,
             dominio: None,
@@ -128,5 +207,54 @@ mod tests {
             .await
             .expect_err("query requerida se valida antes del proveedor");
         assert!(err.to_string().contains("query requerido"));
+    }
+
+    #[tokio::test]
+    async fn web_fetch_falla_claro_sin_proveedor() {
+        let persistencia = PersistenciaMock::default();
+        let cxt = AgentToolContext {
+            user_id: Uuid::new_v4(),
+            persistencia: &persistencia,
+            web_search: None,
+            web_fetch: None,
+            ai_provider: None,
+            sandbox_archivos: None,
+            dominio: None,
+            todo: None,
+            plan: None,
+        };
+        let err = ToolWebFetch
+            .ejecutar(&cxt, json!({"url": "https://ejemplo.test"}))
+            .await
+            .expect_err("sin proveedor debe fallar");
+        assert!(
+            err.to_string().contains("no está disponible"),
+            "error claro: {err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn web_fetch_descarga_con_proveedor() {
+        let persistencia = PersistenciaMock::default();
+        let cxt = ctx(&persistencia, None);
+        let resultado = ToolWebFetch
+            .ejecutar(&cxt, json!({"url": "https://ejemplo.test/pagina"}))
+            .await
+            .expect("con proveedor debe descargar");
+        assert!(resultado.ok);
+        assert!(resultado.contenido.contains("Página de prueba"));
+        assert!(resultado.contenido.contains("texto legible"));
+        assert!(resultado.resumen.contains("ejemplo.test"));
+    }
+
+    #[tokio::test]
+    async fn web_fetch_valida_url_antes_del_proveedor() {
+        let persistencia = PersistenciaMock::default();
+        let cxt = ctx(&persistencia, None);
+        let err = ToolWebFetch
+            .ejecutar(&cxt, json!({}))
+            .await
+            .expect_err("url requerida");
+        assert!(err.to_string().contains("url requerido"));
     }
 }

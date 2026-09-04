@@ -143,6 +143,8 @@ pub fn construir_harness_con(
             persistencia: Arc::clone(&persistencia),
             llm,
             web_search: None,
+            /* [Bloque 3, F1] web_fetch real del CLI (reqwest ligero). */
+            web_fetch: Some(Arc::new(crate::fetch::FetchCli::nuevo())),
             dominio: None,
             ejecutor_comando: Some(Arc::new(crate::ejecutor::EjecutorCliente::nuevo())),
             programador_tareas: Some(programador),

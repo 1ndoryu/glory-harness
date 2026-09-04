@@ -456,6 +456,7 @@ mod tests {
         AgentToolContext {
             user_id: uuid::Uuid::new_v4(),
             persistencia,
+            web_fetch: None,
             web_search: None,
             ai_provider: None,
             sandbox_archivos: Some(sandbox),
@@ -473,6 +474,7 @@ mod tests {
         AgentToolContext {
             user_id: uuid::Uuid::new_v4(),
             persistencia,
+            web_fetch: None,
             web_search: None,
             ai_provider: None,
             sandbox_archivos: Some(sandbox),
@@ -609,6 +611,7 @@ mod tests {
         let ctx = AgentToolContext {
             user_id: uuid::Uuid::new_v4(),
             persistencia: &persistencia,
+            web_fetch: None,
             web_search: None,
             ai_provider: None,
             sandbox_archivos: registry.sandbox(),

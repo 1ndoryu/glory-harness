@@ -116,6 +116,7 @@ impl Daemon {
             persistencia: persistencia_port,
             llm,
             web_search: None,
+            web_fetch: None,
             dominio: None,
             ejecutor_comando: Some(Arc::new(crate::ejecutor::EjecutorCliente::nuevo())),
             programador_tareas: Some(Arc::new(

@@ -485,6 +485,7 @@ mod tests {
         AgentToolContext {
             user_id: Uuid::new_v4(),
             persistencia,
+            web_fetch: None,
             web_search: None,
             ai_provider: None,
             sandbox_archivos: None,

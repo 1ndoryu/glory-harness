@@ -222,6 +222,26 @@ pub trait WebSearchProvider: Send + Sync {
     async fn buscar(&self, query: &str, limite: usize) -> Result<Vec<ResultadoWeb>>;
 }
 
+/// Contenido de una página descargada por `web_fetch` (límites ya aplicados
+/// por el proveedor: texto acotado a `limite_bytes`, sin binarios).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ContenidoWeb {
+    pub url: String,
+    pub titulo: Option<String>,
+    pub texto: String,
+    pub bytes: usize,
+}
+
+/// [Bloque 3, Fase 1] Proveedor de descarga HTTP aportado por el consumidor
+/// (CLI: reqwest). `web_fetch` ≠ `web_search`: descarga UNA url a texto
+/// limpio; la búsqueda devuelve resultados. Sin proveedor → error claro,
+/// nunca falso éxito.
+#[async_trait]
+pub trait WebFetchProvider: Send + Sync {
+    /// Descarga `url` y devuelve el texto legible acotado a `limite_bytes`.
+    async fn obtener(&self, url: &str, limite_bytes: usize) -> Result<ContenidoWeb>;
+}
+
 // ---------------------------------------------------------------------------
 // Ejecución de comandos (puerto de la tool `comando`, 318A-16 F3)
 // ---------------------------------------------------------------------------
