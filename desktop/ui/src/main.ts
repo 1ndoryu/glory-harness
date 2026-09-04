@@ -18,8 +18,7 @@ import { montarCabeceraChat } from './componentes/cabecera';
 import { montarEntrada, type ModoEjecucion } from './componentes/entrada';
 import { montarModalConfiguracion } from './componentes/modal';
 import { renderizarBloque } from './componentes/mensajes';
-// TEMPORAL (boceto 03-09 §10.5): panel meta — retirar al implementar el real
-import { montarPanelMetaBoceto } from './componentes/panelMetaBoceto';
+import { montarPanelMeta } from './componentes/panelMeta';
 
 import { crearSimulacion } from './simulacion/simulacion';
 import {
@@ -116,14 +115,49 @@ async function resincronizarSidebar(): Promise<void> {
   sidebar.sustituir(conversaciones);
 }
 
-/** Meta del boceto → backend (el panel real la leerá de su propio campo). */
+/** Meta del panel → backend (el panel real la lee de su propio campo). */
 async function empujarMeta(): Promise<void> {
-  const campo = document.getElementById('pm-meta') as HTMLTextAreaElement | null;
-  const meta = campo?.value.trim() ? campo.value.trim() : null;
+  const meta = panelMeta.getMeta().trim() ? panelMeta.getMeta().trim() : null;
   try {
     await adaptador.sesion.actualizarMeta(meta);
   } catch (e: unknown) {
     avisoChat(`no se pudo fijar la meta: ${String(e)}`, '', 'el turno sigue sin meta');
+  }
+}
+
+// Último mensaje enviado (para reanudar) e inicio del turno (para el reloj).
+let ultimoTextoEnviado = '';
+let inicioTurno: number | null = null;
+
+function enviarReal(texto: string): void {
+  if (entrada.getCorriendo()) return;
+  entrada.setCorriendo(true);
+  ultimoTextoEnviado = texto;
+  inicioTurno = Date.now();
+  if (USA_REAL) panelMeta.setEstado('corriendo');
+  const alTerminar = () => {
+    inicioTurno = null;
+    if (USA_REAL) {
+      panelMeta.setEstado('inactivo');
+      const u = adaptador.usoUltimoTurno();
+      panelMeta.setTokens(u.tokensPrompt + u.tokensComplecion);
+    }
+    entrada.setCorriendo(false);
+  };
+  if (USA_REAL) {
+    void (async () => {
+      // En modo meta la meta editable viaja al backend antes del turno.
+      if (entrada.getModo() === 'meta') await empujarMeta();
+      await adaptador.montar(mensajes, texto, opcionesTurno(), alTerminar);
+    })();
+  } else if (USA_MOCK) {
+    simulacion.montar(mensajes, texto, entrada.getModo() === 'autonomo', alTerminar);
+  } else {
+    mensajes.appendChild(
+      crearAvisoSistema('Abre esta UI desde la app Tauri', 'sin backend', 'en navegador solo maqueta con VITE_MOCK=1'),
+    );
+    inicioTurno = null;
+    entrada.setCorriendo(false);
   }
 }
 
@@ -268,27 +302,13 @@ const entrada = montarEntrada({
   modeloActual,
   modo: modoActual,
   onEnviar(texto) {
-    if (entrada.getCorriendo()) return;
-    entrada.setCorriendo(true);
-    const alTerminar = () => entrada.setCorriendo(false);
-    if (USA_REAL) {
-      void (async () => {
-        // En modo meta la meta editable viaja al backend antes del turno.
-        if (entrada.getModo() === 'meta') await empujarMeta();
-        await adaptador.montar(mensajes, texto, opcionesTurno(), alTerminar);
-      })();
-    } else if (USA_MOCK) {
-      simulacion.montar(mensajes, texto, entrada.getModo() === 'autonomo', alTerminar);
-    } else {
-      mensajes.appendChild(
-        crearAvisoSistema('Abre esta UI desde la app Tauri', 'sin backend', 'en navegador solo maqueta con VITE_MOCK=1'),
-      );
-      entrada.setCorriendo(false);
-    }
+    enviarReal(texto);
   },
   onDetener() {
-    if (USA_REAL) adaptador.detener();
-    else simulacion.detener();
+    if (USA_REAL) {
+      adaptador.detener();
+      panelMeta.setEstado('pausado');
+    } else simulacion.detener();
     entrada.setCorriendo(false);
   },
   onModeloCambiado(nuevo) {
@@ -353,11 +373,34 @@ const modal = montarModalConfiguracion({
 cuerpo.appendChild(sidebar.raiz);
 chat.appendChild(cabecera.raiz);
 chat.appendChild(mensajes);
-// TEMPORAL (boceto 03-09 §10.5): el panel meta va DENTRO de #entrada,
-// justo antes de .caja, para que tenga exactamente el mismo ancho que la
-// caja de abajo (hereda el max-width/padding de #entrada). Se retira al
-// implementar el panel real.
-const panelMeta = montarPanelMetaBoceto();
+// El panel meta va DENTRO de #entrada, justo antes de .caja, para que
+// tenga exactamente el mismo ancho que la caja de abajo (hereda el
+// max-width/padding de #entrada).
+const panelMeta = montarPanelMeta({
+  onMetaCambiada(meta) {
+    if (!USA_REAL) return;
+    const valor = meta.trim() ? meta.trim() : null;
+    void adaptador.sesion
+      .actualizarMeta(valor)
+      .catch((e: unknown) => avisoChat(`no se pudo fijar la meta: ${String(e)}`, '', ''));
+  },
+  onPausar() {
+    if (entrada.getCorriendo()) {
+      if (USA_REAL) adaptador.detener();
+      else simulacion.detener();
+      entrada.setCorriendo(false);
+      panelMeta.setEstado('pausado');
+    }
+  },
+  onReanudar() {
+    if (entrada.getCorriendo()) return;
+    if (!ultimoTextoEnviado) {
+      avisoChat('nada que reanudar: envía un mensaje primero', '', '');
+      return;
+    }
+    enviarReal(ultimoTextoEnviado);
+  },
+});
 entrada.raiz.insertBefore(panelMeta.raiz, entrada.raiz.firstChild);
 chat.appendChild(entrada.raiz);
 cuerpo.appendChild(chat);
@@ -368,6 +411,15 @@ raizApp.appendChild(app);
 // es 0 fuera de él), así que se ajusta tras el montaje completo del layout.
 entrada.medir();
 panelMeta.medir();
+
+// Reloj del turno + tokens reales del núcleo (sin simulación): mientras hay
+// turno en curso se actualizan cada segundo; al cerrar queda el total.
+window.setInterval(() => {
+  if (!USA_REAL || inicioTurno === null) return;
+  panelMeta.setTiempo((Date.now() - inicioTurno) / 1000);
+  const u = adaptador.usoUltimoTurno();
+  panelMeta.setTokens(u.tokensPrompt + u.tokensComplecion);
+}, 1000);
 
 // ---------- Historial inicial ----------
 // En modo real no se finge historial: la conversación empieza vacía contra el

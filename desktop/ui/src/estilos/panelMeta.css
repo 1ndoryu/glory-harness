@@ -1,0 +1,78 @@
+/* ============================================================
+   Panel meta real (plan 039A-1 §10.5.2): misma fila única que el
+   boceto 03-09 (meta + estado · tiempo · tokens + play/pausa),
+   montado DENTRO de #entrada con su mismo ancho. Sin simulación:
+   los valores los fija main.ts con datos del turno real.
+   ============================================================ */
+
+.panel-meta {
+  border: 1px solid #000;
+  background: #fff;
+  margin-bottom: var(--sp-sm);
+}
+
+/* fila única: campo meta (izquierda, resto del ancho) + info + play */
+.pm-fila {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-sm);
+  padding: var(--sp-sm);
+}
+
+/* campo de la meta: ocupa el resto del ancho, sin borde propio
+   (igual que el textarea de #entrada .caja). El selector con
+   descendencia gana a `#entrada textarea` del compositor. */
+.pm-campo {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: block;
+}
+.pm-campo textarea {
+  display: block;
+  width: 100%;
+  border: none;
+  outline: none;
+  resize: none;
+  overflow-y: hidden;
+  background: #fff;
+  color: #000;
+  font-family: inherit;
+  font-size: var(--sm);
+  line-height: 1.45;
+  padding: 0;
+}
+
+/* info a la derecha: estado · tiempo · tokens (compacta, no estira) */
+.pm-info {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-md);
+  flex: none;
+  font-size: var(--xs);
+  white-space: nowrap;
+  padding-right: var(--sp-xs);
+}
+.pm-estado { display: inline-flex; align-items: center; gap: 5px; }
+.pm-estado .punto { width: 7px; height: 7px; display: inline-block; }
+.panel-meta.corriendo .pm-estado .punto { background: #000; animation: pm-parpadeo 1s steps(1) infinite; }
+.panel-meta.pausado .pm-estado .punto { background: #fff; border: 1px solid #000; }
+.panel-meta.inactivo .pm-estado .punto { background: #fff; border: 1px solid #000; opacity: 0.4; }
+@keyframes pm-parpadeo { 0%, 49% { opacity: 1; } 50%, 100% { opacity: 0.25; } }
+.pm-metrica { display: inline-flex; align-items: center; gap: 4px; opacity: 0.8; }
+
+/* botón play/pausa: cuadrado negro con icono blanco (como .btn-enviar) */
+.pm-play {
+  width: 22px;
+  height: 22px;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #000;
+  background: #000;
+  color: #fff;
+  cursor: pointer;
+  padding: 0;
+}
+.pm-play .ic { color: #fff; }
+.pm-play:hover { opacity: 0.85; }
