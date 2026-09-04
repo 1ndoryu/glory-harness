@@ -22,7 +22,7 @@ use glory_harness_core::evento::AgenteEvento;
 use glory_harness_core::llm::{LlmProviderService, LlavesProveedor};
 use glory_harness_core::runtime::{AgentRuntime, PuertosHarness, TurnoConfig};
 use glory_harness_core::tool::AgentToolRegistry;
-use glory_harness_core::AgentPersistence;
+use glory_harness_core::{AgentPersistence, ProgramadorTareas};
 
 use crate::persistencia::PersistenciaMemoria;
 
@@ -53,7 +53,9 @@ pub struct SalidaTurno {
 /// [318A-13] Un único constructor para los tres subcomandos, sin duplicar.
 pub struct HarnessCli {
     pub runtime: Arc<AgentRuntime>,
-    pub persistencia: Arc<PersistenciaMemoria>,
+    /// Persistencia inyectable (B5): memoria por defecto; la app de escritorio
+    /// pasa SQLite. Los consumidores solo usan el trait, nunca el concreto.
+    pub persistencia: Arc<dyn AgentPersistence>,
     pub user_id: Uuid,
     pub workspace: Option<PathBuf>,
     pub config: TurnoConfig,
@@ -64,6 +66,23 @@ pub fn construir_harness(opciones: &OpcionesRun) -> HarnessCli {
     // Añadir una skill base para dar contexto útil (standalone sin BD).
     let user_id = Uuid::new_v4();
     persistencia.con_skills_base(user_id);
+    construir_harness_con(
+        opciones,
+        persistencia,
+        Arc::new(crate::persistencia::ProgramadorMemoria::nuevo()),
+        user_id,
+    )
+}
+
+/// Constructor con persistencia y programador inyectables (B5): la app Tauri
+/// pasa `PersistenciaSqlite` para historial durable. `user_id` lo genera el
+/// llamador (la app lo conserva entre reinicios vía config).
+pub fn construir_harness_con(
+    opciones: &OpcionesRun,
+    persistencia: Arc<dyn AgentPersistence>,
+    programador: Arc<dyn ProgramadorTareas>,
+    user_id: Uuid,
+) -> HarnessCli {
 
     /* La raíz del workspace: `--dir`, o el cwd donde se invocó el comando.
      * Así el agente "trabaja en esa carpeta" con sus tools de archivo. */
@@ -84,7 +103,6 @@ pub fn construir_harness(opciones: &OpcionesRun) -> HarnessCli {
     }
 
     let llm = Arc::new(LlmProviderService::new(LlavesProveedor::from_env()));
-    let persistencia_port: Arc<dyn AgentPersistence> = persistencia.clone();
 
     let mut config = turno_config_default(workspace.clone());
     if let Some(provider) = opciones.provider.as_deref().map(str::trim).filter(|p| !p.is_empty()) {
@@ -103,14 +121,12 @@ pub fn construir_harness(opciones: &OpcionesRun) -> HarnessCli {
     let runtime = Arc::new(AgentRuntime::nuevo(
         AgentToolRegistry::new(),
         PuertosHarness {
-            persistencia: persistencia_port,
+            persistencia: Arc::clone(&persistencia),
             llm,
             web_search: None,
             dominio: None,
             ejecutor_comando: Some(Arc::new(crate::ejecutor::EjecutorCliente::nuevo())),
-            programador_tareas: Some(Arc::new(
-                crate::persistencia::ProgramadorMemoria::nuevo(),
-            )),
+            programador_tareas: Some(programador),
         },
         config.clone(),
     ));

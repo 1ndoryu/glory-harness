@@ -12,6 +12,7 @@ pub mod chat;
 pub mod daemon;
 pub mod ejecutor;
 pub mod persistencia;
+pub mod persistencia_sqlite;
 pub mod reglas;
 pub mod run;
 pub mod tui;
@@ -19,8 +20,9 @@ pub mod tui;
 pub use chat::{TurnoResultado, historial_desde_persistencia, procesar_turno};
 pub use ejecutor::EjecutorCliente;
 pub use persistencia::{PersistenciaMemoria, ProgramadorMemoria};
+pub use persistencia_sqlite::{InfoConversacion, PersistenciaSqlite};
 pub use reglas::cargar_reglas;
-pub use run::{OpcionesRun, SalidaTurno, construir_harness, quitar_prefijo_verbatim, turno_config_default};
+pub use run::{OpcionesRun, SalidaTurno, construir_harness, construir_harness_con, quitar_prefijo_verbatim, turno_config_default};
 
 /// Carga `~/.glory-harness.env` si existe (formato `CLAVE=valor`,
 /// `#` = comentario). Solo define variables aún ausentes, así el entorno real

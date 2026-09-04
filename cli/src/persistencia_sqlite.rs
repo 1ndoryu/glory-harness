@@ -1,0 +1,901 @@
+//! Persistencia SQLite del CLI/desktop (plan 039A-1, Fase 3).
+//!
+//! Implementa [`AgentPersistence`] y [`ProgramadorTareas`] sobre rusqlite
+//! bundled (WAL, sin SQLite del sistema). La app Tauri la usa para historial
+//! durable; el CLI one-shot y el daemon siguen en memoria (`persistencia.rs`).
+//!
+//! Notas de diseño:
+//! - Una sola `Connection` tras `Mutex` (`Clone` comparte el estado, como la
+//!   versión en memoria). SQLite local con WAL responde en ms; no se usa
+//!   `spawn_blocking` para no complicar los 20 métodos del puerto.
+//! - `tarea_tomar` es atómica (`UPDATE ... WHERE estado='pendiente'` + filas
+//!   afectadas); `tareas_recuperar_interrumpidas` devuelve las `ejecutando` a
+//!   `pendiente` (la versión en memoria no tiene heartbeat y devuelve 0).
+//! - Los logs de tareas quedan vacíos (el trait no tiene inserción de logs y
+//!   la versión en memoria tampoco registra; la tabla existe para futuro).
+
+use async_trait::async_trait;
+use chrono::{DateTime, SecondsFormat, Utc};
+use rusqlite::{Connection, OptionalExtension, params};
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
+use uuid::Uuid;
+
+use glory_harness_core::error::Error;
+use glory_harness_core::ports::{
+    AccionAuditable, LogTareaEjecucion, MemoriaEntrada, MensajePersistido, NuevaTareaProgramada,
+    ProgramadorTareas, SkillEntrada, TareaProgramada, TareaProgramadaPendiente, TurnoPersistido,
+};
+use glory_harness_core::{AgentPersistence, HarnessResult};
+
+/// Esquema inicial (idempotente: `IF NOT EXISTS`).
+const ESQUEMA: &str = "
+CREATE TABLE IF NOT EXISTS conversaciones (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    titulo TEXT NOT NULL,
+    archivada INTEGER NOT NULL DEFAULT 0,
+    creada_en TEXT NOT NULL,
+    actualizada_en TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS mensajes (
+    id TEXT PRIMARY KEY,
+    conversacion_id TEXT NOT NULL,
+    rol TEXT NOT NULL,
+    contenido TEXT NOT NULL,
+    creado_en TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_mensajes_conv ON mensajes (conversacion_id, creado_en);
+CREATE TABLE IF NOT EXISTS turnos (
+    id TEXT PRIMARY KEY,
+    conversacion_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    estado TEXT NOT NULL,
+    resumen TEXT,
+    creado_en TEXT NOT NULL,
+    provider TEXT,
+    modelo TEXT,
+    tokens_prompt INTEGER NOT NULL DEFAULT 0,
+    tokens_complecion INTEGER NOT NULL DEFAULT 0,
+    tools_ejecutadas INTEGER NOT NULL DEFAULT 0,
+    duracion_ms INTEGER NOT NULL DEFAULT 0,
+    error TEXT
+);
+CREATE TABLE IF NOT EXISTS acciones (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    turno_id TEXT NOT NULL,
+    tool TEXT NOT NULL,
+    ok INTEGER NOT NULL,
+    resumen TEXT NOT NULL,
+    argumentos_json TEXT
+);
+CREATE TABLE IF NOT EXISTS memoria (
+    user_id TEXT NOT NULL,
+    clave TEXT NOT NULL,
+    contenido TEXT NOT NULL,
+    PRIMARY KEY (user_id, clave)
+);
+CREATE TABLE IF NOT EXISTS skills (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    nombre TEXT NOT NULL,
+    descripcion TEXT NOT NULL,
+    instrucciones TEXT NOT NULL,
+    activa INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS tareas (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    nombre TEXT NOT NULL,
+    prompt TEXT NOT NULL,
+    tipo TEXT NOT NULL,
+    cron_expr TEXT,
+    proxima_ejecucion TEXT,
+    estado TEXT NOT NULL,
+    creado_en TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS tarea_logs (
+    id TEXT PRIMARY KEY,
+    tarea_id TEXT NOT NULL,
+    ok INTEGER NOT NULL,
+    resumen TEXT NOT NULL,
+    ejecutada_en TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS config (
+    clave TEXT PRIMARY KEY,
+    valor TEXT NOT NULL
+);
+";
+
+/// Vista de conversación para la sidebar (Tauri la serializa tal cual).
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct InfoConversacion {
+    pub id: Uuid,
+    pub titulo: String,
+    pub archivada: bool,
+    pub actualizada_en: DateTime<Utc>,
+}
+
+/// Implementación SQLite de [`AgentPersistence`] (+ [`ProgramadorTareas`]).
+/// `Clone` comparte la conexión, así que un solo `Arc` sirve a ambos puertos.
+#[derive(Debug, Clone)]
+pub struct PersistenciaSqlite {
+    conn: Arc<Mutex<Connection>>,
+}
+
+fn ahora_rfc3339() -> String {
+    Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true)
+}
+
+fn a_fecha(s: String) -> HarnessResult<DateTime<Utc>> {
+    DateTime::parse_from_rfc3339(&s)
+        .map(|d| d.with_timezone(&Utc))
+        .map_err(|e| Error::Persistencia(format!("fecha inválida en BD: {e}")))
+}
+
+fn a_uuid(s: String) -> HarnessResult<Uuid> {
+    Uuid::parse_str(&s).map_err(|e| Error::Persistencia(format!("uuid inválido en BD: {e}")))
+}
+
+fn bloquear<'a>(
+    conn: &'a Arc<Mutex<Connection>>,
+) -> std::sync::MutexGuard<'a, Connection> {
+    conn.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+impl PersistenciaSqlite {
+    fn abrir_conexion(ruta: Option<&Path>) -> HarnessResult<Connection> {
+        let conn = match ruta {
+            Some(r) => {
+                if let Some(padre) = r.parent() {
+                    if !padre.as_os_str().is_empty() {
+                        std::fs::create_dir_all(padre).map_err(Error::from)?;
+                    }
+                }
+                Connection::open(r)
+            }
+            None => Connection::open_in_memory(),
+        }
+        .map_err(|e| Error::Persistencia(format!("no se pudo abrir la BD: {e}")))?;
+        // WAL solo en archivo (en memoria no aplica); el resto siempre.
+        if ruta.is_some() {
+            conn.pragma_update(None, "journal_mode", "WAL")
+                .map_err(|e| Error::Persistencia(format!("WAL no disponible: {e}")))?;
+        }
+        conn.pragma_update(None, "synchronous", "NORMAL")
+            .map_err(|e| Error::Persistencia(format!("pragma synchronous: {e}")))?;
+        conn.pragma_update(None, "cache_size", -2000)
+            .map_err(|e| Error::Persistencia(format!("pragma cache_size: {e}")))?;
+        conn.busy_timeout(std::time::Duration::from_millis(5000))
+            .map_err(|e| Error::Persistencia(format!("busy_timeout: {e}")))?;
+        conn.execute_batch(ESQUEMA)
+            .map_err(|e| Error::Persistencia(format!("esquema inicial: {e}")))?;
+        Ok(conn)
+    }
+
+    /// Abre (o crea) la BD en `ruta`, con directorios padres si faltan.
+    pub fn abrir(ruta: &Path) -> HarnessResult<Self> {
+        Ok(Self {
+            conn: Arc::new(Mutex::new(Self::abrir_conexion(Some(ruta))?)),
+        })
+    }
+
+    /// BD en memoria (tests y usos efímeros; misma API).
+    pub fn en_memoria() -> HarnessResult<Self> {
+        Ok(Self {
+            conn: Arc::new(Mutex::new(Self::abrir_conexion(None)?)),
+        })
+    }
+
+    /// Ruta de la BD de la app: `%APPDATA%/glory-harness/glory-harness.db`
+    /// en Windows, `~/.local/share/glory-harness/` en el resto.
+    pub fn ruta_bd_app() -> Option<PathBuf> {
+        #[cfg(windows)]
+        let base = std::env::var_os("APPDATA").map(PathBuf::from);
+        #[cfg(not(windows))]
+        let base = std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local/share"));
+        base.map(|b| b.join("glory-harness").join("glory-harness.db"))
+    }
+
+    /// Skills base (paridad con `PersistenciaMemoria::con_skills_base`).
+    pub fn con_skills_base(&self, user_id: Uuid) -> &Self {
+        let conn = bloquear(&self.conn);
+        let existe: HarnessResult<bool> = conn
+            .query_row(
+                "SELECT 1 FROM skills WHERE user_id = ?1 AND nombre = 'resumen'",
+                params![user_id.as_hyphenated().to_string()],
+                |_| Ok(true),
+            )
+            .optional()
+            .map(|o| o.unwrap_or(false))
+            .map_err(|e| Error::Persistencia(e.to_string()));
+        if !existe.unwrap_or(true) {
+            let _ = conn.execute(
+                "INSERT INTO skills (id, user_id, nombre, descripcion, instrucciones, activa)
+                 VALUES (?1, ?2, 'resumen', 'Resume en 3 viñetas', 'Al terminar, resume tu respuesta en 3 viñetas concisas.', 1)",
+                params![Uuid::new_v4().as_hyphenated().to_string(), user_id.as_hyphenated().to_string()],
+            );
+        }
+        self
+    }
+
+    // --- CRUD de conversaciones (inherente: no forma parte del trait) ---
+
+    /// Crea una conversación y devuelve su id.
+    pub fn conversacion_crear(&self, user_id: Uuid, titulo: &str) -> HarnessResult<Uuid> {
+        let id = Uuid::new_v4();
+        let ahora = ahora_rfc3339();
+        bloquear(&self.conn)
+            .execute(
+                "INSERT INTO conversaciones (id, user_id, titulo, archivada, creada_en, actualizada_en)
+                 VALUES (?1, ?2, ?3, 0, ?4, ?4)",
+                params![
+                    id.as_hyphenated().to_string(),
+                    user_id.as_hyphenated().to_string(),
+                    titulo,
+                    ahora
+                ],
+            )
+            .map_err(|e| Error::Persistencia(e.to_string()))?;
+        Ok(id)
+    }
+
+    /// Lista las conversaciones del usuario (recientes primero).
+    pub fn conversaciones_listar(&self, user_id: Uuid) -> HarnessResult<Vec<InfoConversacion>> {
+        let conn = bloquear(&self.conn);
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, titulo, archivada, actualizada_en FROM conversaciones
+                 WHERE user_id = ?1 ORDER BY actualizada_en DESC",
+            )
+            .map_err(|e| Error::Persistencia(e.to_string()))?;
+        let filas = stmt
+            .query_map(params![user_id.as_hyphenated().to_string()], |f| {
+                Ok((
+                    f.get::<_, String>(0)?,
+                    f.get::<_, String>(1)?,
+                    f.get::<_, i64>(2)?,
+                    f.get::<_, String>(3)?,
+                ))
+            })
+            .map_err(|e| Error::Persistencia(e.to_string()))?;
+        let mut out = Vec::new();
+        for fila in filas {
+            let (id, titulo, archivada, actualizada) =
+                fila.map_err(|e| Error::Persistencia(e.to_string()))?;
+            out.push(InfoConversacion {
+                id: a_uuid(id)?,
+                titulo,
+                archivada: archivada != 0,
+                actualizada_en: a_fecha(actualizada)?,
+            });
+        }
+        Ok(out)
+    }
+
+    /// Renombra (solo si es del usuario); `false` si no existe o no es suya.
+    pub fn conversacion_renombrar(
+        &self,
+        id: Uuid,
+        user_id: Uuid,
+        titulo: &str,
+    ) -> HarnessResult<bool> {
+        let n = bloquear(&self.conn)
+            .execute(
+                "UPDATE conversaciones SET titulo = ?1, actualizada_en = ?2 WHERE id = ?3 AND user_id = ?4",
+                params![
+                    titulo,
+                    ahora_rfc3339(),
+                    id.as_hyphenated().to_string(),
+                    user_id.as_hyphenated().to_string()
+                ],
+            )
+            .map_err(|e| Error::Persistencia(e.to_string()))?;
+        Ok(n == 1)
+    }
+
+    /// Archiva/desarchiva (solo si es del usuario).
+    pub fn conversacion_archivar(
+        &self,
+        id: Uuid,
+        user_id: Uuid,
+        archivada: bool,
+    ) -> HarnessResult<bool> {
+        let n = bloquear(&self.conn)
+            .execute(
+                "UPDATE conversaciones SET archivada = ?1, actualizada_en = ?2 WHERE id = ?3 AND user_id = ?4",
+                params![
+                    i64::from(archivada),
+                    ahora_rfc3339(),
+                    id.as_hyphenated().to_string(),
+                    user_id.as_hyphenated().to_string()
+                ],
+            )
+            .map_err(|e| Error::Persistencia(e.to_string()))?;
+        Ok(n == 1)
+    }
+
+    /// Elimina la conversación con sus mensajes y turnos (transacción).
+    pub fn conversacion_eliminar(&self, id: Uuid, user_id: Uuid) -> HarnessResult<bool> {
+        let mut conn = bloquear(&self.conn);
+        let tx = conn
+            .transaction()
+            .map_err(|e| Error::Persistencia(e.to_string()))?;
+        let id_s = id.as_hyphenated().to_string();
+        tx.execute("DELETE FROM mensajes WHERE conversacion_id = ?1", params![id_s])
+            .map_err(|e| Error::Persistencia(e.to_string()))?;
+        tx.execute(
+            "DELETE FROM acciones WHERE turno_id IN (SELECT id FROM turnos WHERE conversacion_id = ?1)",
+            params![id_s],
+        )
+        .map_err(|e| Error::Persistencia(e.to_string()))?;
+        tx.execute("DELETE FROM turnos WHERE conversacion_id = ?1", params![id_s])
+            .map_err(|e| Error::Persistencia(e.to_string()))?;
+        let n = tx
+            .execute(
+                "DELETE FROM conversaciones WHERE id = ?1 AND user_id = ?2",
+                params![id_s, user_id.as_hyphenated().to_string()],
+            )
+            .map_err(|e| Error::Persistencia(e.to_string()))?;
+        tx.commit()
+            .map_err(|e| Error::Persistencia(e.to_string()))?;
+        Ok(n == 1)
+    }
+
+    // --- Config de la app (clave → valor; fuera del trait del núcleo) ---
+
+    /// Lee un valor de configuración (`None` si no existe).
+    pub fn config_leer(&self, clave: &str) -> HarnessResult<Option<String>> {
+        bloquear(&self.conn)
+            .query_row(
+                "SELECT valor FROM config WHERE clave = ?1",
+                params![clave],
+                |f| f.get::<_, String>(0),
+            )
+            .optional()
+            .map_err(|e| Error::Persistencia(e.to_string()))
+    }
+
+    /// Guarda (upsert) un valor de configuración.
+    pub fn config_guardar(&self, clave: &str, valor: &str) -> HarnessResult<()> {
+        bloquear(&self.conn)
+            .execute(
+                "INSERT INTO config (clave, valor) VALUES (?1, ?2)
+                 ON CONFLICT(clave) DO UPDATE SET valor = excluded.valor",
+                params![clave, valor],
+            )
+            .map_err(|e| Error::Persistencia(e.to_string()))?;
+        Ok(())
+    }
+}
+
+#[async_trait]
+impl AgentPersistence for PersistenciaSqlite {
+    async fn guardar_turno(&self, turno: &TurnoPersistido) -> HarnessResult<()> {
+        bloquear(&self.conn)
+            .execute(
+                "INSERT INTO turnos (id, conversacion_id, user_id, estado, resumen, creado_en,
+                 provider, modelo, tokens_prompt, tokens_complecion, tools_ejecutadas, duracion_ms, error)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+                params![
+                    turno.id.as_hyphenated().to_string(),
+                    turno.conversacion_id.as_hyphenated().to_string(),
+                    turno.user_id.as_hyphenated().to_string(),
+                    turno.estado,
+                    turno.resumen,
+                    turno.creado_en.to_rfc3339_opts(SecondsFormat::Secs, true),
+                    turno.provider,
+                    turno.modelo,
+                    turno.tokens_prompt as i64,
+                    turno.tokens_complecion as i64,
+                    turno.tools_ejecutadas as i64,
+                    turno.duracion_ms as i64,
+                    turno.error,
+                ],
+            )
+            .map_err(|e| Error::Persistencia(e.to_string()))?;
+        Ok(())
+    }
+
+    async fn finalizar_turno(
+        &self,
+        turno_id: Uuid,
+        estado_final: &str,
+        resumen: Option<&str>,
+    ) -> HarnessResult<()> {
+        bloquear(&self.conn)
+            .execute(
+                "UPDATE turnos SET estado = ?1, resumen = ?2 WHERE id = ?3",
+                params![estado_final, resumen, turno_id.as_hyphenated().to_string()],
+            )
+            .map_err(|e| Error::Persistencia(e.to_string()))?;
+        Ok(())
+    }
+
+    async fn guardar_mensaje(&self, mensaje: &MensajePersistido) -> HarnessResult<()> {
+        bloquear(&self.conn)
+            .execute(
+                "INSERT INTO mensajes (id, conversacion_id, rol, contenido, creado_en)
+                 VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![
+                    mensaje.id.as_hyphenated().to_string(),
+                    mensaje.conversacion_id.as_hyphenated().to_string(),
+                    mensaje.rol,
+                    mensaje.contenido,
+                    mensaje.creado_en.to_rfc3339_opts(SecondsFormat::Secs, true),
+                ],
+            )
+            .map_err(|e| Error::Persistencia(e.to_string()))?;
+        Ok(())
+    }
+
+    async fn listar_mensajes(&self, conversacion_id: Uuid) -> HarnessResult<Vec<MensajePersistido>> {
+        let conn = bloquear(&self.conn);
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, rol, contenido, creado_en FROM mensajes
+                 WHERE conversacion_id = ?1 ORDER BY creado_en ASC",
+            )
+            .map_err(|e| Error::Persistencia(e.to_string()))?;
+        let filas = stmt
+            .query_map(params![conversacion_id.as_hyphenated().to_string()], |f| {
+                Ok((
+                    f.get::<_, String>(0)?,
+                    f.get::<_, String>(1)?,
+                    f.get::<_, String>(2)?,
+                    f.get::<_, String>(3)?,
+                ))
+            })
+            .map_err(|e| Error::Persistencia(e.to_string()))?;
+        let mut out = Vec::new();
+        for fila in filas {
+            let (id, rol, contenido, creado) =
+                fila.map_err(|e| Error::Persistencia(e.to_string()))?;
+            out.push(MensajePersistido {
+                id: a_uuid(id)?,
+                conversacion_id,
+                rol,
+                contenido,
+                creado_en: a_fecha(creado)?,
+            });
+        }
+        Ok(out)
+    }
+
+    async fn conversacion_tocar(&self, conversacion_id: Uuid) -> HarnessResult<()> {
+        bloquear(&self.conn)
+            .execute(
+                "UPDATE conversaciones SET actualizada_en = ?1 WHERE id = ?2",
+                params![
+                    ahora_rfc3339(),
+                    conversacion_id.as_hyphenated().to_string()
+                ],
+            )
+            .map_err(|e| Error::Persistencia(e.to_string()))?;
+        Ok(())
+    }
+
+    async fn registrar_accion(&self, accion: &AccionAuditable) -> HarnessResult<()> {
+        bloquear(&self.conn)
+            .execute(
+                "INSERT INTO acciones (turno_id, tool, ok, resumen, argumentos_json)
+                 VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![
+                    accion.turno_id.as_hyphenated().to_string(),
+                    accion.tool,
+                    i64::from(accion.ok),
+                    accion.resumen,
+                    accion.argumentos_json,
+                ],
+            )
+            .map_err(|e| Error::Persistencia(e.to_string()))?;
+        Ok(())
+    }
+
+    async fn memoria_listar(&self, user_id: Uuid) -> HarnessResult<Vec<MemoriaEntrada>> {
+        let conn = bloquear(&self.conn);
+        let mut stmt = conn
+            .prepare("SELECT clave, contenido FROM memoria WHERE user_id = ?1")
+            .map_err(|e| Error::Persistencia(e.to_string()))?;
+        let filas = stmt
+            .query_map(params![user_id.as_hyphenated().to_string()], |f| {
+                Ok((f.get::<_, String>(0)?, f.get::<_, String>(1)?))
+            })
+            .map_err(|e| Error::Persistencia(e.to_string()))?;
+        let mut out = Vec::new();
+        for fila in filas {
+            let (clave, contenido) = fila.map_err(|e| Error::Persistencia(e.to_string()))?;
+            out.push(MemoriaEntrada { clave, contenido });
+        }
+        Ok(out)
+    }
+
+    async fn memoria_upsert(&self, user_id: Uuid, entrada: &MemoriaEntrada) -> HarnessResult<()> {
+        bloquear(&self.conn)
+            .execute(
+                "INSERT INTO memoria (user_id, clave, contenido) VALUES (?1, ?2, ?3)
+                 ON CONFLICT(user_id, clave) DO UPDATE SET contenido = excluded.contenido",
+                params![
+                    user_id.as_hyphenated().to_string(),
+                    entrada.clave,
+                    entrada.contenido
+                ],
+            )
+            .map_err(|e| Error::Persistencia(e.to_string()))?;
+        Ok(())
+    }
+
+    async fn memoria_borrar(&self, user_id: Uuid, clave: &str) -> HarnessResult<()> {
+        bloquear(&self.conn)
+            .execute(
+                "DELETE FROM memoria WHERE user_id = ?1 AND clave = ?2",
+                params![user_id.as_hyphenated().to_string(), clave],
+            )
+            .map_err(|e| Error::Persistencia(e.to_string()))?;
+        Ok(())
+    }
+
+    async fn skills_listar(&self, user_id: Uuid) -> HarnessResult<Vec<SkillEntrada>> {
+        let conn = bloquear(&self.conn);
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, nombre, descripcion, instrucciones, activa FROM skills WHERE user_id = ?1",
+            )
+            .map_err(|e| Error::Persistencia(e.to_string()))?;
+        let filas = stmt
+            .query_map(params![user_id.as_hyphenated().to_string()], |f| {
+                Ok((
+                    f.get::<_, String>(0)?,
+                    f.get::<_, String>(1)?,
+                    f.get::<_, String>(2)?,
+                    f.get::<_, String>(3)?,
+                    f.get::<_, i64>(4)?,
+                ))
+            })
+            .map_err(|e| Error::Persistencia(e.to_string()))?;
+        let mut out = Vec::new();
+        for fila in filas {
+            let (id, nombre, descripcion, instrucciones, activa) =
+                fila.map_err(|e| Error::Persistencia(e.to_string()))?;
+            out.push(SkillEntrada {
+                id: a_uuid(id)?,
+                nombre,
+                descripcion,
+                instrucciones,
+                activa: activa != 0,
+            });
+        }
+        Ok(out)
+    }
+
+    async fn tareas_recuperar_interrumpidas(&self) -> HarnessResult<u64> {
+        let n = bloquear(&self.conn)
+            .execute(
+                "UPDATE tareas SET estado = 'pendiente' WHERE estado = 'ejecutando'",
+                [],
+            )
+            .map_err(|e| Error::Persistencia(e.to_string()))?;
+        Ok(n as u64)
+    }
+
+    async fn tareas_pendientes(&self, limite: u32) -> HarnessResult<Vec<TareaProgramadaPendiente>> {
+        let conn = bloquear(&self.conn);
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, user_id, nombre, prompt, tipo, cron_expr FROM tareas
+                 WHERE estado = 'pendiente' ORDER BY creado_en ASC LIMIT ?1",
+            )
+            .map_err(|e| Error::Persistencia(e.to_string()))?;
+        let filas = stmt
+            .query_map(params![i64::from(limite)], |f| {
+                Ok((
+                    f.get::<_, String>(0)?,
+                    f.get::<_, String>(1)?,
+                    f.get::<_, String>(2)?,
+                    f.get::<_, String>(3)?,
+                    f.get::<_, String>(4)?,
+                    f.get::<_, Option<String>>(5)?,
+                ))
+            })
+            .map_err(|e| Error::Persistencia(e.to_string()))?;
+        let mut out = Vec::new();
+        for fila in filas {
+            let (id, user_id, nombre, prompt, tipo, cron_expr) =
+                fila.map_err(|e| Error::Persistencia(e.to_string()))?;
+            out.push(TareaProgramadaPendiente {
+                id: a_uuid(id)?,
+                user_id: a_uuid(user_id)?,
+                nombre,
+                prompt,
+                tipo,
+                cron_expr,
+            });
+        }
+        Ok(out)
+    }
+
+    async fn tarea_tomar(&self, id: Uuid) -> HarnessResult<bool> {
+        let n = bloquear(&self.conn)
+            .execute(
+                "UPDATE tareas SET estado = 'ejecutando' WHERE id = ?1 AND estado = 'pendiente'",
+                params![id.as_hyphenated().to_string()],
+            )
+            .map_err(|e| Error::Persistencia(e.to_string()))?;
+        Ok(n == 1)
+    }
+
+    async fn tarea_finalizar(&self, id: Uuid, ok: bool, _resumen: Option<&str>) -> HarnessResult<()> {
+        bloquear(&self.conn)
+            .execute(
+                "UPDATE tareas SET estado = ?1 WHERE id = ?2",
+                params![
+                    if ok { "completada" } else { "pendiente" },
+                    id.as_hyphenated().to_string()
+                ],
+            )
+            .map_err(|e| Error::Persistencia(e.to_string()))?;
+        Ok(())
+    }
+
+    async fn tarea_reprogramar(
+        &self,
+        id: Uuid,
+        _user_id: Uuid,
+        proxima: Option<DateTime<Utc>>,
+    ) -> HarnessResult<()> {
+        bloquear(&self.conn)
+            .execute(
+                "UPDATE tareas SET proxima_ejecucion = ?1, estado = 'pendiente' WHERE id = ?2",
+                params![
+                    proxima.map(|d| d.to_rfc3339_opts(SecondsFormat::Secs, true)),
+                    id.as_hyphenated().to_string()
+                ],
+            )
+            .map_err(|e| Error::Persistencia(e.to_string()))?;
+        Ok(())
+    }
+}
+
+#[async_trait]
+impl ProgramadorTareas for PersistenciaSqlite {
+    async fn tarea_crear(&self, nueva: &NuevaTareaProgramada) -> HarnessResult<Uuid> {
+        let id = Uuid::new_v4();
+        bloquear(&self.conn)
+            .execute(
+                "INSERT INTO tareas (id, user_id, nombre, prompt, tipo, cron_expr, proxima_ejecucion, estado, creado_en)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'pendiente', ?8)",
+                params![
+                    id.as_hyphenated().to_string(),
+                    nueva.user_id.as_hyphenated().to_string(),
+                    nueva.nombre,
+                    nueva.prompt,
+                    nueva.tipo,
+                    nueva.cron_expr,
+                    nueva.proxima_ejecucion.to_rfc3339_opts(SecondsFormat::Secs, true),
+                    ahora_rfc3339(),
+                ],
+            )
+            .map_err(|e| Error::Persistencia(e.to_string()))?;
+        Ok(id)
+    }
+
+    async fn tareas_listar(&self, user_id: Uuid) -> HarnessResult<Vec<TareaProgramada>> {
+        let conn = bloquear(&self.conn);
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, nombre, prompt, tipo, cron_expr, proxima_ejecucion, estado, creado_en
+                 FROM tareas WHERE user_id = ?1 ORDER BY creado_en ASC",
+            )
+            .map_err(|e| Error::Persistencia(e.to_string()))?;
+        let filas = stmt
+            .query_map(params![user_id.as_hyphenated().to_string()], |f| {
+                Ok((
+                    f.get::<_, String>(0)?,
+                    f.get::<_, String>(1)?,
+                    f.get::<_, String>(2)?,
+                    f.get::<_, String>(3)?,
+                    f.get::<_, Option<String>>(4)?,
+                    f.get::<_, Option<String>>(5)?,
+                    f.get::<_, String>(6)?,
+                    f.get::<_, String>(7)?,
+                ))
+            })
+            .map_err(|e| Error::Persistencia(e.to_string()))?;
+        let mut out = Vec::new();
+        for fila in filas {
+            let (id, nombre, prompt, tipo, cron_expr, proxima, estado, creado) =
+                fila.map_err(|e| Error::Persistencia(e.to_string()))?;
+            out.push(TareaProgramada {
+                id: a_uuid(id)?,
+                user_id,
+                nombre,
+                prompt,
+                tipo,
+                cron_expr,
+                proxima_ejecucion: match proxima {
+                    Some(s) => Some(a_fecha(s)?),
+                    None => None,
+                },
+                estado,
+                creado_en: a_fecha(creado)?,
+            });
+        }
+        Ok(out)
+    }
+
+    async fn tarea_cancelar(&self, id: Uuid, user_id: Uuid) -> HarnessResult<bool> {
+        let n = bloquear(&self.conn)
+            .execute(
+                "UPDATE tareas SET estado = 'cancelada' WHERE id = ?1 AND user_id = ?2",
+                params![
+                    id.as_hyphenated().to_string(),
+                    user_id.as_hyphenated().to_string()
+                ],
+            )
+            .map_err(|e| Error::Persistencia(e.to_string()))?;
+        Ok(n == 1)
+    }
+
+    async fn tarea_logs(
+        &self,
+        id: Uuid,
+        user_id: Uuid,
+        limite: u32,
+    ) -> HarnessResult<Vec<LogTareaEjecucion>> {
+        let conn = bloquear(&self.conn);
+        let es_suya: bool = conn
+            .query_row(
+                "SELECT 1 FROM tareas WHERE id = ?1 AND user_id = ?2",
+                params![
+                    id.as_hyphenated().to_string(),
+                    user_id.as_hyphenated().to_string()
+                ],
+                |_| Ok(true),
+            )
+            .optional()
+            .map_err(|e| Error::Persistencia(e.to_string()))?
+            .unwrap_or(false);
+        if !es_suya {
+            return Ok(Vec::new());
+        }
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, ok, resumen, ejecutada_en FROM tarea_logs
+                 WHERE tarea_id = ?1 ORDER BY ejecutada_en DESC LIMIT ?2",
+            )
+            .map_err(|e| Error::Persistencia(e.to_string()))?;
+        let filas = stmt
+            .query_map(
+                params![id.as_hyphenated().to_string(), i64::from(limite)],
+                |f| {
+                    Ok((
+                        f.get::<_, String>(0)?,
+                        f.get::<_, i64>(1)?,
+                        f.get::<_, String>(2)?,
+                        f.get::<_, String>(3)?,
+                    ))
+                },
+            )
+            .map_err(|e| Error::Persistencia(e.to_string()))?;
+        let mut out = Vec::new();
+        for fila in filas {
+            let (lid, ok, resumen, ejecutada) =
+                fila.map_err(|e| Error::Persistencia(e.to_string()))?;
+            out.push(LogTareaEjecucion {
+                id: a_uuid(lid)?,
+                tarea_id: id,
+                ok: ok != 0,
+                resumen,
+                ejecutada_en: a_fecha(ejecutada)?,
+            });
+        }
+        out.reverse();
+        Ok(out)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::Utc;
+
+    /// Ruta temporal única para la BD de un test (se borra al terminar).
+    fn ruta_temp(nombre: &str) -> PathBuf {
+        std::env::temp_dir().join(format!(
+            "gh-sqlite-test-{}-{}-{nombre}.db",
+            std::process::id(),
+            Utc::now().timestamp_millis()
+        ))
+    }
+
+    #[tokio::test]
+    async fn mensajes_ordenados_y_reapertura_conserva() {
+        let ruta = ruta_temp("mensajes");
+        let user = Uuid::new_v4();
+        let conv = {
+            let p = PersistenciaSqlite::abrir(&ruta).expect("abrir BD");
+            let conv = p
+                .conversacion_crear(user, "prueba")
+                .expect("crear conversación");
+            for (rol, texto) in [("user", "hola"), ("assistant", "buenas")] {
+                p.guardar_mensaje(&MensajePersistido {
+                    id: Uuid::new_v4(),
+                    conversacion_id: conv,
+                    rol: rol.into(),
+                    contenido: texto.into(),
+                    creado_en: Utc::now(),
+                })
+                .await
+                .expect("guardar mensaje");
+            }
+            conv
+        };
+        // Reabrir: el historial sobrevive al proceso.
+        let p2 = PersistenciaSqlite::abrir(&ruta).expect("reabrir BD");
+        let mensajes = p2.listar_mensajes(conv).await.expect("listar");
+        assert_eq!(mensajes.len(), 2);
+        assert_eq!(mensajes[0].rol, "user");
+        assert_eq!(mensajes[1].rol, "assistant");
+        let _ = std::fs::remove_file(&ruta);
+    }
+
+    #[tokio::test]
+    async fn conversaciones_crud_y_config() {
+        let p = PersistenciaSqlite::en_memoria().expect("BD en memoria");
+        let user = Uuid::new_v4();
+        let id = p.conversacion_crear(user, "una").expect("crear");
+        assert!(p
+            .conversacion_renombrar(id, user, "una-dos")
+            .expect("renombrar"));
+        assert!(!p
+            .conversacion_renombrar(id, Uuid::new_v4(), "ajena")
+            .expect("renombrar ajena"));
+        assert!(p
+            .conversacion_archivar(id, user, true)
+            .expect("archivar"));
+        let lista = p.conversaciones_listar(user).expect("listar");
+        assert_eq!(lista.len(), 1);
+        assert_eq!(lista[0].titulo, "una-dos");
+        assert!(lista[0].archivada);
+        assert!(p.config_leer("modo").expect("leer").is_none());
+        p.config_guardar("modo", "autonomo").expect("guardar");
+        assert_eq!(
+            p.config_leer("modo").expect("releer").as_deref(),
+            Some("autonomo")
+        );
+        assert!(p.conversacion_eliminar(id, user).expect("eliminar"));
+        assert!(p.conversaciones_listar(user).expect("listar2").is_empty());
+    }
+
+    #[tokio::test]
+    async fn tareas_claim_atomico_y_finalizar() {
+        let p = PersistenciaSqlite::en_memoria().expect("BD en memoria");
+        let user = Uuid::new_v4();
+        let id = p
+            .tarea_crear(&NuevaTareaProgramada {
+                user_id: user,
+                nombre: "t".into(),
+                prompt: "p".into(),
+                tipo: "una_vez".into(),
+                cron_expr: "@once".into(),
+                proxima_ejecucion: Utc::now(),
+            })
+            .await
+            .expect("crear tarea");
+        assert!(p.tarea_tomar(id).await.expect("tomar"));
+        assert!(!p.tarea_tomar(id).await.expect("retomar"));
+        p.tarea_finalizar(id, true, None).await.expect("finalizar");
+        assert!(p.tareas_pendientes(10).await.expect("pendientes").is_empty());
+    }
+
+    #[tokio::test]
+    async fn skills_base_idempotente() {
+        let p = PersistenciaSqlite::en_memoria().expect("BD en memoria");
+        let user = Uuid::new_v4();
+        p.con_skills_base(user);
+        p.con_skills_base(user);
+        let skills = p.skills_listar(user).await.expect("skills");
+        assert_eq!(skills.len(), 1);
+        assert_eq!(skills[0].nombre, "resumen");
+    }
+}

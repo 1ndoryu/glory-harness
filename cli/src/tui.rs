@@ -52,10 +52,8 @@ use uuid::Uuid;
 
 use glory_harness_core::evento::AgenteEvento;
 use glory_harness_core::runtime::AgentRuntime;
-use glory_harness_core::AgentPersistence;
 
 use crate::chat::{historial_desde_persistencia, procesar_turno};
-use crate::persistencia::PersistenciaMemoria;
 use crate::run::{construir_harness, OpcionesRun};
 
 /// Rol de un bloque del historial visible.
@@ -574,7 +572,7 @@ pub async fn tui(opciones: OpcionesRun) -> Result<(), String> {
 /// a la UI. El historial sale de la persistencia real (misma fuente que el
 /// REPL); los errores se muestran en vivo vía `EventoTui`.
 fn spawn_worker(
-    persistencia: Arc<PersistenciaMemoria>,
+    persistencia: Arc<dyn glory_harness_core::AgentPersistence>,
     runtime: Arc<AgentRuntime>,
     user_id: Uuid,
     mut rx_entrada: tokio::sync::mpsc::Receiver<String>,

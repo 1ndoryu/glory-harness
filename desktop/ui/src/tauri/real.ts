@@ -1,5 +1,5 @@
 // ============================================================
-// Adaptador real Tauri (plan 039A-1, Fase 4): la UI habla al núcleo
+// Adaptador real Tauri (plan 039A-1, Fases 4-5): la UI habla al núcleo
 // vía comandos in-process y escucha el contrato AgenteEvento.
 // Misma superficie que la simulación (montar/detener) para no tocar
 // el layout: solo cambia la fuente de los eventos.
@@ -20,7 +20,11 @@ import {
 import type { DecisionAprobacion, IconoNombre } from '../dominio/tipos';
 import { el } from '../util/dom';
 
-/** Contrato AgenteEvento del núcleo (tag `evento`, snake_case). */
+/**
+ * Contrato AgenteEvento del núcleo (tag `evento`, snake_case). Fiel a
+ * `core/src/evento.rs`: los campos opcionales pueden no venir según el
+ * proveedor; el adaptador nunca asume presentes los no obligatorios.
+ */
 export type AgenteEvento =
   | { evento: 'token'; texto: string }
   | { evento: 'tool_start'; tool: string; argumentos: unknown }
@@ -31,17 +35,81 @@ export type AgenteEvento =
   | { evento: 'subagente_inicio'; perfil: string }
   | { evento: 'subagente_fin'; ok: boolean }
   | { evento: 'plan_propuesto'; cambios: number }
-  | { evento: 'usage'; ocupacion_pct?: number | null }
-  | { evento: 'contexto_detalle'; ocupacion_pct: number }
-  | { evento: 'telemetria'; motivo_cierre: string; herramientas: unknown[] }
-  | { evento: 'error'; mensaje: string }
-  | { evento: 'contexto' }
-  | { evento: 'done' };
+  | {
+      evento: 'usage';
+      tokens_prompt: number;
+      tokens_complecion: number;
+      ocupacion_pct?: number | null;
+      provider?: string | null;
+      modelo?: string | null;
+    }
+  | { evento: 'contexto'; skills: number }
+  | {
+      evento: 'contexto_detalle';
+      max_ventana: number;
+      reserva_salida: number;
+      system_instrucciones: number;
+      definiciones_tools: number;
+      mensajes: number;
+      resultados_tools: number;
+      total_entrada: number;
+      ocupacion_pct: number;
+    }
+  | { evento: 'telemetria'; subagentes_parciales: number; herramientas: Array<{ tool: string }> }
+  | { evento: 'error'; mensaje: string; retryable: boolean }
+  | { evento: 'done'; turno_id: string };
 
 export interface OpcionesTurno {
   proveedor: string;
   modelo: string;
   modo: string;
+}
+
+export interface InfoConversacion {
+  id: string;
+  titulo: string;
+  archivada: boolean;
+  actualizada_en: string;
+}
+
+export interface InfoSesion {
+  modelo: string;
+  workspace: string;
+  proveedores: Array<{ nombre: string; claves: number }>;
+  conversacion: InfoConversacion;
+  aviso?: string | null;
+}
+
+export interface MensajeGuardado {
+  id: string;
+  conversacion_id: string;
+  rol: string;
+  contenido: string;
+  creado_en: string;
+}
+
+export interface CargaConversacion {
+  id: string;
+  titulo: string;
+  mensajes: MensajeGuardado[];
+}
+
+export interface ProveedorInfo {
+  id: string;
+  modelos: string[];
+  claves: number;
+}
+
+/** Totales del último turno (para el panel meta / cabecera, sin simular). */
+export interface UsoTurno {
+  tokensPrompt: number;
+  tokensComplecion: number;
+  ocupacionPct: number | null;
+}
+
+export interface HooksAdaptador {
+  /** Se llama con cada `abrir_sesion`/`reconfigurar`/`elegir_workspace`. */
+  onSesion?: (info: InfoSesion) => void;
 }
 
 const RESPUESTA: Record<DecisionAprobacion, string> = {
@@ -67,8 +135,9 @@ export function esEntornoTauri(): boolean {
   return typeof (window as unknown as { __TAURI__?: unknown }).__TAURI__ !== 'undefined';
 }
 
-export function crearAdaptadorReal() {
+export function crearAdaptadorReal(hooks: HooksAdaptador = {}) {
   let escuchando = false;
+  let sesionAbierta = false;
   let claveSesion = '';
   let mensajes: HTMLElement | null = null;
   let onFin: (() => void) | null = null;
@@ -77,6 +146,7 @@ export function crearAdaptadorReal() {
   let ultimoMensaje = '';
   let huboPeticiones = false;
   let cerrado = false;
+  let uso: UsoTurno = { tokensPrompt: 0, tokensComplecion: 0, ocupacionPct: null };
 
   function aviso(texto: string, meta: string, detalle: string): void {
     mensajes?.appendChild(crearAvisoSistema(texto, meta, detalle));
@@ -151,21 +221,25 @@ export function crearAdaptadorReal() {
       case 'plan_propuesto':
         aviso(`propuesta del modo plan: ${ev.cambios} cambios pendientes`, 'plan', '');
         break;
-      case 'telemetria':
-        aviso(`telemetría: ${ev.motivo_cierre} · ${ev.herramientas.length} tools`, '', '');
+      case 'telemetria': {
+        const n = Array.isArray(ev.herramientas) ? ev.herramientas.length : 0;
+        const parciales = typeof ev.subagentes_parciales === 'number' ? ev.subagentes_parciales : 0;
+        aviso(`telemetría: ${n} tools${parciales ? ` · ${parciales} subagentes parciales` : ''}`, '', '');
         break;
+      }
       case 'usage':
-        if (typeof ev.ocupacion_pct === 'number') {
-          aviso(`contexto al ${ev.ocupacion_pct.toFixed(1)}%`, 'uso', '');
-        }
+        uso.tokensPrompt += typeof ev.tokens_prompt === 'number' ? ev.tokens_prompt : 0;
+        uso.tokensComplecion += typeof ev.tokens_complecion === 'number' ? ev.tokens_complecion : 0;
+        if (typeof ev.ocupacion_pct === 'number') uso.ocupacionPct = ev.ocupacion_pct;
         break;
       case 'contexto_detalle':
-        aviso(`contexto al ${ev.ocupacion_pct.toFixed(1)}%`, 'uso', '');
-        break;
-      case 'error':
-        aviso(`error: ${ev.mensaje}`, 'reintentable', '');
+        uso.ocupacionPct = ev.ocupacion_pct;
         break;
       case 'contexto':
+        break;
+      case 'error':
+        aviso(`error: ${ev.mensaje}`, ev.retryable ? 'reintentable' : '', '');
+        break;
       case 'done':
         asistente = null;
         herramienta = null;
@@ -210,6 +284,7 @@ export function crearAdaptadorReal() {
     asistente = null;
     herramienta = null;
     huboPeticiones = false;
+    uso = { tokensPrompt: 0, tokensComplecion: 0, ocupacionPct: null };
     ultimaOpcion = opts;
     ultimoMensaje = texto;
     mensajes?.appendChild(crearMensajeUsuario(texto));
@@ -222,14 +297,27 @@ export function crearAdaptadorReal() {
         escuchando = true;
       }
       const clave = `${opts.proveedor}|${opts.modelo}|${opts.modo}`;
-      if (clave !== claveSesion) {
-        await invoke('abrir_sesion', {
+      if (!sesionAbierta) {
+        const info = await invoke<InfoSesion>('abrir_sesion', {
           provider: opts.proveedor || null,
           modelo: opts.modelo || null,
           dir: null,
           modo: opts.modo || null,
         });
+        sesionAbierta = true;
         claveSesion = clave;
+        if (info.aviso) aviso(info.aviso, 'persistencia', '');
+        hooks.onSesion?.(info);
+      } else if (clave !== claveSesion) {
+        // Cambio de modelo/modo: reconfigura SIN perder la conversación
+        // (abrir_sesion crearía una conversación nueva vacía).
+        const info = await invoke<InfoSesion>('reconfigurar_sesion', {
+          provider: opts.proveedor || null,
+          modelo: opts.modelo || null,
+          modo: opts.modo || null,
+        });
+        claveSesion = clave;
+        hooks.onSesion?.(info);
       }
       await invoke('enviar_turno', { mensaje: texto });
     } catch (e: unknown) {
@@ -238,7 +326,9 @@ export function crearAdaptadorReal() {
   }
 
   function detener(): void {
-    // El abort del backend no emite turno-fin: se cierra en local.
+    // El backend aborta, marca el turno `cancelado` y emite `turno-fin`
+    // (ok:false). El cierre local es optimista; el `turno-fin` tardío se
+    // ignora por el flag `cerrado`.
     void invoke('cancelar_turno').catch(() => {});
     if (!cerrado) {
       cerrado = true;
@@ -251,5 +341,60 @@ export function crearAdaptadorReal() {
     }
   }
 
-  return { montar, detener };
+  /** Uso acumulado del turno en curso (tokens reales del núcleo). */
+  function usoUltimoTurno(): UsoTurno {
+    return { ...uso };
+  }
+
+  return {
+    montar,
+    detener,
+    usoUltimoTurno,
+    sesion: {
+      async nueva(titulo?: string): Promise<InfoConversacion> {
+        const conv = await invoke<InfoConversacion>('conversacion_nueva', { titulo: titulo ?? null });
+        return conv;
+      },
+      async listar(): Promise<InfoConversacion[]> {
+        return invoke<InfoConversacion[]>('listar_conversaciones');
+      },
+      async cargar(id: string): Promise<CargaConversacion> {
+        return invoke<CargaConversacion>('cargar_conversacion', { id });
+      },
+      async renombrar(id: string, titulo: string): Promise<boolean> {
+        return invoke<boolean>('renombrar_conversacion', { id, titulo });
+      },
+      async archivar(id: string, archivada: boolean): Promise<boolean> {
+        return invoke<boolean>('archivar_conversacion', { id, archivada });
+      },
+      /** Si era la actual, el backend crea una nueva y la devuelve. */
+      async eliminar(id: string): Promise<InfoConversacion> {
+        return invoke<InfoConversacion>('eliminar_conversacion', { id });
+      },
+      async proveedores(): Promise<ProveedorInfo[]> {
+        return invoke<ProveedorInfo[]>('proveedores_disponibles');
+      },
+      async configLeer(clave: string): Promise<string | null> {
+        return invoke<string | null>('config_leer', { clave });
+      },
+      async configGuardar(clave: string, valor: string): Promise<void> {
+        await invoke('config_guardar', { clave, valor });
+      },
+      /**
+       * Diálogo nativo de carpeta. Reabre la sesión (conversación nueva).
+       * Si el usuario cancela, devuelve la sesión actual sin cambios.
+       */
+      async elegirWorkspace(): Promise<InfoSesion> {
+        const info = await invoke<InfoSesion>('elegir_workspace');
+        sesionAbierta = true;
+        hooks.onSesion?.(info);
+        return info;
+      },
+      async actualizarMeta(meta: string | null): Promise<string | null> {
+        return invoke<string | null>('actualizar_meta', { meta });
+      },
+    },
+  };
 }
+
+export type AdaptadorReal = ReturnType<typeof crearAdaptadorReal>;

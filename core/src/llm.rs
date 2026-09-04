@@ -75,6 +75,16 @@ const PROVIDERS: &[(&str, &str, &[&str])] = &[
     ),
 ];
 
+/// Catálogo público de proveedores (039A-1 F4): id + modelos del allowlist,
+/// para que la UI liste proveedores/modelos reales sin duplicar la tabla.
+/// Aditivo: no cambia validación ni cadena de fallback.
+pub fn catalogo_proveedores() -> Vec<(&'static str, Vec<&'static str>)> {
+    PROVIDERS
+        .iter()
+        .map(|(id, _, modelos)| (*id, modelos.to_vec()))
+        .collect()
+}
+
 /// Cadena de fallback cuando el candidato solicitado falla (PHP CHAT_FALLBACK_CHAIN).
 /* [26-08-2026] Cadena actualizada a modelos reales de la cuenta (verificados
  * contra /models de cada proveedor el 26-08): groq/compound-mini responde
@@ -1418,6 +1428,20 @@ mod tests {
         let resultado = parsear_tool_calls(vec![con_args_rotos]);
         assert_eq!(resultado.len(), 1);
         assert_eq!(resultado[0].argumentos, serde_json::json!({}));
+    }
+
+    #[test]
+    fn catalogo_proveedores_expone_allowlist_sin_duplicar_tabla() {
+        // 039A-1 F4: la UI lista proveedores/modelos reales desde el núcleo.
+        let catalogo = catalogo_proveedores();
+        assert!(!catalogo.is_empty(), "el catálogo no está vacío");
+        let ids: Vec<&str> = catalogo.iter().map(|(id, _)| *id).collect();
+        for esperado in ["groq", "deepseek", "glory", "commandcode", "cerebras"] {
+            assert!(ids.contains(&esperado), "falta proveedor {esperado}");
+        }
+        for (id, modelos) in &catalogo {
+            assert!(!modelos.is_empty(), "el proveedor {id} no tiene modelos");
+        }
     }
 
     #[test]

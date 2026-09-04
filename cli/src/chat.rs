@@ -22,7 +22,6 @@ use glory_harness_core::llm::AiMessage;
 use glory_harness_core::ports::MensajePersistido;
 use glory_harness_core::runtime::AgentRuntime;
 use glory_harness_core::sandbox::SandboxArchivos;
-use glory_harness_core::AgentPersistence;
 
 use crate::run::{construir_harness, OpcionesRun};
 
