@@ -72,9 +72,18 @@ futuras no abordadas en este bloque. Resumen de cierre al final de cada sección
    `.panel-meta.oculto { display:none }`; `main.ts` añade `sincronizarPanelMeta()` que muestra el
    panel solo si hay meta o el modo es `meta`. Se llama al montar, al cambiar modo y al editar meta.
    Verificado en navegador (VITE_MOCK): oculto en modo predeterminado, visible al entrar en `meta`.
-2. **H2 (mensaje no visible al enviar)** — `real.ts` baja el scroll del chat al añadir el mensaje
-   del usuario (`montar`) y en cada evento (`token`/`tool_start`) para que la respuesta fluya a la
-   vista. `aviso` también baja el scroll.
+2. **H2 (la respuesta no aparece EN VIVO, solo al recargar)** — 2ª corrección con causa raíz.
+   El fix previo bajaba el scroll al añadir el mensaje, pero el usuario confirmó que la respuesta
+   del asistente seguía sin aparecer en tiempo real. **Causa raíz:** desajuste de contrato
+   `AgenteEvento`. El backend serializa con `#[serde(tag = "tipo", rename_all = "snake_case")]`
+   (`core/src/evento.rs`) → cada evento llega `{ "tipo": "token", texto }`. `real.ts` declaraba el
+   discriminante como `evento` (`{ evento: 'token' }`) y el `switch (ev.evento)` no caía en ningún
+   caso → los eventos SÍ llegaban (`agente-evento`) pero NO se pintaban; la respuesta solo se veía
+   al recargar (lectura de la BD persistida). **Fix:** discriminante `evento` → `tipo` en las 15
+   variantes del tipo y en el switch; campos opcionales de subagente_inicio/fin, plan_propuesto y
+   telemetria alineados al enum real. `type-check` limpio. Afecta solo a la app real Tauri (el mock
+   simula sus propios eventos). Pendiente validar en vivo: relanzar `tauri dev` y confirmar que el
+   streaming de tokens aparece en la ventana.
 3. **H3 (workspace incorrecto)** — `opciones.ts`: el campo workspace de Contexto queda vacío por
    defecto con nota «se abre con el workspace real del backend»; el backend persiste el workspace
    resuelto y `onSesion` en `main.ts` rellena el modal con `info.workspace` real al abrir/reconfigurar.

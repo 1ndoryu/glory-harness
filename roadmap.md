@@ -72,6 +72,13 @@ Orden propuesto (dependencias de abajo arriba):
 > `Agente/completados/tareas-2026-09-04.md`. Pendiente del bloque: E2E en la ventana real
 > (enviar → streaming → tools → aprobación → `turno-fin`) y gate final.
 >
+> **Corrección de causa raíz H2 (04-09, tras el primer fix):** el usuario confirmó que la
+> respuesta del asistente seguía sin aparecer EN VIVO (solo al recargar). Causa: el frontend
+> `real.ts` leía el discriminante `evento` pero el backend serializa `AgenteEvento` con tag
+> `tipo` (`core/src/evento.rs`) → el switch no pintaba ningún evento. Fix aplicado en
+> `desktop/ui/src/tauri/real.ts` (`evento` → `tipo`; type-check limpio). **Pendiente validar en
+> vivo:** relanzar `tauri dev` y confirmar que el streaming de tokens aparece en la ventana.
+>
 > **Hecho (UI, 03-09):** los botones del nav «Agentes» / «Flujo» / «Complementos» ahora
 > muestran «próximamente» en el chat (`onAccionNav` en sidebar + aviso en main.ts; §10.4).
 > «Nueva conversación» queda reservado a la acción real con backend (F3), no a «próximamente».

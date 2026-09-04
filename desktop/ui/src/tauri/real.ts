@@ -21,31 +21,34 @@ import type { DecisionAprobacion, IconoNombre } from '../dominio/tipos';
 import { el } from '../util/dom';
 
 /**
- * Contrato AgenteEvento del núcleo (tag `evento`, snake_case). Fiel a
- * `core/src/evento.rs`: los campos opcionales pueden no venir según el
- * proveedor; el adaptador nunca asume presentes los no obligatorios.
+ * Contrato AgenteEvento del núcleo (tag `tipo`, snake_case). Fiel a
+ * `core/src/evento.rs` (`#[serde(tag = "tipo", rename_all = "snake_case")]`):
+ * el backend envía `{ tipo: "token", texto }`, NO `{ evento: ... }`. Los
+ * campos opcionales pueden no venir según el proveedor; el adaptador nunca
+ * asume presentes los no obligatorios. [039A-1 04-09 H2-fix] El discriminante
+ * era `evento` y el switch no caía nunca (respuesta invisible en vivo).
  */
 export type AgenteEvento =
-  | { evento: 'token'; texto: string }
-  | { evento: 'tool_start'; tool: string; argumentos: unknown }
-  | { evento: 'tool_result'; tool: string; ok: boolean; resumen: string; diff?: string | null }
-  | { evento: 'peticion_aprobacion'; id: string; tool: string; argumentos: unknown; clasificacion: string }
-  | { evento: 'requiere_aprobacion'; tool: string; clasificacion: string }
-  | { evento: 'permiso_denegado'; tool: string; motivo: string }
-  | { evento: 'subagente_inicio'; perfil: string }
-  | { evento: 'subagente_fin'; ok: boolean }
-  | { evento: 'plan_propuesto'; cambios: number }
+  | { tipo: 'token'; texto: string }
+  | { tipo: 'tool_start'; tool: string; argumentos: unknown }
+  | { tipo: 'tool_result'; tool: string; ok: boolean; resumen: string; diff?: string | null }
+  | { tipo: 'peticion_aprobacion'; id: string; tool: string; argumentos: unknown; clasificacion: string }
+  | { tipo: 'requiere_aprobacion'; tool: string; clasificacion: string }
+  | { tipo: 'permiso_denegado'; tool: string; motivo: string }
+  | { tipo: 'subagente_inicio'; perfil: string; instruccion: string }
+  | { tipo: 'subagente_fin'; resumen: string; ok: boolean; parcial: boolean }
+  | { tipo: 'plan_propuesto'; cambios: number; resumen: string }
   | {
-      evento: 'usage';
+      tipo: 'usage';
       tokens_prompt: number;
       tokens_complecion: number;
       ocupacion_pct?: number | null;
       provider?: string | null;
       modelo?: string | null;
     }
-  | { evento: 'contexto'; skills: number }
+  | { tipo: 'contexto'; skills: number }
   | {
-      evento: 'contexto_detalle';
+      tipo: 'contexto_detalle';
       max_ventana: number;
       reserva_salida: number;
       system_instrucciones: number;
@@ -55,9 +58,9 @@ export type AgenteEvento =
       total_entrada: number;
       ocupacion_pct: number;
     }
-  | { evento: 'telemetria'; subagentes_parciales: number; herramientas: Array<{ tool: string }> }
-  | { evento: 'error'; mensaje: string; retryable: boolean }
-  | { evento: 'done'; turno_id: string };
+  | { tipo: 'telemetria'; subagentes_parciales: number; herramientas: Array<{ tool: string; usos: number; fallos: number; duracion_ms_total: number }> }
+  | { tipo: 'error'; mensaje: string; retryable: boolean }
+  | { tipo: 'done'; turno_id: string };
 
 export interface OpcionesTurno {
   proveedor: string;
@@ -184,7 +187,7 @@ export function crearAdaptadorReal(hooks: HooksAdaptador = {}) {
   }
 
   function aplicar(ev: AgenteEvento): void {
-    switch (ev.evento) {
+    switch (ev.tipo) {
       case 'token': {
         const a = asistenteVivo();
         a.nodo.insertBefore(document.createTextNode(ev.texto), a.cursor);
