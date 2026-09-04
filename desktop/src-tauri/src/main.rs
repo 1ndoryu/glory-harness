@@ -45,6 +45,8 @@ struct Sesion {
     turno_id: Mutex<Option<Uuid>>,
     /// Meta del modo `meta` (prefijo `[META: …]` en cada turno).
     meta: Mutex<Option<String>>,
+    /// Modo con el que se construyó el runtime (`meta` activa el prefijo).
+    modo: Mutex<String>,
     modelo: Mutex<String>,
     workspace: String,
 }
@@ -241,6 +243,7 @@ fn abrir_sesion_interna(
         conversacion_id: Mutex::new(conv_id),
         turno_id: Mutex::new(None),
         meta: Mutex::new(None),
+        modo: Mutex::new(harness.config.modo.clone()),
         modelo: Mutex::new(info.modelo.clone()),
         workspace: info.workspace.clone(),
     });
@@ -298,9 +301,16 @@ async fn enviar_turno(
         .map(|g| g.clone())
         .map_err(|_| "sesión bloqueada".to_string())?;
     /* Modo meta: el objetivo viaja como prefijo del turno (el historial
-     * guarda el mensaje original, sin prefijo, para que se pueda releer). */
-    let mensaje_efectivo = match meta {
-        Some(m) if !m.trim().is_empty() => format!("[META: {}]\n{}", m.trim(), mensaje),
+     * guarda el mensaje original, sin prefijo, para que se pueda releer).
+     * La puerta es el modo del runtime: al salir de `meta` no hay que
+     * limpiar nada, el prefijo deja de aplicarse solo. */
+    let modo = sesion
+        .modo
+        .lock()
+        .map(|g| g.clone())
+        .map_err(|_| "sesión bloqueada".to_string())?;
+    let mensaje_efectivo = match (modo.as_str(), meta) {
+        ("meta", Some(m)) if !m.trim().is_empty() => format!("[META: {}]\n{}", m.trim(), mensaje),
         _ => mensaje.clone(),
     };
     /* El historial se lee ANTES de guardar el mensaje nuevo: si no, el turno
@@ -477,6 +487,11 @@ fn reconfigurar_sesion(
         .modelo
         .lock()
         .map(|mut g| *g = modelo_nuevo)
+        .map_err(|_| "sesión bloqueada".to_string())?;
+    sesion
+        .modo
+        .lock()
+        .map(|mut g| *g = harness.config.modo.clone())
         .map_err(|_| "sesión bloqueada".to_string())?;
     info_desde_sesion(&sesion)
 }

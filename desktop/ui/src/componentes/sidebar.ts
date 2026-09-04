@@ -22,7 +22,15 @@ export interface Sidebar {
   raiz: HTMLElement;
   /** Marca una conversación como seleccionada (visual). */
   seleccionar(id: string): void;
+  /**
+   * Sustituye la lista completa (p. ej. tras listar el backend): repinta y
+   * conserva la selección si el id sigue existiendo.
+   */
+  sustituir(conversaciones: Conversacion[]): void;
 }
+
+/** Acciones de los botones superiores del nav. */
+export type AccionNav = 'nueva' | 'agente' | 'flujo' | 'complementos';
 
 export interface SidebarOpciones {
   conversaciones: Conversacion[];
@@ -34,6 +42,8 @@ export interface SidebarOpciones {
   onArchivar: (id: string, archivada: boolean) => void;
   /** Se invoca al eliminar una conversación. */
   onEliminar: (id: string) => void;
+  /** Al pulsar un botón superior del nav (nueva/agentes/flujo/complementos). */
+  onAccionNav?: (accion: AccionNav) => void;
   abrirConfig: () => void;
 }
 
@@ -50,6 +60,7 @@ export function montarSidebar(opts: SidebarOpciones): Sidebar {
     tooltip: string,
     etiqueta: string,
     iconoNombre: 'nueva' | 'agente' | 'flujo' | 'complementos',
+    onClick?: () => void,
   ): HTMLButtonElement {
     const b = el('button', 'nav-boton') as HTMLButtonElement;
     b.type = 'button';
@@ -58,13 +69,26 @@ export function montarSidebar(opts: SidebarOpciones): Sidebar {
     const span = el('span');
     span.textContent = etiqueta;
     b.appendChild(span);
+    if (onClick) b.addEventListener('click', onClick);
     return b;
   }
 
-  nav.appendChild(botonNav('nueva conversación', 'Nueva conversación', 'nueva'));
-  nav.appendChild(botonNav('agentes', 'Agentes', 'agente'));
-  nav.appendChild(botonNav('flujo', 'Flujo', 'flujo'));
-  nav.appendChild(botonNav('complementos', 'Complementos', 'complementos'));
+  nav.appendChild(
+    botonNav('nueva conversación', 'Nueva conversación', 'nueva', () =>
+      opts.onAccionNav?.('nueva'),
+    ),
+  );
+  nav.appendChild(
+    botonNav('agentes', 'Agentes', 'agente', () => opts.onAccionNav?.('agente')),
+  );
+  nav.appendChild(
+    botonNav('flujo', 'Flujo', 'flujo', () => opts.onAccionNav?.('flujo')),
+  );
+  nav.appendChild(
+    botonNav('complementos', 'Complementos', 'complementos', () =>
+      opts.onAccionNav?.('complementos'),
+    ),
+  );
 
   // ---- lista de conversaciones (activas + sección archivadas) ----
   const lista = el('div');
@@ -153,6 +177,7 @@ export function montarSidebar(opts: SidebarOpciones): Sidebar {
                 conv.archivada = !conv.archivada;
                 opts.onArchivar(conv.id, conv.archivada);
                 pintarLista();
+                cerrarMenuActual();
               },
             }),
           );
@@ -160,6 +185,7 @@ export function montarSidebar(opts: SidebarOpciones): Sidebar {
             crearItemMenu({
               texto: 'Copiar ID',
               onClick() {
+                cerrarMenuActual();
                 void copiarAlPortapapeles(conv.id);
               },
             }),
@@ -173,6 +199,7 @@ export function montarSidebar(opts: SidebarOpciones): Sidebar {
                 conversaciones.splice(conversaciones.indexOf(conv), 1);
                 opts.onEliminar(conv.id);
                 pintarLista();
+                cerrarMenuActual();
               },
             }),
           );
@@ -248,6 +275,11 @@ export function montarSidebar(opts: SidebarOpciones): Sidebar {
     raiz: aside,
     seleccionar(id: string) {
       seleccionar(id);
+    },
+    sustituir(nuevas: Conversacion[]) {
+      conversaciones.splice(0, conversaciones.length, ...nuevas.map((c) => ({ ...c })));
+      if (activaId && !conversaciones.some((c) => c.id === activaId)) activaId = null;
+      pintarLista();
     },
   };
 }

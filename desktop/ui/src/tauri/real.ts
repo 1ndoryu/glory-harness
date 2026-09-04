@@ -272,6 +272,41 @@ export function crearAdaptadorReal(hooks: HooksAdaptador = {}) {
 
   let ultimaOpcion: OpcionesTurno = { proveedor: '', modelo: '', modo: '' };
 
+  /**
+   * Abre la sesión si no existe o reconfigura si cambió provider/modelo/modo.
+   * Devuelve la info cuando hubo apertura o cambio (`null` = ya estaba
+   * acorde, sin roundtrip). La conversación se conserva salvo apertura.
+   */
+  async function asegurarSesion(opts: OpcionesTurno): Promise<InfoSesion | null> {
+    const clave = `${opts.proveedor}|${opts.modelo}|${opts.modo}`;
+    if (!sesionAbierta) {
+      const info = await invoke<InfoSesion>('abrir_sesion', {
+        provider: opts.proveedor || null,
+        modelo: opts.modelo || null,
+        dir: null,
+        modo: opts.modo || null,
+      });
+      sesionAbierta = true;
+      claveSesion = clave;
+      if (info.aviso) aviso(info.aviso, 'persistencia', '');
+      hooks.onSesion?.(info);
+      return info;
+    }
+    if (clave !== claveSesion) {
+      // Cambio de modelo/modo: reconfigura SIN perder la conversación
+      // (abrir_sesion crearía una conversación nueva vacía).
+      const info = await invoke<InfoSesion>('reconfigurar_sesion', {
+        provider: opts.proveedor || null,
+        modelo: opts.modelo || null,
+        modo: opts.modo || null,
+      });
+      claveSesion = clave;
+      hooks.onSesion?.(info);
+      return info;
+    }
+    return null;
+  }
+
   async function montar(
     contenedor: HTMLElement | null,
     texto: string,
@@ -296,29 +331,7 @@ export function crearAdaptadorReal(hooks: HooksAdaptador = {}) {
         );
         escuchando = true;
       }
-      const clave = `${opts.proveedor}|${opts.modelo}|${opts.modo}`;
-      if (!sesionAbierta) {
-        const info = await invoke<InfoSesion>('abrir_sesion', {
-          provider: opts.proveedor || null,
-          modelo: opts.modelo || null,
-          dir: null,
-          modo: opts.modo || null,
-        });
-        sesionAbierta = true;
-        claveSesion = clave;
-        if (info.aviso) aviso(info.aviso, 'persistencia', '');
-        hooks.onSesion?.(info);
-      } else if (clave !== claveSesion) {
-        // Cambio de modelo/modo: reconfigura SIN perder la conversación
-        // (abrir_sesion crearía una conversación nueva vacía).
-        const info = await invoke<InfoSesion>('reconfigurar_sesion', {
-          provider: opts.proveedor || null,
-          modelo: opts.modelo || null,
-          modo: opts.modo || null,
-        });
-        claveSesion = clave;
-        hooks.onSesion?.(info);
-      }
+      await asegurarSesion(opts);
       await invoke('enviar_turno', { mensaje: texto });
     } catch (e: unknown) {
       await cerrar(false, String(e));
@@ -350,6 +363,8 @@ export function crearAdaptadorReal(hooks: HooksAdaptador = {}) {
     montar,
     detener,
     usoUltimoTurno,
+    /** Abre la sesión si aún no existe (para listar/cargar al arrancar). */
+    asegurarSesion,
     sesion: {
       async nueva(titulo?: string): Promise<InfoConversacion> {
         const conv = await invoke<InfoConversacion>('conversacion_nueva', { titulo: titulo ?? null });

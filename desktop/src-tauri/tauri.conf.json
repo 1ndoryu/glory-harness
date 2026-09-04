@@ -6,10 +6,11 @@
   "build" : {
     "frontendDist" : "../ui/dist",
     "devUrl" : "http://localhost:1420",
-    "beforeDevCommand" : "npm run dev -- --port 1420",
-    "beforeBuildCommand" : "npm run build"
+    "beforeDevCommand" : "npm --prefix ui run dev -- --port 1420",
+    "beforeBuildCommand" : "npm --prefix ui run build"
   },
   "app" : {
+    "withGlobalTauri" : true,
     "windows" : [
       {
         "title" : "Glory Harness",
