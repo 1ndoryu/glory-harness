@@ -17,6 +17,7 @@ import {
   crearSeparadorMenu,
 } from './menu';
 import { el } from '../util/dom';
+import { copiarAlPortapapeles } from '../util/portapapeles';
 
 export interface Sidebar {
   raiz: HTMLElement;
@@ -282,25 +283,4 @@ export function montarSidebar(opts: SidebarOpciones): Sidebar {
       pintarLista();
     },
   };
-}
-
-/** Copia texto al portapapeles (fallback a execCommand si no hay API). */
-async function copiarAlPortapapeles(texto: string): Promise<void> {
-  try {
-    if (navigator.clipboard?.writeText) {
-      await navigator.clipboard.writeText(texto);
-      return;
-    }
-  } catch {
-    // fallthrough al fallback
-  }
-  // fallback para contextos no seguros / permisos denegados
-  const ta = el('textarea') as HTMLTextAreaElement;
-  ta.value = texto;
-  ta.style.position = 'fixed';
-  ta.style.opacity = '0';
-  document.body.appendChild(ta);
-  ta.select();
-  document.execCommand?.('copy');
-  ta.remove();
 }

@@ -417,6 +417,45 @@ impl PersistenciaSqlite {
         Ok(out)
     }
 
+    /// [039A-3 P1] Métricas reales del ÚLTIMO turno de una conversación, para
+    /// repintar el pie de turno al cargar. `None` si no hay turnos o si el
+    /// turno no registró uso real (los tokens quedan 0 y el modelo el
+    /// solicitado). El turno más reciente es el de `creado_en` mayor; los
+    /// `id` son UUID (orden aleatorio), así que el orden se ancla en el
+    /// timestamp del turno.
+    #[allow(clippy::type_complexity)]
+    pub fn turno_ultimo_uso_por_conversacion(
+        &self,
+        conversacion_id: Uuid,
+    ) -> HarnessResult<Option<(String, String, u32, u32)>> {
+        let conn = bloquear(&self.conn);
+        let fila = conn
+            .query_row(
+                "SELECT provider, modelo, tokens_prompt, tokens_complecion
+                 FROM turnos WHERE conversacion_id = ?1
+                 ORDER BY creado_en DESC LIMIT 1",
+                params![conversacion_id.as_hyphenated().to_string()],
+                |f| {
+                    Ok((
+                        f.get::<_, Option<String>>(0)?,
+                        f.get::<_, Option<String>>(1)?,
+                        f.get::<_, i64>(2)?,
+                        f.get::<_, i64>(3)?,
+                    ))
+                },
+            )
+            .optional()
+            .map_err(|e| Error::Persistencia(e.to_string()))?;
+        Ok(fila.map(|(provider, modelo, tp, tc)| {
+            (
+                provider.unwrap_or_default(),
+                modelo.unwrap_or_default(),
+                tp.max(0) as u32,
+                tc.max(0) as u32,
+            )
+        }))
+    }
+
     // --- Config de la app (clave → valor; fuera del trait del núcleo) ---
 
     /// Lee un valor de configuración (`None` si no existe).
@@ -438,6 +477,40 @@ impl PersistenciaSqlite {
                 "INSERT INTO config (clave, valor) VALUES (?1, ?2)
                  ON CONFLICT(clave) DO UPDATE SET valor = excluded.valor",
                 params![clave, valor],
+            )
+            .map_err(|e| Error::Persistencia(e.to_string()))?;
+        Ok(())
+    }
+
+    /// [039A-3 P1] Persiste el uso/modelo REAL de un turno terminado.
+    ///
+    /// El runtime guarda el turno con `tokens_prompt/complecion = 0` y el
+    /// provider/modelo SOLICITADO (no el que respondió tras fallback); el
+    /// `AgenteEvento::Usage` real viaja transitorio por el canal del turno.
+    /// El backend de Tauri acumula esos Usage parciales (un turno con N
+    /// tools emite N Usage) y, al `turno-fin` ok, llama a este método para
+    /// rellenar las columnas reales. Solo se actualizan campos SIEMPRE
+    /// acumulados: los tokens se SUMAN; provider/modelo se conservan los del
+    /// último Usage (el que respondió de verdad).
+    pub fn turno_actualizar_uso(
+        &self,
+        turno_id: Uuid,
+        tokens_prompt: u32,
+        tokens_complecion: u32,
+        provider: Option<&str>,
+        modelo: Option<&str>,
+    ) -> HarnessResult<()> {
+        bloquear(&self.conn)
+            .execute(
+                "UPDATE turnos SET tokens_prompt = ?1, tokens_complecion = ?2,
+                 provider = ?3, modelo = ?4 WHERE id = ?5",
+                params![
+                    i64::from(tokens_prompt),
+                    i64::from(tokens_complecion),
+                    provider,
+                    modelo,
+                    turno_id.as_hyphenated().to_string(),
+                ],
             )
             .map_err(|e| Error::Persistencia(e.to_string()))?;
         Ok(())
@@ -974,5 +1047,47 @@ mod tests {
         let skills = p.skills_listar(user).await.expect("skills");
         assert_eq!(skills.len(), 1);
         assert_eq!(skills[0].nombre, "resumen");
+    }
+
+    #[tokio::test]
+    async fn turno_actualizar_uso_rellena_tokens_y_modelo_real() {
+        let p = PersistenciaSqlite::en_memoria().expect("BD en memoria");
+        let user = Uuid::new_v4();
+        let conv = p.conversacion_crear(user, "uso").expect("crear");
+        let turno = Uuid::new_v4();
+        // El runtime guarda el turno con tokens 0 y el modelo SOLICITADO.
+        p.guardar_turno(&TurnoPersistido {
+            id: turno,
+            conversacion_id: conv,
+            user_id: user,
+            estado: "ok".into(),
+            resumen: None,
+            creado_en: Utc::now(),
+            provider: Some("commandcode".into()),
+            modelo: Some("command-r-plus".into()),
+            tokens_prompt: 0,
+            tokens_complecion: 0,
+            tools_ejecutadas: 2,
+            duracion_ms: 1200,
+            error: None,
+        })
+        .await
+        .expect("guardar turno");
+        // El backend acumula el uso REAL tras fallback y lo persiste.
+        p.turno_actualizar_uso(turno, 5120, 640, Some("glory"), Some("gpt-4.1"))
+            .expect("actualizar uso");
+        // Releer por SQL directo: el método es inherente y no expone lector.
+        let conn = bloquear(&p.conn);
+        let (tokens_p, tokens_c, provider, modelo): (i64, i64, Option<String>, Option<String>) =
+            conn.query_row(
+                "SELECT tokens_prompt, tokens_complecion, provider, modelo FROM turnos WHERE id = ?1",
+                params![turno.as_hyphenated().to_string()],
+                |f| Ok((f.get(0)?, f.get(1)?, f.get(2)?, f.get(3)?)),
+            )
+            .expect("leer turno");
+        assert_eq!(tokens_p, 5120);
+        assert_eq!(tokens_c, 640);
+        assert_eq!(provider.as_deref(), Some("glory"));
+        assert_eq!(modelo.as_deref(), Some("gpt-4.1"));
     }
 }

@@ -64,6 +64,19 @@ struct TurnoEnCurso {
     activo: bool,
 }
 
+/// [039A-3 P1] Acumulador de `AgenteEvento::Usage` de un turno. Un turno con
+/// N tools emite N Usage parciales (uno por `llm_llamada`): los tokens se
+/// SUMAN y provider/modelo se conservan los del ÚLTIMO Usage (el que respondió
+/// de verdad tras la cadena de fallback). Al `turno-fin` ok se persiste en
+/// `turnos` (los campos reales, no los del turno solicitado).
+#[derive(Default)]
+struct UsoAcumulado {
+    tokens_prompt: u32,
+    tokens_complecion: u32,
+    provider: Option<String>,
+    modelo: Option<String>,
+}
+
 impl Default for Estado {
     fn default() -> Self {
         Self {
@@ -481,10 +494,34 @@ async fn enviar_turno(
             }
         };
         // Reenvío en la misma tarea: el loop termina con Done (último evento).
+        // [039A-3 P1] Se acumula el Usage real que emite el núcleo (cada
+        // llm_llamada emite uno parcial; un turno con N tools acumula N) y se
+        // propaga al cierre para persistirlo en `turnos`.
         let w_fw = w.clone();
+        let uso_accum = std::sync::Arc::new(std::sync::Mutex::new(UsoAcumulado::default()));
+        let uso_reenvio = Arc::clone(&uso_accum);
         let reenvio = tauri::async_runtime::spawn(async move {
             while let Some(ev) = rx_ev.recv().await {
                 let es_done = matches!(ev, AgenteEvento::Done { .. });
+                if let AgenteEvento::Usage {
+                    tokens_prompt,
+                    tokens_complecion,
+                    provider,
+                    modelo,
+                    ..
+                } = &ev
+                {
+                    if let Ok(mut u) = uso_reenvio.lock() {
+                        u.tokens_prompt = u.tokens_prompt.saturating_add(*tokens_prompt);
+                        u.tokens_complecion = u.tokens_complecion.saturating_add(*tokens_complecion);
+                        if let Some(p) = provider {
+                            u.provider = Some(p.clone());
+                        }
+                        if let Some(m) = modelo {
+                            u.modelo = Some(m.clone());
+                        }
+                    }
+                }
                 let _ = w_fw.emit("agente-evento", &ev);
                 if es_done {
                     break;
@@ -505,6 +542,20 @@ async fn enviar_turno(
         let _ = reenvio.await;
         match resultado {
             Ok(()) => {
+                // [039A-3 P1] Persistir el uso/modelo REAL del turno (los
+                // campos que el runtime guardó son 0 / solicitado). El UPDATE
+                // es best-effort: si falla, el pie de turno no se bloquea.
+                if let Ok(uso) = uso_accum.lock() {
+                    if uso.tokens_prompt > 0 || uso.tokens_complecion > 0 || uso.provider.is_some() {
+                        let _ = sesion.persistencia.turno_actualizar_uso(
+                            turno_id,
+                            uso.tokens_prompt,
+                            uso.tokens_complecion,
+                            uso.provider.as_deref(),
+                            uso.modelo.as_deref(),
+                        );
+                    }
+                }
                 let _ = w.emit("turno-fin", serde_json::json!({"ok": true}));
             }
             Err(e) => {
@@ -724,6 +775,18 @@ struct CargaConversacion {
     /// [039A-1 04-09 H6] Acciones (tools) de la conversación en orden de
     /// ejecución, para repintar los bloques `.herramienta` al recargar.
     acciones: Vec<glory_harness::AccionRecuperada>,
+    /// [039A-3 P1] Uso/modelo real del último turno (para repintar el pie de
+    /// turno al recargar). `None` si no hay turno con uso registrado.
+    ultimo_uso: Option<UsoTurnoPersistido>,
+}
+
+/// [039A-3 P1] Uso real de un turno persistido (serializable al front).
+#[derive(serde::Serialize)]
+struct UsoTurnoPersistido {
+    provider: String,
+    modelo: String,
+    tokens_prompt: u32,
+    tokens_complecion: u32,
 }
 
 /// Carga una conversación como actual con su historial (falla con turno vivo).
@@ -759,6 +822,16 @@ async fn cargar_conversacion(
         .persistencia
         .acciones_por_conversacion(id)
         .map_err(|e| e.to_string())?;
+    let ultimo_uso = sesion
+        .persistencia
+        .turno_ultimo_uso_por_conversacion(id)
+        .map_err(|e| e.to_string())?
+        .map(|(provider, modelo, tokens_prompt, tokens_complecion)| UsoTurnoPersistido {
+            provider,
+            modelo,
+            tokens_prompt,
+            tokens_complecion,
+        });
     sesion
         .conversacion_id
         .lock()
@@ -769,6 +842,7 @@ async fn cargar_conversacion(
         titulo,
         mensajes,
         acciones,
+        ultimo_uso,
     })
 }
 

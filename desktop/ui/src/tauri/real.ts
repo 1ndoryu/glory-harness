@@ -109,6 +109,13 @@ export interface CargaConversacion {
   titulo: string;
   mensajes: MensajeGuardado[];
   acciones: AccionRecuperada[];
+  /** [039A-3 P1] Uso/modelo real del último turno (para repintar el pie). */
+  ultimo_uso: {
+    provider: string;
+    modelo: string;
+    tokens_prompt: number;
+    tokens_complecion: number;
+  } | null;
 }
 
 export interface ProveedorInfo {
@@ -122,7 +129,19 @@ export interface UsoTurno {
   tokensPrompt: number;
   tokensComplecion: number;
   ocupacionPct: number | null;
+  /** [039A-3 P1] Modelo REAL que respondió (provider/modelo del último Usage
+   * tras fallback); `null` si el proveedor no lo reportó. */
+  modelo: string | null;
+  /** [039A-3 P1] Ventana máxima de contexto (del `ContextoDetalle`). */
+  maxVentana: number | null;
+  /** [039A-3 P1] Reserva de salida declarada en el `ContextoDetalle`. */
+  reservaSalida: number | null;
+  /** [039A-3 P1] Tokens totales de entrada del último desglose de contexto. */
+  totalEntrada: number | null;
 }
+
+/** Resultado de cierre de un turno, para que el llamador decida el pie. */
+export type ResultadoTurno = 'ok' | 'error' | 'cancelado';
 
 export interface HooksAdaptador {
   /** Se llama con cada `abrir_sesion`/`reconfigurar`/`elegir_workspace`. */
@@ -164,7 +183,18 @@ export function crearAdaptadorReal(hooks: HooksAdaptador = {}) {
   let ultimoMensaje = '';
   let huboPeticiones = false;
   let cerrado = false;
-  let uso: UsoTurno = { tokensPrompt: 0, tokensComplecion: 0, ocupacionPct: null };
+  let uso: UsoTurno = {
+    tokensPrompt: 0,
+    tokensComplecion: 0,
+    ocupacionPct: null,
+    modelo: null,
+    maxVentana: null,
+    reservaSalida: null,
+    totalEntrada: null,
+  };
+  // [039A-3 P1] Cómo terminó el último turno (para que el pie distinga
+  // un corte real de un cancelado/error, que no muestran tokens de fin).
+  let ultimoResultado: ResultadoTurno = 'ok';
 
   function aviso(texto: string, meta: string, detalle: string): void {
     mensajes?.appendChild(crearAvisoSistema(texto, meta, detalle));
@@ -259,9 +289,15 @@ export function crearAdaptadorReal(hooks: HooksAdaptador = {}) {
         uso.tokensPrompt += typeof ev.tokens_prompt === 'number' ? ev.tokens_prompt : 0;
         uso.tokensComplecion += typeof ev.tokens_complecion === 'number' ? ev.tokens_complecion : 0;
         if (typeof ev.ocupacion_pct === 'number') uso.ocupacionPct = ev.ocupacion_pct;
+        // [039A-3 P1] El Usage lleva el provider/modelo REAL (tras fallback):
+        // se conserva el último que respondió de verdad.
+        if (ev.provider && ev.modelo) uso.modelo = `${ev.provider}/${ev.modelo}`;
         break;
       case 'contexto_detalle':
         uso.ocupacionPct = ev.ocupacion_pct;
+        uso.maxVentana = ev.max_ventana;
+        uso.reservaSalida = ev.reserva_salida;
+        uso.totalEntrada = ev.total_entrada;
         break;
       case 'contexto':
         break;
@@ -278,6 +314,7 @@ export function crearAdaptadorReal(hooks: HooksAdaptador = {}) {
   async function cerrar(ok: boolean, error?: string): Promise<void> {
     if (cerrado) return;
     cerrado = true;
+    ultimoResultado = ok ? 'ok' : 'error';
     if (!ok) aviso(`el turno falló: ${error ?? 'desconocido'}`, '', 'puedes reintentar');
     const fin = onFin;
     onFin = null;
@@ -349,7 +386,16 @@ export function crearAdaptadorReal(hooks: HooksAdaptador = {}) {
     asistente = null;
     herramienta = null;
     huboPeticiones = false;
-    uso = { tokensPrompt: 0, tokensComplecion: 0, ocupacionPct: null };
+    ultimoResultado = 'ok';
+    uso = {
+      tokensPrompt: 0,
+      tokensComplecion: 0,
+      ocupacionPct: null,
+      modelo: null,
+      maxVentana: null,
+      reservaSalida: null,
+      totalEntrada: null,
+    };
     ultimaOpcion = opts;
     ultimoMensaje = texto;
     mensajes?.appendChild(crearMensajeUsuario(texto));
@@ -378,6 +424,7 @@ export function crearAdaptadorReal(hooks: HooksAdaptador = {}) {
     void invoke('cancelar_turno').catch(() => {});
     if (!cerrado) {
       cerrado = true;
+      ultimoResultado = 'cancelado';
       const fin = onFin;
       onFin = null;
       const n = el('div', 'msg-asis');
@@ -392,10 +439,16 @@ export function crearAdaptadorReal(hooks: HooksAdaptador = {}) {
     return { ...uso };
   }
 
+  /** [039A-3 P1] Cómo terminó el último turno (`ok`|`error`|`cancelado`). */
+  function resultadoUltimoTurno(): ResultadoTurno {
+    return ultimoResultado;
+  }
+
   return {
     montar,
     detener,
     usoUltimoTurno,
+    resultadoUltimoTurno,
     /** Abre la sesión si aún no existe (para listar/cargar al arrancar). */
     asegurarSesion,
     sesion: {

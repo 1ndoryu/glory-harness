@@ -23,6 +23,7 @@ import {
   crearAvisoSistema,
   crearMensajeAsistente,
   crearMensajeUsuario,
+  crearPieTurno,
 } from './componentes/mensajes';
 import { montarPanelMeta } from './componentes/panelMeta';
 
@@ -35,9 +36,11 @@ import {
   type InfoSesion,
   type MensajeGuardado,
   type OpcionesTurno,
+  type UsoTurno,
 } from './tauri/real';
 import type { EstadoHerramienta, ResultadoHerramienta } from './dominio/tipos';
 import { el } from './util/dom';
+import { copiarAlPortapapeles } from './util/portapapeles';
 
 const raizApp = document.getElementById('app');
 if (!raizApp) throw new Error('falta #app');
@@ -75,6 +78,49 @@ function limpiarChat(): void {
   mensajes.replaceChildren();
 }
 
+/**
+ * [039A-3 P1/P2] Texto del último tramo visible (desde el último mensaje de
+ * usuario hasta el último del asistente). Recorre los nodos actuales de
+ * #mensajes y conserva solo texto plano; si no hay tramo, devuelve `null`.
+ */
+function tramoParaCopiar(): string | null {
+  const hijos = Array.from(mensajes.children);
+  // Último índice de un nodo que cumple el predicado (ES2022: sin
+  // findLastIndex, se recorre en orden inverso).
+  const ultimoIndice = (pred: (n: Element) => boolean): number => {
+    for (let i = hijos.length - 1; i >= 0; i--) {
+      if (pred(hijos[i])) return i;
+    }
+    return -1;
+  };
+  const ultimoUser = ultimoIndice((n) => n.classList.contains('msg-user'));
+  if (ultimoUser < 0) return null;
+  // Último assistant o, si aún no hay (turno fallido), el user a secas.
+  const ultimoAsis = ultimoIndice((n) => n.classList.contains('msg-asis'));
+  const fin = ultimoAsis >= ultimoUser ? ultimoAsis : ultimoUser;
+  const texto = hijos
+    .slice(ultimoUser, fin + 1)
+    .map((n) => {
+      if (n.classList.contains('pie-turno')) return '';
+      return (n.textContent ?? '').trim();
+    })
+    .filter((s) => s.length > 0)
+    .join('\n\n');
+  return texto || null;
+}
+
+/** [039A-3 P1] Copia el último tramo (user → assistant) al portapapeles. */
+function copiarUltimoTramo(): void {
+  const texto = tramoParaCopiar();
+  if (!texto) {
+    avisoChat('no hay mensajes que copiar', '', '');
+    return;
+  }
+  void copiarAlPortapapeles(texto)
+    .then(() => avisoChat('tramo copiado al portapapeles', 'copiar', ''))
+    .catch((e: unknown) => avisoChat(`no se pudo copiar: ${String(e)}`, '', ''));
+}
+
 /** Render de una acción recuperada → bloque `.herramienta` estático. */
 function bloqueDesdeAccion(accion: AccionRecuperada): HTMLElement {
   const meta = accion.ok ? 'ok' : 'falló';
@@ -99,8 +145,16 @@ function bloqueDesdeAccion(accion: AccionRecuperada): HTMLElement {
  * `creado_en` del turno (mayor o igual que el `creado_en` del user que la
  * provocó y anterior al siguiente user). Se asigna cada acción al ÚLTIMO user
  * con `creado_en <= turno_en` (tolerante a segundos compartidos).
+ *
+ * [039A-3 P1] `ultimo_uso` (opcional) repinta el pie de turno del último
+ * turno al cargar: los tokens/modelo reales viajan en `turnos`, no en los
+ * mensajes, así que el pie es la única traza de ese uso tras recargar.
  */
-function pintarHistorial(historial: MensajeGuardado[], acciones: AccionRecuperada[] = []): void {
+function pintarHistorial(
+  historial: MensajeGuardado[],
+  acciones: AccionRecuperada[] = [],
+  ultimo_uso?: { provider: string; modelo: string; tokens_prompt: number; tokens_complecion: number } | null,
+): void {
   const users = historial.filter((m) => m.rol === 'user');
   const en = (s: string): number => Date.parse(s) || 0;
   // Mapa: índice de user → acciones que le pertenecen (en orden del backend).
@@ -138,6 +192,24 @@ function pintarHistorial(historial: MensajeGuardado[], acciones: AccionRecuperad
   }
   // Residuales al final (turno cancelado sin user persistido, etc.).
   residuales.forEach((a) => mensajes.appendChild(bloqueDesdeAccion(a)));
+  // [039A-3 P1] Pie del último turno si el backend registró uso real.
+  if (ultimo_uso) {
+    mensajes.appendChild(
+      crearPieTurno({
+        tokensPrompt: ultimo_uso.tokens_prompt,
+        tokensComplecion: ultimo_uso.tokens_complecion,
+        modelo: ultimo_uso.provider
+          ? `${ultimo_uso.provider}/${ultimo_uso.modelo}`
+          : ultimo_uso.modelo || null,
+        // Al recargar no viaja la ocupación de contexto (solo tokens/uso):
+        // el pie muestra tokens/modelo; el % se ignora (se recalcula en vivo).
+        ocupacionPct: null,
+        maxVentana: null,
+        reservaSalida: null,
+        alCopiar: copiarUltimoTramo,
+      }),
+    );
+  }
   mensajes.scrollTop = mensajes.scrollHeight;
 }
 
@@ -232,6 +304,12 @@ function enviarReal(texto: string): void {
       panelMeta.setEstado('inactivo');
       const u = adaptador.usoUltimoTurno();
       panelMeta.setTokens(u.tokensPrompt + u.tokensComplecion);
+      // [039A-3 P1] Pie de turno: cierra la respuesta con tokens/modelo/uso
+      // y botón Copiar. Solo cuando el turno terminó ok (si fue cancelado o
+      // error, el pie no aporta tokens de fin y ya hay aviso en el chat).
+      if (adaptador.resultadoUltimoTurno() === 'ok') {
+        anadirPieTurno(u);
+      }
       // [039A-1 04-09 H5] El backend auto-nombra la conversación tras el
       // primer mensaje; al terminar el turno se refresca la lista y el
       // título de la cabecera para reflejarlo sin recargar.
@@ -247,6 +325,17 @@ function enviarReal(texto: string): void {
           }
         }
       })();
+    } else if (USA_MOCK) {
+      // [039A-3 P1] Mock: simular el pie con valores fijos del turno de demo.
+      anadirPieTurno({
+        tokensPrompt: 1240,
+        tokensComplecion: 385,
+        ocupacionPct: 7,
+        maxVentana: 150000,
+        reservaSalida: 20000,
+        modelo: 'glory/gpt-4.1',
+        totalEntrada: 9100,
+      });
     }
     entrada.setCorriendo(false);
   };
@@ -276,6 +365,22 @@ const RAZONAMIENTO_ETIQUETA: Record<string, string> = {
   medium: 'Medio',
   high: 'Alto',
 };
+
+/** [039A-3 P1] Añade el pie de turno como último bloque visible del chat. */
+function anadirPieTurno(u: UsoTurno): void {
+  mensajes.appendChild(
+    crearPieTurno({
+      tokensPrompt: u.tokensPrompt,
+      tokensComplecion: u.tokensComplecion,
+      modelo: u.modelo,
+      ocupacionPct: u.ocupacionPct,
+      maxVentana: u.maxVentana,
+      reservaSalida: u.reservaSalida,
+      alCopiar: copiarUltimoTramo,
+    }),
+  );
+  mensajes.scrollTop = mensajes.scrollHeight;
+}
 let razonamientoActual: string = 'medium';
 
 // Estado local de conversaciones para el sidebar (mock: datos 1:1; real: el
@@ -316,8 +421,9 @@ const sidebar = montarSidebar({
       conversaActualId = carga.id;
       limpiarChat();
       // [039A-1 04-09 H6] Al cargar se repintan también las herramientas
-      // (acciones) intercaladas, no solo user/assistant.
-      pintarHistorial(carga.mensajes, carga.acciones);
+      // (acciones) intercaladas, no solo user/assistant. [039A-3 P1] Y el
+      // pie de turno del último turno si hay uso registrado.
+      pintarHistorial(carga.mensajes, carga.acciones, carga.ultimo_uso);
       cabecera.ponerTitulo(carga.titulo);
       sidebar.seleccionar(carga.id);
     } catch (e: unknown) {
@@ -615,7 +721,7 @@ if (USA_REAL) {
         const carga = await adaptador.sesion.cargar(primera.id);
         conversaActualId = carga.id;
         limpiarChat();
-        pintarHistorial(carga.mensajes, carga.acciones);
+        pintarHistorial(carga.mensajes, carga.acciones, carga.ultimo_uso);
         cabecera.ponerTitulo(carga.titulo);
         sidebar.seleccionar(carga.id);
       }

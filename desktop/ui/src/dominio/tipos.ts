@@ -120,6 +120,7 @@ export type IconoNombre =
   | 'complementos'
   | 'ajustes'
   | 'nueva'
+  | 'copiar'
   | 'flecha-arriba'
   | 'detener'
   | 'chevron-abajo'

@@ -273,6 +273,63 @@ export function crearTarjetaAprobacion(opts: {
 
 // ---------- Render estático por tipo (historial) ----------
 
+/** Datos del pie de turno (P1 039A-3): tokens + modelo + contexto + copiar. */
+export interface PieTurno {
+  tokensPrompt: number;
+  tokensComplecion: number;
+  /** Modelo que respondió de verdad (`proveedor/modelo` o `null`). */
+  modelo: string | null;
+  /** Uso de contexto: 0-100 (% de la ventana efectiva) o `null` si se ignora. */
+  ocupacionPct: number | null;
+  /** Ventana máxima configurada (p. ej. 150000). `null` si se ignora. */
+  maxVentana: number | null;
+  /** Reserva de salida (se descuenta de la ventana para el cálculo). */
+  reservaSalida: number | null;
+  /** Copiar desde el último mensaje de usuario hasta el último assistant. */
+  alCopiar: () => void;
+}
+
+/** Número corto con sufijo k (redondeo hacia abajo, mínimo 1). */
+export function tokensCortos(n: number): string {
+  if (!Number.isFinite(n) || n <= 0) return '0';
+  if (n < 1000) return String(Math.round(n));
+  const k = Math.floor(n / 1000);
+  return `${k}k`;
+}
+
+/**
+ * [039A-3 P1] Pie de turno: bloque estático que cierra cada respuesta del
+ * asistente con tokens enviados/recibidos, modelo usado, uso de contexto y
+ * un botón Copiar (copia del último mensaje de usuario al último assistant).
+ * Se repinta desde `turnos`+mensajes al recargar (misma fuente: tokens reales
+ * persistidos por el backend y modelo real tras fallback).
+ */
+export function crearPieTurno(datos: PieTurno): HTMLElement {
+  const raiz = el('div', 'pie-turno');
+
+  const meta = el('div', 'pie-meta');
+  const txt = el('span', 'pie-texto');
+  const partes: string[] = [];
+  partes.push(`${tokensCortos(datos.tokensPrompt)} → ${tokensCortos(datos.tokensComplecion)}`);
+  partes.push(datos.modelo ?? 'desconocido');
+  if (datos.ocupacionPct !== null && datos.maxVentana !== null) {
+    const usados = Math.round((datos.ocupacionPct / 100) * (datos.maxVentana - (datos.reservaSalida ?? 0)));
+    partes.push(`${tokensCortos(usados)}/${tokensCortos(datos.maxVentana)} (${Math.round(datos.ocupacionPct)}%)`);
+  }
+  txt.textContent = partes.join(' · ');
+  meta.appendChild(txt);
+
+  const bCopiar = el('button', 'pie-copiar') as HTMLButtonElement;
+  bCopiar.type = 'button';
+  bCopiar.title = 'copiar del último mensaje del usuario al último del asistente';
+  bCopiar.appendChild(icono('copiar', true));
+  bCopiar.addEventListener('click', () => datos.alCopiar());
+
+  raiz.appendChild(meta);
+  raiz.appendChild(bCopiar);
+  return raiz;
+}
+
 /** Renderiza un bloque del historial a un nodo listo para #mensajes. */
 export function renderizarBloque(bloque: Bloque): HTMLElement {
   switch (bloque.tipo) {

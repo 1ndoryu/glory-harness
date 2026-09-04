@@ -127,3 +127,38 @@
 .btn.primario:hover { opacity: 1; }
 .btn:disabled { opacity: .35; cursor: default; }
 .btn:disabled:hover { opacity: .35; }
+
+/* ---------- Pie de turno (039A-3 P1) ---------- */
+.pie-turno {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-sm);
+    width: 100%;
+    margin-top: var(--sp-xs);
+    padding: 3px 0;
+    font-size: var(--xs);
+    opacity: 0.6;
+}
+.pie-turno .pie-meta { min-width: 0; }
+.pie-turno .pie-texto {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.pie-turno .pie-copiar {
+    margin-left: auto;
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    background: transparent;
+    color: #000;
+    border: none;
+    font-family: inherit;
+    line-height: 1;
+    padding: 2px;
+    cursor: pointer;
+    opacity: 0.7;
+}
+.pie-turno .pie-copiar:hover { opacity: 1; }
+.pie-turno .pie-copiar .ic { display: block; }
+

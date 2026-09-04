@@ -193,7 +193,9 @@ export function crearSimulacion(): Simulacion {
       if (!corriendo || !msgs) return;
       corriendo = false;
       limpiarTimers();
-      onFin();
+      // El aviso de cierre se añade ANTES de onFin() para que el pie de turno
+      // (que main inserta en alTerminar) quede como ÚLTIMO bloque visible,
+      // igual que en el flujo real (el turno-fin no añade avisos).
       anadir(
         crearAvisoSistema(
           'Sistema · cierre de turno (evento AgenteEvento)',
@@ -203,6 +205,7 @@ export function crearSimulacion(): Simulacion {
             ' · la secuencia de eventos sigue el contrato AgenteEvento',
         ),
       );
+      onFin();
     }
   }
 
@@ -210,7 +213,6 @@ export function crearSimulacion(): Simulacion {
     if (!corriendo || !msgs) return;
     corriendo = false;
     limpiarTimers();
-    onFin();
 
     const m = crearMensajeAsistenteVivo('');
     m.nodo.removeChild(m.cursor);
@@ -223,6 +225,7 @@ export function crearSimulacion(): Simulacion {
         'receiver dropeado → el runtime cortó el stream y las tools (tx.is_closed)',
       ),
     );
+    onFin();
   }
 
   return {
