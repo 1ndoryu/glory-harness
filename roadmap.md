@@ -11,7 +11,7 @@
   (ID **039A-1**). Contiene fases F1–F6 y el anexo **§10**: mapa de cada acción de la UI →
   backend real (nueva conversación, acciones del agente, selector de modelo real,
   configuraciones, cancelar ejecución, modos) + bloqueos de integración B1–B4.
-- Estado por fase (detalle en el plan 039A-1): F1 ☑ · F2 ☑ (318A-16) · F3 ☑ · F4 ☑ (backend, 16 comandos) · F5 ◐ · F6 ☐.
+- Estado por fase (detalle en el plan 039A-1): F1 ☑ · F2 ☑ (318A-16) · F3 ☑ · F4 ☑ (backend, 17 comandos) · F5 ☑ (cableado; verificación visual diferida al final) · F6 ☑ (bundle).
 
 ## Siguiente bloque ejecutable
 
@@ -58,11 +58,19 @@ Orden propuesto (dependencias de abajo arriba):
       retirar el boceto temporal `panelMetaBoceto.*`. Boceto de aspecto hecho (03-09, §10.5.1).
 - [ ] **B1 — capabilities** `desktop/src-tauri/capabilities/default.json` (`core:default`, ventana `main`).
 - [ ] **B2 — detección de entorno** (`esEntornoTauri`/`__TAURI__`) en el primer `tauri dev`.
-- [ ] **Cablear UI → backend** (anexo §10.1): nueva conversación, sidebar real, selector de modelo
-      real, config persistida, modos/razonamiento.
-- [ ] **F5 — Verificación E2E real** por tipo de evento del agente (todas las acciones del agente
-      se ven bien).
-- [ ] **F6 — Empaquetado + RAM + gate** (`tauri build`, medir working set ≤ ~140 MB, `install-release.bat`).
+- [x] **F5 — Cablear UI → backend** (04-09, commit `8a1310c`): sidebar real (nueva/listar/
+      cargar/renombrar/archivar/eliminar + `sustituir`), historial persistido al arrancar
+      (reabre donde se quedó), modelo/modo/razonamiento en config persistida, deriva
+      allowlist commandcode→glory, meta del boceto → `actualizar_meta` con puerta de modo en
+      backend, `reconfigurar_sesion` al cambiar modelo/modo. Tipos `AgenteEvento` fieles al
+      núcleo. **Verificación visual diferida al final** (a petición del usuario): falta ciclo
+      E2E en ventana (enviar → streaming → tools → aprobación → `turno-fin`).
+- [x] **F6 — Empaquetado + RAM + gate** (04-09, commit `8a8768c`): `tauri build` ok — exe
+      release + MSI (`Glory Harness_0.1.0_x64_en-US.msi`) + NSIS setup en
+      `C:\tmp\glory-target\glory-harness\release\bundle\`. Iconos válidos generados
+      (`tauri icon`, array `icon` en config). RAM arranque release: WS 40 MB (objetivo
+      ≤140 MB ✓). `install-release.bat` (copia el release a `%LOCALAPPDATA%\GloryHarness`).
+      Gate `039A-1` **PASS** (0 errores, warnings preexistentes).
 
 > **Hecho (UI, 03-09):** los botones del nav «Agentes» / «Flujo» / «Complementos» ahora
 > muestran «próximamente» en el chat (`onAccionNav` en sidebar + aviso en main.ts; §10.4).
