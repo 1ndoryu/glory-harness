@@ -23,6 +23,7 @@ use crate::context::{
     AgentContextManager, ContextoConfig, CIERRE_ENTORNO, CIERRE_REGLAS, MARCA_ENTORNO, MARCA_REGLAS,
 };
 use crate::error::Result;
+use crate::ports::EjecutorComando;
 use crate::evento::AgenteEvento;
 use crate::llm::{AiChatOptions, AiMessage, AiToolCall, LlmProviderService};
 use crate::permiso::Permiso;
@@ -191,6 +192,10 @@ pub struct PuertosHarness {
     /// núcleo; task inyecta aquí sus repos/servicios y sus tools hacen
     /// `downcast_ref`).
     pub dominio: Option<Arc<dyn Any + Send + Sync>>,
+    /// [318A-16 F3] Runner de comandos del consumidor. `None` → la tool
+    /// `comando` NO se registra (fail-closed: el modelo ni la ve; PT lo deja
+    /// en None por invariante).
+    pub ejecutor_comando: Option<Arc<dyn EjecutorComando>>,
 }
 
 pub struct AgentRuntime {
@@ -235,6 +240,11 @@ impl AgentRuntime {
          * runtime la intercepta en el bucle y ejecuta la sesión hija
          * (`ejecutar_subagente`). */
         registrar_tool_task(&mut registry);
+        /* [318A-16 F3] Tool `comando` SOLO con runner inyectado (fail-closed:
+         * sin ejecutor, el modelo no ve la tool). */
+        if let Some(ejecutor) = puertos.ejecutor_comando.clone() {
+            crate::comando::registrar_tools_comando(&mut registry, ejecutor);
+        }
         /* [29-08-2026] Fase 2: tools de archivo SOLO en AGENTE_MODO=local.
          * Fail-closed: si el sandbox no se puede construir (raíz inválida o
          * modo no-local), no se registran y el contexto va sin sandbox. */
@@ -993,6 +1003,41 @@ impl AgentRuntime {
                 break;
             }
             for call in llamadas {
+                /* [318A-16 F3] Tope de riesgo del perfil (p. ej. explorar =
+                 * solo Seguro): el hijo nunca puede ejecutar comandos que
+                 * superen su clase, independientemente de las reglas F1. */
+                if call.nombre == "comando" {
+                    if let Some(maximo) = perfil.comandos_max_riesgo {
+                        let nivel = crate::bash_clasificar::clasificar_comando(
+                            call.argumentos
+                                .get("comando")
+                                .and_then(serde_json::Value::as_str)
+                                .unwrap_or(""),
+                        );
+                        if nivel > maximo {
+                            let aviso = format!(
+                                "[comando DENEGADA por perfil] riesgo {} supera el máximo del perfil '{}' ({}); NO la reintentes con ese comando.",
+                                nivel.clave(),
+                                perfil.id,
+                                maximo.clave()
+                            );
+                            mensajes.push(AiMessage {
+                                role: "assistant".into(),
+                                content: serde_json::Value::Null,
+                                tool_calls: Some(vec![AiToolCall {
+                                    id: call.id.clone(),
+                                    nombre: call.nombre.clone(),
+                                    argumentos: call.argumentos.clone(),
+                                }]),
+                                tool_call_id: None,
+                            });
+                            let mut tool_msg = AiMessage::texto("tool", aviso);
+                            tool_msg.tool_call_id = Some(call.id.clone());
+                            mensajes.push(tool_msg);
+                            continue;
+                        }
+                    }
+                }
                 /* Herencia de política F3: mismo registro y overrides. */
                 let permiso = self.registry.permiso_para_llamada(
                     &call.nombre,

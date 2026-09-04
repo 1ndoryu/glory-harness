@@ -1032,6 +1032,7 @@ mod tests {
         assert_eq!(llamada("src/a.rs"), Permiso::Ask, "token consumido: vuelve a preguntar");
     }
 
+    #[test]
     fn f2_respuesta_a_id_desconocido_es_error() {
         let registry = registry_con_fixture();
         let err = registry

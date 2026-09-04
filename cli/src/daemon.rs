@@ -117,6 +117,7 @@ impl Daemon {
             llm,
             web_search: None,
             dominio: None,
+            ejecutor_comando: Some(Arc::new(crate::ejecutor::EjecutorCliente::nuevo())),
         };
         let runtime = AgentRuntime::nuevo(AgentToolRegistry::new(), puertos, TurnoConfig::default());
         let sesion = Arc::new(Sesion::nueva(runtime));

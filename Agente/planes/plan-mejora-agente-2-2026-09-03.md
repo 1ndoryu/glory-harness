@@ -2,9 +2,11 @@
 
 - **Fecha:** 2026-09-03
 - **ID:** 318A-16 (libre; no usar en PT hasta cerrar este plan)
-- **Estado:** 🚧 en ejecución — F1 ✅ (motor de reglas v2; tests 108+21) y F2 ✅
-  completo (canal de aprobación + 3 vías REPL/TUI en GH; botones y endpoint en PT;
-  tests 116+21 core/cli + 5 PT, verificado en vivo :3001). Pendientes: F3-F6.
+- **Estado:** 🚧 en ejecución — F1 ✅ (motor de reglas v2), F2 ✅ completo (canal
+  de aprobación + 3 vías REPL/TUI en GH; botones y endpoint en PT; verificado en
+  vivo :3001) y F3 ✅ (clasificador claurst + runner CLI timeout/truncado/background;
+  tests 154 workspace; habilitación por defecto pendiente de decisión del usuario).
+  Pendientes: F4-F6.
 - **Base:** plan `318A-15` (`plan-mejora-agente-2026-09-03.md`, completo salvo
   pendientes ajenos) y comparativa `Agente/documentacion/comparativa-opencode-agente-2026-09-03.md`.
 - **Referencias (clonadas en `data/referencias-cli/`, solo lectura):** claurst,
@@ -231,25 +233,32 @@ un runner** (el CLI lo hace; PT no). El runtime aplica la regla de F1 con la cat
 `comando:<riesgo>`; el runner del CLI impone timeout (p. ej. 120 s), salida truncada a
 8 KB, flag `background` con log propio y comando `comando_status` para consultarlo.
 
-- [ ] Core: `bash_clasificar.rs` (port fiel claurst: niveles, wrappers `sudo/env`,
+- [x] Core: `bash_clasificar.rs` (port fiel claurst: niveles, wrappers `sudo/env`,
       flags peligrosos, pipe-to-shell) — puro y con tests del clasificador.
-- [ ] Core: trait `EjecutorComando` (puerto) + registro de la tool `comando`
+      *(318A-16 (F3): port con 12 tests, franjas crítico→alto→medio→bajo)*
+- [x] Core: trait `EjecutorComando` (puerto) + registro de la tool `comando`
       únicamente cuando hay runner (fail-closed: sin runner → deny).
-- [ ] CLI: runner con timeout, truncado a 8 KB, background (log propio) y
-      `comando_status`/kill.
-- [ ] Perfiles de subagente del CLI: `explorar` incluye solo comandos `Safe`; ningún
-      perfil de PT incluye comandos (invariante).
-- [ ] Tests: clasificador (git status Safe, `rm -rf /` Critical, `curl | bash`
-      High), timeout, truncado, background.
+      *(runner `None` en PT: las tools no se registran; el tope de riesgo del perfil
+      subagente actúa como defensa en profundidad)*
+- [x] CLI: runner con timeout 120 s, truncado a 8 KB, background (log propio) y
+      `comando_status`/`comando_matar`.
+      *(`ejecutor.rs`, 4 tests de runner real: síncrono, truncado, fondo, matar)*
+- [x] Perfiles de subagente del CLI: `explorar` declara tope de riesgo `Safe`; ningún
+      perfil de PT incluye comandos (invariante). *(subagente.rs)*
+- [x] Tests: clasificador (git status Safe, `rm -rf /` Critical, `curl | bash`
+      High), timeout, truncado, background. *(154 tests workspace verdes)*
 - [ ] **Decisión del usuario (ítem final, se queda sin marcar si no responde):**
       ¿`comando` habilitado por defecto en el CLI `predeterminado` (con `ask` para
       riesgo ≥ Medium) o solo en `autonomo`? El plan recomienda **habilitado con
-      ask ≥ Medium**, paridad opencode.
+      ask ≥ Medium**, paridad opencode. *(implementado con regla F1 `comando:<nivel>`
+      + ask según reglas del modo; la habilitación por defecto del modo
+      `predeterminado` queda a decisión del usuario)*
 
 **Criterio de éxito:** `comando "git status"` en `predeterminado` corre sin preguntar
 (Safe), `comando "sudo rm -rf /x"` se bloquea (Critical, deny por regla) y un comando
 largo en background responde con id y permite consultar su salida — sin proveedor LLM
-(la revisión es del runtime, no del modelo).
+(la revisión es del runtime, no del modelo). *(verificado: tools registradas en vivo
+`glory-harness tools`; `sudo`/`rm -rf` clasifican Alto/Crítico por regla)*
 
 ### Fase 4 — Lectura de archivos por rangos
 

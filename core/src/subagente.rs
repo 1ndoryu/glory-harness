@@ -34,6 +34,10 @@ pub struct PerfilSubagente {
     pub tools: &'static [&'static str],
     /// Presupuesto máximo de pasos del bucle hijo.
     pub presupuesto_pasos: usize,
+    /// [318A-16 F3] Tope de riesgo de `comando` permitido al hijo. `None` =
+    /// sin comandos (los perfiles que no lo incluyen en `tools` no pueden
+    /// llamar la tool); `Some(n)` = solo comandos con riesgo <= n.
+    pub comandos_max_riesgo: Option<crate::bash_clasificar::NivelRiesgo>,
 }
 
 /// Perfiles agnósticos del núcleo. Ninguno incluye tools de ejecución de
@@ -45,6 +49,9 @@ pub(crate) static PERFILES: &[PerfilSubagente] = &[
         instruccion_sistema: "Eres un subagente de exploración del asistente Glory. Tu única misión es INVESTIGAR: leer archivos, buscar código y consultar la web. No modificas nada. Reporta hallazgos concretos (rutas, líneas, datos).\n\nDevuelve un resumen conciso (máximo ~200 palabras) con: lo que hiciste, lo que quedó pendiente y el siguiente paso.",
         tools: &["file_read", "file_search", "web_search", "todo"],
         presupuesto_pasos: 8,
+        /* [318A-16 F3] Explorar puede ejecutar comandos SOLO seguros (port
+         * claurst): verificación con ls/git status, nada de escritura. */
+        comandos_max_riesgo: Some(crate::bash_clasificar::NivelRiesgo::Seguro),
     },
     PerfilSubagente {
         id: "planificar",
@@ -52,6 +59,7 @@ pub(crate) static PERFILES: &[PerfilSubagente] = &[
         instruccion_sistema: "Eres un subagente de planificación del asistente Glory. Descompón el objetivo en pasos verificables usando `todo` y leyendo el contexto necesario. No ejecutas cambios. Entrega el plan ordenado con el criterio de éxito de cada paso.\n\nDevuelve un resumen conciso (máximo ~200 palabras) con: lo que hiciste, lo que quedó pendiente y el siguiente paso.",
         tools: &["file_read", "file_search", "web_search", "todo"],
         presupuesto_pasos: 8,
+        comandos_max_riesgo: None,
     },
     PerfilSubagente {
         id: "revisar",
@@ -59,6 +67,7 @@ pub(crate) static PERFILES: &[PerfilSubagente] = &[
         instruccion_sistema: "Eres un subagente de revisión del asistente Glory. Audita código o texto contra los criterios dados: lee, compara y reporta problemas con ubicación exacta (archivo:línea). No modificas nada.\n\nDevuelve un resumen conciso (máximo ~200 palabras) con: lo que hiciste, lo que quedó pendiente y el siguiente paso.",
         tools: &["file_read", "file_search", "web_search"],
         presupuesto_pasos: 6,
+        comandos_max_riesgo: None,
     },
     PerfilSubagente {
         id: "redactar",
@@ -66,6 +75,7 @@ pub(crate) static PERFILES: &[PerfilSubagente] = &[
         instruccion_sistema: "Eres un subagente de redacción del asistente Glory. Escribe o edita archivos siguiendo la instrucción: usa `file_write` para crear y `file_patch` para cambios localizados; verifica con `file_read`. Solo tocas los archivos indicados en la instrucción.\n\nDevuelve un resumen conciso (máximo ~200 palabras) con: lo que hiciste, lo que quedó pendiente y el siguiente paso.",
         tools: &["file_write", "file_patch", "file_read", "file_search", "todo"],
         presupuesto_pasos: 8,
+        comandos_max_riesgo: None,
     },
 ];
 

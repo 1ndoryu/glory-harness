@@ -20,6 +20,8 @@ pub mod telemetria;
 pub mod error;
 pub mod llm;
 pub mod diff;
+pub mod bash_clasificar;
+pub mod comando;
 pub mod context;
 pub mod sandbox;
 pub mod tool;
@@ -34,7 +36,7 @@ pub mod contrato_tests;
 
 /// Frontera de puertos (traits) que define el núcleo y que el consumidor
 /// implementa. Ver [`ports`].
-pub use ports::{AgentPersistence, ProviderPort, WebSearchProvider};
+pub use ports::{AgentPersistence, EjecutorComando, ProviderPort, WebSearchProvider};
 /// Errores propios del núcleo (sin dependencia de `AppError` de task).
 pub use error::{Error as HarnessError, Result as HarnessResult};
 

@@ -28,6 +28,10 @@ pub const CAT_LECTURA_FUERA: &str = "lectura_fuera_repo";
 pub const CAT_RED: &str = "red";
 pub const CAT_SUBAGENTE: &str = "subagente";
 pub const CAT_TODO: &str = "todo";
+/// [318A-16 F3] Categoría base de comandos. La clave derivada de una llamada
+/// es `comando:<nivel>` (seguro/bajo/medio/alto/critico) para que "permitir
+/// siempre" cubra un TIPO de comando, no el comando exacto.
+pub const CAT_COMANDO: &str = "comando";
 
 /// Una regla de permiso: para la categoría `categoria`, si el valor concreto
 /// de la llamada coincide con `patron` (wildcard `*`/`**`), aplicar `accion`.
@@ -186,6 +190,17 @@ pub fn clasificar_subagente(args: &Value) -> Option<(String, String)> {
     Some((CAT_SUBAGENTE.to_string(), perfil.to_string()))
 }
 
+/// [318A-16 F3] Clasificador de la tool `comando`: la clave derivada es
+/// `(comando:<nivel>, **)` — el nivel de riesgo del comando clasificado por
+/// el port fiel de claurst. Una regla `comando:critico` → deny cubre todos
+/// los comandos críticos; `comando:seguro` → allow solo los seguros.
+#[must_use]
+pub fn clasificar_comando_llamada(args: &Value) -> Option<(String, String)> {
+    let comando = args.get("comando").and_then(Value::as_str)?;
+    let nivel = crate::bash_clasificar::clasificar_comando(comando);
+    Some((format!("{CAT_COMANDO}:{}", nivel.clave()), "**".to_string()))
+}
+
 /// Clasificador de una llamada: de los argumentos a la clave (categoría
 /// derivada, valor concreto). `None` si la llamada no lleva el argumento que
 /// la categoría necesita (se cubre con la categoría estática y patrón `*`).
@@ -203,6 +218,12 @@ pub fn categorias_core() -> Vec<(&'static str, &'static str, Option<Clasificador
         ("web_search", CAT_RED, Some(clasificar_red)),
         ("task", CAT_SUBAGENTE, Some(clasificar_subagente)),
         ("todo", CAT_TODO, None),
+        /* [318A-16 F3] Tools de comando: la tabla estática existe siempre
+         * (las reglas F1 aplican aunque el runner no esté inyectado); la
+         * tool en sí solo se registra con runner. */
+        ("comando", CAT_COMANDO, Some(clasificar_comando_llamada)),
+        ("comando_status", CAT_COMANDO, None),
+        ("comando_matar", CAT_COMANDO, None),
     ]
 }
 

@@ -17,6 +17,7 @@
 
 mod chat;
 mod daemon;
+mod ejecutor;
 mod persistencia;
 mod reglas;
 mod run;
@@ -235,6 +236,7 @@ fn listar_tools() {
         llm,
         web_search: None,
         dominio: None,
+        ejecutor_comando: Some(Arc::new(crate::ejecutor::EjecutorCliente::nuevo())),
     };
     let runtime = AgentRuntime::nuevo(
         AgentToolRegistry::new(),

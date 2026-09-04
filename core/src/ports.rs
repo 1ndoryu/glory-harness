@@ -154,6 +154,40 @@ pub trait WebSearchProvider: Send + Sync {
 }
 
 // ---------------------------------------------------------------------------
+// Ejecución de comandos (puerto de la tool `comando`, 318A-16 F3)
+// ---------------------------------------------------------------------------
+
+/// Resultado de ejecutar un comando (síncrono o de fondo).
+#[derive(Debug, Clone, Default)]
+pub struct ResultadoEjecucionComando {
+    /// Código de salida del proceso (`None` si aún corre o fue matado).
+    pub codigo_salida: Option<i32>,
+    /// Salida capturada (stdout+stderr), ya truncada por el runner.
+    pub salida: String,
+    /// La salida fue truncada por el límite del runner (8 KB en el CLI).
+    pub truncada: bool,
+    /// ¿Corre en background? (el comando devolvió `id_fondo` de inmediato)
+    pub fondo: bool,
+    /// Id de la tarea de fondo (para `comando_status`/`comando_matar`).
+    pub id_fondo: Option<String>,
+}
+
+/// Puerto de ejecución de comandos. El núcleo define el contrato; el
+/// consumidor aporta el runner real (CLI: timeout, truncado a 8 KB,
+/// background con log propio). El runtime SOLO registra la tool `comando`
+/// cuando este puerto está presente (fail-closed: sin runner → la tool no
+/// existe y el modelo ni la ve).
+#[async_trait]
+pub trait EjecutorComando: Send + Sync {
+    /// Ejecuta un comando. `fondo=true` devuelve de inmediato con `id_fondo`.
+    async fn ejecutar(&self, comando: &str, fondo: bool) -> Result<ResultadoEjecucionComando>;
+    /// Estado/salida de una tarea de fondo (aún corriendo o final).
+    async fn estado(&self, id_fondo: &str) -> Result<ResultadoEjecucionComando>;
+    /// Mata una tarea de fondo.
+    async fn matar(&self, id_fondo: &str) -> Result<()>;
+}
+
+// ---------------------------------------------------------------------------
 // Proveedor LLM (puerto del runtime y de las tools)
 // ---------------------------------------------------------------------------
 

@@ -51,4 +51,11 @@ impl fmt::Display for Error {
 
 impl std::error::Error for Error {}
 
+/// Conversión genérica de errores I/O (procesos, archivos) al error del núcleo.
+impl From<std::io::Error> for Error {
+    fn from(e: std::io::Error) -> Self {
+        Error::Interno(format!("io: {e}"))
+    }
+}
+
 pub type Result<T> = core::result::Result<T, Error>;
