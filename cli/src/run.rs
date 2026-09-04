@@ -158,6 +158,22 @@ pub fn construir_harness_con_impl(
         }
     }
 
+    /* [Bloque 3, F3] Skills del workspace (carpeta `.glory/skills`, archivos
+     * markdown con frontmatter): la tool `skill` se registra ANTES de mover
+     * el registry al runtime, y el índice se anexa a la ranura [REGLAS]
+     * (helper puro, sin I/O en el núcleo). Sin carpeta de skills no hay tool
+     * ni índice (fail-closed). */
+    let skills = workspace
+        .as_deref()
+        .map(|dir| glory_harness_core::skill::descubrir_en(&dir.join(".glory").join("skills")))
+        .unwrap_or_default();
+    let mut registry = registry;
+    if !skills.is_empty() {
+        registry.registrar(Box::new(glory_harness_core::skill::ToolSkill::nuevo(
+            skills.clone(),
+        )));
+    }
+
     let runtime = Arc::new(AgentRuntime::nuevo(
         registry,
         PuertosHarness {
@@ -174,9 +190,14 @@ pub fn construir_harness_con_impl(
     ));
     /* [318A-15 F2] Reglas del repositorio (AGENTS.md, jerarquía: la raíz gana
      * a subcarpetas) → ranura `[REGLAS]` del system prompt. Sin AGENTS.md la
-     * ranura queda vacía (el núcleo no emite encabezado huérfano). */
+     * ranura queda vacía (el núcleo no emite encabezado huérfano). [Bloque 3,
+     * F3] El índice de skills descubiertas se anexa al mismo slot: el modelo
+     * ve las skills disponibles y usa la tool `skill` para cargar una. */
     if let Some(workspace_dir) = workspace.as_deref() {
-        runtime.establecer_reglas(crate::reglas::cargar_reglas(workspace_dir).unwrap_or_default());
+        runtime.establecer_reglas(glory_harness_core::skill::reglas_con_skills(
+            &crate::reglas::cargar_reglas(workspace_dir).unwrap_or_default(),
+            &skills,
+        ));
     }
 
     HarnessCli {

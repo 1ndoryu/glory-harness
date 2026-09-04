@@ -46,6 +46,16 @@ pub async fn chat(opciones: OpcionesRun) -> Result<(), String> {
     let config = harness.config;
     let runtime = harness.runtime;
 
+    /* [Bloque 3, F3] Comandos slash personalizados: plantillas markdown en
+     * `<workspace>/.glory/comandos/` (`tipo: comando` en frontmatter) que se
+     * expanden con `$ARGUMENTOS` y `@archivo`. Los built-ins (`/salir`,
+     * `/nuevo`, `/plan`, `/ayuda`) mandan: un comando personalizado que
+     * colisione se ignora (fail-closed). */
+    let comandos = workspace
+        .as_deref()
+        .map(|ws| glory_harness_core::skill::descubrir_comandos(&ws.join(".glory").join("comandos")))
+        .unwrap_or_default();
+
     let raiz = workspace
         .as_ref()
         .map(|p| p.to_string_lossy().into_owned())
@@ -97,16 +107,23 @@ pub async fn chat(opciones: OpcionesRun) -> Result<(), String> {
                 }
             }
         };
-        let texto = linea.trim().to_string();
+        let mut texto = linea.trim().to_string();
         if texto.is_empty() {
             continue;
         }
-        match manejar_comando(&texto, &runtime, &workspace, &mut rx_lineas).await? {
+        match manejar_comando(&texto, &runtime, &workspace, &mut rx_lineas, &comandos).await? {
             Comando::Salir => return Ok(()),
             Comando::NuevaConversacion => {
                 conversacion_id = Uuid::new_v4();
                 println!("[chat] conversación nueva (el agente ya no recuerda lo anterior)");
                 continue;
+            }
+            /* [Bloque 3, F3] Un comando personalizado expandido sustituye el
+             * texto del usuario: la plantilla (con `$ARGUMENTOS` y `@archivo`
+             * embebidos) fluye como mensaje normal al turno. */
+            Comando::Enviar(expandido) => {
+                eprintln!("[comando] plantilla expandida ({} caracteres)", expandido.len());
+                texto = expandido;
             }
             Comando::Continuar => {}
         }
@@ -180,10 +197,13 @@ async fn mostrar_plan_si_aplica(
 }
 
 /// Resultado del manejador de comandos `/` del REPL: salir, nueva
-/// conversación o seguir con el texto como mensaje.
+/// conversación, reemplazar el texto por un comando expandido o seguir con el
+/// texto como mensaje.
 enum Comando {
     Salir,
     NuevaConversacion,
+    /// [Bloque 3, F3] Comando personalizado expandido (plantilla markdown).
+    Enviar(String),
     Continuar,
 }
 
@@ -195,6 +215,7 @@ async fn manejar_comando(
     runtime: &AgentRuntime,
     workspace: &Option<std::path::PathBuf>,
     rx_lineas: &mut tokio::sync::mpsc::Receiver<Option<String>>,
+    comandos: &[glory_harness_core::skill::ComandoSlash],
 ) -> Result<Comando, String> {
     if !texto.starts_with('/') {
         return Ok(Comando::Continuar);
@@ -228,6 +249,12 @@ async fn manejar_comando(
                 println!("  /plan descartar  descarta la propuesta sin aplicar");
             }
             println!("  /ayuda   muestra esta ayuda");
+            if !comandos.is_empty() {
+                println!("comandos personalizados (.glory/comandos/):");
+                for comando in comandos {
+                    println!("  /{} — {}", comando.nombre, comando.descripcion);
+                }
+            }
             println!(
                 "estado: modelo {}/{}",
                 runtime.turno_config.provider, runtime.turno_config.modelo
@@ -235,8 +262,20 @@ async fn manejar_comando(
             Ok(Comando::Continuar)
         }
         _ => {
-            eprintln!("[chat] comando desconocido: {texto} (usa /ayuda)");
-            Ok(Comando::Continuar)
+            /* [Bloque 3, F3] Comandos personalizados (`.glory/comandos/`): la
+             * plantilla se expande con `$ARGUMENTOS` y `@archivo` y el
+             * resultado viaja como mensaje del usuario. Sin coincidencia →
+             * comando desconocido (igual que antes). */
+            if let Some(expandido) = glory_harness_core::skill::expandir_comando(
+                texto,
+                comandos,
+                workspace.as_deref(),
+            ) {
+                Ok(Comando::Enviar(expandido))
+            } else {
+                eprintln!("[chat] comando desconocido: {texto} (usa /ayuda)");
+                Ok(Comando::Continuar)
+            }
         }
     }
 }

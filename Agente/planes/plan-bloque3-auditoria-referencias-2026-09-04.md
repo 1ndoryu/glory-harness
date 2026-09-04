@@ -10,9 +10,9 @@
 - **Estado:** auditoría inicial hecha (04-09). Este documento es la **hoja de
   trabajo**: checklists por referencia para marcar `[x]` y anotar, y al final el
   **Bloque 3 recomendado** (aún NO ejecutado).
-- **Progreso Bloque 3:** Fase 1 ✅ completa (`37d6d83` + `318A-17 (B3-F1)` —
-  guardas puras, `web_fetch` con proveedor HTTP del CLI, `ask_user` con evento
-  `Pregunta` y guardas aplicadas en el runtime). Fases 2–8 pendientes.
+- **Progreso Bloque 3:** Fase 1 ✅ (`318A-17 B3-F1`), Fase 2 ✅ (`318A-17
+  B3-F2`, cliente MCP stdio fail-closed), Fase 3 ✅ (`318A-17 B3-F3`, skills +
+  comandos slash unificados). Fases 4–8 pendientes.
 - **IDs sugeridos** para las fases del Bloque 3: `049A-N` (verificar contra
   `Agente/completados/` y `roadmap` antes de asignar).
 
@@ -455,16 +455,25 @@ commit por fase). Mover a ejecución solo tras aprobación del usuario.
       `crates/mcp/`, opencode `src/mcp/`, grok `mcp/validate.ts`.
 
 ### Fase 3 — Skills + comandos slash personalizados unificados
-- [ ] Descubrimiento de skills: carpetas de skills de proyecto y usuario, formato
-      markdown frontmatter (`name`, `description`, scope), índice en contexto.
+- [x] Descubrimiento de skills: carpeta de skills del workspace
+      (`.glory/skills/*.md`, frontmatter `nombre`/`descripcion`/`scope`), índice
+      acotado en contexto (ranura [REGLAS]) y tool bajo demanda.
       Evidencia: grok `utils/skills.ts`, opencode `src/skill/discovery.ts`.
-- [ ] Tool `skill` para cargar una skill bajo demanda + precarga opcional.
-- [ ] Comandos slash **definidos como markdown** (plantilla + variables
-      `$ARGUMENTOS`, `@archivo`) — sustituir el hardcode de `chat.rs` manteniendo
-      `/ayuda /salir /plan` (patrón claude: slash = skill). Evidencia: opencode
-      `config/command.ts`, claude skills.
-- [ ] Alimentar la capa [REGLAS]/memoria de la IA de Tasks desde el mismo formato
-      (skills de dominio propias).
+      Implementación: `core/src/skill.rs` (`descubrir_en`, `indice`,
+      `reglas_con_skills`), tests 7/7 deterministas.
+- [x] Tool `skill` para cargar una skill bajo demanda (`ToolSkill`, schema con
+      enum de nombres; categoría `lectura` en `categorias_core`); precarga
+      opcional diferida (el índice ya vive en [REGLAS], la tool carga el cuerpo).
+- [x] Comandos slash **definidos como markdown** (`.glory/comandos/`, frontmatter
+      `tipo: comando`; plantilla + `$ARGUMENTOS` + `@archivo` embebido) — se
+      expanden en `chat.rs` (REPL) y en el worker de `tui.rs` sustituyendo el
+      fallback de comando desconocido; los built-ins `/ayuda /salir /nuevo /plan`
+      mandan (fail-closed). Evidencia: opencode `config/command.ts`, claude.
+- [x] La ranura [REGLAS] se alimenta con el índice desde el mismo formato vía
+      `reglas_con_skills` (helper puro probado); el consumidor (CLI hoy, IA de
+      Tasks con su carpeta de skills propia) la usa en `establecer_reglas`.
+      Verificación: 220 tests (189 core + 31 cli), clippy `-D warnings` limpio,
+      `sentinel analyze` 0 errores y 0 hallazgos en archivos F3.
 
 ### Fase 4 — Hooks de ciclo de vida
 - [ ] Eventos: `PreToolUse`, `PostToolUse`, `Stop`, `UserPromptSubmit`,

@@ -220,6 +220,9 @@ pub fn categorias_core() -> Vec<(&'static str, &'static str, Option<Clasificador
         ("file_write", CAT_ESCRITURA, Some(clasificar_escritura)),
         ("file_patch", CAT_ESCRITURA, Some(clasificar_escritura)),
         ("web_search", CAT_RED, Some(clasificar_red)),
+        /* [Bloque 3, F3] `skill` lee un `.md` local ya descubierto (índice en
+         * [REGLAS]): categoría lectura, sin clasificador (no hay ruta libre). */
+        ("skill", CAT_LECTURA, None),
         ("task", CAT_SUBAGENTE, Some(clasificar_subagente)),
         ("todo", CAT_TODO, None),
         /* [318A-16 F3] Tools de comando: la tabla estática existe siempre

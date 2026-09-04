@@ -519,8 +519,16 @@ fn a_lineas(ui: &UiEstado, ancho: usize) -> Vec<Line<'static>> {
 pub async fn tui(opciones: OpcionesRun) -> Result<(), String> {
     let harness = construir_harness(&opciones).await?;
 
-    let raiz = harness
-        .workspace
+    /* [Bloque 3, F3] Comandos slash personalizados del workspace: las
+     * plantillas se expanden en el worker ANTES de enviar el mensaje al
+     * turno; los built-ins mandan (fail-closed). */
+    let workspace = harness.workspace.clone();
+    let comandos = workspace
+        .as_deref()
+        .map(|ws| glory_harness_core::skill::descubrir_comandos(&ws.join(".glory").join("comandos")))
+        .unwrap_or_default();
+    let raiz = workspace
+        .as_deref()
         .map(|p| p.to_string_lossy().into_owned())
         .unwrap_or_else(|| "<desconocido>".to_string());
     let cabecera = format!(
@@ -536,6 +544,8 @@ pub async fn tui(opciones: OpcionesRun) -> Result<(), String> {
         harness.user_id,
         rx_entrada,
         tx_eventos,
+        comandos,
+        workspace,
     );
 
     /* Bucle de UI en modo raw. Si la terminal no lo soporta (p. ej. salida
@@ -577,6 +587,8 @@ fn spawn_worker(
     user_id: Uuid,
     mut rx_entrada: tokio::sync::mpsc::Receiver<String>,
     tx_eventos: tokio::sync::mpsc::UnboundedSender<EventoTui>,
+    comandos: Vec<glory_harness_core::skill::ComandoSlash>,
+    workspace: Option<std::path::PathBuf>,
 ) {
     tokio::spawn(async move {
         let mut conversacion_id = Uuid::new_v4();
@@ -596,7 +608,7 @@ fn spawn_worker(
                     linea
                 }
             };
-            let texto = linea.trim().to_string();
+            let mut texto = linea.trim().to_string();
             if texto.is_empty() {
                 continue;
             }
@@ -620,10 +632,22 @@ fn spawn_worker(
                         continue;
                     }
                     _ => {
-                        let _ = tx_eventos.send(EventoTui::Estado(format!(
-                            "comando desconocido: {texto} (usa /ayuda)"
-                        )));
-                        continue;
+                        /* [Bloque 3, F3] Comandos personalizados
+                         * (`.glory/comandos/`): si coincide una plantilla, el
+                         * texto expandido fluye como mensaje del usuario (sin
+                         * el aviso de desconocido). */
+                        if let Some(expandido) = glory_harness_core::skill::expandir_comando(
+                            &texto,
+                            &comandos,
+                            workspace.as_deref(),
+                        ) {
+                            texto = expandido;
+                        } else {
+                            let _ = tx_eventos.send(EventoTui::Estado(format!(
+                                "comando desconocido: {texto} (usa /ayuda)"
+                            )));
+                            continue;
+                        }
                     }
                 }
             }
