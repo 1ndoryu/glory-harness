@@ -290,14 +290,22 @@ que recoge el diff acumulado (reutilizar `core/src/diff.rs`) y **no** aplica; el
 usuario aprueba el diff (F2) y el cambio se aplica como `file_patch` permitido por la
 regla de la aprobación.
 
-- [ ] Core: modo `plan` explícito (comportamiento = meta actual, sin romper configs)
+- [x] Core: modo `plan` explícito (comportamiento = meta actual, sin romper configs)
       con la distinción de que las tools de *propuesta* (diff/review) quedan `allow`.
-- [ ] Core: resultado de tool con `diff` acumulado en el evento (extender F5).
-- [ ] CLI/PT: al cerrar el turno en modo plan, mostrar el diff y botón
-      "Aprobar y aplicar" (regla de una sola aplicación).
-- [ ] Tests: modo plan no aplica cambios, el diff llega al humano, la aprobación
-      aplica exactamente ese diff.
-- [ ] E2E determinista: fixture plan → propuesta → aprobar → verificar el archivo.
+      (`permiso.rs`: en modo plan las tools de escritura de archivo resuelven `allow`
+      para llegar a la capa de staging; el resto de efectos sigue `deny`.)
+- [x] Core: resultado de tool con `diff` acumulado en el evento (extender F5).
+      (`plan.rs` + `tools_archivo.rs`: file_write/file_patch desvían a la store del
+      plan y devuelven `ok_con_diff` con la propuesta NO aplicada.)
+- [x] CLI/PT: al cerrar el turno en modo plan, mostrar el diff y botón
+      "Aprobar y aplicar" (regla de una sola aplicación). (`chat.rs`: tras cada turno
+      `mostrar_plan_si_aplica` + `/plan aprobar|descartar|estado`; `aplicar_plan`
+      marca aplicado y falla en un segundo intento.)
+- [x] Tests: modo plan no aplica cambios, el diff llega al humano, la aprobación
+      aplica exactamente ese diff. (plan.rs 7 tests + permiso.rs modo plan +
+      tools_archivo staging.)
+- [x] E2E determinista: fixture plan → propuesta → aprobar → verificar el archivo.
+      (`e2e_plan_propuesta_aprobar_verifica_archivo` en plan.rs.)
 
 **Criterio de éxito:** en modo plan el agente edita su propuesta en memoria, el humano
 ve el diff y al aprobar se aplica una sola vez.

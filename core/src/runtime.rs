@@ -220,6 +220,11 @@ pub struct AgentRuntime {
     /// [318A-15 F6] ¿Una tool está en curso? La compactación se omite durante
     /// tool_calls largos (ventana de seguridad configurable, item 4).
     tool_en_curso: std::sync::atomic::AtomicBool,
+    /// [318A-16 F5] Store del modo plan del turno en curso. `Some` solo tras
+    /// empezar un turno con `modo == "plan"`; `None` en el resto. Vive en el
+    /// runtime (efímera, nunca en BD): el consumidor la lee tras el turno
+    /// para mostrar el diff acumulado (CLI) o descartarla.
+    plan_actual: std::sync::Mutex<Option<crate::plan::PlanCompartida>>,
 }
 
 impl AgentRuntime {
@@ -265,7 +270,19 @@ impl AgentRuntime {
             telemetria: std::sync::Mutex::new(TelemetriaTurno::nuevo()),
             reglas: std::sync::Mutex::new(String::new()),
             tool_en_curso: std::sync::atomic::AtomicBool::new(false),
+            plan_actual: std::sync::Mutex::new(None),
         }
+    }
+
+    /// [318A-16 F5] Store del plan del turno actual (si el turno corrió en
+    /// modo plan). El consumidor la usa tras `ejecutar_turno` para mostrar el
+    /// diff acumulado, aprobarlo (`crate::plan::aplicar_plan` con su sandbox)
+    /// o descartarlo.
+    pub fn plan_actual(&self) -> Option<crate::plan::PlanCompartida> {
+        self.plan_actual
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone()
     }
 
     /// [318A-15 F2] Fija las reglas del consumidor (contenido de AGENTS.md o
@@ -352,6 +369,20 @@ impl AgentRuntime {
          * se le devuelve "denegada" para que cambie de plan (no reintento
          * automático). */
         let mut denegadas_en_turno: std::collections::HashSet<String> = std::collections::HashSet::new();
+        /* [318A-16 F5] Modo plan: propuesta fresca por turno. El turno
+         * anterior dejó su propuesta legible (`plan_actual`); al empezar uno
+         * nuevo en modo plan se sustituye (la UI decidió aplicar o
+         * descartar entre turnos). Fuera de modo plan, `None`. */
+        {
+            let mut plan = self.plan_actual.lock().unwrap_or_else(|p| p.into_inner());
+            *plan = if self.turno_config.modo == "plan" {
+                Some(Arc::new(std::sync::RwLock::new(
+                    crate::plan::PlanPropuesto::default(),
+                )))
+            } else {
+                None
+            };
+        }
 
         for _turno in 0..self.turno_config.max_turns {
             /* [01-09-2026] Fase 4: cancelación real — si el cliente cortó el
@@ -825,6 +856,7 @@ impl AgentRuntime {
             sandbox_archivos: self.registry.sandbox(),
             dominio: self.dominio.as_deref(),
             todo: self.registry.todo(),
+            plan: self.plan_actual(),
         };
         let resultado = self
             .registry

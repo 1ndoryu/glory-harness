@@ -230,6 +230,7 @@ mod tests {
             sandbox_archivos: None,
             dominio: None,
             todo: Some(store),
+            plan: None,
         }
     }
 

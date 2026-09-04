@@ -250,6 +250,7 @@ mod tests {
             sandbox_archivos: None,
             dominio: None,
             todo: None,
+            plan: None,
         }
     }
 

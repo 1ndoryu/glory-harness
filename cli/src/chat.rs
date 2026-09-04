@@ -21,6 +21,7 @@ use glory_harness_core::evento::AgenteEvento;
 use glory_harness_core::llm::AiMessage;
 use glory_harness_core::ports::MensajePersistido;
 use glory_harness_core::runtime::AgentRuntime;
+use glory_harness_core::sandbox::SandboxArchivos;
 use glory_harness_core::AgentPersistence;
 
 use crate::run::{construir_harness, OpcionesRun};
@@ -47,6 +48,7 @@ pub async fn chat(opciones: OpcionesRun) -> Result<(), String> {
     let runtime = harness.runtime;
 
     let raiz = workspace
+        .as_ref()
         .map(|p| p.to_string_lossy().into_owned())
         .unwrap_or_else(|| "<desconocido>".to_string());
     println!(
@@ -100,30 +102,14 @@ pub async fn chat(opciones: OpcionesRun) -> Result<(), String> {
         if texto.is_empty() {
             continue;
         }
-        if texto.starts_with('/') {
-            match texto.as_str() {
-                "/salir" | "/exit" | "/quit" => return Ok(()),
-                "/nuevo" | "/reset" => {
-                    conversacion_id = Uuid::new_v4();
-                    println!("[chat] conversación nueva (el agente ya no recuerda lo anterior)");
-                    continue;
-                }
-                "/ayuda" | "/help" | "/?" => {
-                    println!("comandos:");
-                    println!("  /salir   termina la sesión (también Ctrl+C o EOF)");
-                    println!("  /nuevo   reinicia la conversación (historial limpio)");
-                    println!("  /ayuda   muestra esta ayuda");
-                    println!(
-                        "estado: workspace {raiz} · modelo {}/{}",
-                        config.provider, config.modelo
-                    );
-                    continue;
-                }
-                _ => {
-                    eprintln!("[chat] comando desconocido: {texto} (usa /ayuda)");
-                    continue;
-                }
+        match manejar_comando(&texto, &runtime, &workspace, &mut rx_lineas).await? {
+            Comando::Salir => return Ok(()),
+            Comando::NuevaConversacion => {
+                conversacion_id = Uuid::new_v4();
+                println!("[chat] conversación nueva (el agente ya no recuerda lo anterior)");
+                continue;
             }
+            Comando::Continuar => {}
         }
 
         /* Historial acumulado de la conversación → el agente recuerda el hilo. */
@@ -140,49 +126,14 @@ pub async fn chat(opciones: OpcionesRun) -> Result<(), String> {
          * muestra y se vuelve al prompt para reintentar. `texto.clone()`:
          * el resolver de aprobaciones (F2) reintenta el mismo mensaje tras
          * decidir, así que el texto se conserva tras el turno. */
-        match procesar_turno(Arc::clone(&runtime), user_id, conversacion_id, historial, texto.clone(), |evento| {
-            match evento {
-                AgenteEvento::Token { .. } => {}
-                AgenteEvento::ToolStart { tool, .. } => eprintln!("  → {tool}"),
-                AgenteEvento::PeticionAprobacion {
-                    tool,
-                    clasificacion,
-                    ..
-                } => eprintln!("  ⚠ {tool} pide aprobación (clase: {clasificacion})"),
-                AgenteEvento::RequiereAprobacion { tool, .. } => {
-                    eprintln!("  ⚠ {tool} requiere aprobación (modo predeterminado)")
-                }
-                AgenteEvento::SubagenteInicio {
-                    perfil,
-                    instruccion,
-                } => {
-                    eprintln!(
-                        "  └ subagente [{perfil}]: {}",
-                        instruccion.lines().next().unwrap_or("")
-                    )
-                }
-                AgenteEvento::SubagenteFin { ok, .. } => eprintln!("  └ subagente: {}", if ok { "fin" } else { "sin resumen" }),
-                AgenteEvento::ToolResult {
-                    tool,
-                    ok: false,
-                    resumen,
-                    ..
-                } => eprintln!("  ✗ {tool}: {resumen}"),
-                AgenteEvento::Error { mensaje, .. } => eprintln!("  ✗ error: {mensaje}"),
-                AgenteEvento::Telemetria {
-                    motivo_cierre,
-                    compactaciones,
-                    denegaciones,
-                    herramientas,
-                    ..
-                } => eprintln!(
-                    "  ─ telemetría: {motivo_cierre} · {compactaciones} compactaciones · {denegaciones} denegaciones · {} tools",
-                    herramientas.len()
-                ),
-                AgenteEvento::Done { .. } => {}
-                _ => {}
-            }
-        })
+        match procesar_turno(
+            Arc::clone(&runtime),
+            user_id,
+            conversacion_id,
+            historial,
+            texto.clone(),
+            imprimir_evento_turno,
+        )
         .await
         {
             Ok(respuesta) => {
@@ -206,7 +157,191 @@ pub async fn chat(opciones: OpcionesRun) -> Result<(), String> {
             Siguiente::Prompt => {}
             Siguiente::Salir => return Ok(()),
         }
+
+        /* [318A-16 F5] Modo plan: al cerrar el turno se muestra el diff
+         * acumulado y se pregunta aprobar/descartar (regla de una sola
+         * aplicación). Fuera de modo plan no hay propuesta: no pregunta. */
+        mostrar_plan_si_aplica(&runtime, &workspace, &mut rx_lineas).await?;
     }
+}
+
+/// [318A-16 F5] Si el modo es `plan` y hay cambios acumulados, muestra la
+/// propuesta al terminar el turno. Fuera de modo plan no hace nada.
+async fn mostrar_plan_si_aplica(
+    runtime: &AgentRuntime,
+    workspace: &Option<std::path::PathBuf>,
+    rx_lineas: &mut tokio::sync::mpsc::Receiver<Option<String>>,
+) -> Result<(), String> {
+    if runtime.turno_config.modo == "plan"
+        && runtime.plan_actual().is_some_and(|p| glory_harness_core::plan::tiene_cambios(&p))
+    {
+        gestionar_plan(runtime, workspace, rx_lineas, false).await?;
+    }
+    Ok(())
+}
+
+/// Resultado del manejador de comandos `/` del REPL: salir, nueva
+/// conversación o seguir con el texto como mensaje.
+enum Comando {
+    Salir,
+    NuevaConversacion,
+    Continuar,
+}
+
+/// [318A-16 F5] Comandos `/` del REPL (incluida la gestión del modo plan).
+/// Devuelve `Salir`/`NuevaConversacion` para que el bucle principal actúe;
+/// `Continuar` deja que el texto fluya como mensaje del usuario.
+async fn manejar_comando(
+    texto: &str,
+    runtime: &AgentRuntime,
+    workspace: &Option<std::path::PathBuf>,
+    rx_lineas: &mut tokio::sync::mpsc::Receiver<Option<String>>,
+) -> Result<Comando, String> {
+    if !texto.starts_with('/') {
+        return Ok(Comando::Continuar);
+    }
+    match texto {
+        "/salir" | "/exit" | "/quit" => Ok(Comando::Salir),
+        "/nuevo" | "/reset" => Ok(Comando::NuevaConversacion),
+        "/plan" | "/plan estado" => {
+            gestionar_plan(runtime, workspace, rx_lineas, false).await?;
+            Ok(Comando::Continuar)
+        }
+        "/plan aprobar" => {
+            gestionar_plan(runtime, workspace, rx_lineas, true).await?;
+            Ok(Comando::Continuar)
+        }
+        "/plan descartar" => {
+            if let Some(plan) = runtime.plan_actual() {
+                println!("{}", glory_harness_core::plan::descartar_plan(&plan));
+            } else {
+                println!("[chat] no hay propuesta de plan (modo actual: {})", runtime.turno_config.modo);
+            }
+            Ok(Comando::Continuar)
+        }
+        "/ayuda" | "/help" | "/?" => {
+            println!("comandos:");
+            println!("  /salir   termina la sesión (también Ctrl+C o EOF)");
+            println!("  /nuevo   reinicia la conversación (historial limpio)");
+            if runtime.turno_config.modo == "plan" {
+                println!("  /plan            muestra la propuesta acumulada (diff)");
+                println!("  /plan aprobar    aplica la propuesta una sola vez");
+                println!("  /plan descartar  descarta la propuesta sin aplicar");
+            }
+            println!("  /ayuda   muestra esta ayuda");
+            println!(
+                "estado: modelo {}/{}",
+                runtime.turno_config.provider, runtime.turno_config.modelo
+            );
+            Ok(Comando::Continuar)
+        }
+        _ => {
+            eprintln!("[chat] comando desconocido: {texto} (usa /ayuda)");
+            Ok(Comando::Continuar)
+        }
+    }
+}
+
+/// Imprime en stderr el progreso de un turno (tools, subagentes, telemetría).
+/// Es el observador de `procesar_turno`: no captura estado, solo reporta.
+fn imprimir_evento_turno(evento: AgenteEvento) {
+    match evento {
+        AgenteEvento::Token { .. } => {}
+        AgenteEvento::ToolStart { tool, .. } => eprintln!("  → {tool}"),
+        AgenteEvento::PeticionAprobacion {
+            tool,
+            clasificacion,
+            ..
+        } => eprintln!("  ⚠ {tool} pide aprobación (clase: {clasificacion})"),
+        AgenteEvento::RequiereAprobacion { tool, .. } => {
+            eprintln!("  ⚠ {tool} requiere aprobación (modo predeterminado)")
+        }
+        AgenteEvento::SubagenteInicio {
+            perfil,
+            instruccion,
+        } => {
+            eprintln!(
+                "  └ subagente [{perfil}]: {}",
+                instruccion.lines().next().unwrap_or("")
+            )
+        }
+        AgenteEvento::SubagenteFin { ok, .. } => eprintln!("  └ subagente: {}", if ok { "fin" } else { "sin resumen" }),
+        AgenteEvento::ToolResult {
+            tool,
+            ok: false,
+            resumen,
+            ..
+        } => eprintln!("  ✗ {tool}: {resumen}"),
+        AgenteEvento::Error { mensaje, .. } => eprintln!("  ✗ error: {mensaje}"),
+        AgenteEvento::Telemetria {
+            motivo_cierre,
+            compactaciones,
+            denegaciones,
+            herramientas,
+            ..
+        } => eprintln!(
+            "  ─ telemetría: {motivo_cierre} · {compactaciones} compactaciones · {denegaciones} denegaciones · {} tools",
+            herramientas.len()
+        ),
+        AgenteEvento::Done { .. } => {}
+        _ => {}
+    }
+}
+
+/// [318A-16 F5] Muestra la propuesta del modo plan y, si el usuario aprueba,
+/// la aplica una sola vez sobre el workspace (misma semántica que las tools
+/// de archivo: ruta relativa al sandbox). Con `auto_preguntar` se entra en
+/// modo pregunta; con `false` solo muestra el estado.
+async fn gestionar_plan(
+    runtime: &AgentRuntime,
+    workspace: &Option<std::path::PathBuf>,
+    rx_lineas: &mut tokio::sync::mpsc::Receiver<Option<String>>,
+    auto_preguntar: bool,
+) -> Result<(), String> {
+    let Some(plan) = runtime.plan_actual() else {
+        println!("[plan] no hay propuesta (modo actual: {})", runtime.turno_config.modo);
+        return Ok(());
+    };
+    println!("───────────────── propuesta en modo plan ─────────────────");
+    println!("{}", glory_harness_core::plan::resumen_plan(&plan));
+    println!("───────────────────────────────────────────────────────────");
+    if !auto_preguntar {
+        return Ok(());
+    }
+    if !glory_harness_core::plan::tiene_cambios(&plan) {
+        return Ok(());
+    }
+    let sandbox = match workspace
+        .as_deref()
+        .map(SandboxArchivos::nuevo)
+        .transpose()
+    {
+        Ok(Some(sandbox)) => sandbox,
+        Ok(None) => {
+            eprintln!("[plan] sin workspace: no se puede aplicar");
+            return Ok(());
+        }
+        Err(e) => {
+            eprintln!("[plan] sandbox inválido: {e}");
+            return Ok(());
+        }
+    };
+    print!("¿Aprobar y aplicar? (s=aprobar · n=dejar pendiente · d=descartar) ");
+    let _ = std::io::stdout().flush();
+    match leer_linea(rx_lineas).await {
+        Some(linea) if matches!(linea.trim().to_lowercase().as_str(), "s" | "si" | "y" | "yes" | "aprobar") => {
+            match glory_harness_core::plan::aplicar_plan(&plan, &sandbox) {
+                Ok(msg) => println!("[plan] {msg}"),
+                Err(e) => eprintln!("[plan] no se pudo aplicar: {e}"),
+            }
+        }
+        Some(linea) if matches!(linea.trim().to_lowercase().as_str(), "d" | "descartar") => {
+            println!("[plan] {}", glory_harness_core::plan::descartar_plan(&plan));
+        }
+        Some(_) => println!("[plan] propuesta pendiente (usa /plan aprobar o /plan descartar)"),
+        None => return Err("fin de sesión durante la pregunta del plan".into()),
+    }
+    Ok(())
 }
 
 /// Línea siguiente del hilo de stdin del REPL. `None` = Ctrl+C o EOF (fin de

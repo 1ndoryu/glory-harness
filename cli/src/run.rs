@@ -35,6 +35,9 @@ pub struct OpcionesRun {
     pub modelo: Option<String>,
     /// Raíz del workspace. `None` → cwd actual (trabaja donde se ejecuta).
     pub dir: Option<PathBuf>,
+    /// [318A-16 F5] Modo del turno: `predeterminado` (default), `meta`,
+    /// `autonomo` o `plan` (propuesta: diff sin aplicar hasta aprobación).
+    pub modo: Option<String>,
 }
 
 /// Resultado de un turno one-shot, listo para imprimir.
@@ -89,6 +92,12 @@ pub(crate) fn construir_harness(opciones: &OpcionesRun) -> HarnessCli {
     }
     if let Some(modelo) = opciones.modelo.as_deref().map(str::trim).filter(|m| !m.is_empty()) {
         config.modelo = modelo.to_string();
+    }
+    /* [318A-16 F5] `--modo plan` activa la propuesta con diff; cualquier otro
+     * valor explícito se respeta (meta/autonomo). El default sigue
+     * `predeterminado` (fail-closed: un typo no abre permisos). */
+    if let Some(modo) = opciones.modo.as_deref().map(str::trim).filter(|m| !m.is_empty()) {
+        config.modo = modo.to_string();
     }
 
     let runtime = Arc::new(AgentRuntime::nuevo(

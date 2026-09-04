@@ -10,7 +10,7 @@
 
 use crate::aprobacion::{PeticionAprobacion, RespuestaAprobacion};
 use crate::error::{Error, Result};
-use crate::permiso::{permiso_por_modo, resolver_permiso, Permiso};
+use crate::permiso::{es_tool_propuesta, permiso_por_modo, resolver_permiso, Permiso};
 use crate::ports::{AgentPersistence, ProviderPort, WebSearchProvider};
 use crate::regla::{categorias_core, Clasificador, ReglaPermiso};
 use crate::sandbox::SandboxArchivos;
@@ -45,6 +45,11 @@ pub struct AgentToolContext<'a> {
     /// Plan `todo` compartido del runtime (318A-15 F5). `None` si el runtime
     /// no registró la tool (no debería pasar: el runtime la crea siempre).
     pub todo: Option<TodoCompartida>,
+    /// [318A-16 F5] Store del modo plan: presente SOLO cuando el turno corre
+    /// en modo `plan`. Las tools de escritura de archivos registran aquí su
+    /// propuesta (diff) en vez de escribir; el resto de consumidores lo
+    /// ignoran (`None`).
+    pub plan: Option<crate::plan::PlanCompartida>,
 }
 
 /// Resultado de ejecutar una tool: texto legible para el LLM + estado.
@@ -340,7 +345,15 @@ impl AgentToolRegistry {
     /// default del modo (orden en `resolver_permiso`).
     #[must_use]
     pub fn permiso_para_llamada(&self, tool_id: &str, args: &Value, modo: &str) -> Permiso {
-        let default = permiso_por_modo(modo, self.tiene_efecto(tool_id));
+        /* [318A-16 F5] Modo plan: las tools de propuesta (escritura de
+         * archivos) quedan `allow` para que registren su diff en la store
+         * del plan en vez de aplicarlo; el resto de efectos siguen `deny`
+         * (semántica de meta, ver `plan.rs`). */
+        let default = if modo == "plan" && es_tool_propuesta(tool_id) {
+            Permiso::Allow
+        } else {
+            permiso_por_modo(modo, self.tiene_efecto(tool_id))
+        };
         let override_conv = self
             .overrides
             .read()

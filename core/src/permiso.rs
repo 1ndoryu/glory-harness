@@ -41,7 +41,11 @@ pub enum Permiso {
 pub fn permiso_por_modo(modo: &str, efecto: bool) -> Permiso {
     match modo {
         "autonomo" => Permiso::Allow,
-        "meta" => {
+        /* [318A-16 F5] `plan` es el modo de propuesta: mismo comportamiento
+         * que `meta` (deny de efectos) EXCEPTO las tools de escritura de
+         * archivos, que el runtime deja `allow` para que registren su
+         * propuesta en la store del plan en vez de aplicarla. */
+        "meta" | "plan" => {
             if efecto {
                 Permiso::Deny
             } else {
@@ -57,6 +61,14 @@ pub fn permiso_por_modo(modo: &str, efecto: bool) -> Permiso {
             }
         }
     }
+}
+
+/// [318A-16 F5] ¿La tool es de PROPUESTA (modo plan)? En modo plan estas
+/// tools quedan `allow` para que registren su diff en la store del plan en
+/// vez de aplicarlo; el resto de tools con efecto siguen `deny`.
+#[must_use]
+pub fn es_tool_propuesta(tool_id: &str) -> bool {
+    matches!(tool_id, "file_write" | "file_patch")
 }
 
 /// El permiso efectivo de una tool: el override por conversación (si existe)
@@ -117,6 +129,18 @@ mod tests {
     fn modo_desconocido_cae_a_predeterminado_fail_closed() {
         assert_eq!(permiso_por_modo("modo-inexistente", true), Permiso::Ask);
         assert_eq!(permiso_por_modo("modo-inexistente", false), Permiso::Allow);
+    }
+
+    /* [318A-16 F5] Modo plan: solo las tools de propuesta (escritura de
+     * archivos) quedan allow — para que registren su diff — y el resto de
+     * efectos siguen deny (semántica de meta). */
+    #[test]
+    fn es_tool_propuesta_solo_escritura_de_archivos() {
+        assert!(es_tool_propuesta("file_write"));
+        assert!(es_tool_propuesta("file_patch"));
+        assert!(!es_tool_propuesta("comando"));
+        assert!(!es_tool_propuesta("file_read"));
+        assert!(!es_tool_propuesta("web_search"));
     }
 
     #[test]

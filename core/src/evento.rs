@@ -74,6 +74,14 @@ pub enum AgenteEvento {
         perfil: String,
         instruccion: String,
     },
+    /// [318A-16 F5] Propuesta acumulada del modo plan al cerrar el turno:
+    /// la UI muestra el diff (`resumen`) y ofrece "Aprobar y aplicar" (una
+    /// sola aplicación) o descartar. Solo se emite en modo `plan` con
+    /// cambios pendientes; aditivo para los consumidores existentes.
+    PlanPropuesto {
+        cambios: usize,
+        resumen: String,
+    },
     /// [318A-15 F4] Fin de la sesión hija: resumen acotado devuelto al
     /// padre como resultado de la tool `task`. `parcial=true` cuando el
     /// presupuesto de pasos se agotó sin respuesta final del hijo (cierre

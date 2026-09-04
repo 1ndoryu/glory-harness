@@ -48,6 +48,7 @@ fn main() -> ExitCode {
                 provider: extraer_opcion(&args, &["--provider", "--proveedor"]),
                 modelo: extraer_opcion(&args, &["--modelo", "--model"]),
                 dir: extraer_opcion(&args, &["--dir", "--cwd", "--workspace"]).map(std::path::PathBuf::from),
+                modo: extraer_opcion(&args, &["--modo"]),
             };
             let prompt = if let Some(p) = prompt {
                 Some(p)
@@ -69,6 +70,7 @@ fn main() -> ExitCode {
                 provider: extraer_opcion(&args, &["--provider", "--proveedor"]),
                 modelo: extraer_opcion(&args, &["--modelo", "--model"]),
                 dir: extraer_opcion(&args, &["--dir", "--cwd", "--workspace"]).map(std::path::PathBuf::from),
+                modo: extraer_opcion(&args, &["--modo"]),
             };
             let usa_tui = args.iter().any(|a| a == "--tui");
             match tokio::runtime::Runtime::new() {

@@ -154,6 +154,20 @@ impl AgentTool for ToolFileWrite {
             .leer(ruta, MAX_LECTURA_BYTES)
             .map(|(contenido_previo, _)| contenido_previo)
             .unwrap_or_default();
+        /* [318A-16 F5] Modo plan: la escritura NO se aplica; se registra la
+         * propuesta (diff contra el contenido actual) en la store del plan.
+         * El humano aprueba el diff acumulado y `aplicar_plan` escribe. */
+        if let Some(plan) = &ctx.plan {
+            let diff = crate::plan::registrar_cambio(plan, ruta, &previo, contenido);
+            return Ok(AgentToolResult::ok_con_diff(
+                format!(
+                    "PROPUESTA (modo plan) para '{}': registrada, NO aplicada. Espera la aprobación del plan para escribir.",
+                    sandbox.ruta_presentable(ruta)
+                ),
+                format!("propuesta {}", sandbox.ruta_presentable(ruta)),
+                diff,
+            ));
+        }
         sandbox.escribir(ruta, contenido)?;
         Ok(AgentToolResult::ok_con_diff(
             format!(
@@ -226,6 +240,19 @@ impl AgentTool for ToolFilePatch {
             )));
         }
         let nuevo = original.replacen(buscar, &reemplazar, 1);
+        /* [318A-16 F5] Modo plan: mismo desvío que file_write — se registra
+         * la propuesta y NO se escribe hasta la aprobación del plan. */
+        if let Some(plan) = &ctx.plan {
+            let diff = crate::plan::registrar_cambio(plan, ruta, &original, &nuevo);
+            return Ok(AgentToolResult::ok_con_diff(
+                format!(
+                    "PROPUESTA (modo plan) para '{}': registrada, NO aplicada. Espera la aprobación del plan para aplicar el parche.",
+                    sandbox.ruta_presentable(ruta)
+                ),
+                format!("propuesta {}", sandbox.ruta_presentable(ruta)),
+                diff,
+            ));
+        }
         sandbox.escribir(ruta, &nuevo)?;
         Ok(AgentToolResult::ok_con_diff(
             format!("Parche aplicado en '{}'.", sandbox.ruta_presentable(ruta)),
@@ -434,7 +461,86 @@ mod tests {
             sandbox_archivos: Some(sandbox),
             dominio: None,
             todo: None,
+            plan: None,
         }
+    }
+
+    fn ctx_con_plan(
+        sandbox: Arc<SandboxArchivos>,
+        persistencia: &crate::contrato_tests::PersistenciaMock,
+        plan: crate::plan::PlanCompartida,
+    ) -> AgentToolContext<'_> {
+        AgentToolContext {
+            user_id: uuid::Uuid::new_v4(),
+            persistencia,
+            web_search: None,
+            ai_provider: None,
+            sandbox_archivos: Some(sandbox),
+            dominio: None,
+            todo: None,
+            plan: Some(plan),
+        }
+    }
+
+    /* [318A-16 F5] Modo plan: file_write NO escribe; registra la propuesta
+     * en la store del plan y devuelve su diff. El disco queda intacto. */
+    #[tokio::test]
+    async fn modo_plan_file_write_registra_propuesta_sin_tocar_disco() {
+        let dir = dir_aislada("plan-write");
+        std::fs::write(dir.join("doc.txt"), "linea1\n").expect("seed");
+        let sandbox = Arc::new(SandboxArchivos::nuevo(&dir).expect("sandbox"));
+        let persistencia = crate::contrato_tests::PersistenciaMock::default();
+        let plan = Arc::new(std::sync::RwLock::new(
+            crate::plan::PlanPropuesto::default(),
+        ));
+        let ctx = ctx_con_plan(sandbox.clone(), &persistencia, plan.clone());
+
+        let resultado = ToolFileWrite
+            .ejecutar(
+                &ctx,
+                json!({"ruta": "doc.txt", "contenido": "linea1\nlinea2\n"}),
+            )
+            .await
+            .expect("tool responde");
+        assert!(resultado.contenido.contains("PROPUESTA (modo plan)"));
+        assert!(resultado.diff.is_some(), "el diff llega al humano");
+        /* El disco NO cambió; la propuesta está en la store. */
+        let leido = sandbox.leer("doc.txt", 1024).expect("leer");
+        assert_eq!(leido.0, "linea1\n", "modo plan nunca escribe");
+        assert!(crate::plan::tiene_cambios(&plan));
+        let resumen = crate::plan::resumen_plan(&plan);
+        assert!(resumen.contains("+linea2"));
+
+        /* Y la aprobación aplica exactamente ese diff (regla de una sola
+         * aplicación cubierta en plan::tests). */
+        let ok = crate::plan::aplicar_plan(&plan, &sandbox).expect("aplicar");
+        assert!(ok.contains("Propuesta aplicada"));
+        let aplicado = sandbox.leer("doc.txt", 1024).expect("leer");
+        assert_eq!(aplicado.0, "linea1\nlinea2\n");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /* [318A-16 F5] Modo plan: file_patch idem — propuesta, sin escribir. */
+    #[tokio::test]
+    async fn modo_plan_file_patch_registra_propuesta_sin_tocar_disco() {
+        let dir = dir_aislada("plan-patch");
+        std::fs::write(dir.join("doc.txt"), "hola\n").expect("seed");
+        let sandbox = Arc::new(SandboxArchivos::nuevo(&dir).expect("sandbox"));
+        let persistencia = crate::contrato_tests::PersistenciaMock::default();
+        let plan = Arc::new(std::sync::RwLock::new(
+            crate::plan::PlanPropuesto::default(),
+        ));
+        let ctx = ctx_con_plan(sandbox.clone(), &persistencia, plan.clone());
+
+        let resultado = ToolFilePatch
+            .ejecutar(&ctx, json!({"ruta": "doc.txt", "buscar": "hola", "reemplazar": "adiós"}))
+            .await
+            .expect("tool responde");
+        assert!(resultado.contenido.contains("PROPUESTA (modo plan)"));
+        let leido = sandbox.leer("doc.txt", 1024).expect("leer");
+        assert_eq!(leido.0, "hola\n", "modo plan nunca aplica el parche");
+        assert!(crate::plan::resumen_plan(&plan).contains("-hola"));
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     /* [318A-15 F5] `file_patch` exige que el fragmento `buscar` exista y sea
@@ -508,6 +614,7 @@ mod tests {
             sandbox_archivos: registry.sandbox(),
             dominio: None,
             todo: registry.todo(),
+            plan: None,
         };
 
         let plan = registry
