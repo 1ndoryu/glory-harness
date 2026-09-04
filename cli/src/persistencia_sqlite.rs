@@ -67,7 +67,9 @@ CREATE TABLE IF NOT EXISTS acciones (
     tool TEXT NOT NULL,
     ok INTEGER NOT NULL,
     resumen TEXT NOT NULL,
-    argumentos_json TEXT
+    argumentos_json TEXT,
+    diff TEXT,
+    creado_en TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS memoria (
     user_id TEXT NOT NULL,
@@ -107,6 +109,17 @@ CREATE TABLE IF NOT EXISTS config (
 );
 ";
 
+/// Migraciones idempotentes para BDs creadas con un esquema anterior
+/// (`CREATE TABLE IF NOT EXISTS` no altera tablas existentes).
+const MIGRACIONES: &[&str] = &[
+    /* [039A-1 04-09 H6] Acciones: diff del cambio + marca de tiempo para
+     * repintar las tools en orden al recargar el historial. La columna
+     * `creado_en` admite filas previas sin valor (NULL) → se rellena al
+     * insertar; el ORDER BY usa COALESCE al leer. */
+    "ALTER TABLE acciones ADD COLUMN diff TEXT",
+    "ALTER TABLE acciones ADD COLUMN creado_en TEXT",
+];
+
 /// Vista de conversación para la sidebar (Tauri la serializa tal cual).
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct InfoConversacion {
@@ -114,6 +127,20 @@ pub struct InfoConversacion {
     pub titulo: String,
     pub archivada: bool,
     pub actualizada_en: DateTime<Utc>,
+}
+
+/// Acción (tool) recuperada para repintar el historial al recargar.
+/// [039A-1 04-09 H6] El orden de las acciones se ancla en `turno_en`
+/// (timestamp del turno al que pertenecen), no en un timestamp propio.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct AccionRecuperada {
+    pub tool: String,
+    pub ok: bool,
+    pub resumen: String,
+    pub argumentos_json: Option<String>,
+    pub diff: Option<String>,
+    /// `creado_en` del turno (para intercalar entre los mensajes del turno).
+    pub turno_en: String,
 }
 
 /// Implementación SQLite de [`AgentPersistence`] (+ [`ProgramadorTareas`]).
@@ -170,6 +197,17 @@ impl PersistenciaSqlite {
             .map_err(|e| Error::Persistencia(format!("busy_timeout: {e}")))?;
         conn.execute_batch(ESQUEMA)
             .map_err(|e| Error::Persistencia(format!("esquema inicial: {e}")))?;
+        // Migraciones idempotentes: una BD antigua no tiene las columnas que
+        // el `CREATE TABLE IF NOT EXISTS` no altera. Ignoramos "duplicate
+        // column name" (ya migrada) y propagamos el resto.
+        for migracion in MIGRACIONES {
+            if let Err(e) = conn.execute_batch(migracion) {
+                let msg = e.to_string();
+                if !msg.contains("duplicate column name") {
+                    return Err(Error::Persistencia(format!("migración: {msg}")));
+                }
+            }
+        }
         Ok(conn)
     }
 
@@ -342,6 +380,43 @@ impl PersistenciaSqlite {
         Ok(n == 1)
     }
 
+    /// Acciones (tools ejecutadas) de una conversación en orden de ejecución.
+    /// El orden se ancla en el `creado_en` del TURNO al que pertenece cada
+    /// acción (las acciones no tienen timestamp fiable de UI; el JOIN da el
+    /// orden con una sola consulta). [039A-1 04-09 H6]
+    pub fn acciones_por_conversacion(
+        &self,
+        conversacion_id: Uuid,
+    ) -> HarnessResult<Vec<AccionRecuperada>> {
+        let conn = bloquear(&self.conn);
+        let mut stmt = conn
+            .prepare(
+                "SELECT a.tool, a.ok, a.resumen, a.argumentos_json, a.diff, t.creado_en
+                 FROM acciones a
+                 JOIN turnos t ON t.id = a.turno_id
+                 WHERE t.conversacion_id = ?1
+                 ORDER BY t.creado_en, a.id",
+            )
+            .map_err(|e| Error::Persistencia(e.to_string()))?;
+        let filas = stmt
+            .query_map(params![conversacion_id.as_hyphenated().to_string()], |f| {
+                Ok(AccionRecuperada {
+                    tool: f.get::<_, String>(0)?,
+                    ok: f.get::<_, i64>(1)? != 0,
+                    resumen: f.get::<_, String>(2)?,
+                    argumentos_json: f.get::<_, Option<String>>(3)?,
+                    diff: f.get::<_, Option<String>>(4)?,
+                    turno_en: f.get::<_, String>(5)?,
+                })
+            })
+            .map_err(|e| Error::Persistencia(e.to_string()))?;
+        let mut out = Vec::new();
+        for fila in filas {
+            out.push(fila.map_err(|e| Error::Persistencia(e.to_string()))?);
+        }
+        Ok(out)
+    }
+
     // --- Config de la app (clave → valor; fuera del trait del núcleo) ---
 
     /// Lee un valor de configuración (`None` si no existe).
@@ -478,14 +553,16 @@ impl AgentPersistence for PersistenciaSqlite {
     async fn registrar_accion(&self, accion: &AccionAuditable) -> HarnessResult<()> {
         bloquear(&self.conn)
             .execute(
-                "INSERT INTO acciones (turno_id, tool, ok, resumen, argumentos_json)
-                 VALUES (?1, ?2, ?3, ?4, ?5)",
+                "INSERT INTO acciones (turno_id, tool, ok, resumen, argumentos_json, diff, creado_en)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
                 params![
                     accion.turno_id.as_hyphenated().to_string(),
                     accion.tool,
                     i64::from(accion.ok),
                     accion.resumen,
                     accion.argumentos_json,
+                    accion.diff,
+                    ahora_rfc3339(),
                 ],
             )
             .map_err(|e| Error::Persistencia(e.to_string()))?;

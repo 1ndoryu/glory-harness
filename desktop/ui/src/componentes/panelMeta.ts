@@ -22,6 +22,10 @@ export interface PanelMeta {
   setTokens(n: number): void;
   setMeta(texto: string): void;
   getMeta(): string;
+  /** [039A-1 04-09 H1] Muestra/oculta el panel (modo meta o hay meta). */
+  mostrar(visible: boolean): void;
+  /** ¿Está visible el panel? */
+  visible(): boolean;
 }
 
 export interface PanelMetaOpciones {
@@ -98,6 +102,15 @@ export function montarPanelMeta(opts: PanelMetaOpciones): PanelMeta {
   raiz.appendChild(fila);
 
   let estadoActual: EstadoMeta = 'inactivo';
+  let oculto = false;
+
+  /** [039A-1 04-09 H1] Aplica la clase `.oculto` (display:none) sin colisión
+   * con las clases de estado (corriendo/pausado/inactivo) ni margin colgando. */
+  function pintarVisible(): void {
+    raiz.classList.toggle('oculto', oculto);
+    // El panel oculto no debe dejar el hueco del margin-bottom en #entrada.
+    raiz.style.marginBottom = oculto ? '0' : '';
+  }
 
   function pintar(): void {
     txtEstado.textContent = ETIQUETA_ESTADO[estadoActual];
@@ -153,6 +166,7 @@ export function montarPanelMeta(opts: PanelMetaOpciones): PanelMeta {
   });
 
   pintar();
+  pintarVisible();
 
   return {
     raiz,
@@ -178,6 +192,13 @@ export function montarPanelMeta(opts: PanelMetaOpciones): PanelMeta {
     },
     getMeta() {
       return meta.value;
+    },
+    mostrar(v: boolean) {
+      oculto = !v;
+      pintarVisible();
+    },
+    visible() {
+      return !oculto;
     },
   };
 }

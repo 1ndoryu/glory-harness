@@ -20,7 +20,7 @@ pub mod tui;
 pub use chat::{TurnoResultado, historial_desde_persistencia, procesar_turno};
 pub use ejecutor::EjecutorCliente;
 pub use persistencia::{PersistenciaMemoria, ProgramadorMemoria};
-pub use persistencia_sqlite::{InfoConversacion, PersistenciaSqlite};
+pub use persistencia_sqlite::{AccionRecuperada, InfoConversacion, PersistenciaSqlite};
 pub use reglas::cargar_reglas;
 pub use run::{OpcionesRun, SalidaTurno, construir_harness, construir_harness_con, quitar_prefijo_verbatim, turno_config_default};
 

@@ -125,6 +125,45 @@ fn conteos(llaves: &LlavesProveedor) -> Vec<ProveedorConteo> {
     ]
 }
 
+/// [039A-1 04-09 H5] Nombre breve de conversación desde el primer mensaje del
+/// usuario: primeras ~4 palabras (o ~42 caracteres), una sola línea, sin
+/// prefijos de modo (`[META: …]`). Si no hay palabras, "Conversación".
+fn titulo_auto_desde_mensaje(mensaje: &str) -> String {
+    let limpio = mensaje
+        .trim()
+        .lines()
+        .next()
+        .unwrap_or("")
+        .trim();
+    let sin_meta = limpio
+        .strip_prefix("[META:")
+        .and_then(|resto| resto.find(']').map(|i| &resto[i + 1..]))
+        .unwrap_or(limpio)
+        .trim();
+    if sin_meta.is_empty() {
+        return "Conversación".into();
+    }
+    let palabras: Vec<&str> = sin_meta.split_whitespace().collect();
+    let mut out = String::new();
+    for (i, p) in palabras.iter().enumerate() {
+        if i == 4 {
+            break;
+        }
+        if !out.is_empty() {
+            out.push(' ');
+        }
+        out.push_str(p);
+        if out.chars().count() >= 42 {
+            break;
+        }
+    }
+    if out.is_empty() {
+        "Conversación".into()
+    } else {
+        out
+    }
+}
+
 fn sesion_actual(estado: &State<'_, Estado>) -> Result<Arc<Sesion>, String> {
     match estado.sesion.lock() {
         Ok(g) => g.clone().ok_or_else(|| "abre la sesión primero".to_string()),
@@ -167,14 +206,10 @@ fn abrir_sesion_interna(
     modelo: Option<String>,
     dir: Option<String>,
     modo: Option<String>,
+    razonamiento: Option<String>,
+    nueva_conversacion: bool,
 ) -> Result<InfoSesion, String> {
     glory_harness::cargar_env_usuario();
-    let opciones = OpcionesRun {
-        provider,
-        modelo,
-        dir: dir.map(std::path::PathBuf::from),
-        modo,
-    };
     /* F3: la BD vive en el perfil del usuario; si no abre (permisos, disco),
      * la sesión sigue en memoria y la UI muestra el aviso (fail-open: nunca
      * se deja al usuario sin agente por un fallo de disco). */
@@ -190,6 +225,34 @@ fn abrir_sesion_interna(
             PersistenciaSqlite::en_memoria().map_err(|e| e.to_string())?,
             Some("sin ruta de datos: sesión en memoria".to_string()),
         ),
+    };
+    /* [039A-1 04-09 H3] Workspace real: si el llamador no aporta `dir`, se
+     * usa el guardado en config (si existe); sin config, `None` → cwd del
+     * proceso (último recurso). */
+    let dir = match dir {
+        Some(d) => Some(d),
+        None => match persistencia
+            .config_leer("workspace")
+            .map_err(|e| e.to_string())?
+        {
+            Some(guardado) if !guardado.trim().is_empty() => Some(guardado),
+            _ => None,
+        },
+    };
+    /* [039A-1 04-09 H7] Nivel de razonamiento: lo resuelve el backend desde
+     * config cuando el llamador no lo aporta (el front no hace roundtrip). */
+    let razonamiento = match razonamiento {
+        Some(r) => Some(r),
+        None => persistencia
+            .config_leer("nivelRazonamiento")
+            .map_err(|e| e.to_string())?,
+    };
+    let opciones = OpcionesRun {
+        provider,
+        modelo,
+        dir: dir.map(std::path::PathBuf::from),
+        modo,
+        razonamiento,
     };
     /* `user_id` estable entre reinicios: las conversaciones pertenecen a un
      * usuario y sobreviven al cierre (tabla `config`, clave `user_id`). */
@@ -208,9 +271,26 @@ fn abrir_sesion_interna(
         }
     };
     persistencia.con_skills_base(user_id);
-    let conv_id = persistencia
-        .conversacion_crear(user_id, "Nueva conversación")
-        .map_err(|e| e.to_string())?;
+    /* [039A-1 04-09 H4] No crear conversación nueva en cada apertura: si el
+     * llamador no pide una nueva explícitamente y ya existe alguna NO
+     * archivada, se reutiliza la más reciente (la lista viene ordenada por
+     * `actualizada_en` DESC). Solo se crea si no hay ninguna. */
+    let conv_id = if !nueva_conversacion {
+        persistencia
+            .conversaciones_listar(user_id)
+            .map_err(|e| e.to_string())?
+            .into_iter()
+            .find(|c| !c.archivada)
+            .map(|c| c.id)
+    } else {
+        None
+    };
+    let conv_id = match conv_id {
+        Some(id) => id,
+        None => persistencia
+            .conversacion_crear(user_id, "Nueva conversación")
+            .map_err(|e| e.to_string())?,
+    };
     let persistencia = Arc::new(persistencia);
     let programador = Arc::clone(&persistencia);
     let harness = construir_harness_con(
@@ -219,12 +299,28 @@ fn abrir_sesion_interna(
         programador,
         user_id,
     );
-    let conversacion = InfoConversacion {
-        id: conv_id,
-        titulo: "Nueva conversación".into(),
-        archivada: false,
-        actualizada_en: chrono::Utc::now(),
-    };
+    /* El título real de la conversación reutilizada/creada (no asumir que es
+     * "Nueva conversación": H4 puede reutilizar una con nombre propio). */
+    let conversacion = persistencia
+        .conversaciones_listar(user_id)
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .find(|c| c.id == conv_id)
+        .ok_or_else(|| "conversación inicial no encontrada".to_string())?;
+    /* [039A-1 04-09 H3] Primer arranque sin workspace guardado: persistir el
+     * que el constructor resolvió (cwd del proceso o `--dir`) para que el
+     * modal muestre la ruta real y el próximo arranque la reutilice. */
+    if persistencia
+        .config_leer("workspace")
+        .map_err(|e| e.to_string())?
+        .is_none()
+    {
+        if let Some(ws) = harness.workspace.as_ref() {
+            persistencia
+                .config_guardar("workspace", &ws.to_string_lossy().into_owned())
+                .map_err(|e| e.to_string())?;
+        }
+    }
     let info = InfoSesion {
         modelo: format!("{}/{}", harness.config.provider, harness.config.modelo),
         workspace: harness
@@ -265,8 +361,9 @@ fn abrir_sesion(
     modelo: Option<String>,
     dir: Option<String>,
     modo: Option<String>,
+    razonamiento: Option<String>,
 ) -> Result<InfoSesion, String> {
-    abrir_sesion_interna(&estado, provider, modelo, dir, modo)
+    abrir_sesion_interna(&estado, provider, modelo, dir, modo, razonamiento, false)
 }
 
 /// Ejecuta un turno real y reemite cada `AgenteEvento` a la UI.
@@ -339,6 +436,27 @@ async fn enviar_turno(
         .conversacion_tocar(conv_id)
         .await
         .map_err(|e| e.to_string())?;
+    /* [039A-1 04-09 H5] Auto-nombre tras el primer mensaje: solo cuando el
+     * título sigue siendo el default "Nueva conversación" y no había historial
+     * previo (evita pisar renombres manuales y no re-nombra una conversación
+     * ya autonombrada). El nombre sale del primer mensaje del usuario. */
+    if historial_previo.is_empty() {
+        let es_default = sesion
+            .persistencia
+            .conversaciones_listar(sesion.user_id)
+            .map_err(|e| e.to_string())?
+            .into_iter()
+            .find(|c| c.id == conv_id)
+            .map(|c| c.titulo == "Nueva conversación")
+            .unwrap_or(false);
+        if es_default {
+            let nuevo = titulo_auto_desde_mensaje(&mensaje);
+            sesion
+                .persistencia
+                .conversacion_renombrar(conv_id, sesion.user_id, &nuevo)
+                .map_err(|e| e.to_string())?;
+        }
+    }
     let (tx_ev, mut rx_ev) = tokio::sync::mpsc::channel::<AgenteEvento>(64);
     let w = window.clone();
     let turno_id = Uuid::new_v4();
@@ -452,6 +570,7 @@ fn reconfigurar_sesion(
     provider: Option<String>,
     modelo: Option<String>,
     modo: Option<String>,
+    razonamiento: Option<String>,
 ) -> Result<InfoSesion, String> {
     let sesion = sesion_actual(&estado)?;
     if estado
@@ -470,6 +589,17 @@ fn reconfigurar_sesion(
         modelo,
         dir: Some(std::path::PathBuf::from(sesion.workspace.clone())),
         modo,
+        razonamiento: match razonamiento {
+            Some(r) => Some(r),
+            /* [039A-1 04-09 H7] Al reconfigurar por modelo/modo sin pasar
+             * razonamiento, se conserva el del runtime actual (no se pierde
+             * el nivel ya aplicado con un `None` que resetea a default). */
+            None => sesion
+                .runtime
+                .lock()
+                .map(|g| g.turno_config.nivel_razonamiento.clone())
+                .map_err(|_| "sesión bloqueada".to_string())?,
+        },
     };
     let harness = construir_harness_con(
         &opciones,
@@ -591,6 +721,9 @@ struct CargaConversacion {
     id: Uuid,
     titulo: String,
     mensajes: Vec<MensajePersistido>,
+    /// [039A-1 04-09 H6] Acciones (tools) de la conversación en orden de
+    /// ejecución, para repintar los bloques `.herramienta` al recargar.
+    acciones: Vec<glory_harness::AccionRecuperada>,
 }
 
 /// Carga una conversación como actual con su historial (falla con turno vivo).
@@ -622,6 +755,10 @@ async fn cargar_conversacion(
         .listar_mensajes(id)
         .await
         .map_err(|e| e.to_string())?;
+    let acciones = sesion
+        .persistencia
+        .acciones_por_conversacion(id)
+        .map_err(|e| e.to_string())?;
     sesion
         .conversacion_id
         .lock()
@@ -631,6 +768,7 @@ async fn cargar_conversacion(
         id,
         titulo,
         mensajes,
+        acciones,
     })
 }
 
@@ -759,6 +897,8 @@ fn config_guardar(
 
 /// Diálogo nativo de carpeta → reabre la sesión sobre ese workspace. Si el
 /// usuario cancela, devuelve la sesión actual sin cambios (no es un error).
+/// [039A-1 04-09 H3] La ruta elegida se persiste en config (`workspace`) para
+/// que el próximo arranque la use y el modal muestre la real.
 #[tauri::command]
 fn elegir_workspace(estado: State<'_, Estado>) -> Result<InfoSesion, String> {
     let actual = sesion_actual(&estado)?;
@@ -766,13 +906,16 @@ fn elegir_workspace(estado: State<'_, Estado>) -> Result<InfoSesion, String> {
         .set_title("Elegir carpeta de trabajo del agente")
         .pick_folder();
     match carpeta {
-        Some(dir) => abrir_sesion_interna(
-            &estado,
-            None,
-            None,
-            Some(dir.to_string_lossy().into_owned()),
-            None,
-        ),
+        Some(dir) => {
+            let ruta = dir.to_string_lossy().into_owned();
+            /* Persistir la ruta elegida ANTES de reabrir: el nuevo arranque la
+             * usará como workspace por defecto. */
+            actual
+                .persistencia
+                .config_guardar("workspace", &ruta)
+                .map_err(|e| e.to_string())?;
+            abrir_sesion_interna(&estado, None, None, Some(ruta), None, None, true)
+        }
         None => info_desde_sesion(&actual),
     }
 }

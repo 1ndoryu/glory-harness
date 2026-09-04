@@ -46,6 +46,9 @@ fn main() -> ExitCode {
                 modelo: extraer_opcion(&args, &["--modelo", "--model"]),
                 dir: extraer_opcion(&args, &["--dir", "--cwd", "--workspace"]).map(std::path::PathBuf::from),
                 modo: extraer_opcion(&args, &["--modo"]),
+                /* [039A-1 04-09 H7] El CLI run no expone flag de razonamiento:
+                 * deja el default del proveedor (None → config intacta). */
+                razonamiento: None,
             };
             let prompt = if let Some(p) = prompt {
                 Some(p)
@@ -68,6 +71,9 @@ fn main() -> ExitCode {
                 modelo: extraer_opcion(&args, &["--modelo", "--model"]),
                 dir: extraer_opcion(&args, &["--dir", "--cwd", "--workspace"]).map(std::path::PathBuf::from),
                 modo: extraer_opcion(&args, &["--modo"]),
+                /* [039A-1 04-09 H7] El CLI chat/tui no expone flag de
+                 * razonamiento: deja el default del proveedor. */
+                razonamiento: None,
             };
             let usa_tui = args.iter().any(|a| a == "--tui");
             match tokio::runtime::Runtime::new() {

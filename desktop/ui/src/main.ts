@@ -17,18 +17,26 @@ import { montarSidebar } from './componentes/sidebar';
 import { montarCabeceraChat } from './componentes/cabecera';
 import { montarEntrada, type ModoEjecucion } from './componentes/entrada';
 import { montarModalConfiguracion } from './componentes/modal';
-import { renderizarBloque } from './componentes/mensajes';
+import {
+  crearHerramienta,
+  renderizarBloque,
+  crearAvisoSistema,
+  crearMensajeAsistente,
+  crearMensajeUsuario,
+} from './componentes/mensajes';
 import { montarPanelMeta } from './componentes/panelMeta';
 
 import { crearSimulacion } from './simulacion/simulacion';
 import {
   crearAdaptadorReal,
   esEntornoTauri,
+  iconoDeTool,
+  type AccionRecuperada,
   type InfoSesion,
   type MensajeGuardado,
   type OpcionesTurno,
 } from './tauri/real';
-import { crearAvisoSistema, crearMensajeAsistente, crearMensajeUsuario } from './componentes/mensajes';
+import type { EstadoHerramienta, ResultadoHerramienta } from './dominio/tipos';
 import { el } from './util/dom';
 
 const raizApp = document.getElementById('app');
@@ -67,12 +75,69 @@ function limpiarChat(): void {
   mensajes.replaceChildren();
 }
 
-/** Pinta historial persistido (user/asistente; el resto no se guarda). */
-function pintarHistorial(historial: MensajeGuardado[]): void {
+/** Render de una acción recuperada → bloque `.herramienta` estático. */
+function bloqueDesdeAccion(accion: AccionRecuperada): HTMLElement {
+  const meta = accion.ok ? 'ok' : 'falló';
+  // [039A-1 04-09 H6] Si hay diff, se muestra (como en vivo); si no, el
+  // resumen. El texto va con saltos de línea conservados (pre-wrap).
+  const cuerpo = accion.diff ? `${accion.resumen}\n${accion.diff}` : accion.resumen;
+  const resultado: ResultadoHerramienta = { tipo: 'texto', texto: cuerpo };
+  const estado: EstadoHerramienta = accion.ok
+    ? { estado: 'completada', meta, resultado }
+    : { estado: 'error', meta, resultado };
+  return crearHerramienta({
+    icono: iconoDeTool(accion.tool),
+    titulo: accion.tool,
+    estado,
+  });
+}
+
+/**
+ * Pinta historial persistido intercalando las herramientas del turno en su
+ * posición (user → acciones → assistant). [039A-1 04-09 H6] Cada acción
+ * pertenece al turno cuyo `user` la disparó: el backend ancla la acción al
+ * `creado_en` del turno (mayor o igual que el `creado_en` del user que la
+ * provocó y anterior al siguiente user). Se asigna cada acción al ÚLTIMO user
+ * con `creado_en <= turno_en` (tolerante a segundos compartidos).
+ */
+function pintarHistorial(historial: MensajeGuardado[], acciones: AccionRecuperada[] = []): void {
+  const users = historial.filter((m) => m.rol === 'user');
+  const en = (s: string): number => Date.parse(s) || 0;
+  // Mapa: índice de user → acciones que le pertenecen (en orden del backend).
+  const porTurno = new Map<number, AccionRecuperada[]>();
+  const residuales: AccionRecuperada[] = [];
+  acciones.forEach((a) => {
+    const t = en(a.turno_en);
+    // Último user con creado_en <= turno_en (o el primero si todo es posterior).
+    let indice = -1;
+    for (let i = 0; i < users.length; i++) {
+      if (en(users[i].creado_en) <= t) indice = i;
+      else break;
+    }
+    if (indice < 0) {
+      // Acción previa al primer user (p. ej. turno sin mensaje persistido).
+      residuales.push(a);
+      return;
+    }
+    const lista = porTurno.get(indice) ?? [];
+    lista.push(a);
+    porTurno.set(indice, lista);
+  });
+
+  // Recorre el historial y emite cada user seguido de sus acciones.
+  let idxUser = 0;
   for (const m of historial) {
-    if (m.rol === 'user') mensajes.appendChild(crearMensajeUsuario(m.contenido));
-    else if (m.rol === 'assistant') mensajes.appendChild(crearMensajeAsistente(m.contenido));
+    if (m.rol === 'user') {
+      mensajes.appendChild(crearMensajeUsuario(m.contenido));
+      // Acciones del turno de ESTE user (si las hay).
+      (porTurno.get(idxUser) ?? []).forEach((a) => mensajes.appendChild(bloqueDesdeAccion(a)));
+      idxUser++;
+    } else if (m.rol === 'assistant') {
+      mensajes.appendChild(crearMensajeAsistente(m.contenido));
+    }
   }
+  // Residuales al final (turno cancelado sin user persistido, etc.).
+  residuales.forEach((a) => mensajes.appendChild(bloqueDesdeAccion(a)));
   mensajes.scrollTop = mensajes.scrollHeight;
 }
 
@@ -84,7 +149,14 @@ function opcionesTurno(): OpcionesTurno {
   if (proveedor === 'commandcode' && /^(meta|stealth)\//.test(modeloActual.modelo)) {
     proveedor = 'glory';
   }
-  return { proveedor, modelo: modeloActual.modelo, modo: entrada.getModo() };
+  return {
+    proveedor,
+    modelo: modeloActual.modelo,
+    modo: entrada.getModo(),
+    // [039A-1 04-09 H7] El nivel de razonamiento de la barra/modal viaja al
+    // turno real (el backend lo aplica al config del runtime).
+    razonamiento: entrada.getRazonamiento(),
+  };
 }
 
 /**
@@ -106,7 +178,26 @@ function sincronizarModeloDesdeSesion(info: InfoSesion): void {
   modal.setModelo(modeloActual);
 }
 
-const adaptador = crearAdaptadorReal({ onSesion: sincronizarModeloDesdeSesion });
+/**
+ * [039A-1 04-09 H1] Visibilidad del panel meta: se muestra solo cuando hay
+ * meta definida o el modo es `meta` (permite escribirla). Con el panel oculto
+ * no queda hueco colgante en la entrada (el CSS anula el margin).
+ */
+function sincronizarPanelMeta(): void {
+  const hayMeta = panelMeta.getMeta().trim().length > 0;
+  const visible = hayMeta || modoActual === 'meta';
+  panelMeta.mostrar(visible);
+}
+
+const adaptador = crearAdaptadorReal({
+  onSesion(info) {
+    sincronizarModeloDesdeSesion(info);
+    // [039A-1 04-09 H3] La ruta real del workspace que el backend resolvió
+    // (no el valor por defecto del esquema) se refleja en el modal Contexto.
+    const ws = info.workspace;
+    if (ws && ws !== '<desconocido>') modal.asignarValor('workspace', ws);
+  },
+});
 
 /** Recarga la lista del backend y la pinta en la sidebar. */
 async function resincronizarSidebar(): Promise<void> {
@@ -141,6 +232,21 @@ function enviarReal(texto: string): void {
       panelMeta.setEstado('inactivo');
       const u = adaptador.usoUltimoTurno();
       panelMeta.setTokens(u.tokensPrompt + u.tokensComplecion);
+      // [039A-1 04-09 H5] El backend auto-nombra la conversación tras el
+      // primer mensaje; al terminar el turno se refresca la lista y el
+      // título de la cabecera para reflejarlo sin recargar.
+      void (async () => {
+        await resincronizarSidebar();
+        if (conversaActualId) {
+          try {
+            const lista2 = await adaptador.sesion.listar();
+            const actual = lista2.find((c) => c.id === conversaActualId);
+            if (actual) cabecera.ponerTitulo(actual.titulo);
+          } catch {
+            /* el refresco del título es cosmético: no bloquea */
+          }
+        }
+      })();
     }
     entrada.setCorriendo(false);
   };
@@ -209,7 +315,9 @@ const sidebar = montarSidebar({
       const carga = await adaptador.sesion.cargar(id);
       conversaActualId = carga.id;
       limpiarChat();
-      pintarHistorial(carga.mensajes);
+      // [039A-1 04-09 H6] Al cargar se repintan también las herramientas
+      // (acciones) intercaladas, no solo user/assistant.
+      pintarHistorial(carga.mensajes, carga.acciones);
       cabecera.ponerTitulo(carga.titulo);
       sidebar.seleccionar(carga.id);
     } catch (e: unknown) {
@@ -301,6 +409,7 @@ const entrada = montarEntrada({
   proveedores: PROVEEDORES,
   modeloActual,
   modo: modoActual,
+  razonamiento: razonamientoActual,
   onEnviar(texto) {
     enviarReal(texto);
   },
@@ -330,6 +439,23 @@ const entrada = montarEntrada({
         .configGuardar('modo', nuevo)
         .catch((e: unknown) => avisoChat(`no se pudo guardar el modo: ${String(e)}`, '', ''));
     }
+    // [039A-1 04-09 H1] Cambiar a modo meta muestra el panel (para escribirla);
+    // salir de meta con meta vacía lo oculta.
+    sincronizarPanelMeta();
+  },
+  onRazonamientoCambiado(nuevo) {
+    // [039A-1 04-09 H7] El nivel elegido en la barra es la fuente: se propaga
+    // al modal (segmentado) y se persiste para el próximo arranque. El turno
+    // lo toma vía `opcionesTurno().razonamiento` al enviar.
+    razonamientoActual = nuevo;
+    modal.asignarValor('nivelRazonamiento', nuevo);
+    if (USA_REAL) {
+      void adaptador.sesion
+        .configGuardar('nivelRazonamiento', nuevo)
+        .catch((e: unknown) =>
+          avisoChat(`no se pudo guardar el razonamiento: ${String(e)}`, '', ''),
+        );
+    }
   },
 });
 
@@ -345,9 +471,12 @@ const modal = montarModalConfiguracion({
     if (id === 'modo') {
       modoActual = valor as ModoEjecucion;
       entrada.setModo(modoActual);
+      // [039A-1 04-09 H1] El panel meta depende del modo (visible en `meta`).
+      sincronizarPanelMeta();
     } else if (id === 'nivelRazonamiento') {
       razonamientoActual = String(valor);
-      entrada.setRazonamiento(RAZONAMIENTO_ETIQUETA[razonamientoActual] ?? razonamientoActual);
+      // [039A-1 04-09 H7] El nivel elegido en el modal se refleja en la barra.
+      entrada.setRazonamientoValor(razonamientoActual);
     }
     if (USA_REAL && (id === 'modo' || id === 'nivelRazonamiento')) {
       // Guardado automático → config persistida (el resto de opciones del
@@ -378,6 +507,9 @@ chat.appendChild(mensajes);
 // max-width/padding de #entrada).
 const panelMeta = montarPanelMeta({
   onMetaCambiada(meta) {
+    // [039A-1 04-09 H1] Escribir meta la muestra; borrarla (fuera de modo
+    // meta) la oculta al confirmar edición.
+    sincronizarPanelMeta();
     if (!USA_REAL) return;
     const valor = meta.trim() ? meta.trim() : null;
     void adaptador.sesion
@@ -411,6 +543,9 @@ raizApp.appendChild(app);
 // es 0 fuera de él), así que se ajusta tras el montaje completo del layout.
 entrada.medir();
 panelMeta.medir();
+// [039A-1 04-09 H1] Estado inicial del panel: oculto salvo que el modo sea
+// meta o haya meta persistida (se verá al reabrir con modo meta guardado).
+sincronizarPanelMeta();
 
 // Reloj del turno + tokens reales del núcleo (sin simulación): mientras hay
 // turno en curso se actualizan cada segundo; al cerrar queda el total.
@@ -463,22 +598,24 @@ if (USA_REAL) {
       }
       if (razG && RAZONAMIENTO_ETIQUETA[razG]) {
         razonamientoActual = razG;
-        entrada.setRazonamiento(RAZONAMIENTO_ETIQUETA[razG]);
+        entrada.setRazonamientoValor(razG);
         modal.asignarValor('nivelRazonamiento', razG);
       }
+      // [039A-1 04-09 H1] Tras restaurar el modo guardado, el panel meta se
+      // muestra solo si corresponde (modo meta o meta persistida).
+      sincronizarPanelMeta();
       await resincronizarSidebar();
-      // Reabrir donde se quedó: la más reciente no archivada; si la recién
-      // creada está vacía y hay hilo anterior, se vuelve a ese hilo.
+      // Reabrir donde se quedó: la más reciente no archivada. El backend ya
+      // reutilizó esa conversación en `abrir_sesion` (H4); no se crea una
+      // vacía nueva si hay hilo anterior, así que no hay que saltar a una
+      // segunda candidata.
       const candidatas = conversaciones.filter((c) => !c.archivada);
       const primera = candidatas[0];
       if (primera) {
-        let carga = await adaptador.sesion.cargar(primera.id);
-        if (carga.mensajes.length === 0 && candidatas[1]) {
-          carga = await adaptador.sesion.cargar(candidatas[1].id);
-        }
+        const carga = await adaptador.sesion.cargar(primera.id);
         conversaActualId = carga.id;
         limpiarChat();
-        pintarHistorial(carga.mensajes);
+        pintarHistorial(carga.mensajes, carga.acciones);
         cabecera.ponerTitulo(carga.titulo);
         sidebar.seleccionar(carga.id);
       }

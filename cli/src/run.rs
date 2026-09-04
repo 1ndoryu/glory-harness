@@ -38,6 +38,11 @@ pub struct OpcionesRun {
     /// [318A-16 F5] Modo del turno: `predeterminado` (default), `meta`,
     /// `autonomo` o `plan` (propuesta: diff sin aplicar hasta aprobación).
     pub modo: Option<String>,
+    /// [039A-1 04-09 H7] Nivel de razonamiento del modelo (low|medium|high).
+    /// `None` → el proveedor usa su default. Se aplica a `TurnoConfig.
+    /// nivel_razonamiento` y viaja como `reasoning_effort` a los proveedores
+    /// que lo aceptan (deepseek/groq/cerebras/glory).
+    pub razonamiento: Option<String>,
 }
 
 /// Resultado de un turno one-shot, listo para imprimir.
@@ -116,6 +121,20 @@ pub fn construir_harness_con(
      * `predeterminado` (fail-closed: un typo no abre permisos). */
     if let Some(modo) = opciones.modo.as_deref().map(str::trim).filter(|m| !m.is_empty()) {
         config.modo = modo.to_string();
+    }
+    /* [039A-1 04-09 H7] Nivel de razonamiento del turno. Se valida contra el
+     * conjunto conocido (low|medium|high) y se ignora cualquier otro valor
+     * (fail-closed: un typo no rompe el arranque; el proveedor usa su
+     * default). `None` no se toca: el default de `TurnoConfig` es `None`. */
+    if let Some(razonamiento) = opciones
+        .razonamiento
+        .as_deref()
+        .map(str::trim)
+        .filter(|r| !r.is_empty())
+    {
+        if matches!(razonamiento, "low" | "medium" | "high") {
+            config.nivel_razonamiento = Some(razonamiento.to_string());
+        }
     }
 
     let runtime = Arc::new(AgentRuntime::nuevo(

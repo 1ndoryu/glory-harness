@@ -63,6 +63,8 @@ export interface OpcionesTurno {
   proveedor: string;
   modelo: string;
   modo: string;
+  /** [039A-1 04-09 H7] Nivel de razonamiento (low|medium|high). */
+  razonamiento: string;
 }
 
 export interface InfoConversacion {
@@ -88,10 +90,22 @@ export interface MensajeGuardado {
   creado_en: string;
 }
 
+/** [039A-1 04-09 H6] Acción (tool) persistida de una conversación, para
+ * repintar el bloque `.herramienta` al recargar (resumen/diff). */
+export interface AccionRecuperada {
+  tool: string;
+  ok: boolean;
+  resumen: string;
+  argumentos_json: string | null;
+  diff: string | null;
+  turno_en: string;
+}
+
 export interface CargaConversacion {
   id: string;
   titulo: string;
   mensajes: MensajeGuardado[];
+  acciones: AccionRecuperada[];
 }
 
 export interface ProveedorInfo {
@@ -125,6 +139,7 @@ function iconoDeTool(tool: string): IconoNombre {
   if (tool === 'task' || tool === 'todo') return 'flujo';
   return 'lupa';
 }
+export { iconoDeTool };
 
 function compacto(valor: unknown, max = 500): string {
   const s = typeof valor === 'string' ? valor : JSON.stringify(valor);
@@ -150,12 +165,19 @@ export function crearAdaptadorReal(hooks: HooksAdaptador = {}) {
 
   function aviso(texto: string, meta: string, detalle: string): void {
     mensajes?.appendChild(crearAvisoSistema(texto, meta, detalle));
+    bajarScroll();
+  }
+
+  /** [039A-1 04-09 H2] Baja el scroll del chat al fondo (contenedor real). */
+  function bajarScroll(): void {
+    if (mensajes) mensajes.scrollTop = mensajes.scrollHeight;
   }
 
   function asistenteVivo(): AsistenteVivo {
     if (!asistente) {
       asistente = crearMensajeAsistenteVivo('');
       mensajes?.appendChild(asistente.raiz);
+      bajarScroll();
     }
     herramienta = null;
     return asistente;
@@ -166,12 +188,15 @@ export function crearAdaptadorReal(hooks: HooksAdaptador = {}) {
       case 'token': {
         const a = asistenteVivo();
         a.nodo.insertBefore(document.createTextNode(ev.texto), a.cursor);
+        // La respuesta fluye bajo el mensaje del usuario: mantener visible.
+        bajarScroll();
         break;
       }
       case 'tool_start': {
         herramienta = crearHerramientaViva(iconoDeTool(ev.tool), ev.tool);
         herramienta.ejecutando();
         mensajes?.appendChild(herramienta.raiz);
+        bajarScroll();
         asistente = null;
         break;
       }
@@ -270,21 +295,22 @@ export function crearAdaptadorReal(hooks: HooksAdaptador = {}) {
     }
   }
 
-  let ultimaOpcion: OpcionesTurno = { proveedor: '', modelo: '', modo: '' };
+  let ultimaOpcion: OpcionesTurno = { proveedor: '', modelo: '', modo: '', razonamiento: '' };
 
   /**
-   * Abre la sesión si no existe o reconfigura si cambió provider/modelo/modo.
-   * Devuelve la info cuando hubo apertura o cambio (`null` = ya estaba
-   * acorde, sin roundtrip). La conversación se conserva salvo apertura.
+   * Abre la sesión si no existe o reconfigura si cambió provider/modelo/modo/
+   * razonamiento. Devuelve la info cuando hubo apertura o cambio (`null` = ya
+   * estaba acorde, sin roundtrip). La conversación se conserva salvo apertura.
    */
   async function asegurarSesion(opts: OpcionesTurno): Promise<InfoSesion | null> {
-    const clave = `${opts.proveedor}|${opts.modelo}|${opts.modo}`;
+    const clave = `${opts.proveedor}|${opts.modelo}|${opts.modo}|${opts.razonamiento}`;
     if (!sesionAbierta) {
       const info = await invoke<InfoSesion>('abrir_sesion', {
         provider: opts.proveedor || null,
         modelo: opts.modelo || null,
         dir: null,
         modo: opts.modo || null,
+        razonamiento: opts.razonamiento || null,
       });
       sesionAbierta = true;
       claveSesion = clave;
@@ -293,12 +319,13 @@ export function crearAdaptadorReal(hooks: HooksAdaptador = {}) {
       return info;
     }
     if (clave !== claveSesion) {
-      // Cambio de modelo/modo: reconfigura SIN perder la conversación
-      // (abrir_sesion crearía una conversación nueva vacía).
+      // Cambio de modelo/modo/razonamiento: reconfigura SIN perder la
+      // conversación (abrir_sesion crearía una conversación nueva vacía).
       const info = await invoke<InfoSesion>('reconfigurar_sesion', {
         provider: opts.proveedor || null,
         modelo: opts.modelo || null,
         modo: opts.modo || null,
+        razonamiento: opts.razonamiento || null,
       });
       claveSesion = clave;
       hooks.onSesion?.(info);
@@ -323,6 +350,9 @@ export function crearAdaptadorReal(hooks: HooksAdaptador = {}) {
     ultimaOpcion = opts;
     ultimoMensaje = texto;
     mensajes?.appendChild(crearMensajeUsuario(texto));
+    // [039A-1 04-09 H2] El mensaje del usuario debe verse al enviar: baja el
+    // scroll al final (puede que el contenedor no estuviera al fondo).
+    if (mensajes) mensajes.scrollTop = mensajes.scrollHeight;
     try {
       if (!escuchando) {
         await listen<AgenteEvento>('agente-evento', (e) => aplicar(e.payload));

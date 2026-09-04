@@ -124,6 +124,10 @@ pub struct AccionAuditable {
     pub ok: bool,
     pub resumen: String,
     pub argumentos_json: Option<String>,
+    /// [039A-1 04-09 H6] Diff de líneas del cambio (file_write/file_patch)
+    /// para repintar el resultado al recargar el historial. `None` si no
+    /// aplica. Se persiste fuera del contexto del LLM (auditoría/UI).
+    pub diff: Option<String>,
 }
 
 /// Puerto de persistencia: **todo** acceso a estado durable del agente pasa

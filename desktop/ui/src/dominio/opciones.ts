@@ -193,8 +193,12 @@ export const OPCIONES_CONTEXTO: GrupoOpciones = {
       id: 'workspace',
       etiqueta: 'Workspace',
       tipo: 'texto',
-      valor: 'C:\\area-trabajo\\glory-harness',
+      // [039A-1 04-09 H3] El valor real lo fija el backend al abrir la sesión
+      // (`InfoSesion.workspace`); la UI lo sincroniza vía modal.asignarValor.
+      // Este valor por defecto solo aplica en el mock (navegador).
+      valor: '',
       placeholder: 'ruta del workspace',
+      nota: 'Se abre con el workspace real del backend al iniciar la sesión.',
     },
     {
       id: 'preferencias',

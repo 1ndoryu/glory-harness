@@ -26,6 +26,20 @@ export const ETIQUETA_MODO: Record<ModoEjecucion, string> = {
   autonomo: 'Autónomo',
 };
 
+/** [039A-1 04-09 H7] Niveles de razonamiento (nivel_razonamiento del core). */
+export const VALORES_RAZONAMIENTO: Array<{ valor: string; etiqueta: string }> = [
+  { valor: 'low', etiqueta: 'Bajo' },
+  { valor: 'medium', etiqueta: 'Medio' },
+  { valor: 'high', etiqueta: 'Alto' },
+];
+
+/** Etiqueta visible de un nivel ('low' → 'Bajo'). */
+export const ETIQUETA_RAZONAMIENTO: Record<string, string> = {
+  low: 'Bajo',
+  medium: 'Medio',
+  high: 'Alto',
+};
+
 export interface Entrada {
   raiz: HTMLElement;
   /** Recalcula la altura del textarea (llamar tras montar al DOM). */
@@ -36,8 +50,10 @@ export interface Entrada {
   setModeloNombre(nombre: string): void;
   /** Modelo mostrado (reemplaza proveedor/modelo/nombre). */
   setModelo(modelo: ModeloSeleccionado): void;
-  /** Etiqueta del nivel de razonamiento mostrado. */
-  setRazonamiento(etiqueta: string): void;
+  /** [039A-1 04-09 H7] Nivel de razonamiento activo ('low'|'medium'|'high'). */
+  setRazonamientoValor(valor: string): void;
+  /** Nivel de razonamiento activo. */
+  getRazonamiento(): string;
   /** Etiqueta del modo. */
   setModo(modo: ModoEjecucion): void;
   /** Pide foco al textarea (tras enviar). */
@@ -51,6 +67,8 @@ export interface EntradaOpciones {
   proveedores: ProveedorModelo[];
   modeloActual: ModeloSeleccionado;
   modo: ModoEjecucion;
+  /** [039A-1 04-09 H7] Nivel de razonamiento inicial ('low'|'medium'|'high'). */
+  razonamiento?: string;
   /** Se invoca al enviar un mensaje. */
   onEnviar: (texto: string) => void;
   /** Se invoca al pulsar detener durante un turno. */
@@ -59,6 +77,8 @@ export interface EntradaOpciones {
   onModeloCambiado: (modelo: ModeloSeleccionado) => void;
   /** Se invoca al cambiar el modo de ejecución desde la barra. */
   onModoCambiado?: (modo: ModoEjecucion) => void;
+  /** [039A-1 04-09 H7] Se invoca al elegir un nivel de razonamiento. */
+  onRazonamientoCambiado?: (razonamiento: string) => void;
 }
 
 export function montarEntrada(opts: EntradaOpciones): Entrada {
@@ -90,11 +110,58 @@ export function montarEntrada(opts: EntradaOpciones): Entrada {
   const btnModelo = selectorModelo.raiz as HTMLButtonElement;
   btnModelo.id = 'control-modelo';
 
-  // control: razonamiento (estático en el boceto)
-  const spanRazonamiento = el('span', 'control');
-  spanRazonamiento.id = 'control-razonamiento';
-  spanRazonamiento.title = 'nivel de razonamiento';
-  spanRazonamiento.textContent = 'Medio';
+  // [039A-1 04-09 H7] control: razonamiento (menú Bajo/Medio/Alto, igual que
+  // el de modo; el nivel elegido viaja al turno y se persiste en config).
+  const razonamientoInicial = VALORES_RAZONAMIENTO.some(
+    (r) => r.valor === opts.razonamiento,
+  )
+    ? (opts.razonamiento as string)
+    : 'medium';
+  let razonamiento = razonamientoInicial;
+  const btnRazonamiento = el('button', 'control') as HTMLButtonElement;
+  btnRazonamiento.id = 'control-razonamiento';
+  btnRazonamiento.type = 'button';
+  btnRazonamiento.title = 'nivel de razonamiento';
+  const spanRazonamiento = el('span');
+  spanRazonamiento.textContent = ETIQUETA_RAZONAMIENTO[razonamiento] ?? 'Medio';
+  btnRazonamiento.appendChild(spanRazonamiento);
+  btnRazonamiento.appendChild(icono('chevron-abajo', true));
+
+  /** Cambia el nivel de razonamiento activo y notifica. */
+  function seleccionarRazonamiento(valor: string): void {
+    cerrarMenuActual();
+    if (razonamiento === valor) return;
+    razonamiento = valor;
+    spanRazonamiento.textContent = ETIQUETA_RAZONAMIENTO[valor] ?? valor;
+    opts.onRazonamientoCambiado?.(valor);
+  }
+
+  /** Abre el menú de razonamiento bajo el botón (check en el nivel activo). */
+  function abrirMenuRazonamiento(): void {
+    if (corriendo) return;
+    const rect = btnRazonamiento.getBoundingClientRect();
+    abrirMenuContextual({
+      rect,
+      construir(m) {
+        VALORES_RAZONAMIENTO.forEach(({ valor, etiqueta }) => {
+          m.appendChild(
+            crearItemMenu({
+              texto: etiqueta,
+              marcado: valor === razonamiento,
+              onClick() {
+                seleccionarRazonamiento(valor);
+              },
+            }),
+          );
+        });
+      },
+    });
+  }
+
+  btnRazonamiento.addEventListener('click', (e) => {
+    e.stopPropagation();
+    abrirMenuRazonamiento();
+  });
 
   // control: modo (menú contextual: predeterminado / meta / autónomo)
   const btnModo = el('button', 'control') as HTMLButtonElement;
@@ -112,7 +179,7 @@ export function montarEntrada(opts: EntradaOpciones): Entrada {
   btnEnviar.type = 'button';
 
   controles.appendChild(btnModelo);
-  controles.appendChild(spanRazonamiento);
+  controles.appendChild(btnRazonamiento);
   controles.appendChild(btnModo);
   controles.appendChild(btnEnviar);
 
@@ -225,6 +292,7 @@ export function montarEntrada(opts: EntradaOpciones): Entrada {
     setCorriendo(v: boolean) {
       corriendo = v;
       btnModo.disabled = v;
+      btnRazonamiento.disabled = v;
       selectorModelo.setDeshabilitado(v);
       pintarBotonEnviar();
     },
@@ -235,8 +303,15 @@ export function montarEntrada(opts: EntradaOpciones): Entrada {
     setModelo(modelo: ModeloSeleccionado) {
       selectorModelo.setModelo(modelo);
     },
-    setRazonamiento(etiqueta: string) {
-      spanRazonamiento.textContent = etiqueta;
+    setRazonamientoValor(valor: string) {
+      const valido = VALORES_RAZONAMIENTO.some((r) => r.valor === valor)
+        ? valor
+        : 'medium';
+      razonamiento = valido;
+      spanRazonamiento.textContent = ETIQUETA_RAZONAMIENTO[valido] ?? valido;
+    },
+    getRazonamiento() {
+      return razonamiento;
     },
     setModo(nuevo: ModoEjecucion) {
       modo = nuevo;

@@ -888,6 +888,9 @@ impl AgentRuntime {
                 ok: resultado.ok,
                 resumen: resultado.resumen.clone(),
                 argumentos_json: Some(call.argumentos.to_string()),
+                /* [039A-1 04-09 H6] Se propaga el diff del cambio para que la
+                 * UI lo repinte al recargar el historial. */
+                diff: resultado.diff.clone(),
             })
             .await?;
         let _ = tx;

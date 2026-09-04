@@ -11,6 +11,10 @@
   margin-bottom: var(--sp-sm);
 }
 
+/* [039A-1 04-09 H1] Panel oculto cuando no hay meta ni modo meta: sin hueco
+   colgante (el margin se anula también inline desde panelMeta.ts). */
+.panel-meta.oculto { display: none; }
+
 /* fila única: campo meta (izquierda, resto del ancho) + info + play */
 .pm-fila {
   display: flex;
