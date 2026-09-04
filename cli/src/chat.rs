@@ -39,7 +39,7 @@ pub fn historial_desde_persistencia(mensajes: Vec<MensajePersistido>) -> Vec<AiM
 /// Ejecuta el subcomando `chat`: abre la sesión interactiva y no devuelve
 /// hasta que el usuario salga (`/salir`, Ctrl+C o EOF).
 pub async fn chat(opciones: OpcionesRun) -> Result<(), String> {
-    let harness = construir_harness(&opciones);
+    let harness = construir_harness(&opciones).await?;
     let persistencia = harness.persistencia;
     let user_id = harness.user_id;
     let workspace = harness.workspace;

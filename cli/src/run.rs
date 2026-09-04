@@ -66,27 +66,48 @@ pub struct HarnessCli {
     pub config: TurnoConfig,
 }
 
-pub fn construir_harness(opciones: &OpcionesRun) -> HarnessCli {
+/// Construye el harness con los servidores MCP declarados en la config
+/// (`GLORY_MCP_CONFIG`, JSON `[{nombre, comando, argumentos}]`). Async porque
+/// cada servidor se spawna y se negocia `initialize` + `tools/list` (Bloque 3
+/// Fase 2). Fail-closed: un servidor que no arranca o no responde en el
+/// timeout aborta el arranque con el error (nunca éxito falso).
+pub async fn construir_harness(opciones: &OpcionesRun) -> Result<HarnessCli, String> {
     let persistencia = Arc::new(PersistenciaMemoria::nuevo());
     // Añadir una skill base para dar contexto útil (standalone sin BD).
     let user_id = Uuid::new_v4();
     persistencia.con_skills_base(user_id);
-    construir_harness_con(
+    let mut registry = AgentToolRegistry::new();
+    crate::mcp_cli::registrar_desde_env(&mut registry).await?;
+    Ok(construir_harness_con_impl(
         opciones,
         persistencia,
         Arc::new(crate::persistencia::ProgramadorMemoria::nuevo()),
         user_id,
-    )
+        registry,
+    ))
 }
 
 /// Constructor con persistencia y programador inyectables (B5): la app Tauri
 /// pasa `PersistenciaSqlite` para historial durable. `user_id` lo genera el
-/// llamador (la app lo conserva entre reinicios vía config).
+/// llamador (la app lo conserva entre reinicios vía config). Sin MCP: el
+/// consumidor que quiera servidores MCP usa [`construir_harness_con_impl`]
+/// con su registry ya poblado (mismo patrón que el sandbox/todo).
 pub fn construir_harness_con(
     opciones: &OpcionesRun,
     persistencia: Arc<dyn AgentPersistence>,
     programador: Arc<dyn ProgramadorTareas>,
     user_id: Uuid,
+) -> HarnessCli {
+    construir_harness_con_impl(opciones, persistencia, programador, user_id, AgentToolRegistry::new())
+}
+
+/// Núcleo compartido de construcción (registro de tools inyectado).
+pub fn construir_harness_con_impl(
+    opciones: &OpcionesRun,
+    persistencia: Arc<dyn AgentPersistence>,
+    programador: Arc<dyn ProgramadorTareas>,
+    user_id: Uuid,
+    registry: AgentToolRegistry,
 ) -> HarnessCli {
 
     /* La raíz del workspace: `--dir`, o el cwd donde se invocó el comando.
@@ -138,7 +159,7 @@ pub fn construir_harness_con(
     }
 
     let runtime = Arc::new(AgentRuntime::nuevo(
-        AgentToolRegistry::new(),
+        registry,
         PuertosHarness {
             persistencia: Arc::clone(&persistencia),
             llm,
@@ -192,7 +213,7 @@ pub fn quitar_prefijo_verbatim(p: PathBuf) -> PathBuf {
 /// Ejecuta un turno con el mensaje dado y recoge la respuesta de texto.
 /// Devuelve la salida o un error presentable al usuario de la CLI.
 pub async fn ejecutar_turno_run(mensaje: String, opciones: OpcionesRun) -> Result<SalidaTurno, String> {
-    let harness = construir_harness(&opciones);
+    let harness = construir_harness(&opciones).await?;
     let user_id = harness.user_id;
     let runtime = harness.runtime;
 

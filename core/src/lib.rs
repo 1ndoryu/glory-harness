@@ -33,6 +33,7 @@ pub mod tools_archivo;
 pub mod tools_web;
 pub mod scheduler;
 pub mod tareas;
+pub mod mcp;
 pub mod runtime;
 pub mod subagente;
 #[cfg(test)]

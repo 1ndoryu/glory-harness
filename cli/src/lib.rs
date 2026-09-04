@@ -12,6 +12,7 @@ pub mod chat;
 pub mod daemon;
 pub mod ejecutor;
 pub mod fetch;
+pub mod mcp_cli;
 pub mod persistencia;
 pub mod persistencia_sqlite;
 pub mod reglas;

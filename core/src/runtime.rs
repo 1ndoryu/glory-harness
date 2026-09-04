@@ -359,7 +359,7 @@ impl AgentRuntime {
     }
 
     #[must_use]
-    pub fn tools_registradas(&self) -> Vec<&'static str> {
+    pub fn tools_registradas(&self) -> Vec<&str> {
         self.registry.ids()
     }
 

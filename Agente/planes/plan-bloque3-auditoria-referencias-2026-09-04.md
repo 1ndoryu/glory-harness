@@ -434,13 +434,25 @@ commit por fase). Mover a ejecución solo tras aprobación del usuario.
       activas por defecto). Tests: 11 en `guardas.rs` + aplicación en runtime.
 
 ### Fase 2 — MCP cliente (núcleo)
-- [ ] Puerto `McpProveedor` (conexión stdio; HTTP evaluar) + registry de tools MCP
-      con **permisos del modelo F3** (mismas categorías; fail-closed sin
-      proveedor), sin SQL.
-- [ ] Config de servidores por consumidor (CLI y PT), gestión de errores de
-      transporte (timeout/reconexión acotada).
-- [ ] E2E determinista con servidor MCP stub (igual patrón que F5/F6).
-      Evidencia: claurst `crates/mcp/`, opencode `src/mcp/`, grok `mcp/validate.ts`.
+- [x] Puerto `McpProveedor` (stdio; HTTP evaluar) + registry de tools MCP con
+      **permisos del modelo F3** (categoría `mcp`, efecto=true → ask en
+      predeterminado; deny silencioso por categoría oculta las tools del
+      schema), fail-closed sin proveedor, sin SQL. `core/src/ports.rs`
+      (`McpHerramienta`+`McpProveedor`), `core/src/regla.rs` (`CAT_MCP`),
+      `core/src/mcp.rs` (`McpProveedorStdio` JSON-RPC 2.0 línea a línea con
+      `initialize`+`tools/list`+`tools/call`, `ToolMcpAdapter`,
+      `sanitizar_id`), `tool.rs` (`registrar_mcp`, ids dinámicos `String`).
+- [x] Config por consumidor (CLI ✓): `GLORY_MCP_CONFIG` (JSON
+      `[{nombre,comando,argumentos}]`) en `cli/src/mcp_cli.rs`, negociación con
+      timeout 10 s y error de arranque propagado (fail-closed); construcción
+      del chat async (`construir_harness`). PT: no registra MCP en esta fase
+      (su IA no ejecuta tools remotas; invariante task-IA sin ejecución) — la
+      superficie env queda disponible para el consumidor que la adopte.
+- [x] E2E determinista con servidor MCP stub (guion, sin proceso real):
+      registro en registry → ids `mcp_*` en schema con descripción+schema del
+      servidor, deny `mcp:*` los oculta, ejecución vía adapter devuelve el
+      texto del servidor. 6 tests en `mcp.rs`. Evidencia: claurst
+      `crates/mcp/`, opencode `src/mcp/`, grok `mcp/validate.ts`.
 
 ### Fase 3 — Skills + comandos slash personalizados unificados
 - [ ] Descubrimiento de skills: carpetas de skills de proyecto y usuario, formato

@@ -12,7 +12,7 @@ use crate::aprobacion::{PeticionAprobacion, RespuestaAprobacion};
 use crate::error::{Error, Result};
 use crate::pregunta::PreguntaPendiente;
 use crate::permiso::{es_tool_propuesta, permiso_por_modo, resolver_permiso, Permiso};
-use crate::ports::{AgentPersistence, ProviderPort, WebFetchProvider, WebSearchProvider};
+use crate::ports::{AgentPersistence, McpProveedor, ProviderPort, WebFetchProvider, WebSearchProvider};
 use crate::regla::{categorias_core, Clasificador, ReglaPermiso};
 use crate::sandbox::SandboxArchivos;
 use crate::todo::TodoCompartida;
@@ -110,8 +110,10 @@ impl AgentToolResult {
 /// de ejecutar.
 #[async_trait]
 pub trait AgentTool: Send + Sync {
-    fn id(&self) -> &'static str;
-    fn descripcion(&self) -> &'static str;
+    /// Id dinámico desde 1c/Bl2: las tools MCP (`mcp_<servidor>_<tool>`) no
+    /// pueden devolver un `&'static str`; el registro indexa por `String`.
+    fn id(&self) -> &str;
+    fn descripcion(&self) -> &str;
     fn schema(&self) -> Value;
     /// ¿Tiene efectos (escribe/borra)? Las tools con efecto en modo
     /// predeterminado requieren aprobación (diferenciado por la política de
@@ -130,7 +132,7 @@ pub trait AgentTool: Send + Sync {
 /// Registro de tools: registrar_tool() en el arranque; listar_schemas() para el
 /// request al LLM; ejecutar() con validación de schema.
 pub struct AgentToolRegistry {
-    tools: HashMap<&'static str, Box<dyn AgentTool>>,
+    tools: HashMap<String, Box<dyn AgentTool>>,
     /// Sandbox compartido (Fase 2). Se fija una vez por runtime; el runtime lo
     /// inyecta en el contexto al ejecutar tools.
     sandbox_archivos: Option<Arc<SandboxArchivos>>,
@@ -139,7 +141,7 @@ pub struct AgentToolRegistry {
     /// [318A-15 F3] Overrides de permiso por conversación: `Arc` compartido
     /// (el runtime se clona el registro y ambos deben ver los mismos
     /// overrides). `None` (eliminado) → vuelve al default del modo.
-    overrides: Arc<RwLock<HashMap<&'static str, Permiso>>>,
+    overrides: Arc<RwLock<HashMap<String, Permiso>>>,
     /// [318A-16 F1] Reglas v2 por categoría+patrón (ver `regla.rs`): lista
     /// ordenada por inserción, última coincidencia gana. `Arc` compartido por
     /// el mismo motivo que `overrides` (clones del registro en subagentes).
@@ -147,11 +149,11 @@ pub struct AgentToolRegistry {
     /// [318A-16 F1] Clasificadores de las tools del núcleo: de los argumentos
     /// de una llamada a su (categoría derivada, patrón). Las tools del
     /// consumidor sin entrada caen a su id como clave con patrón `*`.
-    clasificadores: HashMap<&'static str, Clasificador>,
+    clasificadores: HashMap<String, Clasificador>,
     /// [318A-16 F1] Categoría estática de cada tool del núcleo (para la clave
     /// de resolución cuando la llamada no lleva argumento clasificable y para
     /// el ocultado de schema por regla deny de categoría).
-    categorias: HashMap<&'static str, &'static str>,
+    categorias: HashMap<String, &'static str>,
     /// [318A-16 F2] Peticiones de aprobación pendientes por `id` (canal
     /// explícito de respuesta). Arc compartido con los clones del registro.
     pendientes: Arc<RwLock<HashMap<String, PeticionAprobacion>>>,
@@ -181,9 +183,9 @@ impl AgentToolRegistry {
          * núcleo (semántica central, no por-tool para no acoplar cada tool a
          * la política de permisos). */
         for (tool_id, categoria, clasificador) in categorias_core() {
-            categorias.insert(tool_id, categoria);
+            categorias.insert(tool_id.to_string(), categoria);
             if let Some(cl) = clasificador {
-                clasificadores.insert(tool_id, cl);
+                clasificadores.insert(tool_id.to_string(), cl);
             }
         }
         Self {
@@ -201,7 +203,35 @@ impl AgentToolRegistry {
     }
 
     pub fn registrar(&mut self, tool: Box<dyn AgentTool>) {
-        self.tools.insert(tool.id(), tool);
+        self.tools.insert(tool.id().to_string(), tool);
+    }
+
+    /// [Bloque 3, F2] Registra las tools de un servidor MCP: una tool
+    /// `mcp_<servidor>_<herramienta>` por herramienta listada, con la
+    /// categoría `mcp` (permisos F3: efecto=true → ask en predeterminado,
+    /// deny en meta/plan, allow en autónomo) y su schema declarado por el
+    /// servidor. Fail-closed: un error de transporte/lista propaga y el
+    /// consumidor decide omitir el servidor; sin proveedor no hay tools MCP.
+    pub async fn registrar_mcp(
+        &mut self,
+        servidor: &str,
+        proveedor: Arc<dyn McpProveedor>,
+    ) -> Result<()> {
+        let herramientas = proveedor.listar_herramientas().await?;
+        let prefijo = crate::mcp::sanitizar_id(servidor);
+        for herramienta in herramientas {
+            let id = format!("mcp_{}_{}", prefijo, crate::mcp::sanitizar_id(&herramienta.nombre));
+            self.categorias.insert(id.clone(), crate::regla::CAT_MCP);
+            self.tools.insert(
+                id.clone(),
+                Box::new(crate::mcp::ToolMcpAdapter::nuevo(
+                    id,
+                    herramienta,
+                    Arc::clone(&proveedor),
+                )),
+            );
+        }
+        Ok(())
     }
 
     /// Fija el sandbox de archivos del runtime (solo AGENTE_MODO=local).
@@ -225,8 +255,8 @@ impl AgentToolRegistry {
     }
 
     #[must_use]
-    pub fn ids(&self) -> Vec<&'static str> {
-        let mut ids: Vec<&'static str> = self.tools.keys().copied().collect();
+    pub fn ids(&self) -> Vec<&str> {
+        let mut ids: Vec<&str> = self.tools.keys().map(String::as_str).collect();
         ids.sort_unstable();
         ids
     }
@@ -241,7 +271,7 @@ impl AgentToolRegistry {
         let mut schemas: Vec<Value> = self
             .tools
             .iter()
-            .filter(|(id, _)| solo_ids.map(|ids| ids.contains(id)).unwrap_or(true))
+            .filter(|(id, _)| solo_ids.map(|ids| ids.contains(&id.as_str())).unwrap_or(true))
             .filter(|(id, _)| {
                 /* deny silencioso: override `deny`, modo meta con efecto o
                  * regla v2 deny con patrón `*` (opencode `visibleTools`) — la
@@ -329,11 +359,11 @@ impl AgentToolRegistry {
 
     /// Override de permiso de una tool para esta conversación (F3).
     /// `Some(Permiso)` reemplaza al default del modo; `None` lo restaura.
-    pub fn establecer_permiso(&self, tool_id: &'static str, permiso: Option<Permiso>) {
+    pub fn establecer_permiso(&self, tool_id: &str, permiso: Option<Permiso>) {
         let mut guard = self.overrides.write().unwrap_or_else(|p| p.into_inner());
         match permiso {
             Some(p) => {
-                guard.insert(tool_id, p);
+                guard.insert(tool_id.to_string(), p);
             }
             None => {
                 guard.remove(tool_id);

@@ -32,6 +32,10 @@ pub const CAT_TODO: &str = "todo";
 /// es `comando:<nivel>` (seguro/bajo/medio/alto/critico) para que "permitir
 /// siempre" cubra un TIPO de comando, no el comando exacto.
 pub const CAT_COMANDO: &str = "comando";
+/// [Bloque 3, F2] Tools expuestas por servidores MCP: efecto=true → ask en
+/// predeterminado, deny en meta/plan; una regla `mcp:*` o `mcp:<servidor>:*`
+/// (clave derivada del id de la tool) controla todo un servidor.
+pub const CAT_MCP: &str = "mcp";
 
 /// Una regla de permiso: para la categoría `categoria`, si el valor concreto
 /// de la llamada coincide con `patron` (wildcard `*`/`**`), aplicar `accion`.

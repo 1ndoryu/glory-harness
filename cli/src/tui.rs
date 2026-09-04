@@ -517,7 +517,7 @@ fn a_lineas(ui: &UiEstado, ancho: usize) -> Vec<Line<'static>> {
 /// Devuelve `Err` solo si la terminal no admite la TUI; Ctrl+C/Esc/`/salir`
 /// salen con `Ok(())`.
 pub async fn tui(opciones: OpcionesRun) -> Result<(), String> {
-    let harness = construir_harness(&opciones);
+    let harness = construir_harness(&opciones).await?;
 
     let raiz = harness
         .workspace

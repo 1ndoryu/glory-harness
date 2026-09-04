@@ -5,6 +5,7 @@
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::collections::HashMap;
 use uuid::Uuid;
 
@@ -240,6 +241,34 @@ pub struct ContenidoWeb {
 pub trait WebFetchProvider: Send + Sync {
     /// Descarga `url` y devuelve el texto legible acotado a `limite_bytes`.
     async fn obtener(&self, url: &str, limite_bytes: usize) -> Result<ContenidoWeb>;
+}
+
+// ---------------------------------------------------------------------------
+// Servidor MCP (puerto de tools, Bloque 3 Fase 2)
+// ---------------------------------------------------------------------------
+
+/// Herramienta expuesta por un servidor MCP (`tools/list`). El núcleo la
+/// registra como una tool `mcp_<servidor>_<herramienta>` en el registry con
+/// la categoría `mcp` (permisos F3, fail-closed).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct McpHerramienta {
+    pub nombre: String,
+    pub descripcion: String,
+    /// JSON Schema de entrada (`inputSchema` del servidor).
+    pub schema: Value,
+}
+
+/// Puerto de servidor MCP. El núcleo trae [`crate::mcp::McpProveedorStdio`]
+/// (transporte stdio JSON-RPC línea a línea); el consumidor puede aportar el
+/// suyo (HTTP/SSE en una fase posterior). Sin proveedor no hay tools MCP
+/// (fail-closed, mismo patrón que `EjecutorComando`).
+#[async_trait]
+pub trait McpProveedor: Send + Sync {
+    /// Herramientas disponibles (`tools/list`).
+    async fn listar_herramientas(&self) -> Result<Vec<McpHerramienta>>;
+    /// Invoca una herramienta (`tools/call`) y devuelve el resultado crudo
+    /// del servidor (el adaptador extrae el texto legible).
+    async fn llamar(&self, herramienta: &str, argumentos: Value) -> Result<Value>;
 }
 
 // ---------------------------------------------------------------------------
