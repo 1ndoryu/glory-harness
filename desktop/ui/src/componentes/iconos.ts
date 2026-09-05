@@ -38,6 +38,10 @@ const TRAZOS: Record<IconoNombre, string> = {
   'flecha-arriba': '<path d="m5 12 7-7 7 7"></path><path d="M12 19V5"></path>',
   volver:
     '<path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline>',
+  'panel-izq-cerrar':
+    '<rect width="18" height="18" x="3" y="3" rx="2"></rect><path d="M9 3v18"></path><path d="m16 15-3-3 3-3"></path>',
+  'panel-izq-abrir':
+    '<rect width="18" height="18" x="3" y="3" rx="2"></rect><path d="M9 3v18"></path><path d="m14 15 3-3-3-3"></path>',
   detener: '<rect x="6.5" y="6.5" width="11" height="11"></rect>',
   'chevron-abajo': '<path d="m6 9 6 6 6-6"></path>',
   'chevron-derecha': '<path d="m9 18 6-6-6-6"></path>',

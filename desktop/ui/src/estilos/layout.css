@@ -29,13 +29,17 @@
 }
 
 /* ---------- Sidebar ---------- */
+#cuerpo { --sidebar-ancho: 260px; }
 #sidebar {
-    width: 260px;
+    width: var(--sidebar-ancho);
     border-right: 1px solid var(--borde);
     display: flex;
     flex-direction: column;
     min-height: 0;
+    flex: none;
 }
+#cuerpo.sidebar-colapsada #sidebar,
+#cuerpo.sidebar-colapsada .sidebar-grip { display: none; }
 #sidebar .nav-botones {
     display: flex;
     flex-direction: column;
@@ -144,11 +148,70 @@
     border-bottom: 1px solid var(--borde);
     padding: var(--sp-sm) var(--sp-md);
     display: flex;
-    align-items: baseline;
+    align-items: center;
     gap: var(--sp-md);
     font-size: var(--xs);
 }
-#cabecera-chat .titulo { font-size: var(--sm); }
+#cabecera-chat .titulo {
+    font-size: var(--sm);
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+/* [039A-3 P4] Edición inline del título (renombrar desde el ⋯). */
+#cabecera-chat .titulo-renombrar {
+    font-family: inherit;
+    font-size: var(--sm);
+    background: #fff;
+    color: #000;
+    border: 1px solid #000;
+    padding: 1px 2px;
+    flex: 1;
+    min-width: 0;
+}
+/* [039A-3 P4] Botones de cabecera (colapsar sidebar + ⋯): cuadrado pequeño
+   monocromo con borde, hover invierte. El grupo va ANTES del título. */
+#cabecera-chat .acciones-cabecera {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-sm);
+    flex: none;
+}
+#cabecera-chat .cab-boton {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    background: #fff;
+    color: #000;
+    border: 1px solid #000;
+    font-family: inherit;
+    font-size: var(--sm);
+    line-height: 1;
+    padding: 0;
+    cursor: pointer;
+}
+#cabecera-chat .cab-boton:hover { background: #000; color: #fff; }
+
+/* ---------- Grip de redimensionado de la sidebar ---------- */
+#cuerpo .sidebar-grip {
+    flex: none;
+    width: 5px;
+    cursor: col-resize;
+    background: #fff;
+    align-self: stretch;
+}
+#cuerpo .sidebar-grip:hover { background: #000; }
+
+/* [039A-3 P4] Mientras se arrastra el grip: cursor col-resize en toda la
+   ventana y sin selección de texto (evita que el drag seleccione nodos). */
+body.redimensionando-sidebar {
+    cursor: col-resize;
+    user-select: none;
+}
 
 #mensajes {
     flex: 1;

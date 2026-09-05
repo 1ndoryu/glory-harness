@@ -5,8 +5,9 @@ Estado: EN EJECUCIÓN — bloque completo aprobado por el usuario ("empieza con 
 completalo todo", 04-09). 039A-3a + 039A-3b (P1-P6). P1 HECHO (persistir uso real + pie de
 turno, con retoques visuales del usuario: botón copiar icono sin borde, sin línea separadora,
 sin palabras "modelo"/"contexto", opacidad 0.6). P2 HECHO (editar/volver a punto: rewind
-conversacional transaccional por `rowid` + menú por mensaje; commit `039A-3 (P2)`).
-P3-P6 en curso.
+conversacional transaccional por `rowid` + menú por mensaje; commit `039A-3 (P2)`). P4 HECHO
+(⋯ cabecera + sidebar colapsable/redimensionable; commit `039A-3 (P4)`).
+P3, P5-P6 en curso.
 Plan base: plan-glory-harness-desktop-2026-09-03.md (039A-1, fases F1-F6 + anexo §10)
 Tipo: ampliación del desktop (UI + backend Tauri + core opcional)
 Revisión: supervisor_thinker — VEREDICTO VIABLE CON RESERVAS; decisiones cerradas en §6 (Fase 0)
@@ -397,13 +398,18 @@ para no acoplar el riesgo del vault al del multi-panel. Pendiente de confirmar c
       externa entre el turno y la restauración → avisa y NO toca; (3) archivo >1MB (previo
       completo); (4) hook no-op no rompe `escribir` (test core).
 
-### P4 — Botón ⋯ en cabecera + sidebar colapsable/redimensionable + botón expandir (039A-3a)
-- [ ] Front: menú ⋯ en cabecera (renombrar/archivar/eliminar/copiar + futuras), reutilizando
+### P4 — Botón ⋯ en cabecera + sidebar colapsable/redimensionable + botón expandir (039A-3a) — HECHO (04-09)
+- [x] Front: menú ⋯ en cabecera (renombrar/archivar/eliminar/copiar + futuras), reutilizando
       `menu.ts`; extraer `copiarAlPortapapeles` (hoy privada en sidebar.ts) a util compartida.
-- [ ] Front: variable `--sidebar-ancho` + drag para redimensionar (clamp 180-420) + botón
+- [x] Front: variable `--sidebar-ancho` + drag para redimensionar (clamp 180-420) + botón
       colapsar + botón expandir junto al título (`#btn-abrir-sidebar` en `#cabecera-chat`);
       persistir ancho/colapsada en config (`sidebar_ancho`, `sidebar_colapsada`).
-- [ ] Evidencia: type-check + build; ver en navegador (mock).
+- [x] Evidencia: type-check + build; ver en navegador (mock). Verificado: colapsar/expandir con
+      icono panel-izq, drag grip 180-420 con persistencia, ⋯ cabecera (renombrar inline,
+      archivar/desarchivar, copiar ID `conv-1`, eliminar) actuando sobre la conversación activa.
+      Nota de implementación: en mock la conversación activa se fija al arrancar (primera no
+      archivada) y al crear/eliminar; en real se restaura ancho/colapsado desde config en el
+      arranque. Sin acceso real a `tauri dev` en esta pasada (ver §P2 E2E).
 
 ### P5 — Dos conversaciones (panel lateral máx 2) (039A-3b; requiere Fase 1)
 - [ ] Backend: `PanelManager` (mapa hasta 2 paneles); comandos aceptan `panel_id`; eventos llevan
@@ -549,4 +555,6 @@ main.rs · pie en main/mensajes · config 150k en construir_harness_con.
 
 **Estado**: EN EJECUCIÓN — bloque completo aprobado por el usuario (04-09). P1 (pie de turno +
 persistir uso/modelo real) HECHO y verificado en mock; P2 (editar/volver a punto) HECHO y
-verificado (unit + type-check + build + flujo mock); resto de fases (P3-P6) en curso.
+verificado (unit + type-check + build + flujo mock); P4 (⋯ cabecera + sidebar
+colapsable/redimensionable) HECHO y verificado en navegador mock; resto de fases (P3, P5, P6)
+en curso.

@@ -28,6 +28,14 @@ export interface Sidebar {
    * conserva la selección si el id sigue existiendo.
    */
   sustituir(conversaciones: Conversacion[]): void;
+  /** [039A-3 P4] Pone el título de una conversación en edición inline (misma
+   * mecánica que el ⋯ de su fila). No-op si el id no está en la lista. */
+  empezarRenombrar(id: string): void;
+  /** [039A-3 P4] Archiva/desarchiva una conversación (misma lógica que el ⋯
+   * de su fila: muta, notifica al llamador y repinta). */
+  archivarConversacion(id: string): void;
+  /** [039A-3 P4] Elimina una conversación (misma lógica que el ⋯ de su fila). */
+  eliminarConversacion(id: string): void;
 }
 
 /** Acciones de los botones superiores del nav. */
@@ -138,6 +146,35 @@ export function montarSidebar(opts: SidebarOpciones): Sidebar {
     input.select();
   }
 
+  /** [039A-3 P4] Archiva/desarchiva por id (acción compartida: ⋯ de fila y de
+   * cabecera). Muta la conversación, notifica al llamador y repinta. */
+  function alternarArchivado(id: string): void {
+    const conv = conversaciones.find((c) => c.id === id);
+    if (!conv) return;
+    conv.archivada = !conv.archivada;
+    opts.onArchivar(conv.id, conv.archivada);
+    pintarLista();
+    cerrarMenuActual();
+  }
+
+  /** [039A-3 P4] Elimina por id (acción compartida: ⋯ de fila y de cabecera). */
+  function eliminar(id: string): void {
+    const conv = conversaciones.find((c) => c.id === id);
+    if (!conv) return;
+    celdas.delete(conv.id);
+    conversaciones.splice(conversaciones.indexOf(conv), 1);
+    opts.onEliminar(conv.id);
+    pintarLista();
+    cerrarMenuActual();
+  }
+
+  /** [039A-3 P4] Entra en modo renombrar la celda con ese id (si existe). */
+  function renombrarPorId(id: string): void {
+    const conv = conversaciones.find((c) => c.id === id);
+    const celda = celdas.get(id);
+    if (conv && celda) empezarRenombrar(conv, celda);
+  }
+
   /** Crea una celda .conv con su menú contextual (misma mecánica que el modelo). */
   function crearCelda(conv: Conversacion): HTMLDivElement {
     const d = el('div', 'conv' + (conv.archivada ? ' archivada' : ''));
@@ -175,10 +212,7 @@ export function montarSidebar(opts: SidebarOpciones): Sidebar {
             crearItemMenu({
               texto: conv.archivada ? 'Desarchivar' : 'Archivar',
               onClick() {
-                conv.archivada = !conv.archivada;
-                opts.onArchivar(conv.id, conv.archivada);
-                pintarLista();
-                cerrarMenuActual();
+                alternarArchivado(conv.id);
               },
             }),
           );
@@ -196,11 +230,7 @@ export function montarSidebar(opts: SidebarOpciones): Sidebar {
             crearItemMenu({
               texto: 'Eliminar',
               onClick() {
-                celdas.delete(conv.id);
-                conversaciones.splice(conversaciones.indexOf(conv), 1);
-                opts.onEliminar(conv.id);
-                pintarLista();
-                cerrarMenuActual();
+                eliminar(conv.id);
               },
             }),
           );
@@ -281,6 +311,17 @@ export function montarSidebar(opts: SidebarOpciones): Sidebar {
       conversaciones.splice(0, conversaciones.length, ...nuevas.map((c) => ({ ...c })));
       if (activaId && !conversaciones.some((c) => c.id === activaId)) activaId = null;
       pintarLista();
+    },
+    // [039A-3 P4] Acciones por id compartidas con el ⋯ de la cabecera del
+    // chat: la cabecera no sabe de filas; la sidebar es la fuente de la lista.
+    empezarRenombrar(id: string) {
+      renombrarPorId(id);
+    },
+    archivarConversacion(id: string) {
+      alternarArchivado(id);
+    },
+    eliminarConversacion(id: string) {
+      eliminar(id);
     },
   };
 }

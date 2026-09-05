@@ -99,8 +99,9 @@ Orden propuesto (dependencias de abajo arriba):
   (04-09): bloque completo aprobado (P1-P6). P1 (pie de turno + persistir uso/modelo real)
   HECHO (mock + type-check + cargo check). P2 (editar/volver a punto: rewind transaccional por
   `rowid` + menú por mensaje) HECHO (unit + type-check + build + mock; commit `039A-3 (P2)`).
-  En curso: P3 vault de respaldos → P4 ⋯ cabecera + sidebar → P5 2 paneles → P6 indicador
-  circular + config 150k.
+  P4 (⋯ cabecera + sidebar colapsable/redimensionable + botón expandir) HECHO (type-check +
+  build + navegador mock; commit `039A-3 (P4)`).
+  En curso: P3 vault de respaldos → P5 2 paneles → P6 indicador circular + config 150k.
   ⚠️ Core (`sandbox.rs`) se toca en P3 (hook opcional + exclusión `.glory-harness/`) — coordinar
   con el agente paralelo (318A-17) que trabaja en core/cli y commitea en `main`.
 

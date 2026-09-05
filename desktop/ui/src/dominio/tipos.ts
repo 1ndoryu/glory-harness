@@ -122,6 +122,8 @@ export type IconoNombre =
   | 'nueva'
   | 'copiar'
   | 'volver'
+  | 'panel-izq-cerrar'
+  | 'panel-izq-abrir'
   | 'flecha-arriba'
   | 'detener'
   | 'chevron-abajo'

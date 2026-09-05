@@ -25,7 +25,7 @@ import {
   crearMensajeUsuario,
   crearPieTurno,
 } from './componentes/mensajes';
-import { abrirMenuContextual, cerrarMenuActual, crearItemMenu } from './componentes/menu';
+import { abrirMenuContextual, cerrarMenuActual, crearItemMenu, crearSeparadorMenu } from './componentes/menu';
 import { montarPanelMeta } from './componentes/panelMeta';
 
 import { crearSimulacion } from './simulacion/simulacion';
@@ -56,7 +56,52 @@ cuerpo.id = 'cuerpo';
 const chat = el('section');
 chat.id = 'chat';
 
-const cabecera = montarCabeceraChat('Refactor CLI a lib+bin');
+// [039A-3 P4] Cabecera con botón de colapsar sidebar + ⋯ de acciones de la
+// conversación. El menú ⋯ se construye aquí (abrirAccionesCabecera) con la
+// conversación actual; renombrar/archivar/eliminar delegan en la sidebar.
+let sidebarAbierta = true;
+const cabecera = montarCabeceraChat({
+  titulo: 'Refactor CLI a lib+bin',
+  onAcciones(rect) {
+    abrirAccionesCabecera(rect);
+  },
+  onToggleSidebar() {
+    setSidebarAbierta(!sidebarAbierta);
+  },
+});
+
+// [039A-3 P4] Grip de redimensionado de la sidebar: se inserta entre la
+// sidebar y el chat dentro de #cuerpo. Al arrastrar actualiza la custom
+// property --sidebar-ancho (clamp 180-420) y persiste el ancho.
+const grip = el('div', 'sidebar-grip');
+grip.setAttribute('aria-hidden', 'true');
+{
+  const MIN = 180;
+  const MAX = 420;
+  let arrastrando = false;
+  function anchoDesdeCursor(clientX: number): number {
+    const izquierda = cuerpo.getBoundingClientRect().left;
+    return Math.min(MAX, Math.max(MIN, Math.round(clientX - izquierda)));
+  }
+  grip.addEventListener('mousedown', (e) => {
+    e.preventDefault();
+    arrastrando = true;
+    document.body.classList.add('redimensionando-sidebar');
+  });
+  window.addEventListener('mousemove', (e) => {
+    if (!arrastrando) return;
+    const ancho = anchoDesdeCursor(e.clientX);
+    cuerpo.style.setProperty('--sidebar-ancho', `${ancho}px`);
+  });
+  window.addEventListener('mouseup', () => {
+    if (!arrastrando) return;
+    arrastrando = false;
+    document.body.classList.remove('redimensionando-sidebar');
+    // Persistir el ancho final (real en config; mock en localStorage).
+    const ancho = Math.round(parseFloat(getComputedStyle(cuerpo).getPropertyValue('--sidebar-ancho')) || 260);
+    guardarSidebar('sidebar_ancho', String(ancho));
+  });
+}
 
 const mensajes = el('div');
 mensajes.id = 'mensajes';
@@ -262,6 +307,126 @@ function abrirAccionesMensaje(id: string, rect: DOMRect): void {
           onClick() {
             cerrarMenuActual();
             copiarTramoMensaje(id);
+          },
+        }),
+      );
+    },
+  });
+}
+
+// ---------- [039A-3 P4] sidebar colapsable + redimensionable ----------
+// El estado (abierta/colapsada + ancho) vive aquí; la cabecera solo muestra
+// el botón toggle. Se persiste: en config del backend cuando hay sesión real
+// (`sidebar_ancho`/`sidebar_colapsada`), y en localStorage en el navegador
+// (mock) para poder verificarlo.
+
+const CLAVE_ANCHO = 'sidebar_ancho';
+const CLAVE_COLAPSADA = 'sidebar_colapsada';
+
+/** Persiste el estado del sidebar (real → config; mock → localStorage). */
+function guardarSidebar(clave: string, valor: string): void {
+  if (USA_REAL) {
+    void adaptador.sesion
+      .configGuardar(clave, valor)
+      .catch((e: unknown) => avisoChat(`no se pudo guardar ${clave}: ${String(e)}`, '', ''));
+  } else {
+    try {
+      window.localStorage.setItem(clave, valor);
+    } catch {
+      /* sin persistencia local: no bloquea */
+    }
+  }
+}
+
+/** Lee el estado del sidebar (real → config; mock → localStorage). */
+function leerSidebar(clave: string): string | null {
+  if (USA_REAL) return null; // se lee async en el arranque real
+  try {
+    return window.localStorage.getItem(clave);
+  } catch {
+    return null;
+  }
+}
+
+/** Aplica el estado visual de la sidebar (clase + custom property). */
+function pintarSidebar(): void {
+  cuerpo.classList.toggle('sidebar-colapsada', !sidebarAbierta);
+  cabecera.setSidebarAbierta(sidebarAbierta);
+}
+
+/** Colapsa (false) o expande (true) la sidebar y persiste el estado. */
+function setSidebarAbierta(abierta: boolean): void {
+  if (sidebarAbierta === abierta) return;
+  sidebarAbierta = abierta;
+  pintarSidebar();
+  guardarSidebar(CLAVE_COLAPSADA, abierta ? '0' : '1');
+}
+
+/** [039A-3 P4] Menú ⋯ de la cabecera: acciones de la conversación actual.
+ * Reutiliza la misma lógica que el ⋯ de cada fila de la sidebar (que es la
+ * dueña de la lista); aquí solo se dispara sobre la conversación activa. */
+function abrirAccionesCabecera(rect: DOMRect): void {
+  const conv = conversaciones.find((c) => c.id === conversaActualId);
+  if (!conv) {
+    avisoChat('no hay conversación activa', '', '');
+    return;
+  }
+  const id = conv.id;
+  abrirMenuContextual({
+    rect,
+    construir(m) {
+      m.appendChild(
+        crearItemMenu({
+          texto: 'Cambiar nombre',
+          onClick() {
+            // Renombrar en la cabecera edita el título inline; al guardar se
+            // delega en el mismo onRenombrar de la sidebar (backend real).
+            cerrarMenuActual();
+            cabecera.empezarRenombrar(
+              conv.titulo,
+              (nuevo) => {
+                conv.titulo = nuevo;
+                cabecera.ponerTitulo(nuevo);
+                if (USA_REAL) {
+                  void adaptador.sesion
+                    .renombrar(id, nuevo)
+                    .then(async (ok) => {
+                      if (!ok) avisoChat('el backend no renombró', '', '');
+                      await resincronizarSidebar();
+                    })
+                    .catch(() => resincronizarSidebar());
+                } else {
+                  sidebar.sustituir(conversaciones);
+                }
+              },
+              () => undefined,
+            );
+          },
+        }),
+      );
+      m.appendChild(
+        crearItemMenu({
+          texto: conv.archivada ? 'Desarchivar' : 'Archivar',
+          onClick() {
+            sidebar.archivarConversacion(id);
+          },
+        }),
+      );
+      m.appendChild(
+        crearItemMenu({
+          texto: 'Copiar ID',
+          onClick() {
+            cerrarMenuActual();
+            void copiarAlPortapapeles(id);
+          },
+        }),
+      );
+      m.appendChild(crearSeparadorMenu());
+      m.appendChild(
+        crearItemMenu({
+          texto: 'Eliminar',
+          onClick() {
+            sidebar.eliminarConversacion(id);
           },
         }),
       );
@@ -574,6 +739,9 @@ async function nuevaConversacionReal(): Promise<void> {
 const sidebar = montarSidebar({
   conversaciones,
   async onSeleccionar(id) {
+    // [039A-3 P4] En mock también se mantiene la conversación activa para que
+    // el ⋯ de la cabecera y las acciones actúen sobre la conversación actual.
+    conversaActualId = id;
     if (!USA_REAL) {
       const conv = conversaciones.find((c) => c.id === id);
       if (conv) cabecera.ponerTitulo(conv.titulo);
@@ -629,7 +797,26 @@ const sidebar = montarSidebar({
   },
   async onEliminar(id) {
     conversaciones = conversaciones.filter((c) => c.id !== id);
-    if (!USA_REAL) return;
+    if (!USA_REAL) {
+      // [039A-3 P4] En mock también se actualiza la sidebar y, si se eliminó la
+      // conversación activa, se pasa a la primera restante (o se queda sin
+      // activa). El chat decorativo del mock no se limpia: es un historial de
+      // ejemplo fijo (al navegar el mock no repinta por conversación).
+      sidebar.sustituir(conversaciones);
+      if (id === conversaActualId) {
+        const resto = conversaciones.find((c) => !c.archivada);
+        if (resto) {
+          conversaActualId = resto.id;
+          cabecera.ponerTitulo(resto.titulo);
+          sidebar.seleccionar(resto.id);
+        } else {
+          // Sin conversaciones restantes: el chat queda en blanco sin activa.
+          conversaActualId = null;
+          cabecera.ponerTitulo('Sin conversación');
+        }
+      }
+      return;
+    }
     try {
       // Si era la actual, el backend crea una nueva y la devuelve.
       const actual = await adaptador.sesion.eliminar(id);
@@ -655,6 +842,7 @@ const sidebar = montarSidebar({
         const n = conversaciones.length + 1;
         const nueva = { id: `local-${Date.now()}`, titulo: `Conversación ${n}` };
         conversaciones = [nueva, ...conversaciones];
+        conversaActualId = nueva.id;
         sidebar.sustituir(conversaciones);
         limpiarChat();
         cabecera.ponerTitulo(nueva.titulo);
@@ -775,6 +963,8 @@ const modal = montarModalConfiguracion({
 
 // ---------- Montaje del DOM ----------
 cuerpo.appendChild(sidebar.raiz);
+// [039A-3 P4] El grip de redimensionado va entre la sidebar y el chat.
+cuerpo.appendChild(grip);
 chat.appendChild(cabecera.raiz);
 chat.appendChild(mensajes);
 // El panel meta va DENTRO de #entrada, justo antes de .caja, para que
@@ -822,6 +1012,27 @@ panelMeta.medir();
 // meta o haya meta persistida (se verá al reabrir con modo meta guardado).
 sincronizarPanelMeta();
 
+// [039A-3 P4] Estado inicial del sidebar en el navegador (mock): se restaura
+// el ancho y el colapsado guardados en localStorage. En Tauri (USA_REAL) se
+// lee de config en el arranque real (más abajo, bloque USA_REAL).
+{
+  const ancho = leerSidebar(CLAVE_ANCHO);
+  if (ancho) {
+    const n = Number(ancho);
+    if (Number.isFinite(n)) cuerpo.style.setProperty('--sidebar-ancho', `${Math.round(n)}px`);
+  }
+  const col = leerSidebar(CLAVE_COLAPSADA);
+  sidebarAbierta = col !== '1';
+  pintarSidebar();
+  // [039A-3 P4] En mock la conversación mostrada en el chat es la primera no
+  // archivada: así el ⋯ de la cabecera y las acciones actúan sobre la
+  // conversación correcta desde el primer render.
+  if (conversaActualId === null) {
+    const candidata = conversaciones.find((c) => !c.archivada);
+    if (candidata) conversaActualId = candidata.id;
+  }
+}
+
 // Reloj del turno + tokens reales del núcleo (sin simulación): mientras hay
 // turno en curso se actualizan cada segundo; al cerrar queda el total.
 window.setInterval(() => {
@@ -855,12 +1066,25 @@ if (USA_REAL) {
       await adaptador.asegurarSesion(opcionesTurno());
       // Config persistida (F4): el modelo/modo/razonamiento guardados mandan
       // sobre los iniciales del mockup.
-      const [provG, modG, modoG, razG] = await Promise.all([
+      const [provG, modG, modoG, razG, anchoG, colG] = await Promise.all([
         adaptador.sesion.configLeer('proveedor'),
         adaptador.sesion.configLeer('modelo'),
         adaptador.sesion.configLeer('modo'),
         adaptador.sesion.configLeer('nivelRazonamiento'),
+        adaptador.sesion.configLeer(CLAVE_ANCHO),
+        adaptador.sesion.configLeer(CLAVE_COLAPSADA),
       ]);
+      // [039A-3 P4] Restaurar ancho/colapsado del sidebar desde la config.
+      if (anchoG) {
+        const n = Number(anchoG);
+        if (Number.isFinite(n)) {
+          cuerpo.style.setProperty('--sidebar-ancho', `${Math.round(n)}px`);
+        }
+      }
+      if (colG) {
+        sidebarAbierta = colG !== '1';
+        pintarSidebar();
+      }
       if (modG) {
         modeloActual = { proveedor: provG ?? modeloActual.proveedor, modelo: modG, nombre: modG };
         entrada.setModelo(modeloActual);
