@@ -22,7 +22,7 @@ impl AgentRuntime {
         tokens_complecion_total: u32,
         inicio: std::time::Instant,
     ) -> Result<()> {
-        self.persistencia
+        self.puertos.persistencia
             .guardar_turno(&TurnoPersistido {
                 id: turno_id,
                 conversacion_id,
@@ -51,7 +51,7 @@ impl AgentRuntime {
     ) -> Result<()> {
         if let Some(respuesta) = &estado.respuesta_final {
             if conversacion_id != Uuid::nil() {
-                self.persistencia
+                self.puertos.persistencia
                     .guardar_mensaje(&MensajePersistido {
                         id: Uuid::new_v4(),
                         conversacion_id,
@@ -60,7 +60,7 @@ impl AgentRuntime {
                         creado_en: chrono::Utc::now(),
                     })
                     .await?;
-                self.persistencia.conversacion_tocar(conversacion_id).await?;
+                self.puertos.persistencia.conversacion_tocar(conversacion_id).await?;
             }
         }
         Ok(())

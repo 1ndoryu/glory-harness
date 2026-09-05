@@ -156,11 +156,9 @@ pub struct AgentRuntime {
     pub registry: AgentToolRegistry,
     pub contexto: Arc<tokio::sync::Mutex<AgentContextManager>>,
     pub turno_config: TurnoConfig,
-    persistencia: Arc<dyn AgentPersistence>,
-    llm: Arc<LlmProviderService>,
-    web_search: Option<Arc<dyn WebSearchProvider>>,
-    web_fetch: Option<Arc<dyn WebFetchProvider>>,
-    dominio: Option<Arc<dyn Any + Send + Sync>>,
+    /// [059A-21 M3] Puertos del consumidor agrupados: la misma struct que
+    /// recibe `nuevo` (una sola fuente; antes 5 campos sueltos la duplicaban).
+    puertos: PuertosHarness,
     /// [318A-15 F4] Profundidad de sesiones hijas activas (máx 1). El schema
     /// del hijo excluye `task` (sin recursión por contrato); el contador es
     /// fail-closed para llamadas directas.
@@ -231,11 +229,7 @@ impl AgentRuntime {
                 turno_config.contexto.clone(),
             ))),
             turno_config,
-            persistencia: puertos.persistencia,
-            llm: puertos.llm,
-            web_search: puertos.web_search,
-            web_fetch: puertos.web_fetch,
-            dominio: puertos.dominio,
+            puertos,
             profundidad_subagente: std::sync::atomic::AtomicU8::new(0),
             telemetria: std::sync::Mutex::new(TelemetriaTurno::nuevo()),
             reglas: std::sync::Mutex::new(String::new()),

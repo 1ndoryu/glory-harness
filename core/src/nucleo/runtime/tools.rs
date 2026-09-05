@@ -12,6 +12,7 @@ impl AgentRuntime {
         tx: &Sender<AgenteEvento>,
     ) -> Result<Vec<AiToolCall>> {
         let resultado = self
+            .puertos
             .llm
             .enviar_chat_stream(
                 mensajes.to_vec(),
@@ -52,9 +53,9 @@ impl AgentRuntime {
     ) -> Result<crate::tool::AgentToolResult> {
         let ctx = AgentToolContext {
             user_id,
-            persistencia: self.persistencia.as_ref(),
-            web_search: self.web_search.as_deref(),
-            web_fetch: self.web_fetch.as_deref(),
+            persistencia: self.puertos.persistencia.as_ref(),
+            web_search: self.puertos.web_search.as_deref(),
+            web_fetch: self.puertos.web_fetch.as_deref(),
             /* [318A-10] `ai_provider` queda reservado para tools que generen
              * texto (ninguna agnóstica lo usa hoy); el runtime usa `llm`
              * directo para el loop. El consumidor puede implementar
@@ -62,7 +63,7 @@ impl AgentRuntime {
              * lo necesita. */
             ai_provider: None,
             sandbox_archivos: self.registry.sandbox(),
-            dominio: self.dominio.as_deref(),
+            dominio: self.puertos.dominio.as_deref(),
             todo: self.registry.todo(),
             plan: self.plan_actual(),
         };
@@ -75,7 +76,7 @@ impl AgentRuntime {
                 error
             })?;
         /* Auditoría de acción (sin secretos). */
-        self.persistencia
+        self.puertos.persistencia
             .registrar_accion(&AccionAuditable {
                 turno_id,
                 tool: call.nombre.clone(),
