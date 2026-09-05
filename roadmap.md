@@ -112,6 +112,12 @@ Orden propuesto (dependencias de abajo arriba):
   opción `contexto_max_ventana` en `opciones.ts` persistida vía config; rama mock pinta 7%/150k.
   Verificado con navegador mock (círculo llenándose + config visible). Evidencia en
   `Agente/completados/tareas-2026-09-05.md`.
+  P6-front menú hover de detalle del indicador HECHO (05-09, commit `a69c2a3`): al pasar el
+  cursor por el círculo se abre el pequeño menú `.ctx-detalle` con el detalle del uso de la
+  ventana (usados de M + %, reserva de salida, entrada del turno; "sin datos" si no hay turno).
+  Se elimina el `title` nativo; `EstadoContexto` propaga el detalle completo desde el backend.
+  Verificado con navegador mock (principal y lateral). Evidencia en
+  `Agente/completados/tareas-2026-09-05.md`.
   En curso: P3 vault de respaldos. Pendiente P6-backend (inyectar `contexto.max_ventana` 150k en
   `construir_harness_con`/`reconfigurar_sesion` de `cli/run.rs`) — BLOQUEADO por el agente
   paralelo que toca `cli/`/`core/` (sin tocar el default del core 128k).

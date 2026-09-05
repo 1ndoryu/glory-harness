@@ -275,6 +275,17 @@ para no acoplar el riesgo del vault al del multi-panel. Pendiente de confirmar c
   (`stroke`) cuya circunferencia se rellena según `ocupacion_pct` (del `ContextoDetalle` /
   `usage`). Estética monocromo (solo stroke, sin relleno). 0% → vacío, 100% → círculo completo.
 - Reutiliza el dato que ya actualiza `uso.ocupacionPct` en `real.ts`.
+- **[P6+] Menú hover de detalle del uso de la ventana (requisito del usuario, 05-09):** al poner
+  el cursor sobre el círculo se abre un pequeño menú `.ctx-detalle` (informativo, sin acciones;
+  `pointer-events:none`, `z-index` 110 por encima de `.menu-ctx`) que detalla el uso de la ventana
+  de contexto: `usados N de M (pct%)` (N = `ocupacion_pct` % de la ventana efectiva
+  `max_ventana − reserva_salida`), `reserva de salida N` y `entrada del turno N` (números exactos
+  con separador de miles). Sin dato → `uso sin datos` (o `configurada N` si solo hay `max_ventana`).
+  El detalle se abre con `mouseenter`/`focus` y se cierra con `mouseleave`/`blur`, click fuera,
+  Escape, resize, scroll y blur; reutiliza el vuelco de posición de `menu.ts`. Se eliminó el
+  `title` nativo del círculo (lo sustituye este menú). Fuente única de datos: el mismo
+  `ContextoDetalle`/`UsoTurno` (§2.10); `entrada.ts` guarda el estado completo (`EstadoContexto`
+  = pct + maxVentana + reservaSalida + totalEntrada).
 
 ### 2.10 Config ventana de contexto (default 150k)
 - Nueva opción en Configuración (panel Contexto): "Ventana de contexto" (número/select),
@@ -451,6 +462,13 @@ para no acoplar el riesgo del vault al del multi-panel. Pendiente de confirmar c
       `real.ts` → `panel.setContexto` en `main.ts`; rama mock pinta 7%/150k (verificado navegador).
 - [x] Config: opción "Ventana de contexto" default 150000, persistida. — `opciones.ts`
       (id `contexto_max_ventana`) + `main.ts` onCambio/configGuardar + lectura al arranque.
+- [x] Front [P6+]: menú hover de detalle del uso de la ventana al pasar el cursor por el círculo.
+      — Commit `a69c2a3` 05-09: `.ctx-detalle` en `entrada.ts` (`abrirDetalle`/`cerrarDetalle`,
+      `mouseenter`/`focus` abre y `mouseleave`/`blur`/click fuera/Escape/resize/scroll cierra),
+      filas usados/reserva/entrada; `EstadoContexto` con el detalle completo propagado desde
+      `main.ts`/`panelChat.ts`; CSS en `entrada.css`. Verificado mock: hover "sin datos" inicial y
+      "usados 9100 de 150.000 (7%) / reserva de salida 20.000 / entrada del turno 9100" tras el
+      turno; cierre al salir; panel lateral (entrada mínima) también lo muestra.
 - [ ] Backend: inyectar `contexto.max_ventana` configurado (default 150k) en `construir_harness_con`
       y en `reconfigurar_sesion` (sin tocar default del core). Fuente única = `ContextoDetalle`.
       — **BLOQUEADO por agente paralelo** (cambios sin commitear en `cli/` y `core/`): queda pendiente.
