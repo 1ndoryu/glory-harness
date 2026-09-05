@@ -20,7 +20,8 @@
   funciones largas, `79022c7`) · S4 ✔ (organización por dominio, `8064c41`) ·
   S5 ✔ (auditoría SOLID documentada, ver checklist) · S6 ✔ (auditoría de rendimiento,
   ver checklist; fix TUI 4151→60 µs/frame documentado en
-  `Agente/documentacion/auditoria-rendimiento-2026-09-05.md`) · S8 pendiente.
+  `Agente/documentacion/auditoria-rendimiento-2026-09-05.md`) · S8 ✔ (cierre y
+  evidencia, 05-09; commits `ce5af4d` + cierre). **Plan cerrado.**
 - **Re-analyze 05-09 (post S1/S7):** 2 errores (ambos `expect-produccion-rs` en
   `desktop/src-tauri/src/vault.rs`, **ajeno 039A-3**, documentado y sin tocar) ·
   21 warnings / 8 archivos en core+cli (deuda de tamaño, S2–S4). core+cli a **0 errores**.
@@ -363,15 +364,20 @@ aprobadas (decisión D4) se implementan en glory-sentinel con tests y se repinea
 
 ## S8 — Cierre y evidencia
 
-- [ ] Re-analyze final: objetivo **0 errores y 0 warnings en core+cli** (las excepciones
-      decididas en S1 quedan documentadas y visibles en el reporte de cierre, no ocultas).
-- [ ] `cargo test --workspace`, clippy core+cli `-D warnings`, doctor, VarSense (si el
-      gate lo exige) verdes; PT `cargo check` report-only.
-- [ ] Checklists del plan al día; cabecera con estado cerrado y fechas; evidencia en
-      `Agente/completados/tareas-2026-09-05.md` (commits, conteos, rutas).
-- [ ] Informe final para el usuario: deuda corregida por fase, falsos positivos del gate
-      (S1), hallazgos SOLID (S5) y de rendimiento (S6) resueltos/verificados, y reglas
-      nuevas del gate (S7) aprobadas/pendientes.
+- [x] Re-analyze final: **0 errores y 0 warnings en core+cli** (05-09, post S6). Quedan
+      solo 3 ajenos (039A-3): `persistencia_sqlite.rs` (limite-lineas 891, ver S2),
+      `desktop/src-tauri/src/main.rs` y `vault.rs` (2 errores `expect-produccion-rs`) —
+      documentados, sin tocar.
+- [x] `cargo test --workspace` 234 verdes (195 core + 35 cli + 4 desktop), clippy
+      core+cli `-D warnings` limpio, `quality:doctor` verde (`ready: true`,
+      `readyForGate: true`); PT `cargo check` report-only = 2 errores preexistentes
+      `missing field web_fetch` (port B3-F1, independientes del layout).
+- [x] Checklists del plan al día; cabecera con estado cerrado; evidencia en
+      `Agente/completados/tareas-2026-09-05.md` (entrada `059A-1`, commits S0–S8,
+      conteos, rutas de informes).
+- [x] Informe final para el usuario: ver entrada `059A-1` en completados + resumen de
+      esta fase en el cierre de turno (deuda S2–S4/S6, falsos positivos S1, SOLID S5,
+      reglas gate S7 D4, brechas-gate pendientes).
 
 ---
 
