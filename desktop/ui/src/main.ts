@@ -53,9 +53,14 @@ const app = el('div');
 app.id = 'app';
 const cuerpo = el('div');
 cuerpo.id = 'cuerpo';
+// [039A-3 P5] #paneles es el contenedor flex de los chats duplicables
+// (1-2). El panel principal (`.chat`) vive aquí; un segundo `.chat` lateral
+// se añade como hermano al abrirlo (ver gestor de paneles, más abajo).
+const paneles = el('div');
+paneles.id = 'paneles';
 
 const chat = el('section');
-chat.id = 'chat';
+chat.className = 'chat';
 
 // [039A-3 P4] Cabecera con botón de colapsar sidebar + ⋯ de acciones de la
 // conversación. El menú ⋯ se construye aquí (abrirAccionesCabecera) con la
@@ -106,7 +111,7 @@ grip.setAttribute('aria-hidden', 'true');
 }
 
 const mensajes = el('div');
-mensajes.id = 'mensajes';
+mensajes.className = 'mensajes';
 
 const simulacion = crearSimulacion();
 // Motor real (Tauri in-process) o simulación solo para maquetar en navegador
@@ -1027,9 +1032,9 @@ cuerpo.appendChild(sidebar.raiz);
 cuerpo.appendChild(grip);
 chat.appendChild(cabecera.raiz);
 chat.appendChild(mensajes);
-// El panel meta va DENTRO de #entrada, justo antes de .caja, para que
+// El panel meta va DENTRO de .entrada, justo antes de .caja, para que
 // tenga exactamente el mismo ancho que la caja de abajo (hereda el
-// max-width/padding de #entrada).
+// max-width/padding de .entrada).
 const panelMeta = montarPanelMeta({
   onMetaCambiada(meta) {
     // [039A-1 04-09 H1] Escribir meta la muestra; borrarla (fuera de modo
@@ -1060,7 +1065,10 @@ const panelMeta = montarPanelMeta({
 });
 entrada.raiz.insertBefore(panelMeta.raiz, entrada.raiz.firstChild);
 chat.appendChild(entrada.raiz);
-cuerpo.appendChild(chat);
+// [039A-3 P5] El chat principal va dentro de #paneles (contenedor de 1-2
+// chats duplicables); #paneles rellena el resto de #cuerpo tras la sidebar.
+paneles.appendChild(chat);
+cuerpo.appendChild(paneles);
 app.appendChild(cuerpo);
 raizApp.appendChild(app);
 
