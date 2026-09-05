@@ -12,6 +12,28 @@
 use crate::error::Error;
 use std::io::BufRead;
 use std::path::{Component, Path, PathBuf};
+use std::sync::{Arc, Mutex};
+
+/// [039A-3 P3] Puerto opcional de respaldo de archivos. `SandboxArchivos::`
+/// `escribir` llama a este hook ANTES de cada escritura con la ruta relativa
+/// **ya validada por el sandbox** y el contenido previo **completo en bytes**
+/// (decisión §6.5: no truncado a 1 MB, o restaurar un archivo >1 MB quedaría
+/// corrupto). La implementación por defecto (ausente) es no-op: CLI/task no
+/// respaldan y el comportamiento de `escribir` no cambia.
+///
+/// El respaldo es observación, no contrato: si el hook falla, `escribir`
+/// continúa (fail-open con log, §2.3) — un respaldo que falla no debe tumbar
+/// el turno del agente.
+pub trait RespaldoArchivos: Send + Sync {
+    /// Guarda el respaldo del contenido previo. `relativa` está normalizada
+    /// (ya resuelta por el sandbox, sin `..` ni escapes). `previo_bytes` es el
+    /// contenido COMPLETO anterior (vacío si el archivo no existía) y
+    /// `nuevo_contenido` es el texto que se va a escribir (para el hash
+    /// posterior). El implementador decide la política (dedup, retención,
+    /// índice por conversación).
+    fn respaldar(&self, relativa: &str, previo_bytes: &[u8], nuevo_contenido: &str)
+        -> Result<(), Error>;
+}
 
 /// Nombres de archivo/segmento que el agente NUNCA puede leer (secretos).
 const SECRET_SEGMENTS: &[&str] = &[
@@ -31,9 +53,13 @@ const SECRET_EXTENSIONES: &[&str] = &["pem", "p12", "pfx", "key", "keystore", "j
 const SECRET_PREFIJOS: &[&str] = &["*_KEY", "*.key"];
 
 /// Raíz del sandbox (workspace). `new` la canonicaliza; si no existe se crea.
-#[derive(Debug, Clone)]
 pub struct SandboxArchivos {
     raiz: PathBuf,
+    /// [039A-3 P3] Puerto opcional de respaldo, inyectable por el consumidor
+    /// tras construir el runtime (`registry.sandbox()` → `con_respaldo`).
+    /// Interior-mutable para no cambiar la API de `escribir` ni exigir `&mut`
+    /// en todos los llamadores (tools, plan, todo). `None` → no-op.
+    respaldo: Mutex<Option<Arc<dyn RespaldoArchivos>>>,
 }
 
 impl SandboxArchivos {
@@ -46,7 +72,20 @@ impl SandboxArchivos {
         let canonica = std::fs::canonicalize(&raiz).map_err(|error| {
             Error::Validacion(format!("Workspace no accesible: {error}"))
         })?;
-        Ok(Self { raiz: canonica })
+        Ok(Self {
+            raiz: canonica,
+            respaldo: Mutex::new(None),
+        })
+    }
+
+    /// [039A-3 P3] Inyecta (o retira, con `None`) el puerto de respaldo. No-op
+    /// por defecto; solo el consumidor que quiera vault lo llama, una vez tras
+    /// construir el runtime. La exclusión de `.glory-harness/` (§6.4) impide
+    /// que el agente escriba bajo su propio vault.
+    pub fn con_respaldo(&self, respaldo: Option<Arc<dyn RespaldoArchivos>>) {
+        if let Ok(mut r) = self.respaldo.lock() {
+            *r = respaldo;
+        }
     }
 
     /// Resuelve una ruta relativa al workspace y valida que quede DENTRO.
@@ -114,6 +153,19 @@ impl SandboxArchivos {
     pub fn es_secreto(&self, relativa: &str) -> bool {
         let normalizada = relativa.replace('\\', "/").trim_start_matches("./").to_string();
         let segmentos: Vec<&str> = normalizada.split('/').collect();
+        /* [039A-3 P3 §6.4] `.glory-harness/` (vault de respaldos del harness)
+         * es zona interna BLOQUEADA: si el agente pudiera escribir ahí podría
+         * envenenar sus propios respaldos, y leerlos contaminaría su contexto
+         * con bytes binarios/duplicados. Primera comprobación (antes que los
+         * secretos de archivo) porque es un directorio de infraestructura. */
+        if let Some(primero) = segmentos.first() {
+            /* `segmentos` ya no contiene '/' (split previo): basta comparar el
+             * primer segmento. Un archivo llamado `.glory-harness-copia.txt`
+             * en un subdirectorio NO es la zona (primer segmento distinto). */
+            if primero.eq_ignore_ascii_case(".glory-harness") {
+                return true;
+            }
+        }
         if let Some(archivo) = segmentos.last() {
             let nombre = archivo.to_ascii_lowercase();
             if SECRET_SEGMENTS
@@ -219,6 +271,15 @@ impl SandboxArchivos {
     }
 
     /// Escribe un archivo (crea directorios intermedios). Solo archivos.
+    ///
+    /// [039A-3 P3] Antes de escribir invoca el hook opcional de respaldo
+    /// (trait `RespaldoArchivos`) con la `relativa` **ya validada** y el
+    /// contenido previo **completo en bytes** (decisión §6.5: leer el archivo
+    /// existente con `std::fs::read`, nunca el string truncado que las tools
+    /// usan para el diff — restaurar un archivo >1 MB con el previo truncado
+    /// produciría un archivo corrupto). El hook es no-op por defecto y su
+    /// fallo NO tumba la escritura (fail-open con log: el respaldo es
+    /// observación, no contrato del turno).
     pub fn escribir(&self, relativa: &str, contenido: &str) -> Result<PathBuf, Error> {
         if self.es_secreto(relativa) {
             return Err(Error::Sandbox(
@@ -226,6 +287,34 @@ impl SandboxArchivos {
             ));
         }
         let ruta = self.resolver_para_escribir(relativa)?;
+        /* Ruta relativa CANÓNICA (separador `/`, sin `./`) derivada de la ruta
+         * resuelta: el vault usa esta clave para el árbol `<hash>/<ruta>` y el
+         * índice JSONL, independiente de cómo el llamador pasó la ruta (con
+         * `./`, con `\`, etc.). */
+        let relativa_limpia = ruta
+            .strip_prefix(&self.raiz)
+            .map(|p| p.to_string_lossy().replace('\\', "/"))
+            .unwrap_or_else(|_| relativa.replace('\\', "/"));
+        /* Previo completo en bytes (archivo existente o vacío si no existe).
+         * Se captura ANTES de `create_dir_all`/`write` para que el respaldo
+         * refleje el estado previo real. Fail-open: si la lectura falla por
+         * un motivo distinto a "no existe", se continúa sin respaldar (un
+         * fallo de respaldo no debe bloquear la escritura legítima). */
+        let previo_bytes = std::fs::read(&ruta).unwrap_or_default();
+        if let Some(respaldo) = self
+            .respaldo
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone()
+        {
+            if let Err(error) = respaldo.respaldar(&relativa_limpia, &previo_bytes, contenido) {
+                tracing::warn!(
+                    %error,
+                    %relativa,
+                    "respaldo de archivo omitido (fail-open): la escritura continúa"
+                );
+            }
+        }
         if let Some(parent) = ruta.parent() {
             std::fs::create_dir_all(parent)
                 .map_err(|error| Error::Validacion(format!("No se pudo crear directorios: {error}")))?;
@@ -354,5 +443,125 @@ mod tests {
         /* Debe terminar en la ruta relativa y empezar con la raíz absoluta. */
         assert!(presentable.ends_with("sub\\nota.txt") || presentable.ends_with("sub/nota.txt"));
         assert!(presentable.contains("agente-sandbox-ruta"));
+    }
+
+    /* ===== [039A-3 P3] Vault: hook opcional de respaldo (fixture 4) ===== */
+
+    /// Hook de prueba: registra cada llamada (relativa, previo, nuevo) en un
+    /// Vec compartido. Devuelve `Ok(())` salvo `fallar` → error (para probar
+    /// que un respaldo que falla NO tumba la escritura: fail-open).
+    struct RespaldoRegistro {
+        llamadas: std::sync::Mutex<Vec<(String, Vec<u8>, String)>>,
+        fallar: bool,
+    }
+
+    impl super::RespaldoArchivos for RespaldoRegistro {
+        fn respaldar(
+            &self,
+            relativa: &str,
+            previo_bytes: &[u8],
+            nuevo_contenido: &str,
+        ) -> Result<(), crate::error::Error> {
+            if self.fallar {
+                return Err(crate::error::Error::Persistencia("fallo simulado".into()));
+            }
+            self.llamadas
+                .lock()
+                .unwrap()
+                .push((relativa.to_string(), previo_bytes.to_vec(), nuevo_contenido.to_string()));
+            Ok(())
+        }
+    }
+
+    fn respaldo_llamadas(sb: &SandboxArchivos) -> std::sync::Arc<RespaldoRegistro> {
+        let r = std::sync::Arc::new(RespaldoRegistro {
+            llamadas: std::sync::Mutex::new(Vec::new()),
+            fallar: false,
+        });
+        sb.con_respaldo(Some(r.clone()));
+        r
+    }
+
+    #[test]
+    fn vault_sin_hook_es_noop_y_escribe_normal() {
+        let sb = sandbox_tmp("vault-noop");
+        // Sin con_respaldo → el hook no existe → escribir funciona igual.
+        let escrita = sb.escribir("sub/nota.txt", "hola").expect("escribir");
+        assert!(escrita.exists());
+        let (contenido, _) = sb.leer("sub/nota.txt", 1024).expect("leer");
+        assert_eq!(contenido, "hola");
+    }
+
+    #[test]
+    fn vault_respalda_previo_completo_y_relativa_normalizada() {
+        let sb = sandbox_tmp("vault-hook");
+        sb.escribir("sub/nota.txt", "original").expect("escribir primera");
+        let r = respaldo_llamadas(&sb);
+
+        // Sobrescritura con ruta que usa "./" y "\" → la relativa debe quedar
+        // normalizada ("sub/nota.txt", sin "./" ni backslashes).
+        sb.escribir(r".\sub\nota.txt", "cambiada").expect("escribir segunda");
+        let llamadas = r.llamadas.lock().unwrap();
+        assert_eq!(llamadas.len(), 1);
+        let (relativa, previo, nuevo) = &llamadas[0];
+        assert_eq!(relativa, "sub/nota.txt");
+        // Previo COMPLETO en bytes, no truncado ni vacío.
+        assert_eq!(previo, b"original");
+        assert_eq!(nuevo, "cambiada");
+    }
+
+    #[test]
+    fn vault_archivo_nuevo_respalda_previo_vacio() {
+        let sb = sandbox_tmp("vault-nuevo");
+        let r = respaldo_llamadas(&sb);
+        // Archivo que no existía → previo_bytes vacío (caso "nuevo archivo").
+        sb.escribir("nuevo.txt", "contenido").expect("escribir");
+        let llamadas = r.llamadas.lock().unwrap();
+        assert_eq!(llamadas.len(), 1);
+        assert!(llamadas[0].1.is_empty());
+        assert_eq!(llamadas[0].2, "contenido");
+    }
+
+    #[test]
+    fn vault_fallo_del_hook_no_tumba_la_escritura() {
+        let sb = sandbox_tmp("vault-fallar");
+        sb.escribir("nota.txt", "antes").expect("escribir antes");
+        // Hook que falla: fail-open → la escritura continúa.
+        let r = std::sync::Arc::new(RespaldoRegistro {
+            llamadas: std::sync::Mutex::new(Vec::new()),
+            fallar: true,
+        });
+        sb.con_respaldo(Some(r.clone()));
+        sb.escribir("nota.txt", "después").expect("escribir pese al fallo del hook");
+        let (contenido, _) = sb.leer("nota.txt", 1024).expect("leer");
+        assert_eq!(contenido, "después");
+    }
+
+    #[test]
+    fn vault_quita_hook_con_none() {
+        let sb = sandbox_tmp("vault-quitar");
+        sb.escribir("nota.txt", "v1").expect("escribir v1");
+        let r = respaldo_llamadas(&sb);
+        sb.escribir("nota.txt", "v2").expect("escribir v2");
+        assert_eq!(r.llamadas.lock().unwrap().len(), 1);
+
+        // Retirar el hook → ya no se respalda.
+        sb.con_respaldo(None);
+        sb.escribir("nota.txt", "v3").expect("escribir v3");
+        assert_eq!(r.llamadas.lock().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn glory_harness_es_secreto_y_no_se_escribe() {
+        let sb = sandbox_tmp("vault-zona");
+        // La zona interna está bloqueada para leer y escribir.
+        assert!(sb.es_secreto(".glory-harness/backups/abc/nota.txt"));
+        assert!(sb.es_secreto(".glory-harness"));
+        assert!(sb.es_secreto(r".glory-harness\backups\x"));
+        let err = sb.escribir(".glory-harness/backups/abc/nota.txt", "x").unwrap_err();
+        assert!(err.to_string().contains("lista negra"));
+        // Archivo normal NO es secreto.
+        assert!(!sb.es_secreto("notas.txt"));
+        assert!(!sb.es_secreto("sub/.glory-harness-copia.txt"));
     }
 }
