@@ -171,29 +171,31 @@
     flex: 1;
     min-width: 0;
 }
-/* [039A-3 P4] Botones de cabecera (colapsar sidebar + ⋯): cuadrado pequeño
-   monocromo con borde, hover invierte. El grupo va ANTES del título. */
+/* [039A-3 P4 retoque] Botones de cabecera (colapsar sidebar + ⋯): icono
+   SIN borde (igual que el copiar del pie) y un punto mayor; hover invierte.
+   El grupo va ANTES del título. */
 #cabecera-chat .acciones-cabecera {
     display: flex;
     align-items: center;
-    gap: var(--sp-sm);
+    gap: var(--sp-xs);
     flex: none;
 }
 #cabecera-chat .cab-boton {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 20px;
-    height: 20px;
-    background: #fff;
+    width: 24px;
+    height: 24px;
+    background: transparent;
     color: #000;
-    border: 1px solid #000;
+    border: none;
     font-family: inherit;
-    font-size: var(--sm);
+    font-size: var(--md);
     line-height: 1;
     padding: 0;
     cursor: pointer;
 }
+#cabecera-chat .cab-boton .ic { display: block; }
 #cabecera-chat .cab-boton:hover { background: #000; color: #fff; }
 
 /* ---------- Grip de redimensionado de la sidebar ---------- */

@@ -52,7 +52,7 @@ export function montarCabeceraChat(opts: CabeceraChatOpciones): CabeceraChat {
   btnToggle.setAttribute('aria-label', 'ocultar lista de conversaciones');
   let sidebarAbierta = true;
   function pintarIconoToggle(): void {
-    btnToggle.replaceChildren(icono(sidebarAbierta ? 'panel-izq-cerrar' : 'panel-izq-abrir', true));
+    btnToggle.replaceChildren(icono(sidebarAbierta ? 'panel-izq-cerrar' : 'panel-izq-abrir'));
   }
   pintarIconoToggle();
   btnToggle.addEventListener('click', () => opts.onToggleSidebar());
