@@ -445,13 +445,18 @@ para no acoplar el riesgo del vault al del multi-panel. Pendiente de confirmar c
 - [ ] Evidencia: E2E `tauri dev` (2 conversaciones, turnos seriales, eventos al panel correcto).
 
 ### P6 — Indicador circular de contexto + config ventana 150k (039A-3b)
-- [ ] Front: SVG círculo de contexto junto a enviar (stroke sin relleno; `stroke-dasharray` según
-      `uso.ocupacionPct` del `ContextoDetalle`).
-- [ ] Config: opción "Ventana de contexto" default 150000, persistida.
+- [x] Front: SVG círculo de contexto junto a enviar (stroke sin relleno; `stroke-dasharray` según
+      `uso.ocupacionPct` del `ContextoDetalle`). — Commit `769492d` 05-09: indicador en
+      `entrada.ts` + CSS `.ctx-indicador`/`.ctx-pista`/`.ctx-lleno`; hook `onContexto` en
+      `real.ts` → `panel.setContexto` en `main.ts`; rama mock pinta 7%/150k (verificado navegador).
+- [x] Config: opción "Ventana de contexto" default 150000, persistida. — `opciones.ts`
+      (id `contexto_max_ventana`) + `main.ts` onCambio/configGuardar + lectura al arranque.
 - [ ] Backend: inyectar `contexto.max_ventana` configurado (default 150k) en `construir_harness_con`
       y en `reconfigurar_sesion` (sin tocar default del core). Fuente única = `ContextoDetalle`.
-- [ ] Evidencia: type-check/build; ver el círculo llenarse; config persiste (150k llega como
-      `ContextoDetalle.max_ventana`).
+      — **BLOQUEADO por agente paralelo** (cambios sin commitear en `cli/` y `core/`): queda pendiente.
+- [x] Evidencia front: type-check + build limpios; círculo llenándose en mock (7%/150k),
+      config "Ventana de contexto" 150000 visible y editable. Falta E2E `tauri dev` (bloqueado) y
+      confirmar que 150k llega como `ContextoDetalle.max_ventana` (depende del backend P6).
 
 ---
 

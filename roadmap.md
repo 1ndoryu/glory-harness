@@ -106,7 +106,15 @@ Orden propuesto (dependencias de abajo arriba):
   `main.ts` + "Abrir en panel lateral" (sidebar ⋯, D4) + responsive <900px apila los 2 chats.
   Verificado con navegador mock (2 paneles, turno global M1, foco al cerrar lateral, guard
   responsive). Evidencia en `Agente/completados/tareas-2026-09-05.md`.
-  En curso: P3 vault de respaldos → P6 indicador circular + config 150k.
+  P6-front (indicador circular de contexto + config "Ventana de contexto" 150k) HECHO (05-09,
+  commit `769492d`): SVG `.ctx-indicador` en `entrada.ts` + CSS; hook `onContexto` en `real.ts`
+  (fuente única = `ContextoDetalle`/`usage`) → `setContexto` en `main.ts`/`panelChat.ts`;
+  opción `contexto_max_ventana` en `opciones.ts` persistida vía config; rama mock pinta 7%/150k.
+  Verificado con navegador mock (círculo llenándose + config visible). Evidencia en
+  `Agente/completados/tareas-2026-09-05.md`.
+  En curso: P3 vault de respaldos. Pendiente P6-backend (inyectar `contexto.max_ventana` 150k en
+  `construir_harness_con`/`reconfigurar_sesion` de `cli/run.rs`) — BLOQUEADO por el agente
+  paralelo que toca `cli/`/`core/` (sin tocar el default del core 128k).
   Pendiente de P5: E2E `tauri dev` (2 conversaciones reales, eventos al panel correcto) —
   bloqueada mientras el agente paralelo (318A-17) toca `cli/`/`core/`.
   ⚠️ Core (`sandbox.rs`) se toca en P3 (hook opcional + exclusión `.glory-harness/`) — coordinar
