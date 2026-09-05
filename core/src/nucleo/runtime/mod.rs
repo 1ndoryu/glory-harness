@@ -29,7 +29,6 @@ use crate::guardas::{
 use crate::ports::EjecutorComando;
 use crate::evento::AgenteEvento;
 use crate::llm::{AiChatOptions, AiMessage, AiToolCall, LlmProviderService};
-use crate::permiso::Permiso;
 use crate::ports::{
     AccionAuditable, AgentPersistence, MensajePersistido, ProgramadorTareas, TurnoPersistido,
     WebFetchProvider, WebSearchProvider,
@@ -389,44 +388,12 @@ impl AgentRuntime {
 }
 
 
-/* [318A-15 F3] Decisión del gate de permisos para una tool propuesta en un
- * turno. Devuelve si se omite la ejecución y qué evento emitir. La lógica
- * vive aquí (función pura) para poder testear ask/deny/no-reintento sin un
- * proveedor LLM: `ejecutar_turno` solo la consume y emite. */
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum VerdictoPermiso {
-    /// `allow`: ejecutar normal.
-    Ejecutar,
-    /// `ask` (primera vez en el turno): emitir `RequiereAprobacion`.
-    Preguntar,
-    /// `ask` repetido en el mismo turno: el modelo ya fue informado;
-    /// emitir ToolResult sin re-preguntar.
-    RepetidoPregunta,
-    /// `deny` (primera vez en el turno): emitir `PermisoDenegado`.
-    Denegar,
-    /// `deny` repetido: la tool ya fue denegada; no re-emitir, solo informar.
-    RepetidoDenegado,
-}
-
-fn decidir_permiso(permiso: Permiso, ya_denegada: bool) -> VerdictoPermiso {
-    match permiso {
-        Permiso::Allow => VerdictoPermiso::Ejecutar,
-        Permiso::Ask => {
-            if ya_denegada {
-                VerdictoPermiso::RepetidoPregunta
-            } else {
-                VerdictoPermiso::Preguntar
-            }
-        }
-        Permiso::Deny => {
-            if ya_denegada {
-                VerdictoPermiso::RepetidoDenegado
-            } else {
-                VerdictoPermiso::Denegar
-            }
-        }
-    }
-}
+/* [059A-21] El veredicto de permiso del turno (`VerdictoPermiso` +
+ * `decidir_permiso`) vive en `politica::permiso` junto a las demás decisiones
+ * de política (una sola casa: permiso por modo, override, reglas, veredicto).
+ * Aquí solo se re-exporta para que los flujos del turno (turno/permisos.rs,
+ * subagente.rs) lo consuman vía `super::*` sin conocer el detalle. */
+pub use crate::politica::permiso::{decidir_permiso, VerdictoPermiso};
 
 fn mensajes_usuario_resumen(mensaje: &str) -> String {
     mensaje.chars().take(500).collect()

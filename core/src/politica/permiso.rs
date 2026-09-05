@@ -103,9 +103,62 @@ pub fn resolver_permiso(
     override_conv.unwrap_or(default)
 }
 
+/* [059A-21] Veredicto de turno F3 — etapa 2 de la misma decisión de política:
+ * `resolver_permiso` (arriba) produce el `Permiso` efectivo y aquí se mapea
+ * `Permiso` + "¿ya se preguntó/denegó en este turno?" al veredicto de
+ * ejecución. Pura y sin I/O; la emisión de eventos (RequiereAprobacion /
+ * PermisoDenegado / resultado de tool) vive en el runtime, que solo consume.
+ * Ask y deny no se reintentan en el mismo turno: el repetido vuelve sin
+ * re-emitir para que el modelo ya informado no reciba el evento dos veces. */
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VerdictoPermiso {
+    /// `allow`: ejecutar normal.
+    Ejecutar,
+    /// `ask` (primera vez en el turno): emitir `RequiereAprobacion`.
+    Preguntar,
+    /// `ask` repetido en el mismo turno: el modelo ya fue informado;
+    /// emitir ToolResult sin re-preguntar.
+    RepetidoPregunta,
+    /// `deny` (primera vez en el turno): emitir `PermisoDenegado`.
+    Denegar,
+    /// `deny` repetido: la tool ya fue denegada; no re-emitir, solo informar.
+    RepetidoDenegado,
+}
+
+#[must_use]
+pub fn decidir_permiso(permiso: Permiso, ya_denegada: bool) -> VerdictoPermiso {
+    match permiso {
+        Permiso::Allow => VerdictoPermiso::Ejecutar,
+        Permiso::Ask => {
+            if ya_denegada {
+                VerdictoPermiso::RepetidoPregunta
+            } else {
+                VerdictoPermiso::Preguntar
+            }
+        }
+        Permiso::Deny => {
+            if ya_denegada {
+                VerdictoPermiso::RepetidoDenegado
+            } else {
+                VerdictoPermiso::Denegar
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn veredicto_ask_deny_no_se_reintentan_en_el_mismo_turno() {
+        assert_eq!(decidir_permiso(Permiso::Allow, false), VerdictoPermiso::Ejecutar);
+        assert_eq!(decidir_permiso(Permiso::Allow, true), VerdictoPermiso::Ejecutar);
+        assert_eq!(decidir_permiso(Permiso::Ask, false), VerdictoPermiso::Preguntar);
+        assert_eq!(decidir_permiso(Permiso::Ask, true), VerdictoPermiso::RepetidoPregunta);
+        assert_eq!(decidir_permiso(Permiso::Deny, false), VerdictoPermiso::Denegar);
+        assert_eq!(decidir_permiso(Permiso::Deny, true), VerdictoPermiso::RepetidoDenegado);
+    }
 
     #[test]
     fn modo_predeterminado_pregunta_por_efectos_y_permite_lectura() {
