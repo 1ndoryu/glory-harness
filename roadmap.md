@@ -104,6 +104,12 @@ Orden propuesto (dependencias de abajo arriba):
   En curso: P3 vault de respaldos → P5 2 paneles → P6 indicador circular + config 150k.
   ⚠️ Core (`sandbox.rs`) se toca en P3 (hook opcional + exclusión `.glory-harness/`) — coordinar
   con el agente paralelo (318A-17) que trabaja en core/cli y commitea en `main`.
+- `Agente/planes/plan-saneamiento-calidad-2026-09-05.md` (059A-1) — **activo** (05-09): deuda de
+  Sentinel (0 errores/21 warnings/10 archivos, baseline congelado en
+  `Agente/completados/analyze-baseline-2026-09-05.json`) + auditoría SOLID/rendimiento + brechas
+  del gate. S0 ✔ (reglas del juego verificadas en fuente `0559576`). En curso: S1 (falsos
+  positivos/mejoras en glory-sentinel) → S2–S4 (splits y organización) → S5–S6 (auditorías) →
+  S7 (reglas nuevas) → S8 (cierre). No toca desktop/`persistencia_sqlite.rs` (039A-3).
 
 ## Notas
 

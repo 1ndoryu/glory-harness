@@ -1,0 +1,452 @@
+{
+  "schemaVersion": "1",
+  "tool": {
+    "name": "glory-sentinel",
+    "version": "0.7.7"
+  },
+  "scope": "workspace",
+  "durationMs": 1013,
+  "severityCounts": {
+    "error": 0,
+    "warning": 21,
+    "information": 0,
+    "hint": 0
+  },
+  "totalArchivos": 45,
+  "totalArchivosConViolaciones": 10,
+  "entries": [
+    {
+      "ruta": "C:\\Users\\Owner\\OneDrive\\Documentos\\area-trabajo\\glory-harness\\Cargo.lock",
+      "findings": [
+        {
+          "ruleId": "directorio-abarrotado",
+          "message": "Directorio \"glory-harness/\" contiene 11 archivos (max 10). Reorganizar en subdirectorios por dominio. Excepcion: agregar \"glory-harness\" a codeSentinel.directoryExceptions en settings.json.",
+          "severity": "warning",
+          "range": {
+            "start": {
+              "line": 0,
+              "character": 0
+            },
+            "end": {
+              "line": 0,
+              "character": 49
+            }
+          },
+          "source": "Code Sentinel",
+          "confidence": 0.8,
+          "analyzerVersion": "sentinel-core-0.4"
+        }
+      ]
+    },
+    {
+      "ruta": "C:\\Users\\Owner\\OneDrive\\Documentos\\area-trabajo\\glory-harness\\cli\\src\\chat.rs",
+      "findings": [
+        {
+          "ruleId": "directorio-abarrotado",
+          "message": "Directorio \"src/\" contiene 12 archivos (max 10). Reorganizar en subdirectorios por dominio. Excepcion: agregar \"src\" a codeSentinel.directoryExceptions en settings.json.",
+          "severity": "warning",
+          "range": {
+            "start": {
+              "line": 0,
+              "character": 0
+            },
+            "end": {
+              "line": 0,
+              "character": 77
+            }
+          },
+          "source": "Code Sentinel",
+          "confidence": 0.8,
+          "analyzerVersion": "sentinel-core-0.4"
+        },
+        {
+          "ruleId": "funcion-larga-rs",
+          "message": "fn chat() tiene 105 lineas efectivas (max 100). Dividir en funciones auxiliares.",
+          "severity": "warning",
+          "range": {
+            "start": {
+              "line": 40,
+              "character": 0
+            },
+            "end": {
+              "line": 40,
+              "character": 64
+            }
+          },
+          "source": "Code Sentinel",
+          "confidence": 0.8,
+          "analyzerVersion": "sentinel-core-0.4"
+        }
+      ]
+    },
+    {
+      "ruta": "C:\\Users\\Owner\\OneDrive\\Documentos\\area-trabajo\\glory-harness\\cli\\src\\main.rs",
+      "findings": [
+        {
+          "ruleId": "funcion-larga-rs",
+          "message": "fn cmd_schedule_impl() tiene 123 lineas efectivas (max 100). Dividir en funciones auxiliares.",
+          "severity": "warning",
+          "range": {
+            "start": {
+              "line": 177,
+              "character": 0
+            },
+            "end": {
+              "line": 177,
+              "character": 27
+            }
+          },
+          "source": "Code Sentinel",
+          "confidence": 0.8,
+          "analyzerVersion": "sentinel-core-0.4"
+        }
+      ]
+    },
+    {
+      "ruta": "C:\\Users\\Owner\\OneDrive\\Documentos\\area-trabajo\\glory-harness\\cli\\src\\persistencia_sqlite.rs",
+      "findings": [
+        {
+          "ruleId": "limite-lineas",
+          "message": "Archivo excede limite de 500 lineas para servicio (891 lineas efectivas). Dividir obligatoriamente.",
+          "severity": "warning",
+          "range": {
+            "start": {
+              "line": 1401,
+              "character": 0
+            },
+            "end": {
+              "line": 1401,
+              "character": 0
+            }
+          },
+          "source": "Code Sentinel",
+          "confidence": 0.8,
+          "analyzerVersion": "sentinel-core-0.4",
+          "quickFixId": "mark-split-todo"
+        }
+      ]
+    },
+    {
+      "ruta": "C:\\Users\\Owner\\OneDrive\\Documentos\\area-trabajo\\glory-harness\\cli\\src\\tui.rs",
+      "findings": [
+        {
+          "ruleId": "limite-lineas",
+          "message": "Archivo excede limite de 500 lineas para servicio (906 lineas efectivas). Dividir obligatoriamente.",
+          "severity": "warning",
+          "range": {
+            "start": {
+              "line": 1305,
+              "character": 0
+            },
+            "end": {
+              "line": 1305,
+              "character": 0
+            }
+          },
+          "source": "Code Sentinel",
+          "confidence": 0.8,
+          "analyzerVersion": "sentinel-core-0.4",
+          "quickFixId": "mark-split-todo"
+        },
+        {
+          "ruleId": "funcion-larga-rs",
+          "message": "fn spawn_worker() tiene 167 lineas efectivas (max 100). Dividir en funciones auxiliares.",
+          "severity": "warning",
+          "range": {
+            "start": {
+              "line": 583,
+              "character": 0
+            },
+            "end": {
+              "line": 583,
+              "character": 16
+            }
+          },
+          "source": "Code Sentinel",
+          "confidence": 0.8,
+          "analyzerVersion": "sentinel-core-0.4"
+        },
+        {
+          "ruleId": "funcion-larga-rs",
+          "message": "fn bucle_ui() tiene 120 lineas efectivas (max 100). Dividir en funciones auxiliares.",
+          "severity": "warning",
+          "range": {
+            "start": {
+              "line": 834,
+              "character": 0
+            },
+            "end": {
+              "line": 834,
+              "character": 18
+            }
+          },
+          "source": "Code Sentinel",
+          "confidence": 0.8,
+          "analyzerVersion": "sentinel-core-0.4"
+        },
+        {
+          "ruleId": "funcion-larga-rs",
+          "message": "fn dibujar() tiene 117 lineas efectivas (max 100). Dividir en funciones auxiliares.",
+          "severity": "warning",
+          "range": {
+            "start": {
+              "line": 973,
+              "character": 0
+            },
+            "end": {
+              "line": 973,
+              "character": 76
+            }
+          },
+          "source": "Code Sentinel",
+          "confidence": 0.8,
+          "analyzerVersion": "sentinel-core-0.4"
+        }
+      ]
+    },
+    {
+      "ruta": "C:\\Users\\Owner\\OneDrive\\Documentos\\area-trabajo\\glory-harness\\core\\src\\aprobacion.rs",
+      "findings": [
+        {
+          "ruleId": "directorio-abarrotado",
+          "message": "Directorio \"src/\" contiene 28 archivos (max 10). Reorganizar en subdirectorios por dominio. Excepcion: agregar \"src\" a codeSentinel.directoryExceptions en settings.json.",
+          "severity": "warning",
+          "range": {
+            "start": {
+              "line": 0,
+              "character": 0
+            },
+            "end": {
+              "line": 0,
+              "character": 77
+            }
+          },
+          "source": "Code Sentinel",
+          "confidence": 0.8,
+          "analyzerVersion": "sentinel-core-0.4"
+        }
+      ]
+    },
+    {
+      "ruta": "C:\\Users\\Owner\\OneDrive\\Documentos\\area-trabajo\\glory-harness\\core\\src\\diff.rs",
+      "findings": [
+        {
+          "ruleId": "funcion-larga-rs",
+          "message": "fn diff_lineas() tiene 135 lineas efectivas (max 100). Dividir en funciones auxiliares.",
+          "severity": "warning",
+          "range": {
+            "start": {
+              "line": 20,
+              "character": 0
+            },
+            "end": {
+              "line": 20,
+              "character": 66
+            }
+          },
+          "source": "Code Sentinel",
+          "confidence": 0.8,
+          "analyzerVersion": "sentinel-core-0.4"
+        }
+      ]
+    },
+    {
+      "ruta": "C:\\Users\\Owner\\OneDrive\\Documentos\\area-trabajo\\glory-harness\\core\\src\\llm.rs",
+      "findings": [
+        {
+          "ruleId": "limite-lineas",
+          "message": "Archivo excede limite de 500 lineas para servicio (1053 lineas efectivas). Dividir obligatoriamente.",
+          "severity": "warning",
+          "range": {
+            "start": {
+              "line": 1592,
+              "character": 0
+            },
+            "end": {
+              "line": 1592,
+              "character": 1
+            }
+          },
+          "source": "Code Sentinel",
+          "confidence": 0.8,
+          "analyzerVersion": "sentinel-core-0.4",
+          "quickFixId": "mark-split-todo"
+        },
+        {
+          "ruleId": "limite-lineas-nivel-2",
+          "message": "ALTO: este servicio duplica el limite (1053/500). No lo tapes con sentinel-disable-file; separa contratos, requests, responses y helpers ahora.",
+          "severity": "warning",
+          "range": {
+            "start": {
+              "line": 1592,
+              "character": 0
+            },
+            "end": {
+              "line": 1592,
+              "character": 1
+            }
+          },
+          "source": "Code Sentinel",
+          "confidence": 0.8,
+          "analyzerVersion": "sentinel-core-0.4"
+        },
+        {
+          "ruleId": "funcion-larga-rs",
+          "message": "fn ejecutar_request_stream() tiene 112 lineas efectivas (max 100). Dividir en funciones auxiliares.",
+          "severity": "warning",
+          "range": {
+            "start": {
+              "line": 771,
+              "character": 4
+            },
+            "end": {
+              "line": 771,
+              "character": 37
+            }
+          },
+          "source": "Code Sentinel",
+          "confidence": 0.8,
+          "analyzerVersion": "sentinel-core-0.4"
+        }
+      ]
+    },
+    {
+      "ruta": "C:\\Users\\Owner\\OneDrive\\Documentos\\area-trabajo\\glory-harness\\core\\src\\runtime.rs",
+      "findings": [
+        {
+          "ruleId": "limite-lineas",
+          "message": "Archivo excede limite de 500 lineas para servicio (1111 lineas efectivas). Dividir obligatoriamente.",
+          "severity": "warning",
+          "range": {
+            "start": {
+              "line": 1719,
+              "character": 0
+            },
+            "end": {
+              "line": 1719,
+              "character": 1
+            }
+          },
+          "source": "Code Sentinel",
+          "confidence": 0.8,
+          "analyzerVersion": "sentinel-core-0.4",
+          "quickFixId": "mark-split-todo"
+        },
+        {
+          "ruleId": "limite-lineas-nivel-2",
+          "message": "ALTO: este servicio duplica el limite (1111/500). No lo tapes con sentinel-disable-file; separa contratos, requests, responses y helpers ahora.",
+          "severity": "warning",
+          "range": {
+            "start": {
+              "line": 1719,
+              "character": 0
+            },
+            "end": {
+              "line": 1719,
+              "character": 1
+            }
+          },
+          "source": "Code Sentinel",
+          "confidence": 0.8,
+          "analyzerVersion": "sentinel-core-0.4"
+        },
+        {
+          "ruleId": "funcion-larga-rs",
+          "message": "fn ejecutar_turno() tiene 380 lineas efectivas (max 100). Dividir en funciones auxiliares.",
+          "severity": "warning",
+          "range": {
+            "start": {
+              "line": 382,
+              "character": 4
+            },
+            "end": {
+              "line": 382,
+              "character": 32
+            }
+          },
+          "source": "Code Sentinel",
+          "confidence": 0.8,
+          "analyzerVersion": "sentinel-core-0.4"
+        },
+        {
+          "ruleId": "funcion-larga-rs",
+          "message": "fn ejecutar_subagente() tiene 200 lineas efectivas (max 100). Dividir en funciones auxiliares.",
+          "severity": "warning",
+          "range": {
+            "start": {
+              "line": 1050,
+              "character": 4
+            },
+            "end": {
+              "line": 1050,
+              "character": 32
+            }
+          },
+          "source": "Code Sentinel",
+          "confidence": 0.8,
+          "analyzerVersion": "sentinel-core-0.4"
+        }
+      ]
+    },
+    {
+      "ruta": "C:\\Users\\Owner\\OneDrive\\Documentos\\area-trabajo\\glory-harness\\desktop\\src-tauri\\src\\main.rs",
+      "findings": [
+        {
+          "ruleId": "limite-lineas",
+          "message": "Archivo excede limite de 500 lineas para servicio (958 lineas efectivas). Dividir obligatoriamente.",
+          "severity": "warning",
+          "range": {
+            "start": {
+              "line": 1189,
+              "character": 0
+            },
+            "end": {
+              "line": 1189,
+              "character": 0
+            }
+          },
+          "source": "Code Sentinel",
+          "confidence": 0.8,
+          "analyzerVersion": "sentinel-core-0.4",
+          "quickFixId": "mark-split-todo"
+        },
+        {
+          "ruleId": "funcion-larga-rs",
+          "message": "fn abrir_sesion_interna() tiene 126 lineas efectivas (max 100). Dividir en funciones auxiliares.",
+          "severity": "warning",
+          "range": {
+            "start": {
+              "line": 265,
+              "character": 0
+            },
+            "end": {
+              "line": 265,
+              "character": 24
+            }
+          },
+          "source": "Code Sentinel",
+          "confidence": 0.8,
+          "analyzerVersion": "sentinel-core-0.4"
+        },
+        {
+          "ruleId": "funcion-larga-rs",
+          "message": "fn enviar_turno() tiene 172 lineas efectivas (max 100). Dividir en funciones auxiliares.",
+          "severity": "warning",
+          "range": {
+            "start": {
+              "line": 442,
+              "character": 0
+            },
+            "end": {
+              "line": 442,
+              "character": 22
+            }
+          },
+          "source": "Code Sentinel",
+          "confidence": 0.8,
+          "analyzerVersion": "sentinel-core-0.4"
+        }
+      ]
+    }
+  ]
+}
