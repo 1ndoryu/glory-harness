@@ -141,6 +141,26 @@ struct UiEstado {
     siguiendo_final: bool,
     /// Desplazamiento manual en filas (válido solo si `!siguiendo_final`).
     scroll_manual: u16,
+    /// Caché de filas pre-envueltas de los bloques **cerrados** (inmutables).
+    /// [059A-S6] `a_lineas` re-envolvía TODO el historial en cada frame (~20
+    /// fps): 4,8 ms/frame en release con 1.440 filas y creciendo lineal con la
+    /// conversación. Ahora solo se re-envuelve la cola abierta (el bloque del
+    /// asistente en streaming crece token a token); el prefijo cerrado se
+    /// reutiliza mientras el ancho y el nº de bloques cerrados no cambien.
+    cache_filas: CacheFilas,
+}
+
+/// Caché de `a_lineas`: filas visuales ya envueltas del prefijo de bloques
+/// cerrados, para un ancho concreto. Los bloques cerrados nunca mutan (todo
+/// cambio ocurre en el último bloque mientras está abierto o al hacer push de
+/// uno nuevo), así que el prefijo es reutilizable entre frames.
+#[derive(Debug)]
+struct CacheFilas {
+    /// Ancho con el que se envolvieron las filas (cambia en resize).
+    ancho: usize,
+    /// Cuántos bloques del prefijo cubren las filas.
+    incluidos: usize,
+    filas: Vec<Line<'static>>,
 }
 
 impl UiEstado {
@@ -154,6 +174,11 @@ impl UiEstado {
             salir: false,
             siguiendo_final: true,
             scroll_manual: 0,
+            cache_filas: CacheFilas {
+                ancho: 0,
+                incluidos: 0,
+                filas: Vec::new(),
+            },
         }
     }
 
@@ -266,6 +291,7 @@ impl UiEstado {
 mod tests {
     use super::*;
     use crate::tui::render::a_lineas;
+    use crate::tui::render::filas_visibles;
     use crate::tui::render::render_markdown_linea;
     use crate::tui::texto::envolver_con_prefijo;
     use crate::tui::texto::envolver_linea;
@@ -455,8 +481,61 @@ mod tests {
         ui.tool_fin("file_read", true, None);
         // Líneas: cabecera usuario + 1 cuerpo; cabecera asistente + cuerpo
         // envuelto + tool. El ancho 80 no corta el texto corto.
-        let lineas = a_lineas(&ui, 80);
+        let lineas = a_lineas(&mut ui, 80);
         assert!(lineas.len() >= 4, "vino: {}", lineas.len());
+    }
+
+    /// [059A-S6] Regresión del render acotado: `filas_visibles` (la ruta real
+    /// por frame) debe producir el MISMO contenido que la envoltura completa
+    /// (`a_lineas`), nunca devolver más filas que la ventana, y el prefijo
+    /// cacheado debe permanecer estable mientras el streaming solo crece la
+    /// cola abierta. Benchmark medido (release): 4.151 µs/frame → 60 µs/frame
+    /// en streaming y 22 µs/frame idle con 1.440 filas de historial.
+    #[test]
+    fn render_acotado_equivale_a_envoltura_completa() {
+        let mut ui = UiEstado::nuevo();
+        for i in 0..40 {
+            ui.push_usuario(format!(
+                "mensaje {i}: \u{00bf}qu\u{00e9} tal va la cosa por aqu\u{00ed} con textos que envuelven en varias l\u{00ed}neas visuales? lorem ipsum dolor sit amet consectetur adipiscing elit"
+            ));
+            ui.push_asistente();
+            for t in 0..4 {
+                ui.push_token(&format!(
+                    "p\u{00e1}rrafo {t}: una **frase en negrita** con `c\u{00f3}digo` y texto suficiente para que el envoltorio corte en varias filas porque es bastante largo "
+                ));
+            }
+            ui.tool_inicio("file_read".into());
+            ui.tool_fin("file_read", true, Some("120 l\u{00ed}neas le\u{00ed}das".into()));
+        }
+        // (1) Total coherente y ventana acotada.
+        let (v0, total) = filas_visibles(&mut ui, 80, 25);
+        assert_eq!(a_lineas(&mut ui, 80).len(), total, "total divergente");
+        assert!(!v0.is_empty() && v0.len() <= 25, "vino: {}", v0.len());
+        assert!(total > 100, "vino: {}", total);
+        // (2) Streaming: el prefijo (primeras filas) no cambia al crecer la cola.
+        let base = a_lineas(&mut ui, 80);
+        let prefijo = base[..5].to_vec();
+        ui.push_usuario("pregunta nueva para abrir turno y streamear".into());
+        ui.push_asistente();
+        for _ in 0..60 {
+            ui.push_token("m\u{00e1}s tokens de la respuesta gener\u{00e1}ndose poco a poco ");
+            let (v, tot) = filas_visibles(&mut ui, 80, 25);
+            assert!(v.len() <= 25 && tot > 100);
+        }
+        let despues = a_lineas(&mut ui, 80);
+        assert_eq!(
+            &despues[..5], &prefijo[..],
+            "el streaming corrompi\u{00f3} el prefijo cacheado"
+        );
+        // (3) Resize: otro ancho re-envuelve sin romper el invariante.
+        let (_, t60) = filas_visibles(&mut ui, 60, 25);
+        assert_eq!(a_lineas(&mut ui, 60).len(), t60, "resize divergente");
+        // (4) Scroll manual: la ventana cabe en el rango y el total se conserva.
+        ui.siguiendo_final = false;
+        ui.scroll_manual = 1000; // se clampea al máximo real
+        let (v3, t3) = filas_visibles(&mut ui, 60, 25);
+        assert_eq!(a_lineas(&mut ui, 60).len(), t3);
+        assert_eq!(v3.len(), 25, "scroll manual: ventana incompleta");
     }
 }
 

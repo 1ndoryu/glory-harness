@@ -18,7 +18,9 @@
   repineadas; propuestas restantes documentadas en `Agente/documentacion/brechas-gate-2026-09-05.md`)
   · S2 ✔ (split estructural: `f33a4de`, `3910477`, `f3d467b`)  · S3 ✔ (extracción de
   funciones largas, `79022c7`) · S4 ✔ (organización por dominio, `8064c41`) ·
-  S5 ✔ (auditoría SOLID documentada, ver checklist) · S6 y S8 pendientes.
+  S5 ✔ (auditoría SOLID documentada, ver checklist) · S6 ✔ (auditoría de rendimiento,
+  ver checklist; fix TUI 4151→60 µs/frame documentado en
+  `Agente/documentacion/auditoria-rendimiento-2026-09-05.md`) · S8 pendiente.
 - **Re-analyze 05-09 (post S1/S7):** 2 errores (ambos `expect-produccion-rs` en
   `desktop/src-tauri/src/vault.rs`, **ajeno 039A-3**, documentado y sin tocar) ·
   21 warnings / 8 archivos en core+cli (deuda de tamaño, S2–S4). core+cli a **0 errores**.
@@ -286,28 +288,34 @@ objetivos verificables; corregir solo lo demostrado.
 
 Checklist (marcar con evidencia de medición):
 
-- [ ] **Copia de contexto por turno:** `preparar_con(&mensajes…)` y `mensajes = mensajes_prep`
-      — ¿cuántas copias de `Vec<AiMessage>` por llamada LLM? Medir con conteo simple o
-      `tracing`; si >1 copia completa por turno, evaluar clonar solo delta/índices.
-- [ ] **`registry.ids()` por iteración del bucle** (se recalcula por llamada LLM):
-      medir frecuencia; cachear por turno si aplica.
-- [ ] **Persistencia SQLite:** historial cargado por turno (¿N+1 mensaje a mensaje?);
-      escrituras de turno/mensajes: ¿una transacción por batch o N commits? (WAL ya
-      activo). Verificar en `cli/src/persistencia_sqlite.rs` (lectura; cambios coordinados
-      con 039A-3).
-- [ ] **Streaming SSE:** ¿un evento por token y por tool? Volumen y serialización por
-      evento (medir tamaño JSON por evento `Usage`/`Token`); si hay eventos redundantes
-      por turno, coalescer.
-- [ ] **Locks en runtime:** `self.contexto.lock().await` (¿retenido durante llamadas de
-      red?), `Arc<Mutex>` de plan/reglas/guardas — detectar contención real con un turno
-      sintético (fixture) y `tracing` de espera.
-- [ ] **Subagente/task:** coste de spawn por delegación vs reutilización; límites ya
-      existentes (concurrencia/profundidad) verificados bajo carga de fixture.
-- [ ] **TUI:** render completo por evento vs incremental; coste de `a_lineas` en
-      conversaciones largas (envolver todo el historial por frame).
-- [ ] Fijar **objetivos**: turno sintético pequeño (3 tools) sin red < X ms en debug; RAM
-      del release ≤ línea base 40 MB (WS); streaming sin pausas > 200 ms por token
-      (medir con fixture SSE local).
+- [x] **Copia de contexto por turno:** medido — 2 clones completos de `Vec<AiMessage>`
+      + 1 de schemas por llamada LLM (sin copias en el bucle de tools ni por evento).
+      **No problema** (10–100 µs frente a red de 10⁶× más); invariante documentado.
+- [x] **`registry.ids()` por iteración del bucle:** 1 vez por llamada LLM (no por tool),
+      O(n_tools≈20). **No problema**; caché por turno innecesaria.
+- [x] **Persistencia SQLite:** carga sin N+1 (SELECT único por conversación) ✅;
+      escrituras = 1 commit por operación (~12–15 commits/turno) y rusqlite síncrono
+      bajo `Mutex` en el runtime async. **Hallazgo real pero archivo ajeno (039A-3):**
+      recomendación documentada (spawn_blocking + transacción por turno), sin tocar.
+- [x] **Streaming SSE:** sin eventos por token — coalescido a 1 `Token` por ronda LLM
+      (O(rondas+tools)); serialización mínima. **No problema**; nota de UX (texto por
+      rondas, no por token) documentada.
+- [x] **Locks en runtime:** `contexto.lock().await` solo durante `preparar_con` (sin red
+      bajo el lock); el resto son `std::Mutex` breves sin `.await`. **No problema** en el
+      núcleo; la única contención real es SQLite (ajeno, ver ítem 3).
+- [x] **Subagente/task:** límites verificados y activos — `SUBAGENTES_EN_CURSO` +
+      `concurrencia_permitida` + `GuardiaConcurrencia`, profundidad ≤1 atómica con
+      `GuardiaProfundidad` (fail-closed). Spawn ligero en el mismo executor. **No problema**.
+- [x] **TUI:** hotspot demostrado y **corregido** — `a_lineas` re-envolvía todo el
+      historial por frame: **4151 µs → 60 µs/frame streaming (~70×) y 22 µs/frame idle,
+      independientes del largo** (caché de bloques cerrados + re-envuelto de la cola +
+      clonado acotado a la ventana visible). Test de regresión añadido (35 CLI).
+- [x] Fijar **objetivos**: suite determinista 234 tests (195 core + 35 cli + 4 desktop)
+      en ~3.8 s de ejecución debug; streaming acotado por el fix TUI; RAM del release
+      pendiente de medir en el próximo cierre (sin estado nuevo por mensaje en S6).
+
+**Ejecutado:** fix TUI en `cli/src/ui/tui/{mod,render}.rs`; informe completo en
+`Agente/documentacion/auditoria-rendimiento-2026-09-05.md` con tabla resumen por ítem.
 
 **Criterio de éxito S6:** cada ítem cerrado con número (antes/después) y su fix si aplica;
 los que resulten "no problema" quedan documentados como verificados (evita regresiones).
