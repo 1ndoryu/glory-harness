@@ -62,6 +62,7 @@ chat.id = 'chat';
 // conversación actual; renombrar/archivar/eliminar delegan en la sidebar.
 let sidebarAbierta = true;
 const cabecera = montarCabeceraChat({
+  idPrefijo: 'principal',
   titulo: 'Refactor CLI a lib+bin',
   onAcciones(rect) {
     abrirAccionesCabecera(rect);
@@ -925,6 +926,7 @@ const sidebar = montarSidebar({
 });
 
 const entrada = montarEntrada({
+  idPrefijo: 'principal',
   proveedores: PROVEEDORES,
   modeloActual,
   modo: modoActual,

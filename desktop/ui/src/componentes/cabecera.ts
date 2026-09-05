@@ -4,6 +4,11 @@
 // reutilizando menu.ts) y el botón de colapsar/expandir la sidebar
 // junto al título. El título puede entrar en edición inline (renombrar
 // desde el ⋯) igual que una fila de la sidebar.
+// [039A-3 P5] La cabecera es duplicable: por eso la raíz lleva la clase
+// `.cabecera-chat` (no id). El botón de colapsar sidebar SOLO se monta
+// en el panel principal; un panel lateral monta en su lugar el botón ×
+// de cierre (`cerrable: true`). Los ids internos se sustituyen por un
+// prefijo por instancia (`idPrefijo`) para no colisionar entre paneles.
 // ============================================================
 
 import { icono } from './iconos';
@@ -14,7 +19,8 @@ export interface CabeceraChat {
   /** Cambia el título mostrado. */
   ponerTitulo(texto: string): void;
   /** [039A-3 P4] Refleja el estado abierto/colapsado de la sidebar en el
-   * icono del botón toggle (panel-izq-cerrar ↔ panel-izq-abrir). */
+   * icono del botón toggle (panel-izq-cerrar ↔ panel-izq-abrir). No-op en
+   * un panel lateral (no tiene botón toggle). */
   setSidebarAbierta(abierta: boolean): void;
   /** [039A-3 P4] Pone el título en edición inline (renombrar). Se usa desde
    * el ⋯ de la cabecera; al guardar llama `onGuardar(nuevo)`. */
@@ -26,40 +32,63 @@ export interface CabeceraChat {
 }
 
 export interface CabeceraChatOpciones {
+  /** Prefijo de los ids internos (una instancia por panel). */
+  idPrefijo: string;
   titulo: string;
+  /** [039A-3 P5] Panel principal (`false`, default): botón toggle sidebar.
+   * Panel lateral (`true`): botón × de cierre en lugar del toggle. */
+  lateral?: boolean;
   /** Se invoca al pulsar el botón ⋯: abre el menú de acciones de la
    * conversación activa (el ⋯ solo dispara; main.ts construye el menú para
    * tener acceso a la conversación actual). */
   onAcciones: (rect: DOMRect) => void;
   /** Se invoca al pulsar el botón de colapsar/expandir la sidebar. */
-  onToggleSidebar: () => void;
+  onToggleSidebar?: () => void;
+  /** [039A-3 P5] Se invoca al pulsar el botón × de un panel lateral. */
+  onCerrar?: () => void;
 }
 
 /** Mecánica de renombrar inline compartida (fila de sidebar y cabecera). */
 export function montarCabeceraChat(opts: CabeceraChatOpciones): CabeceraChat {
-  const cab = el('div');
-  cab.id = 'cabecera-chat';
+  const cab = el('div', 'cabecera-chat');
   let titulo = opts.titulo;
+  const lateral = opts.lateral ?? false;
 
-  // ---- acciones: colapsar sidebar + ⋯ (acciones de la conversación) ----
+  // ---- acciones: colapsar sidebar (principal) / × cerrar (lateral) + ⋯ ----
   const acciones = el('div', 'acciones-cabecera');
   acciones.setAttribute('aria-label', 'acciones de la conversación');
 
-  const btnToggle = el('button', 'cab-boton') as HTMLButtonElement;
-  btnToggle.id = 'btn-abrir-sidebar';
-  btnToggle.type = 'button';
-  btnToggle.title = 'ocultar lista de conversaciones';
-  btnToggle.setAttribute('aria-label', 'ocultar lista de conversaciones');
+  let btnToggle: HTMLButtonElement | null = null;
+  let btnCerrar: HTMLButtonElement | null = null;
   let sidebarAbierta = true;
-  function pintarIconoToggle(): void {
-    btnToggle.replaceChildren(icono(sidebarAbierta ? 'panel-izq-cerrar' : 'panel-izq-abrir'));
+
+  if (!lateral) {
+    btnToggle = el('button', 'cab-boton') as HTMLButtonElement;
+    btnToggle.id = `${opts.idPrefijo}-abrir-sidebar`;
+    btnToggle.type = 'button';
+    btnToggle.title = 'ocultar lista de conversaciones';
+    btnToggle.setAttribute('aria-label', 'ocultar lista de conversaciones');
+    function pintarIconoToggle(): void {
+      btnToggle?.replaceChildren(
+        icono(sidebarAbierta ? 'panel-izq-cerrar' : 'panel-izq-abrir'),
+      );
+    }
+    pintarIconoToggle();
+    btnToggle.addEventListener('click', () => opts.onToggleSidebar?.());
+    acciones.appendChild(btnToggle);
+  } else {
+    btnCerrar = el('button', 'cab-boton cab-cerrar') as HTMLButtonElement;
+    btnCerrar.id = `${opts.idPrefijo}-cerrar-panel`;
+    btnCerrar.type = 'button';
+    btnCerrar.title = 'cerrar panel lateral';
+    btnCerrar.setAttribute('aria-label', 'cerrar panel lateral');
+    btnCerrar.appendChild(icono('x'));
+    btnCerrar.addEventListener('click', () => opts.onCerrar?.());
+    acciones.appendChild(btnCerrar);
   }
-  pintarIconoToggle();
-  btnToggle.addEventListener('click', () => opts.onToggleSidebar());
-  acciones.appendChild(btnToggle);
 
   const btnMas = el('button', 'cab-boton') as HTMLButtonElement;
-  btnMas.id = 'btn-acciones-chat';
+  btnMas.id = `${opts.idPrefijo}-acciones-chat`;
   btnMas.type = 'button';
   btnMas.title = 'acciones de la conversación';
   btnMas.setAttribute('aria-label', 'acciones de la conversación');
@@ -132,10 +161,14 @@ export function montarCabeceraChat(opts: CabeceraChatOpciones): CabeceraChat {
     },
     setSidebarAbierta(abierta: boolean) {
       sidebarAbierta = abierta;
-      pintarIconoToggle();
-      const label = abierta ? 'ocultar lista de conversaciones' : 'mostrar lista de conversaciones';
-      btnToggle.title = label;
-      btnToggle.setAttribute('aria-label', label);
+      if (btnToggle) {
+        btnToggle.replaceChildren(
+          icono(sidebarAbierta ? 'panel-izq-cerrar' : 'panel-izq-abrir'),
+        );
+        const label = abierta ? 'ocultar lista de conversaciones' : 'mostrar lista de conversaciones';
+        btnToggle.title = label;
+        btnToggle.setAttribute('aria-label', label);
+      }
     },
     empezarRenombrar(valor, onGuardar, onCancelar) {
       empezarRenombrar(valor, onGuardar, onCancelar);

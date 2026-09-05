@@ -3,6 +3,10 @@
 // barra de controles (modelo con menú contextual doble
 // proveedor → modelo, razonamiento, modo) y botón único
 // enviar/detener anclado a la derecha. Port 1:1 del mockup.
+// [039A-3 P5] La entrada es duplicable (clase `.entrada`, no id). El
+// panel principal usa la variante completa; el panel lateral usa la
+// variante mínima (solo textarea + enviar/detener) porque hereda el
+// modelo/modo del runtime compartido M1.
 // ============================================================
 
 import type { ModeloSeleccionado, ProveedorModelo } from '../dominio/tipos';
@@ -12,6 +16,10 @@ import { montarSelectorModelo } from './selectorModelo';
 import { el } from '../util/dom';
 
 export type ModoEjecucion = 'predeterminado' | 'meta' | 'autonomo';
+
+/** [039A-3 P5] Variante 'completa' (controles: modelo/razonamiento/modo) o
+ * 'minima' (solo textarea + enviar/detener; hereda el runtime M1). */
+export type VarianteEntrada = 'completa' | 'minima';
 
 /** Modos reales del core (permiso.rs) con su etiqueta visible. */
 export const MODOS_EJECUCION: Array<{ valor: ModoEjecucion; etiqueta: string }> = [
@@ -46,15 +54,16 @@ export interface Entrada {
   medir(): void;
   /** Estado del botón enviar/detener. */
   setCorriendo(corriendo: boolean): void;
-  /** Nombre del modelo mostrado. */
+  /** Nombre del modelo mostrado. No-op en la variante mínima. */
   setModeloNombre(nombre: string): void;
-  /** Modelo mostrado (reemplaza proveedor/modelo/nombre). */
+  /** Modelo mostrado (reemplaza proveedor/modelo/nombre). No-op mínima. */
   setModelo(modelo: ModeloSeleccionado): void;
-  /** [039A-1 04-09 H7] Nivel de razonamiento activo ('low'|'medium'|'high'). */
+  /** [039A-1 04-09 H7] Nivel de razonamiento activo ('low'|'medium'|'high').
+   * No-op en la variante mínima (lo fija el panel principal). */
   setRazonamientoValor(valor: string): void;
   /** Nivel de razonamiento activo. */
   getRazonamiento(): string;
-  /** Etiqueta del modo. */
+  /** Etiqueta del modo. No-op en la variante mínima (lo fija el principal). */
   setModo(modo: ModoEjecucion): void;
   /** Pide foco al textarea (tras enviar). */
   enfocar(): void;
@@ -76,8 +85,14 @@ export interface Entrada {
 }
 
 export interface EntradaOpciones {
-  proveedores: ProveedorModelo[];
-  modeloActual: ModeloSeleccionado;
+  /** Prefijo de los ids internos (una instancia por panel). */
+  idPrefijo: string;
+  /** [039A-3 P5] 'completa' (default) o 'minima'. */
+  variante?: VarianteEntrada;
+  /** Solo variante 'completa': catálogo de proveedores del selector. */
+  proveedores?: ProveedorModelo[];
+  /** Modelo inicial (obligatorio en 'completa'; se ignora en 'minima'). */
+  modeloActual?: ModeloSeleccionado;
   modo: ModoEjecucion;
   /** [039A-1 04-09 H7] Nivel de razonamiento inicial ('low'|'medium'|'high'). */
   razonamiento?: string;
@@ -88,123 +103,135 @@ export interface EntradaOpciones {
   onEnviar: (texto: string, editandoId?: string | null) => void;
   /** Se invoca al pulsar detener durante un turno. */
   onDetener: () => void;
-  /** Se invoca al elegir un modelo del menú. */
-  onModeloCambiado: (modelo: ModeloSeleccionado) => void;
-  /** Se invoca al cambiar el modo de ejecución desde la barra. */
+  /** Se invoca al elegir un modelo del menú (solo variante 'completa'). */
+  onModeloCambiado?: (modelo: ModeloSeleccionado) => void;
+  /** Se invoca al cambiar el modo de ejecución desde la barra (completa). */
   onModoCambiado?: (modo: ModoEjecucion) => void;
-  /** [039A-1 04-09 H7] Se invoca al elegir un nivel de razonamiento. */
+  /** [039A-1 04-09 H7] Se invoca al elegir un nivel de razonamiento (completa). */
   onRazonamientoCambiado?: (razonamiento: string) => void;
 }
 
 export function montarEntrada(opts: EntradaOpciones): Entrada {
-  const raiz = el('div');
-  raiz.id = 'entrada';
+  const raiz = el('div', 'entrada');
+  const variante: VarianteEntrada = opts.variante ?? 'completa';
 
   const caja = el('div', 'caja');
   const textarea = el('textarea') as HTMLTextAreaElement;
-  textarea.id = 'input';
+  textarea.id = `${opts.idPrefijo}-input`;
   textarea.rows = 1;
   textarea.placeholder = 'escribe un mensaje…';
   textarea.autocomplete = 'off';
 
-  // ---- barra de controles ----
+  // ---- estado interno ----
+  let corriendo = false;
+  let modo: ModoEjecucion = opts.modo;
+
+  // [039A-3 P5] En la variante mínima no se construyen controles de
+  // modelo/razonamiento/modo: el runtime M1 es compartido y el panel
+  // principal es la fuente de esos valores. Solo existe el botón
+  // enviar/detener, dentro de `.controles`.
   const controles = el('div', 'controles');
-
-  // control: modelo (selector compartido con el modal: menú doble)
-  // El selector y el menú de modo comparten la mecánica de menu.ts
-  // (solo hay un menú abierto a la vez), así que no hace falta cerrar
-  // el otro antes de abrir: abrirMenuContextual cierra el previo solo.
-  const selectorModelo = montarSelectorModelo({
-    proveedores: opts.proveedores,
-    modelo: opts.modeloActual,
-    variante: 'barra',
-    onCambio(modelo) {
-      opts.onModeloCambiado(modelo);
-    },
-  });
-  const btnModelo = selectorModelo.raiz as HTMLButtonElement;
-  btnModelo.id = 'control-modelo';
-
-  // [039A-1 04-09 H7] control: razonamiento (menú Bajo/Medio/Alto, igual que
-  // el de modo; el nivel elegido viaja al turno y se persiste en config).
-  const razonamientoInicial = VALORES_RAZONAMIENTO.some(
-    (r) => r.valor === opts.razonamiento,
-  )
-    ? (opts.razonamiento as string)
-    : 'medium';
-  let razonamiento = razonamientoInicial;
-  const btnRazonamiento = el('button', 'control') as HTMLButtonElement;
-  btnRazonamiento.id = 'control-razonamiento';
-  btnRazonamiento.type = 'button';
-  btnRazonamiento.title = 'nivel de razonamiento';
+  let btnModelo: HTMLButtonElement | null = null;
+  let btnRazonamiento: HTMLButtonElement | null = null;
+  let btnModo: HTMLButtonElement | null = null;
+  let razonamiento = 'medium';
   const spanRazonamiento = el('span');
-  spanRazonamiento.textContent = ETIQUETA_RAZONAMIENTO[razonamiento] ?? 'Medio';
-  btnRazonamiento.appendChild(spanRazonamiento);
-  btnRazonamiento.appendChild(icono('chevron-abajo', true));
+  const spanModo = el('span');
+  let selectorModelo: ReturnType<typeof montarSelectorModelo> | null = null;
 
-  /** Cambia el nivel de razonamiento activo y notifica. */
-  function seleccionarRazonamiento(valor: string): void {
-    cerrarMenuActual();
-    if (razonamiento === valor) return;
-    razonamiento = valor;
-    spanRazonamiento.textContent = ETIQUETA_RAZONAMIENTO[valor] ?? valor;
-    opts.onRazonamientoCambiado?.(valor);
-  }
-
-  /** Abre el menú de razonamiento bajo el botón (check en el nivel activo). */
-  function abrirMenuRazonamiento(): void {
-    if (corriendo) return;
-    const rect = btnRazonamiento.getBoundingClientRect();
-    abrirMenuContextual({
-      rect,
-      construir(m) {
-        VALORES_RAZONAMIENTO.forEach(({ valor, etiqueta }) => {
-          m.appendChild(
-            crearItemMenu({
-              texto: etiqueta,
-              marcado: valor === razonamiento,
-              onClick() {
-                seleccionarRazonamiento(valor);
-              },
-            }),
-          );
-        });
+  if (variante === 'completa') {
+    // control: modelo (selector compartido con el modal: menú doble)
+    // El selector y el menú de modo comparten la mecánica de menu.ts
+    // (solo hay un menú abierto a la vez), así que no hace falta cerrar
+    // el otro antes de abrir: abrirMenuContextual cierra el previo solo.
+    selectorModelo = montarSelectorModelo({
+      proveedores: opts.proveedores ?? [],
+      modelo: opts.modeloActual ?? { proveedor: '', modelo: '', nombre: '' },
+      variante: 'barra',
+      onCambio(modelo) {
+        opts.onModeloCambiado?.(modelo);
       },
     });
+    btnModelo = selectorModelo.raiz as HTMLButtonElement;
+    btnModelo.id = `${opts.idPrefijo}-control-modelo`;
+
+    // [039A-1 04-09 H7] control: razonamiento (menú Bajo/Medio/Alto, igual que
+    // el de modo; el nivel elegido viaja al turno y se persiste en config).
+    const razonamientoInicial = VALORES_RAZONAMIENTO.some(
+      (r) => r.valor === opts.razonamiento,
+    )
+      ? (opts.razonamiento as string)
+      : 'medium';
+    razonamiento = razonamientoInicial;
+    btnRazonamiento = el('button', 'control') as HTMLButtonElement;
+    btnRazonamiento.id = `${opts.idPrefijo}-control-razonamiento`;
+    btnRazonamiento.type = 'button';
+    btnRazonamiento.title = 'nivel de razonamiento';
+    spanRazonamiento.textContent = ETIQUETA_RAZONAMIENTO[razonamiento] ?? 'Medio';
+    btnRazonamiento.appendChild(spanRazonamiento);
+    btnRazonamiento.appendChild(icono('chevron-abajo', true));
+
+    /** Cambia el nivel de razonamiento activo y notifica. */
+    function seleccionarRazonamiento(valor: string): void {
+      cerrarMenuActual();
+      if (razonamiento === valor) return;
+      razonamiento = valor;
+      spanRazonamiento.textContent = ETIQUETA_RAZONAMIENTO[valor] ?? valor;
+      opts.onRazonamientoCambiado?.(valor);
+    }
+
+    /** Abre el menú de razonamiento bajo el botón (check en el nivel activo). */
+    function abrirMenuRazonamiento(): void {
+      if (corriendo) return;
+      if (!btnRazonamiento) return;
+      const rect = btnRazonamiento.getBoundingClientRect();
+      abrirMenuContextual({
+        rect,
+        construir(m) {
+          VALORES_RAZONAMIENTO.forEach(({ valor, etiqueta }) => {
+            m.appendChild(
+              crearItemMenu({
+                texto: etiqueta,
+                marcado: valor === razonamiento,
+                onClick() {
+                  seleccionarRazonamiento(valor);
+                },
+              }),
+            );
+          });
+        },
+      });
+    }
+
+    btnRazonamiento.addEventListener('click', (e) => {
+      e.stopPropagation();
+      abrirMenuRazonamiento();
+    });
+
+    // control: modo (menú contextual: predeterminado / meta / autónomo)
+    btnModo = el('button', 'control') as HTMLButtonElement;
+    btnModo.id = `${opts.idPrefijo}-modo-control`;
+    btnModo.type = 'button';
+    btnModo.title = 'modo de ejecución';
+    spanModo.textContent = ETIQUETA_MODO[opts.modo];
+    btnModo.appendChild(spanModo);
+    btnModo.appendChild(icono('chevron-abajo', true));
+
+    controles.appendChild(btnModelo);
+    controles.appendChild(btnRazonamiento);
+    controles.appendChild(btnModo);
   }
 
-  btnRazonamiento.addEventListener('click', (e) => {
-    e.stopPropagation();
-    abrirMenuRazonamiento();
-  });
-
-  // control: modo (menú contextual: predeterminado / meta / autónomo)
-  const btnModo = el('button', 'control') as HTMLButtonElement;
-  btnModo.id = 'modo-control';
-  btnModo.type = 'button';
-  btnModo.title = 'modo de ejecución';
-  const spanModo = el('span');
-  spanModo.textContent = ETIQUETA_MODO[opts.modo];
-  btnModo.appendChild(spanModo);
-  btnModo.appendChild(icono('chevron-abajo', true));
-
-  // botón único: enviar / detener
+  // botón único: enviar / detener (en completa es el 4º control de la barra;
+  // en mínima es el único hijo de .controles, anclado a la derecha).
   const btnEnviar = el('button', 'btn-enviar') as HTMLButtonElement;
-  btnEnviar.id = 'btn-enviar';
+  btnEnviar.id = `${opts.idPrefijo}-btn-enviar`;
   btnEnviar.type = 'button';
-
-  controles.appendChild(btnModelo);
-  controles.appendChild(btnRazonamiento);
-  controles.appendChild(btnModo);
   controles.appendChild(btnEnviar);
 
   caja.appendChild(textarea);
   caja.appendChild(controles);
   raiz.appendChild(caja);
-
-  // ---------- estado interno ----------
-  let corriendo = false;
-  let modo: ModoEjecucion = opts.modo;
 
   // ---------- [039A-3 P2] modo edición de mensaje ----------
   // Al editar un mensaje de usuario del historial, el textarea rellena su
@@ -303,19 +330,22 @@ export function montarEntrada(opts: EntradaOpciones): Entrada {
 
   // ---------- menú de modo (predeterminado / meta / autónomo) ----------
   // La mecánica del menú es la compartida de menu.ts; aquí solo el contenido.
+  // [039A-3 P5] Solo existe en la variante completa: el modo es compartido
+  // (M1) y la entrada mínima no puede cambiarlo.
 
   /** Cambia el modo activo (desde el menú o desde fuera) y notifica. */
   function seleccionarModo(nuevo: ModoEjecucion): void {
     cerrarMenuActual();
     if (modo === nuevo) return;
     modo = nuevo;
-    spanModo.textContent = ETIQUETA_MODO[modo];
+    if (spanModo) spanModo.textContent = ETIQUETA_MODO[modo];
     opts.onModoCambiado?.(modo);
   }
 
   /** Abre el menú de modo bajo el botón, con check en el modo activo. */
   function abrirMenuModo(): void {
     if (corriendo) return;
+    if (!btnModo) return;
     const rect = btnModo.getBoundingClientRect();
     abrirMenuContextual({
       rect,
@@ -335,7 +365,7 @@ export function montarEntrada(opts: EntradaOpciones): Entrada {
     });
   }
 
-  btnModo.addEventListener('click', (e) => {
+  btnModo?.addEventListener('click', (e) => {
     e.stopPropagation();
     abrirMenuModo();
   });
@@ -350,17 +380,18 @@ export function montarEntrada(opts: EntradaOpciones): Entrada {
     },
     setCorriendo(v: boolean) {
       corriendo = v;
-      btnModo.disabled = v;
-      btnRazonamiento.disabled = v;
-      selectorModelo.setDeshabilitado(v);
+      if (btnModo) btnModo.disabled = v;
+      if (btnRazonamiento) btnRazonamiento.disabled = v;
+      selectorModelo?.setDeshabilitado(v);
       pintarBotonEnviar();
     },
     setModeloNombre(nombre: string) {
+      if (!selectorModelo) return;
       const m = selectorModelo.getModelo();
       selectorModelo.setModelo({ ...m, nombre });
     },
     setModelo(modelo: ModeloSeleccionado) {
-      selectorModelo.setModelo(modelo);
+      selectorModelo?.setModelo(modelo);
     },
     setRazonamientoValor(valor: string) {
       const valido = VALORES_RAZONAMIENTO.some((r) => r.valor === valor)
@@ -374,7 +405,7 @@ export function montarEntrada(opts: EntradaOpciones): Entrada {
     },
     setModo(nuevo: ModoEjecucion) {
       modo = nuevo;
-      spanModo.textContent = ETIQUETA_MODO[modo];
+      if (spanModo) spanModo.textContent = ETIQUETA_MODO[modo];
     },
     enfocar() {
       textarea.focus();

@@ -2,13 +2,13 @@
    Entrada (compositor), controles y menú contextual — port 1:1.
    ============================================================ */
 
-#entrada {
+.entrada {
     max-width: 860px;
     width: 100%;
     margin: 0 auto;
     padding: 0 var(--sp-lg) var(--sp-lg);
 }
-#entrada .caja {
+.entrada .caja {
     display: flex;
     flex-wrap: wrap;
     align-items: flex-end;
@@ -17,7 +17,7 @@
     padding: var(--sp-sm);
     background: #fff;
 }
-#entrada textarea {
+.entrada textarea {
     flex: 1 1 auto;
     min-width: 0;
     border: none;
@@ -32,7 +32,7 @@
     overflow-y: hidden;
 }
 /* barra de controles bajo el textarea, dentro de la misma caja */
-#entrada .controles {
+.entrada .controles {
     display: flex;
     align-items: center;
     flex-wrap: wrap;
@@ -40,7 +40,7 @@
     flex-basis: 100%;
     padding-top: var(--sp-xs);
 }
-#entrada .controles .control {
+.entrada .controles .control {
     display: inline-flex;
     align-items: center;
     gap: 4px;
@@ -53,15 +53,15 @@
     opacity: 0.6;
     white-space: nowrap;
 }
-#entrada .controles button.control { cursor: pointer; }
-#entrada .controles button.control:hover { opacity: 1; }
-#entrada .controles button.control:disabled { opacity: 0.35; cursor: default; }
-#entrada .controles .control .ic { flex: none; opacity: 0.7; }
+.entrada .controles button.control { cursor: pointer; }
+.entrada .controles button.control:hover { opacity: 1; }
+.entrada .controles button.control:disabled { opacity: 0.35; cursor: default; }
+.entrada .controles .control .ic { flex: none; opacity: 0.7; }
 /* selector de modelo en la barra: el nombre no debe estirarse (control compacto) */
-#entrada .controles .selector-modelo .nombre { flex: none; }
+.entrada .controles .selector-modelo .nombre { flex: none; }
 
 /* botón enviar/detener: icono único, anclado a la derecha de la barra */
-#entrada .btn-enviar {
+.entrada .btn-enviar {
     margin-left: auto;
     width: 24px;
     height: 24px;
@@ -75,13 +75,13 @@
     cursor: pointer;
     padding: 0;
 }
-#entrada .btn-enviar .ic { color: #fff; }
-#entrada .btn-enviar:hover { opacity: 0.85; }
-#entrada .btn-enviar:disabled { opacity: 0.3; cursor: default; }
-#entrada .btn-enviar:disabled:hover { opacity: 0.3; }
+.entrada .btn-enviar .ic { color: #fff; }
+.entrada .btn-enviar:hover { opacity: 0.85; }
+.entrada .btn-enviar:disabled { opacity: 0.3; cursor: default; }
+.entrada .btn-enviar:disabled:hover { opacity: 0.3; }
 
 /* [039A-3 P2] barra "editando mensaje… [cancelar]" sobre el textarea */
-#entrada .editando-msg {
+.entrada .editando-msg {
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -92,14 +92,14 @@
     font-size: var(--xs);
     color: #000;
 }
-#entrada .editando-msg[hidden] { display: none; }
-#entrada .editando-msg-texto {
+.entrada .editando-msg[hidden] { display: none; }
+.entrada .editando-msg-texto {
     opacity: 0.6;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
 }
-#entrada .editando-msg-cancelar {
+.entrada .editando-msg-cancelar {
     font-family: inherit;
     font-size: var(--xs);
     color: #000;
@@ -109,8 +109,8 @@
     cursor: pointer;
     text-decoration: underline;
 }
-#entrada .editando-msg-cancelar:hover { opacity: 1; }
-#entrada .editando-msg-cancelar { opacity: 0.7; }
+.entrada .editando-msg-cancelar:hover { opacity: 1; }
+.entrada .editando-msg-cancelar { opacity: 0.7; }
 
 /* ---------- Menú contextual de modelo (doble: proveedor → modelo) ---------- */
 .menu-ctx {

@@ -1,8 +1,10 @@
 /* ============================================================
    Panel meta real (plan 039A-1 §10.5.2): misma fila única que el
    boceto 03-09 (meta + estado · tiempo · tokens + play/pausa),
-   montado DENTRO de #entrada con su mismo ancho. Sin simulación:
+   montado DENTRO de .entrada con su mismo ancho. Sin simulación:
    los valores los fija main.ts con datos del turno real.
+   [039A-3 P5] Solo existe en el panel principal (la entrada del
+   lateral es mínima, sin panel meta).
    ============================================================ */
 
 .panel-meta {
@@ -24,8 +26,8 @@
 }
 
 /* campo de la meta: ocupa el resto del ancho, sin borde propio
-   (igual que el textarea de #entrada .caja). El selector con
-   descendencia gana a `#entrada textarea` del compositor. */
+   (igual que el textarea de .entrada .caja). El selector con
+   descendencia gana a `.entrada textarea` del compositor. */
 .pm-campo {
   flex: 1 1 auto;
   min-width: 0;

@@ -141,10 +141,25 @@
 }
 #sidebar .pie-boton:hover { opacity: 1; }
 
-/* ---------- Chat ---------- */
-#chat { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+/* ---------- Paneles (1-2 chats) ---------- */
+/* [039A-3 P5] #paneles es el contenedor flex de los chats duplicables
+   (máx 2). Cada chat es `.chat` (flex:1). El chat lateral se añade como
+   hermano; ambos comparten estilos de clase (no de id) para poder
+   duplicarse. */
+#paneles {
+    flex: 1;
+    display: flex;
+    min-width: 0;
+    min-height: 0;
+}
 
-#cabecera-chat {
+/* ---------- Chat ---------- */
+.chat { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+/* [039A-3 P5] Con 2 paneles cada uno ocupa la mitad; el borde entre ambos
+   lo pone `.chat + .chat`. */
+#paneles .chat + .chat { border-left: 1px solid var(--borde); }
+
+.cabecera-chat {
     border-bottom: 1px solid var(--borde);
     padding: var(--sp-sm) var(--sp-md);
     display: flex;
@@ -152,7 +167,7 @@
     gap: var(--sp-md);
     font-size: var(--xs);
 }
-#cabecera-chat .titulo {
+.cabecera-chat .titulo {
     font-size: var(--sm);
     flex: 1;
     min-width: 0;
@@ -161,7 +176,7 @@
     white-space: nowrap;
 }
 /* [039A-3 P4] Edición inline del título (renombrar desde el ⋯). */
-#cabecera-chat .titulo-renombrar {
+.cabecera-chat .titulo-renombrar {
     font-family: inherit;
     font-size: var(--sm);
     background: #fff;
@@ -174,13 +189,13 @@
 /* [039A-3 P4 retoque] Botones de cabecera (colapsar sidebar + ⋯): icono
    SIN borde (igual que el copiar del pie) y un punto mayor; hover invierte.
    El grupo va ANTES del título. */
-#cabecera-chat .acciones-cabecera {
+.cabecera-chat .acciones-cabecera {
     display: flex;
     align-items: center;
     gap: var(--sp-xs);
     flex: none;
 }
-#cabecera-chat .cab-boton {
+.cabecera-chat .cab-boton {
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -195,8 +210,11 @@
     padding: 0;
     cursor: pointer;
 }
-#cabecera-chat .cab-boton .ic { display: block; }
-#cabecera-chat .cab-boton:hover { background: #000; color: #fff; }
+.cabecera-chat .cab-boton .ic { display: block; }
+.cabecera-chat .cab-boton:hover { background: #000; color: #fff; }
+/* [039A-3 P5] Botón de cierre del chat lateral (×). Misma mecánica que el
+   resto de botones de cabecera; solo se monta en el panel lateral. */
+.cabecera-chat .cab-cerrar { margin-left: var(--sp-xs); }
 
 /* ---------- Grip de redimensionado de la sidebar ---------- */
 #cuerpo .sidebar-grip {
@@ -215,7 +233,7 @@ body.redimensionando-sidebar {
     user-select: none;
 }
 
-#mensajes {
+.mensajes {
     flex: 1;
     overflow-y: auto;
     padding: var(--sp-lg);
@@ -225,4 +243,5 @@ body.redimensionando-sidebar {
     max-width: 860px;
     width: 100%;
     margin: 0 auto;
+    min-height: 0;
 }
