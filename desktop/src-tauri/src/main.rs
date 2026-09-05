@@ -47,23 +47,38 @@ struct TramoRewind {
     archivos: Vec<String>,
 }
 
+/// [039A-3 P5] Estado por panel (hasta 2, M1: 1 runtime compartido, turnos NO
+/// simultáneos). Cada panel conoce la conversación que muestra, el turno que
+/// está ejecutando (para marcarlo `cancelado`) y su tramo rebobinado
+/// pendiente de restaurar. M1 no tiene concurrencia real: el guard de turno
+/// es global y un único `Mutex` por mapa serializa el acceso, así que los
+/// campos son planos (sin Mutex interno) y se copian los escalares antes de
+/// cualquier `.await`.
+struct PanelDatos {
+    conversacion_id: Uuid,
+    turno_id: Option<Uuid>,
+    tramo_rewind: Option<TramoRewind>,
+}
+
 /// Sesión viva del núcleo (misma construcción que `chat`/`run` del CLI, pero
 /// con `PersistenciaSqlite` en vez de memoria). El runtime va tras un Mutex
 /// para que `reconfigurar_sesion` pueda sustituirlo sin invalidar la sesión.
+/// [039A-3 P5] Lo COMPARTIDO entre paneles vive aquí (runtime/persistencia/
+/// vault/meta/modo/modelo/workspace); lo específico de cada conversación
+/// (cuál muestra, turno en curso, tramo a restaurar) vive en `paneles`.
 struct Sesion {
     runtime: Mutex<Arc<AgentRuntime>>,
     persistencia: Arc<PersistenciaSqlite>,
     user_id: Uuid,
-    conversacion_id: Mutex<Uuid>,
-    /// Turno cuyo `turno-fin` aún no se emitió (para marcar `cancelado`).
-    turno_id: Mutex<Option<Uuid>>,
+    /// [039A-3 P5] Panel principal (`"principal"`) y, si se abre, el lateral
+    /// (`"lateral"`): mapa `panel_id → PanelDatos`. Máx 2 por decisión M1 del
+    /// plan 039A-3 §2.2/§6.1. El front etiqueta cada comando/evento con el
+    /// `panel_id` para saber a qué chat va.
+    paneles: Mutex<std::collections::HashMap<String, PanelDatos>>,
     /// [039A-3 P3] Vault de respaldos del workspace (hook de `SandboxArchivos`
     /// que el core ya tiene cableado): el árbol/índice viven aquí, y el hook
     /// (que no conoce el turno) se fija con `fijar_contexto` en cada turno.
     vault: Arc<vault::VaultArchivos>,
-    /// [039A-3 P3] Último tramo rebobinado pendiente de restaurar (ver
-    /// `TramoRewind`). Se puebla en `rewind_conversacion`.
-    tramo_rewind: Mutex<Option<TramoRewind>>,
     /// Meta del modo `meta` (prefijo `[META: …]` en cada turno).
     meta: Mutex<Option<String>>,
     /// Modo con el que se construyó el runtime (`meta` activa el prefijo).
@@ -205,6 +220,57 @@ fn sesion_actual(estado: &State<'_, Estado>) -> Result<Arc<Sesion>, String> {
     }
 }
 
+/// [039A-3 P5] `panel_id` canónico para el panel principal. Los comandos de
+/// turno aceptan `panel_id` con este default para no romper el front actual
+/// (que aún no lo envía) durante la transición a 2 paneles.
+const PANEL_PRINCIPAL: &str = "principal";
+
+/// [039A-3 P5] Normaliza el `panel_id` que llega del front: `None`/vacío →
+/// panel principal. Sin normalizar, un front antiguo (sin `panel_id`) apuntaría
+/// a un panel inexistente y todo turno fallaría con "panel no encontrado".
+fn normalizar_panel(panel_id: Option<String>) -> String {
+    match panel_id {
+        Some(p) if !p.trim().is_empty() => p.trim().to_string(),
+        _ => PANEL_PRINCIPAL.to_string(),
+    }
+}
+
+/// [039A-3 P5] Conversación actual de un panel (error claro si no existe).
+fn conv_id_de_panel(sesion: &Sesion, panel_id: &str) -> Result<Uuid, String> {
+    sesion
+        .paneles
+        .lock()
+        .map(|p| {
+            p.get(panel_id)
+                .map(|d| d.conversacion_id)
+                .ok_or_else(|| format!("panel no encontrado: {panel_id}"))
+        })
+        .map_err(|_| "sesión bloqueada por otro turno".to_string())?
+}
+
+/// [039A-3 P5] Abre un panel con una conversación dada (la deja como la que
+/// muestra ese panel). No crea duplicados: si el panel ya existe, solo cambia
+/// su conversación. El tramo pendiente se limpia (pertenece a la conversación
+/// anterior del panel).
+fn panel_poner_conversacion(sesion: &Sesion, panel_id: &str, conv_id: Uuid) -> Result<(), String> {
+    sesion
+        .paneles
+        .lock()
+        .map(|mut p| {
+            let d = p
+                .entry(panel_id.to_string())
+                .or_insert(PanelDatos {
+                    conversacion_id: conv_id,
+                    turno_id: None,
+                    tramo_rewind: None,
+                });
+            d.conversacion_id = conv_id;
+            d.tramo_rewind = None;
+            Ok(())
+        })
+        .map_err(|_| "sesión bloqueada por otro turno".to_string())?
+}
+
 /// [039A-3 P3] Cablea un vault como hook del sandbox del runtime: todas las
 /// escrituras del agente (file_write/file_patch/aplicar_plan/todo) pasan por
 /// el MISMO `Arc<SandboxArchivos>` que el registry inyecta al contexto, así
@@ -235,12 +301,19 @@ fn crear_y_cablear_vault(
     vault
 }
 
-fn info_desde_sesion(sesion: &Sesion) -> Result<InfoSesion, String> {
-    let conv_id = sesion
-        .conversacion_id
-        .lock()
-        .map(|g| *g)
-        .map_err(|_| "sesión bloqueada".to_string())?;
+/// [039A-3 P5] `InfoSesion` de un panel concreto: describe la conversación
+/// que ese panel muestra (no "la actual" global, que ya no existe). Lo usa
+/// `abrir_sesion`/`elegir_workspace` (panel principal) y los comandos que
+/// devuelven la sesión tras actuar sobre un panel.
+fn info_de_panel(sesion: &Sesion, panel_id: &str) -> Result<InfoSesion, String> {
+    let conv_id = conv_id_de_panel(sesion, panel_id)?;
+    info_de_conversacion(sesion, conv_id)
+}
+
+/// Info de sesión para una conversación concreta (no por panel): útil cuando
+/// la acción ya sabe la conversación (p. ej. `eliminar_conversacion` sobre la
+/// conversación de un panel) o cuando solo hay un panel.
+fn info_de_conversacion(sesion: &Sesion, conv_id: Uuid) -> Result<InfoSesion, String> {
     let modelo = sesion
         .modelo
         .lock()
@@ -402,14 +475,25 @@ fn abrir_sesion_interna(
      * sandbox, la carpeta queda en el cwd del proceso (el vault se crea
      * igualmente, sin cablear: no hay escrituras que respaldar). */
     let vault = crear_y_cablear_vault(&harness.runtime, harness.workspace.as_deref());
+    /* [039A-3 P5] La sesión arranca con UN panel (`principal`) apuntando a la
+     * conversación inicial; el resto de paneles se abren bajo demanda desde la
+     * UI (máx 2). Cada panel conserva su `tramo_rewind` para no mezclar
+     * "volver a punto" entre conversaciones. */
+    let mut paneles = std::collections::HashMap::new();
+    paneles.insert(
+        "principal".to_string(),
+        PanelDatos {
+            conversacion_id: conv_id,
+            turno_id: None,
+            tramo_rewind: None,
+        },
+    );
     let sesion = Arc::new(Sesion {
         runtime: Mutex::new(harness.runtime),
         persistencia,
         user_id,
-        conversacion_id: Mutex::new(conv_id),
-        turno_id: Mutex::new(None),
+        paneles: Mutex::new(paneles),
         vault,
-        tramo_rewind: Mutex::new(None),
         meta: Mutex::new(None),
         modo: Mutex::new(harness.config.modo.clone()),
         modelo: Mutex::new(info.modelo.clone()),
@@ -440,13 +524,19 @@ fn abrir_sesion(
 
 /// Ejecuta un turno real y reemite cada `AgenteEvento` a la UI.
 /// Emite `agente-evento` por evento y `turno-fin` (`{ok, error?}`) al cerrar.
+/// [039A-3 P5] El turno actúa sobre el panel que lo lanza (`panel_id`, default
+/// `principal`): M1 tiene UN turno a la vez (guard global), así que el panel
+/// que está ejecutando es siempre el destino de los eventos que emite esta
+/// ventana (no hace falta etiquetar el payload: nunca hay 2 streams vivos).
 #[tauri::command]
 async fn enviar_turno(
     estado: State<'_, Estado>,
     window: tauri::Window,
     mensaje: String,
+    panel_id: Option<String>,
 ) -> Result<(), String> {
     let sesion = sesion_actual(&estado)?;
+    let panel_id = normalizar_panel(panel_id);
     {
         let puede = match estado.turno.lock() {
             Ok(t) => !t.activo,
@@ -459,11 +549,7 @@ async fn enviar_turno(
     if mensaje.trim().is_empty() {
         return Err("mensaje vacío".into());
     }
-    let conv_id = sesion
-        .conversacion_id
-        .lock()
-        .map(|g| *g)
-        .map_err(|_| "sesión bloqueada".to_string())?;
+    let conv_id = conv_id_de_panel(&sesion, &panel_id)?;
     let meta = sesion
         .meta
         .lock()
@@ -552,11 +638,11 @@ async fn enviar_turno(
      * pendiente de restaurar deja de ser el último (el usuario siguió
      * hablando en vez de restaurar): se limpia para no ofrecer una
      * restauración obsoleta. */
-    if let Ok(mut g) = sesion.tramo_rewind.lock() {
-        *g = None;
-    }
-    if let Ok(mut g) = sesion.turno_id.lock() {
-        *g = Some(turno_id);
+    if let Ok(mut g) = sesion.paneles.lock() {
+        if let Some(d) = g.get_mut(&panel_id) {
+            d.tramo_rewind = None;
+            d.turno_id = Some(turno_id);
+        }
     }
     let handle = tauri::async_runtime::spawn(async move {
         // Al cerrar (ok, fallo o abort) se libera el flag para el próximo turno.
@@ -564,8 +650,10 @@ async fn enviar_turno(
             if let Some(e) = w.app_handle().try_state::<Estado>() {
                 marcar_turno_terminado(&e);
             }
-            if let Ok(mut g) = sesion.turno_id.lock() {
-                *g = None;
+            if let Ok(mut g) = sesion.paneles.lock() {
+                if let Some(d) = g.get_mut(&panel_id) {
+                    d.turno_id = None;
+                }
             }
             /* [039A-3 P3] Limpiar el contexto del vault: el siguiente turno
              * vuelve a fijarlo; sin limpieza, una escritura fuera de turno
@@ -659,9 +747,17 @@ async fn enviar_turno(
 
 /// Aborta el turno en curso (el runtime se detiene al cerrar el canal) y lo
 /// marca `cancelado` en la BD para que no quede como pendiente eternamente.
+/// [039A-3 P5] `panel_id` opcional: el turno a cancelar es el de ESE panel.
+/// Como M1 no permite 2 turnos, en la práctica coincide con el único turno
+/// activo; el id se lee del panel para marcarlo en BD.
 #[tauri::command]
-fn cancelar_turno(estado: State<'_, Estado>, window: tauri::Window) -> Result<(), String> {
+fn cancelar_turno(
+    estado: State<'_, Estado>,
+    window: tauri::Window,
+    panel_id: Option<String>,
+) -> Result<(), String> {
     let sesion = sesion_actual(&estado)?;
+    let panel_id = normalizar_panel(panel_id);
     match estado.turno.lock() {
         Ok(mut t) => {
             if let Some(h) = t.handle.take() {
@@ -672,9 +768,9 @@ fn cancelar_turno(estado: State<'_, Estado>, window: tauri::Window) -> Result<()
         Err(_) => return Err("no se pudo acceder al turno".into()),
     }
     let turno_id = sesion
-        .turno_id
+        .paneles
         .lock()
-        .map(|mut g| g.take())
+        .map(|mut g| g.get_mut(&panel_id).and_then(|d| d.turno_id.take()))
         .map_err(|_| "sesión bloqueada".to_string())?;
     tauri::async_runtime::spawn(async move {
         if let Some(id) = turno_id {
@@ -756,7 +852,10 @@ fn reconfigurar_sesion(
         .lock()
         .map(|mut g| *g = harness.config.modo.clone())
         .map_err(|_| "sesión bloqueada".to_string())?;
-    info_desde_sesion(&sesion)
+    /* [039A-3 P5] El runtime es compartido (M1): reconfigurar no depende del
+     * panel. La info devuelta describe la conversación del panel principal
+     * (el front solo usa modelo/workspace/proveedores de este retorno). */
+    info_de_panel(&sesion, PANEL_PRINCIPAL)
 }
 
 /// Responde una petición de aprobación (canal F2, tres vías).
@@ -801,11 +900,13 @@ fn pendientes_aprobacion(
 
 // --- F4: conversaciones (CRUD) ---
 
-/// Crea una conversación y la deja como actual (falla si hay turno en curso).
+/// Crea una conversación y la deja como actual del panel (falla si hay turno
+/// en curso). [039A-3 P5] `panel_id` opcional (default `principal`).
 #[tauri::command]
 fn conversacion_nueva(
     estado: State<'_, Estado>,
     titulo: Option<String>,
+    panel_id: Option<String>,
 ) -> Result<InfoConversacion, String> {
     let sesion = sesion_actual(&estado)?;
     if estado
@@ -816,6 +917,7 @@ fn conversacion_nueva(
     {
         return Err("hay un turno en curso".into());
     }
+    let panel_id = normalizar_panel(panel_id);
     let titulo = titulo
         .map(|t| t.trim().to_string())
         .filter(|t| !t.is_empty())
@@ -824,16 +926,10 @@ fn conversacion_nueva(
         .persistencia
         .conversacion_crear(sesion.user_id, &titulo)
         .map_err(|e| e.to_string())?;
-    sesion
-        .conversacion_id
-        .lock()
-        .map(|mut g| *g = id)
-        .map_err(|_| "sesión bloqueada".to_string())?;
-    /* [039A-3 P3] Conversación nueva = contexto nuevo: no hay tramo previo
-     * que restaurar desde aquí. */
-    if let Ok(mut g) = sesion.tramo_rewind.lock() {
-        *g = None;
-    }
+    /* [039A-3 P5] La nueva conversación queda como actual SOLO de este panel.
+     * [039A-3 P3] Conversación nueva = contexto nuevo: no hay tramo previo
+     * que restaurar desde aquí (se limpia el del panel). */
+    panel_poner_conversacion(&sesion, &panel_id, id)?;
     Ok(InfoConversacion {
         id,
         titulo,
@@ -882,11 +978,13 @@ struct UsoTurnoPersistido {
     tokens_complecion: u32,
 }
 
-/// Carga una conversación como actual con su historial (falla con turno vivo).
+/// Carga una conversación como actual del panel con su historial (falla con
+/// turno vivo). [039A-3 P5] `panel_id` opcional (default `principal`).
 #[tauri::command]
 async fn cargar_conversacion(
     estado: State<'_, Estado>,
     id: String,
+    panel_id: Option<String>,
 ) -> Result<CargaConversacion, String> {
     let sesion = sesion_actual(&estado)?;
     if estado
@@ -897,6 +995,7 @@ async fn cargar_conversacion(
     {
         return Err("hay un turno en curso".into());
     }
+    let panel_id = normalizar_panel(panel_id);
     let id = Uuid::parse_str(id.trim()).map_err(|_| "id inválido".to_string())?;
     let titulo = sesion
         .persistencia
@@ -925,19 +1024,11 @@ async fn cargar_conversacion(
             tokens_prompt,
             tokens_complecion,
         });
-    /* [039A-3 P3] Al cambiar de conversación se limpia el tramo pendiente de
+    /* [039A-3 P5] La conversación cargada queda como actual de este panel.
+     * [039A-3 P3] Al cambiar de conversación se limpia el tramo pendiente de
      * restaurar (pertenece a la conversación anterior): su restauración ya no
      * es accesible desde aquí. */
-    sesion
-        .conversacion_id
-        .lock()
-        .map(|mut g| *g = id)
-        .map_err(|_| "sesión bloqueada".to_string())?;
-    sesion
-        .tramo_rewind
-        .lock()
-        .map(|mut g| *g = None)
-        .map_err(|_| "sesión bloqueada".to_string())?;
+    panel_poner_conversacion(&sesion, &panel_id, id)?;
     Ok(CargaConversacion {
         id,
         titulo,
@@ -982,11 +1073,13 @@ fn archivar_conversacion(
         .map_err(|e| e.to_string())
 }
 
-/// Elimina con mensajes y turnos; si era la actual, crea una nueva vacía.
+/// Elimina con mensajes y turnos; si era la actual del panel, crea una nueva
+/// vacía en ese panel. [039A-3 P5] `panel_id` opcional (default `principal`).
 #[tauri::command]
 fn eliminar_conversacion(
     estado: State<'_, Estado>,
     id: String,
+    panel_id: Option<String>,
 ) -> Result<InfoConversacion, String> {
     let sesion = sesion_actual(&estado)?;
     if estado
@@ -997,6 +1090,7 @@ fn eliminar_conversacion(
     {
         return Err("hay un turno en curso".into());
     }
+    let panel_id = normalizar_panel(panel_id);
     let id = Uuid::parse_str(id.trim()).map_err(|_| "id inválido".to_string())?;
     sesion
         .persistencia
@@ -1005,19 +1099,19 @@ fn eliminar_conversacion(
     /* [039A-3 P3] Al eliminar la conversación se limpia su índice del vault y
      * se hace GC de los hashes que quedaron huérfanos. */
     sesion.vault.eliminar_conversacion(id);
-    let actual = sesion
-        .conversacion_id
-        .lock()
-        .map(|g| *g)
-        .map_err(|_| "sesión bloqueada".to_string())?;
+    /* [039A-3 P5] "Era la actual" se decide POR PANEL: si este panel tenía esa
+     * conversación cargada, se crea una nueva vacía en su lugar. */
+    let actual = conv_id_de_panel(&sesion, &panel_id)?;
     if actual == id {
         /* El tramo pendiente pertenecía a la conversación borrada: se limpia. */
-        if let Ok(mut g) = sesion.tramo_rewind.lock() {
-            *g = None;
+        if let Ok(mut g) = sesion.paneles.lock() {
+            if let Some(d) = g.get_mut(&panel_id) {
+                d.tramo_rewind = None;
+            }
         }
-        return conversacion_nueva(estado, None);
+        return conversacion_nueva(estado, None, Some(panel_id));
     }
-    info_desde_sesion(&sesion).map(|i| i.conversacion)
+    info_de_panel(&sesion, &panel_id).map(|i| i.conversacion)
 }
 
 /// [039A-3 P2] Rebobina la conversación hasta un mensaje de usuario.
@@ -1026,7 +1120,8 @@ fn eliminar_conversacion(
 /// último mensaje; con `editar=true` lo borra para reescribirlo (editar+enviar
 /// hace rewind aquí y luego `enviar_turno` persiste el texto nuevo). Borra en
 /// una transacción mensajes/turnos/acciones del tramo posterior. Falla con
-/// turno en curso y si el mensaje no es de la conversación actual del usuario.
+/// turno en curso y si el mensaje no es de la conversación actual del panel.
+/// [039A-3 P5] `panel_id` opcional (default `principal`).
 /// Devuelve la `CargaConversacion` resultante para que el front se reconcilie
 /// (repintar sin recargar).
 #[tauri::command]
@@ -1034,6 +1129,7 @@ async fn rewind_conversacion(
     estado: State<'_, Estado>,
     hasta_mensaje_id: String,
     editar: bool,
+    panel_id: Option<String>,
 ) -> Result<CargaConversacion, String> {
     let sesion = sesion_actual(&estado)?;
     if estado
@@ -1044,13 +1140,10 @@ async fn rewind_conversacion(
     {
         return Err("hay un turno en curso".into());
     }
+    let panel_id = normalizar_panel(panel_id);
     let msg_id = Uuid::parse_str(hasta_mensaje_id.trim())
         .map_err(|_| "id de mensaje inválido".to_string())?;
-    let conv_id = sesion
-        .conversacion_id
-        .lock()
-        .map(|g| *g)
-        .map_err(|_| "sesión bloqueada".to_string())?;
+    let conv_id = conv_id_de_panel(&sesion, &panel_id)?;
     /* [039A-3 P3] El rewind devuelve los ids de los turnos borrados: con ellos
      * el vault localiza las rutas que tocó el tramo. En "volver a punto"
      * (editar=false) el tramo queda pendiente de una restauración EXPLÍCITA;
@@ -1070,20 +1163,20 @@ async fn rewind_conversacion(
             .map(|e| e.ruta_relativa)
             .collect()
     };
-    sesion
-        .tramo_rewind
-        .lock()
-        .map(|mut g| {
-            *g = if editar {
+    /* [039A-3 P5] El tramo rebobinado queda pendiente en el PANEL (la
+     * restauración explícita opera sobre la conversación de ese panel). */
+    if let Ok(mut g) = sesion.paneles.lock() {
+        if let Some(d) = g.get_mut(&panel_id) {
+            d.tramo_rewind = if editar {
                 None
             } else {
                 Some(TramoRewind {
                     archivos: archivos_tramo.clone(),
                     turnos: turnos_tramo,
                 })
-            }
-        })
-        .map_err(|_| "sesión bloqueada".to_string())?;
+            };
+        }
+    }
     // Reconstruir la carga resultante (igual que cargar_conversacion).
     let titulo = sesion
         .persistencia
@@ -1127,8 +1220,13 @@ async fn rewind_conversacion(
 /// ruta contra su último respaldo GLOBAL (si alguien editó fuera del harness,
 /// NO toca y avisa). Nunca borra archivos. Tras restaurar se limpia el tramo
 /// pendiente (las escrituras deshechas se podan del índice y se hace GC).
+/// [039A-3 P5] `panel_id` opcional (default `principal`): opera sobre el tramo
+/// pendiente de la conversación de ESE panel.
 #[tauri::command]
-fn restaurar_archivos_tramo(estado: State<'_, Estado>) -> Result<RestauracionTramo, String> {
+fn restaurar_archivos_tramo(
+    estado: State<'_, Estado>,
+    panel_id: Option<String>,
+) -> Result<RestauracionTramo, String> {
     let sesion = sesion_actual(&estado)?;
     if estado
         .turno
@@ -1138,22 +1236,23 @@ fn restaurar_archivos_tramo(estado: State<'_, Estado>) -> Result<RestauracionTra
     {
         return Err("hay un turno en curso".into());
     }
+    let panel_id = normalizar_panel(panel_id);
     let tramo = sesion
-        .tramo_rewind
+        .paneles
         .lock()
-        .map(|g| g.clone())
+        .map(|g| g.get(&panel_id).and_then(|d| d.tramo_rewind.clone()))
         .map_err(|_| "sesión bloqueada".to_string())?
         .ok_or_else(|| "no hay ningún tramo rebobinado pendiente de restaurar".to_string())?;
     let archivos = tramo.archivos.clone();
     let resultado = sesion.vault.restaurar_tramo(&tramo.turnos);
     /* Tras restaurar (o al decidir no hacerlo por completo) el tramo ya no
      * está pendiente: la próxima "restaurar" volvería a intentar los mismos
-     * turnos (no-op tras la purga), así que se limpia el estado. */
-    sesion
-        .tramo_rewind
-        .lock()
-        .map(|mut g| *g = None)
-        .map_err(|_| "sesión bloqueada".to_string())?;
+     * turnos (no-op tras la purga), así que se limpia el estado del panel. */
+    if let Ok(mut g) = sesion.paneles.lock() {
+        if let Some(d) = g.get_mut(&panel_id) {
+            d.tramo_rewind = None;
+        }
+    }
     Ok(RestauracionTramo {
         archivos,
         restaurados: resultado.restaurados,
@@ -1250,7 +1349,7 @@ fn elegir_workspace(estado: State<'_, Estado>) -> Result<InfoSesion, String> {
                 .map_err(|e| e.to_string())?;
             abrir_sesion_interna(&estado, None, None, Some(ruta), None, None, true)
         }
-        None => info_desde_sesion(&actual),
+        None => info_de_panel(&actual, PANEL_PRINCIPAL),
     }
 }
 
