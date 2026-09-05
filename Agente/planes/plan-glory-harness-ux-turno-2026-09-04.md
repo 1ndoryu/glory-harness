@@ -7,7 +7,9 @@ turno, con retoques visuales del usuario: botón copiar icono sin borde, sin lí
 sin palabras "modelo"/"contexto", opacidad 0.6). P2 HECHO (editar/volver a punto: rewind
 conversacional transaccional por `rowid` + menú por mensaje; commit `039A-3 (P2)`). P4 HECHO
 (⋯ cabecera + sidebar colapsable/redimensionable; commit `039A-3 (P4)`).
-P3, P5-P6 en curso.
+P3 CORE+DESKTOP HECHO (commits `039A-3 (P3 core)` 3505812 y `039A-3 (P3 desktop WIP)` f6ca9fb);
+P3 FRONTEND HECHO (05-09, sin commit: aviso con acción "Restaurar archivos" tras volverA).
+P5-P6 en curso.
 Plan base: plan-glory-harness-desktop-2026-09-03.md (039A-1, fases F1-F6 + anexo §10)
 Tipo: ampliación del desktop (UI + backend Tauri + core opcional)
 Revisión: supervisor_thinker — VEREDICTO VIABLE CON RESERVAS; decisiones cerradas en §6 (Fase 0)
@@ -383,20 +385,40 @@ para no acoplar el riesgo del vault al del multi-panel. Pendiente de confirmar c
       `onEnviar(texto, id)` → cancelar). E2E `tauri dev` pendiente (requiere app real con ids).
 
 ### P3 — Vault de respaldos + restaurar seguro (039A-3a; la pieza delicada)
-- [ ] Core: hook opcional no-op en `SandboxArchivos::escribir` + exclusión de `.glory-harness/`
+- [x] Core: hook opcional no-op en `SandboxArchivos::escribir` + exclusión de `.glory-harness/`
       del sandbox + test (el no-op no cambia `escribir`; el agente NO puede escribir bajo
-      `.glory-harness/`).
-- [ ] Desktop: implementar el trait → árbol `.glory-harness/backups/<hash>/<ruta>` (previo
+      `.glory-harness/`). — Commit `039A-3 (P3 core)` 3505812; 6 tests fixture 4 (14 sandbox
+      verdes): `vault_sin_hook_es_noop_y_escribe_normal`, `vault_respalda_previo_completo_...`,
+      `vault_archivo_nuevo_respalda_previo_vacio`, `vault_fallo_del_hook_no_tumba_la_escritura`,
+      `vault_quita_hook_con_none`, `glory_harness_es_secreto_y_no_se_escribe`.
+- [x] Desktop: implementar el trait → árbol `.glory-harness/backups/<hash>/<ruta>` (previo
       completo en bytes) + índice JSONL por conversación. Dedup por `before_hash`. Retención/GC:
-      limpiar respaldos de turnos borrados al rewind.
-- [ ] Fail-open con log si el hook falla (no tumba el turno).
-- [ ] Front/backend: acción "restaurar archivos de este tramo" con comprobación de fuente contra
+      limpiar respaldos de turnos borrados al rewind. — Commit `039A-3 (P3 desktop WIP)` f6ca9fb:
+      `desktop/src-tauri/src/vault.rs` (VaultArchivos: árbol + JSONL por conversación + dedup por
+      before_hash + GC por turnos + `restaurar_tramo` con comprobación de fuente GLOBAL por ruta;
+      4 tests incl. fixtures 1-3) + wiring en `main.rs` (vault/tramo_rewind en Sesion, helper
+      cablear en abrir_sesion_interna/reconfigurar_sesion, contexto por turno en enviar_turno,
+      comando `restaurar_archivos_tramo`, `CargaConversacion.archivos_tramo`) +
+      `cli/persistencia_sqlite.rs` rewind devuelve `Vec<Uuid>` turnos_tramo + `real.ts` tipos y
+      wrapper `sesion.restaurarTramo()`.
+- [x] Fail-open con log si el hook falla (no tumba el turno). — En core: `escribir` llama al hook
+      y ante Err loguea `tracing::warn!` y continúa; test `vault_fallo_del_hook_no_tumba_la_escritura`.
+- [x] Front/backend: acción "restaurar archivos de este tramo" con comprobación de fuente contra
       el **último respaldo global por ruta**; re-validar la ruta contra el sandbox antes de
-      escribir; si cambió externamente → NO tocar y avisar. Sin "forzar" en v1.
+      escribir; si cambió externamente → NO tocar y avisar. Sin "forzar" en v1. — HECHO frontend
+      (05-09, sin commit): `mensajes.ts` `crearAvisoSistema(..., accion?)` → botón `.aviso-accion`
+      (no abre details); `mensajes.css` `.aviso-accion` (monocromo, hover invert); `main.ts`
+      `avisoChat(..., accion?)` + `volverA` ofrece "Restaurar archivos" cuando
+      `carga.archivos_tramo?.length>0` + `restaurarArchivosTramo(archivos)` que llama
+      `adaptador.sesion.restaurarTramo()` y avisa restaurados/omitidos (o error). Verificado:
+      type-check OK, build OK, render visual en mock (botón #000/#fff, click no abre details).
+      Backend (comprobación fuente global + no-tocar si cambió) ya en f6ca9fb (vault.rs).
 - [ ] Evidencia (fixture funcional obligatorio): (1) dos turnos tocan el mismo archivo → rewind
       al 1º + restaurar restaura correctamente (sin falso "cambió fuera"); (2) edición manual
       externa entre el turno y la restauración → avisa y NO toca; (3) archivo >1MB (previo
-      completo); (4) hook no-op no rompe `escribir` (test core).
+      completo); (4) hook no-op no rompe `escribir` (test core). — (1)(2)(3) cubiertos por los 4
+      tests de `vault.rs` (fixtures con respaldo real en disco); (4) cubierto por test core. Falta
+      E2E `tauri dev` real (rewind + restaurar con la app, no solo unit).
 
 ### P4 — Botón ⋯ en cabecera + sidebar colapsable/redimensionable + botón expandir (039A-3a) — HECHO (04-09)
 - [x] Front: menú ⋯ en cabecera (renombrar/archivar/eliminar/copiar + futuras), reutilizando

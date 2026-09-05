@@ -24,6 +24,7 @@ import {
   crearMensajeAsistente,
   crearMensajeUsuario,
   crearPieTurno,
+  type AccionAviso,
 } from './componentes/mensajes';
 import { abrirMenuContextual, cerrarMenuActual, crearItemMenu, crearSeparadorMenu } from './componentes/menu';
 import { montarPanelMeta } from './componentes/panelMeta';
@@ -116,8 +117,8 @@ const USA_MOCK = !USA_REAL && import.meta.env.VITE_MOCK === '1';
 // `conversaActualId` es la conversación que el backend tiene como actual.
 let conversaActualId: string | null = null;
 
-function avisoChat(texto: string, meta: string, detalle: string): void {
-  mensajes.appendChild(crearAvisoSistema(texto, meta, detalle));
+function avisoChat(texto: string, meta: string, detalle: string, accion?: AccionAviso): void {
+  mensajes.appendChild(crearAvisoSistema(texto, meta, detalle, accion));
   mensajes.scrollTop = mensajes.scrollHeight;
 }
 
@@ -242,6 +243,9 @@ function aplicarCarga(carga: CargaConversacion): void {
  * "Volver a este punto": rewind con `editar=false` (el mensaje objetivo se
  * conserva; se borra solo el hilo posterior) y repinta con lo que devuelve
  * el backend. Si hay turno activo se bloquea (mismo guard que el envío).
+ * [039A-3 P3] Cuando el tramo rebobinado tocó archivos, el backend los
+ * devuelve en `archivos_tramo` y se ofrece la acción EXPLÍCITA de restaurar
+ * (el rewind NO los restaura automáticamente: decisión del usuario, 2.3).
  */
 async function volverA(id: string): Promise<void> {
   if (entrada.getCorriendo()) {
@@ -255,8 +259,62 @@ async function volverA(id: string): Promise<void> {
   try {
     const carga = await adaptador.sesion.rewind(id, false);
     aplicarCarga(carga);
+    const archivos = carga.archivos_tramo;
+    if (archivos && archivos.length > 0) {
+      const detalle = archivos.slice(0, 3).join('\n') + (archivos.length > 3 ? `\n… y ${archivos.length - 3} más` : '');
+      avisoChat(
+        'volviste a un punto anterior que tocó archivos',
+        `${archivos.length} archivo${archivos.length === 1 ? '' : 's'}`,
+        detalle,
+        {
+          texto: 'Restaurar archivos',
+          onClick: () => void restaurarArchivosTramo(archivos),
+        },
+      );
+    }
   } catch (e: unknown) {
     avisoChat(`no se pudo volver a ese punto: ${String(e)}`, '', '');
+  }
+}
+
+/**
+ * [039A-3 P3] Restauración EXPLÍCITA de los archivos del último tramo
+ * rebobinado. El backend comprueba la fuente contra el último respaldo
+ * global por ruta: si un archivo cambió fuera del harness desde el tramo,
+ * NO lo toca y lo devuelve en `omitidos` (no hay "forzar" en v1).
+ * `archivosEsperados` es la lista que anunció el aviso (solo para dar
+ * contexto en el detalle si el backend ya no recuerda el tramo).
+ */
+async function restaurarArchivosTramo(archivosEsperados: string[]): Promise<void> {
+  try {
+    const r = await adaptador.sesion.restaurarTramo();
+    if (r.restaurados.length === 0 && r.omitidos.length === 0) {
+      avisoChat('no había archivos que restaurar', 'restaurar', 'el tramo ya no conserva respaldos');
+      return;
+    }
+    const lineas = (a: { ruta: string; estado: string; detalle?: string | null }[]): string =>
+      a
+        .slice(0, 5)
+        .map((x) => {
+          const det = x.detalle ? ` — ${x.detalle}` : '';
+          return `${x.estado}: ${x.ruta}${det}`;
+        })
+        .join('\n') + (a.length > 5 ? `\n… y ${a.length - 5} más` : '');
+    const partes: string[] = [];
+    if (r.restaurados.length > 0) {
+      partes.push(`restaurados (${r.restaurados.length}):\n${lineas(r.restaurados)}`);
+    }
+    if (r.omitidos.length > 0) {
+      partes.push(`omitidos (${r.omitidos.length}):\n${lineas(r.omitidos)}`);
+    }
+    avisoChat(
+      'restauración de archivos del tramo',
+      r.omitidos.length > 0 ? 'con cambios externos omitidos' : `${r.restaurados.length} restaurados`,
+      partes.join('\n\n'),
+    );
+  } catch (e: unknown) {
+    const conocido = archivosEsperados.length > 0 ? `\narchivos esperados:\n${archivosEsperados.join('\n')}` : '';
+    avisoChat(`no se pudo restaurar: ${String(e)}`, '', conocido);
   }
 }
 

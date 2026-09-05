@@ -199,13 +199,34 @@ export function crearHerramientaViva(iconoNombre: IconoNombre, titulo: string): 
 
 // ---------- Aviso de sistema ----------
 
-export function crearAvisoSistema(texto: string, meta: string, detalle: string): HTMLElement {
+/**
+ * Opción de acción de un aviso ([039A-3 P3]): botón en la fila del aviso
+ * (p. ej. "restaurar archivos") que dispara `onClick` y cierra el aviso
+ * (el resultado de la acción se muestra en un aviso nuevo, no aquí).
+ */
+export interface AccionAviso {
+  texto: string;
+  onClick: () => void;
+}
+
+export function crearAvisoSistema(texto: string, meta: string, detalle: string, accion?: AccionAviso): HTMLElement {
   const raiz = el('details', 'aviso-sistema');
   const sum = el('summary');
   sum.appendChild(icono('terminal', true));
   const t = el('span', 'texto');
   t.textContent = texto;
   sum.appendChild(t);
+  if (accion) {
+    const b = el('button', 'aviso-accion') as HTMLButtonElement;
+    b.type = 'button';
+    b.textContent = accion.texto;
+    b.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      accion.onClick();
+    });
+    sum.appendChild(b);
+  }
   const m = el('span', 'meta');
   m.textContent = meta;
   sum.appendChild(m);

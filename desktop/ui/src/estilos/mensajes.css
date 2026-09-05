@@ -94,6 +94,26 @@
 .razonamiento .meta,
 .aviso-sistema .meta { margin-left: auto; font-size: var(--xs); opacity: 0.65; white-space: nowrap; }
 
+/* [039A-3 P3] Botón de acción de un aviso (p. ej. "restaurar archivos"):
+   fila compacta que invierte a blanco/negro al pasar el ratón, igual que el
+   resto de botones del sistema; nunca abre el <details> (preventDefault). */
+.aviso-sistema .aviso-accion {
+    margin-left: var(--sp-sm);
+    font: inherit;
+    font-size: var(--xs);
+    line-height: 1;
+    padding: 3px 6px;
+    background: #000;
+    color: #fff;
+    border: 1px solid #000;
+    cursor: pointer;
+    white-space: nowrap;
+}
+.aviso-sistema .aviso-accion:hover {
+    background: #fff;
+    color: #000;
+}
+
 /* en ejecución: fila no abrible (se distingue por el icono de acción, no por opacidad) */
 .herramienta.ejecutando summary { cursor: default; pointer-events: none; }
 .herramienta.ejecutando .meta { display: none; }
