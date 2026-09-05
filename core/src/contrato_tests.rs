@@ -1,3 +1,4 @@
+#![cfg(test)]
 //! Pruebas de contrato de Fase 1a: los tres puertos son implementables desde
 //! un consumidor ajeno (mock in-memory, sin sqlx, sin AppState, sin tablas).
 //! Fijan que el núcleo no filtra tipos de task y que el serde del contrato

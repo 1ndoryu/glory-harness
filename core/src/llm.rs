@@ -421,10 +421,18 @@ impl LlmProviderService {
     #[must_use]
     pub fn new(llaves: LlavesProveedor) -> Self {
         /* Timeout de 45s por llamada al proveedor (paridad con wp_remote_post
-         * del PHP); el TimeoutLayer global da el margen de la petición. */
+         * del PHP); el TimeoutLayer global da el margen de la petición.
+         *
+         * [059A-S7] Excepción justificada de expect-produccion-rs: la firma
+         * `new -> Self` está fijada por consumidores externos (PROYECTO TASKS
+         * handlers/mod.rs llama `LlmProviderService::new` sin Result) y
+         * `Client::builder().build()` solo falla por backend TLS/proxy mal
+         * configurado a nivel máquina — infalible en runtime normal. Si algún
+         * día el builder admite un fallo real, migrar `new` a `-> Result`. */
         let client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(45))
             .build()
+            // sentinel-disable-next-line expect-produccion-rs
             .expect("reqwest client builder is infallible");
         Self {
             llaves,

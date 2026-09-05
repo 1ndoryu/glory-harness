@@ -107,8 +107,11 @@ fn normalizar(frase: &str) -> String {
 fn intervalo(resto: &str) -> Result<Option<String>> {
     let palabras: Vec<&str> = resto.split_whitespace().collect();
     let (numero, unidad, resto_tras_unidad) = match palabras.as_slice() {
+        /* [059A-S7] Sin expect en producción: el guard ya validó el parse, así
+         * que unwrap_or(1) solo extrae el valor sin poder panickear (nunca
+         * cae al fallback tras un guard Ok). */
         [num, unidad, rest @ ..] if num.parse::<u32>().is_ok() => {
-            (num.parse::<u32>().expect("ya validado"), *unidad, rest)
+            (num.parse::<u32>().ok().unwrap_or(1), *unidad, rest)
         }
         [unidad, rest @ ..] => (1u32, *unidad, rest),
         _ => return Ok(None),

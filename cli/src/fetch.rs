@@ -15,7 +15,11 @@ use std::io::Write;
 const TIEMPO_MAX_MS: u64 = 15_000;
 
 pub struct FetchCli {
-    cliente: reqwest::Client,
+    /* [059A-S7] Builder guardado como Result: el build solo falla por backend
+     * TLS/proxy mal configurado a nivel máquina, pero al propagarse en el
+     * primer uso devuelve un error real al modelo en vez de panickear en
+     * construcción (regla expect-produccion-rs). */
+    cliente: Result<reqwest::Client, String>,
 }
 
 impl FetchCli {
@@ -26,7 +30,7 @@ impl FetchCli {
                 .timeout(std::time::Duration::from_millis(TIEMPO_MAX_MS))
                 .user_agent(concat!("glory-harness/", env!("CARGO_PKG_VERSION")))
                 .build()
-                .expect("cliente HTTP válido"),
+                .map_err(|e| format!("no se pudo crear el cliente HTTP: {e}")),
         }
     }
 }
@@ -41,8 +45,11 @@ impl Default for FetchCli {
 impl WebFetchProvider for FetchCli {
     async fn obtener(&self, url: &str, limite_bytes: usize) -> HarnessResult<ContenidoWeb> {
         use futures_util::StreamExt;
-        let respuesta = self
+        let cliente = self
             .cliente
+            .as_ref()
+            .map_err(|e| HarnessError::Interno(format!("web_fetch {url}: {e}")))?;
+        let respuesta = cliente
             .get(url)
             .send()
             .await

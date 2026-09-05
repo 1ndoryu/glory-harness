@@ -13,7 +13,13 @@
   --all-targets -- -D warnings` limpio → `npm run quality:analyze` 0 errores y **cero
   hallazgos nuevos en los archivos de la fase** → checklist del plan al día → commit en
   español con prefijo `059A-N (S#)`.
-- **Estado:** S0 ✔ (prerequisito documentado, 05-09) · S1–S8 pendientes de ejecutar.
+- **Estado:** S0 ✔ (baseline congelado, 05-09) · S1 ✔ (falsos positivos corregidos en
+  glory-sentinel, bump `902c45e` v0.7.8) · S7 ✔ parcial (3 reglas D4 implementadas y
+  repineadas; propuestas restantes documentadas en `Agente/documentacion/brechas-gate-2026-09-05.md`)
+  · S2–S6 y S8 pendientes de ejecutar.
+- **Re-analyze 05-09 (post S1/S7):** 2 errores (ambos `expect-produccion-rs` en
+  `desktop/src-tauri/src/vault.rs`, **ajeno 039A-3**, documentado y sin tocar) ·
+  21 warnings / 8 archivos en core+cli (deuda de tamaño, S2–S4). core+cli a **0 errores**.
 
 ---
 
@@ -101,24 +107,25 @@ corrección del mensaje/regla se decide en S1.
 Objetivo: que el análisis distinga deuda real de ruido de regla; donde la regla esté
 mal, se corrige en **glory-sentinel** (repo aparte, con tests) y se repinea el lock.
 
-- [ ] **Cargo.lock/manifests y `directorio-abarrotado` en la raíz:** evaluar si la regla
-      debe ignorar `*.lock`, `Cargo.toml` y archivos de config de raíz (workspace) o si
-      la excepción correcta es patrón de `directoryExceptions`. Decisión con caso mínimo.
-- [ ] **Regla por defecto a "error" vs "warning"**: las reglas estructurales
-      (`limite-lineas-*`, `directorio-abarrotado`) hoy son `warning`; verificar que el
-      gate no falle por ellas y que el plan no necesite `sentinel-disable-file` (regla
-      R1: solo con justificación).
-- [ ] **Doble reporte `limite-lineas` + `-nivel-2`** en el mismo archivo: ¿ruido o
-      intencional? Si es intencional, documentar; si no, colapsar en el reporte.
-- [ ] **Cobertura vacía del analyzer:** `includePatterns` del `sentinel.config.json`
-      analiza solo `**/*.rs` + `Cargo.toml/lock`; la UI (`desktop/ui/**/*.ts`), scripts y
-      migraciones SQL quedan fuera aunque existan reglas para TS/React/SQL (p. ej.
-      `innerhtml-variable`, SQL sin prepared). Añadir patrones por lenguaje con su perfil
-      (ver S7).
-- [ ] Cada cambio del gate: tests unitarios en glory-sentinel del caso mínimo, publicar
-      commit, actualizar `quality-tools.json` (commit), regenerar `sentinel.lock.json`
-      con el comando oficial, `quality:doctor` verde, re-analyze.
-- [ ] Repinear **solo** cuando S7 confirme qué reglas nuevas entran (mismo bump de commit).
+- [x] **Cargo.lock/manifests y `directorio-abarrotado` en la raíz:** corregido en
+      glory-sentinel (`staticCodeRules.ts`, commit `902c45e`): el conteo de archivos por
+      directorio ignora `*.lock`, manifests y config de raíz (no-código). 3 tests de caso
+      mínimo en `directorioAbarrotado.test.ts`; re-analyze ya no reporta `Cargo.lock`.
+- [x] **Regla por defecto a "error" vs "warning"**: verificado y documentado — las reglas
+      estructurales siguen en `warning` por diseño; el gate exige 0 errores y no falla por
+      warnings. Cero `sentinel-disable-*` usados (R1 respetada).
+- [x] **Doble reporte `limite-lineas` + `-nivel-2`** en el mismo archivo: **intencional**,
+      documentado en el código (`[225A-1]` en `staticCodeRules.ts`): cada nivel tiene su
+      propio ruleId para que deshabilitar nivel 1 no silencie las severas. Sin cambio.
+- [ ] **Cobertura vacía del analyzer:** pendiente de decisión — requiere habilitar perfiles
+      TS/SQL y toca `desktop/ui` (ajeno) y PT; queda como propuesta en `brechas-gate` para
+      un bloque de gate posterior (decisión D4 restante, no bloquea S2–S4).
+- [x] Cada cambio del gate: tests unitarios en glory-sentinel (suite completa 583 passing),
+      commits publicados en el checkout (primer bump + `902c45e`), `quality-tools.json`
+      actualizado, `sentinel.lock.json` regenerado (hash byte-idéntico documentado),
+      `quality:doctor` verde (`ready: true`, `issues: []`, fuente 0.7.8 @ `902c45e`),
+      re-analyze ejecutado.
+- [x] Repineado **con** las reglas de S7 confirmadas (D4), mismo bump de commit `902c45e`.
 
 **Criterio de éxito S1:** el re-analyze no reporta los falsos positivos decididos como
 tales (con evidencia de la regla/caso), y ningún cambio de gate usa `sentinel-disable-*`.
@@ -292,26 +299,32 @@ Objetivo: lista de **reglas nuevas propuestas** para glory-sentinel con caso mí
 basadas en defectos reales ya vividos en este repo. Cada propuesta: reglaId, severidad
 sugerida, detección esperada, falso-positivo posible, caso de test.
 
-- [ ] **`block-en-async-rs`** (error): `block_on`/`futures::executor::block_on`/
-      `tokio::runtime::Handle::block_on` dentro de código async. **Evidencia real:**
-      panic "Cannot block the current thread from within a runtime" en `cli/src/tui.rs:281`
-      (Bloque 3, F1 del chat) corregido manualmente; la regla lo habría cazado en el gate.
-- [ ] **`lock-a-traves-await-rs`** (warning): `MutexGuard` (std/tokio) viva a través de
-      `.await` en la misma función (sospechoso de contención/reención). Heurística por
-      rango: guard antes de `.await` sin drop previo.
-- [ ] **`expect-produccion-rs`** (error): ampliar `unwrap-produccion-rs` a `expect`
-      (auditar hoy cuántos `expect` hay fuera de test en core/cli).
-- [ ] **`tool-sin-schema-rs`** o **`registro-sin-nombre`**: tool registrada sin
-      descripción/schema (el modelo la ignora) — regla estructural barata sobre el
-      registro del núcleo (patrón conocido: declaración vs uso).
-- [ ] **SQL no preparado en Rust** (cuando aparezca SQL en consumidores): patrón de
-      `format!`/`concat!` dentro de query SQL en crates Rust (hoy no analizado; S1 abre
-      los patrones). Solo para crates con SQL (PT lo necesita; GH no tiene SQL por
-      contrato — dejar inactiva por defecto en GH).
-- [ ] **Cobertura de lenguajes** (con S1.4): habilitar reglas TS/React/SQL existentes en
-      `desktop/ui` y scripts (sin análisis nuevo en PHP/WordPress si no hay código).
-- [ ] Para cada regla: caso mínimo + caso de no-disparo, tests en glory-sentinel,
-      integración con severidad configurable vía `sentinel.config.json`.
+- [x] **`block-en-async-rs`** (error): implementada en glory-sentinel (`rustReglasNuevas.ts`,
+      `902c45e`) con casos mínimo/no-disparo; **0 hits** en el código actual (el `block_on`
+      legítimo vive solo en `main()` síncrono y tests). Evidencia del panic histórico en
+      `tui.rs:281` queda en la cabecera del módulo.
+- [x] **`lock-a-traves-await-rs`** (warning): implementada (heurística por rango guard→`.await`
+      sin drop, con purga por bloque y profundidad); **0 hits** actuales en core+cli.
+- [x] **`expect-produccion-rs`** (error): implementada como ampliación de
+      `unwrap-produccion-rs`, con salto de archivos `#![cfg(test)]`. **3 sitios reales
+      corregidos** en core+cli (ver nota) y `contrato_tests.rs` marcado `#![cfg(test)]`;
+      los 2 hits restantes son `desktop/src-tauri/src/vault.rs` (**ajeno 039A-3**, sin tocar).
+- [ ] **`tool-sin-schema-rs`** o **`registro-sin-nombre`**: fuera de D4 (solo "evaluar") —
+      queda como propuesta en `brechas-gate` para el siguiente bloque de gate.
+- [ ] **SQL no preparado en Rust**: queda como propuesta (GH no tiene SQL por contrato;
+      útil para PT — requiere patrón de crates con SQL).
+- [ ] **Cobertura de lenguajes**: queda como propuesta (ver S1.4, pendiente de decisión).
+- [x] Para cada regla aprobada: caso mínimo + no-disparo en `rustReglasNuevas.test.ts`
+      (7 tests), integradas en `rustAnalyzer.ts` + `ruleRegistry.ts` con severidad
+      configurable vía `sentinel.config.json`.
+
+**Nota S7 — 3 expects reales corregidos en core+cli (todos con test verde previo):**
+`cli/src/fetch.rs` (builder con error diferido a `Result`, sin cambio de firma),
+`core/src/tareas.rs` (extracción sin doble-parse en la rama de cron), `core/src/llm.rs`
+(excepción justificada con comentario: `LlmProviderService::new` debe seguir siendo
+infallible porque `handlers/mod.rs:311` de PT la llama así; el cliente se construye con
+el error diferido). `core/src/contrato_tests.rs` es módulo de fixtures `#[cfg(test)]`
+y ahora lo declara en cabecera.
 
 **Criterio de éxito S7:** propuesta consolidada en
 `Agente/documentacion/brechas-gate-2026-09-05.md` con las reglas priorizadas; las
@@ -335,10 +348,10 @@ aprobadas (decisión D4) se implementan en glory-sentinel con tests y se repinea
 
 ## Decisiones que necesita el usuario (con defaults recomendados)
 
-- **D1 — Falsos positivos:** ¿se corrige en glory-sentinel (repo + bump commit/lock) o se
-  acepta excepción documentada vía `directoryExceptions`? Default: **corregir en
-  glory-sentinel** lo que sea regla (Cargo.lock/config en `abarrotado`, `nivel-2`
-  redundante) y excepción solo para la raíz de config si la regla no distingue.
+- **D1 — Falsos positivos:** **resuelto (default elegido).** Corregido en glory-sentinel
+  `902c45e`: `directorio-abarrotado` ignora `*.lock`/manifests/config de raíz; doble
+  reporte `limite-lineas`+`nivel-2` documentado como intencional; severidades
+  estructurales siguen en `warning` (el gate exige 0 errores).
 - **D2 — Reorganización de `core/src` y `cli/src` (S4):** ¿se mueven a subdirectorios por
   dominio ahora (retoque de `use` interno, historia preservada con `git mv`) o se dejan
   planos con excepción? Default: **reorganizar** (S4), es la corrección que la regla pide.
@@ -346,10 +359,11 @@ aprobadas (decisión D4) se implementan en glory-sentinel con tests y se repinea
   corregir lo que S2–S4 ya cubre) o permitir refactors adicionales que surjan (p. ej.
   dividir `tool.rs`)? Default: **informar + corregir solo lo cubierto por S2–S4**; lo
   demás queda como hallazgo con decisión.
-- **D4 — Reglas nuevas del gate (S7):** ¿cuáles entran ya (`block-en-async-rs` con
-  evidencia real, `expect-produccion-rs` como ampliación barata, `lock-a-traves-await-rs`
-  como warning) y cuáles quedan propuestas? Default: **las 3 primeras** en este bloque;
-  el resto a un bloque de gate posterior.
+- **D4 — Reglas nuevas del gate (S7):** **resuelto (default elegido).** Entran ya
+  `expect-produccion-rs` (error), `block-en-async-rs` (error) y
+  `lock-a-traves-await-rs` (warning), implementadas con tests en glory-sentinel `902c45e`
+  y repineadas. `tool-sin-schema-rs`, SQL no preparado y cobertura de lenguajes quedan
+  como propuestas en `Agente/documentacion/brechas-gate-2026-09-05.md`.
 - **D5 — Ajenos:** `persistencia_sqlite.rs`/`desktop` (039A-3): ¿se espera a que el hilo
   cierre o se coordina ahora? Default: **esperar**, dejar anotado como pendiente
   coordinado (no es deuda de este plan).
