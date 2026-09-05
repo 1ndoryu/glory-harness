@@ -28,10 +28,24 @@ use glory_harness_core::evento::AgenteEvento;
 use glory_harness_core::llm::{LlavesProveedor, catalogo_proveedores};
 use glory_harness_core::ports::MensajePersistido;
 use glory_harness_core::runtime::AgentRuntime;
+use glory_harness_core::sandbox::RespaldoArchivos;
 use glory_harness_core::AgentPersistence;
 use glory_harness_core::ProgramadorTareas;
 use tauri::{AppHandle, Emitter, Manager, State};
 use uuid::Uuid;
+
+mod vault;
+
+/// [039A-3 P3] Tramo rebobinado pendiente de restaurar archivos (acción
+/// EXPLÍCITA tras "volver a punto"; nunca automática). `turnos` son los ids
+/// que el rewind devolvió (los turnos borrados) y `archivos` las rutas que
+/// tocaron (para que el front ofrezca la restauración). Se limpia al cambiar
+/// de conversación o tras restaurar.
+#[derive(Clone)]
+struct TramoRewind {
+    turnos: Vec<Uuid>,
+    archivos: Vec<String>,
+}
 
 /// Sesión viva del núcleo (misma construcción que `chat`/`run` del CLI, pero
 /// con `PersistenciaSqlite` en vez de memoria). El runtime va tras un Mutex
@@ -43,6 +57,13 @@ struct Sesion {
     conversacion_id: Mutex<Uuid>,
     /// Turno cuyo `turno-fin` aún no se emitió (para marcar `cancelado`).
     turno_id: Mutex<Option<Uuid>>,
+    /// [039A-3 P3] Vault de respaldos del workspace (hook de `SandboxArchivos`
+    /// que el core ya tiene cableado): el árbol/índice viven aquí, y el hook
+    /// (que no conoce el turno) se fija con `fijar_contexto` en cada turno.
+    vault: Arc<vault::VaultArchivos>,
+    /// [039A-3 P3] Último tramo rebobinado pendiente de restaurar (ver
+    /// `TramoRewind`). Se puebla en `rewind_conversacion`.
+    tramo_rewind: Mutex<Option<TramoRewind>>,
     /// Meta del modo `meta` (prefijo `[META: …]` en cada turno).
     meta: Mutex<Option<String>>,
     /// Modo con el que se construyó el runtime (`meta` activa el prefijo).
@@ -182,6 +203,36 @@ fn sesion_actual(estado: &State<'_, Estado>) -> Result<Arc<Sesion>, String> {
         Ok(g) => g.clone().ok_or_else(|| "abre la sesión primero".to_string()),
         Err(_) => Err("sesión bloqueada por otro turno".into()),
     }
+}
+
+/// [039A-3 P3] Cablea un vault como hook del sandbox del runtime: todas las
+/// escrituras del agente (file_write/file_patch/aplicar_plan/todo) pasan por
+/// el MISMO `Arc<SandboxArchivos>` que el registry inyecta al contexto, así
+/// que el respaldo cubre TODA escritura, no solo la de una tool.
+fn cablear_vault_a(runtime: &Arc<AgentRuntime>, vault: &Arc<vault::VaultArchivos>) {
+    if let Some(sandbox) = runtime.registry.sandbox() {
+        sandbox.con_respaldo(Some(Arc::clone(vault) as Arc<dyn RespaldoArchivos>));
+    }
+}
+
+/// [039A-3 P3] Crea el vault sobre la raíz REAL del sandbox del runtime (la
+/// que el core usa para validar; no una reconstruida) y lo cablea. Devuelve
+/// el vault para guardarlo en la sesión. Sin sandbox (modo no-local), crea el
+/// vault igualmente sobre el workspace del harness (no se cablea, no hay
+/// escrituras de agente que respaldar).
+fn crear_y_cablear_vault(
+    runtime: &Arc<AgentRuntime>,
+    workspace: Option<&std::path::Path>,
+) -> Arc<vault::VaultArchivos> {
+    let raiz = runtime
+        .registry
+        .sandbox()
+        .map(|sb| sb.raiz().to_path_buf())
+        .or_else(|| workspace.map(std::path::Path::to_path_buf))
+        .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
+    let vault = Arc::new(vault::VaultArchivos::nuevo(&raiz));
+    cablear_vault_a(runtime, &vault);
+    vault
 }
 
 fn info_desde_sesion(sesion: &Sesion) -> Result<InfoSesion, String> {
@@ -345,12 +396,20 @@ fn abrir_sesion_interna(
         conversacion,
         aviso,
     };
+    /* [039A-3 P3] Vault del workspace: se crea y se cablea al sandbox del
+     * runtime ANTES de guardar la sesión. La raíz real la da el sandbox del
+     * runtime (la misma que valida); si el harness no trae workspace ni
+     * sandbox, la carpeta queda en el cwd del proceso (el vault se crea
+     * igualmente, sin cablear: no hay escrituras que respaldar). */
+    let vault = crear_y_cablear_vault(&harness.runtime, harness.workspace.as_deref());
     let sesion = Arc::new(Sesion {
         runtime: Mutex::new(harness.runtime),
         persistencia,
         user_id,
         conversacion_id: Mutex::new(conv_id),
         turno_id: Mutex::new(None),
+        vault,
+        tramo_rewind: Mutex::new(None),
         meta: Mutex::new(None),
         modo: Mutex::new(harness.config.modo.clone()),
         modelo: Mutex::new(info.modelo.clone()),
@@ -480,6 +539,22 @@ async fn enviar_turno(
         .lock()
         .map(|g| Arc::clone(&*g))
         .map_err(|_| "sesión bloqueada".to_string())?;
+    /* [039A-3 P3] Fijar el contexto del vault para este turno (conversación +
+     * turno): las escrituras del harness durante `ejecutar_turno` se
+     * atribuyen a este tramo. El hook del núcleo no recibe el turno; el
+     * desktop lo deja aquí ANTES de cada turno. */
+    sesion.vault.fijar_contexto(vault::ContextoTurnoVault {
+        conversacion_id: Some(conv_id),
+        turno_id: Some(turno_id),
+        tool_name: None,
+    });
+    /* [039A-3 P3] Al enviar un turno nuevo tras un "volver a punto" el tramo
+     * pendiente de restaurar deja de ser el último (el usuario siguió
+     * hablando en vez de restaurar): se limpia para no ofrecer una
+     * restauración obsoleta. */
+    if let Ok(mut g) = sesion.tramo_rewind.lock() {
+        *g = None;
+    }
     if let Ok(mut g) = sesion.turno_id.lock() {
         *g = Some(turno_id);
     }
@@ -492,6 +567,10 @@ async fn enviar_turno(
             if let Ok(mut g) = sesion.turno_id.lock() {
                 *g = None;
             }
+            /* [039A-3 P3] Limpiar el contexto del vault: el siguiente turno
+             * vuelve a fijarlo; sin limpieza, una escritura fuera de turno
+             * (p. ej. un setup posterior) se atribuiría al último turno. */
+            sesion.vault.fijar_contexto(vault::ContextoTurnoVault::default());
         };
         // Reenvío en la misma tarea: el loop termina con Done (último evento).
         // [039A-3 P1] Se acumula el Usage real que emite el núcleo (cada
@@ -659,6 +738,9 @@ fn reconfigurar_sesion(
         sesion.user_id,
     );
     let modelo_nuevo = format!("{}/{}", harness.config.provider, harness.config.modelo);
+    /* [039A-3 P3] El nuevo runtime trae un sandbox fresco SIN el hook: se
+     * re-cablea el vault de la sesión (misma raíz de workspace). */
+    cablear_vault_a(&harness.runtime, &sesion.vault);
     sesion
         .runtime
         .lock()
@@ -747,6 +829,11 @@ fn conversacion_nueva(
         .lock()
         .map(|mut g| *g = id)
         .map_err(|_| "sesión bloqueada".to_string())?;
+    /* [039A-3 P3] Conversación nueva = contexto nuevo: no hay tramo previo
+     * que restaurar desde aquí. */
+    if let Ok(mut g) = sesion.tramo_rewind.lock() {
+        *g = None;
+    }
     Ok(InfoConversacion {
         id,
         titulo,
@@ -778,6 +865,12 @@ struct CargaConversacion {
     /// [039A-3 P1] Uso/modelo real del último turno (para repintar el pie de
     /// turno al recargar). `None` si no hay turno con uso registrado.
     ultimo_uso: Option<UsoTurnoPersistido>,
+    /// [039A-3 P3] Archivos que tocó el último tramo rebobinado ("volver a
+    /// punto"), listos para la acción EXPLÍCITA "restaurar archivos de este
+    /// tramo". Vacío cuando la carga no viene de un rewind (no hay nada que
+    /// restaurar). El front lo ofrece solo cuando no está vacío.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    archivos_tramo: Vec<String>,
 }
 
 /// [039A-3 P1] Uso real de un turno persistido (serializable al front).
@@ -832,10 +925,18 @@ async fn cargar_conversacion(
             tokens_prompt,
             tokens_complecion,
         });
+    /* [039A-3 P3] Al cambiar de conversación se limpia el tramo pendiente de
+     * restaurar (pertenece a la conversación anterior): su restauración ya no
+     * es accesible desde aquí. */
     sesion
         .conversacion_id
         .lock()
         .map(|mut g| *g = id)
+        .map_err(|_| "sesión bloqueada".to_string())?;
+    sesion
+        .tramo_rewind
+        .lock()
+        .map(|mut g| *g = None)
         .map_err(|_| "sesión bloqueada".to_string())?;
     Ok(CargaConversacion {
         id,
@@ -843,6 +944,7 @@ async fn cargar_conversacion(
         mensajes,
         acciones,
         ultimo_uso,
+        archivos_tramo: Vec::new(),
     })
 }
 
@@ -900,12 +1002,19 @@ fn eliminar_conversacion(
         .persistencia
         .conversacion_eliminar(id, sesion.user_id)
         .map_err(|e| e.to_string())?;
+    /* [039A-3 P3] Al eliminar la conversación se limpia su índice del vault y
+     * se hace GC de los hashes que quedaron huérfanos. */
+    sesion.vault.eliminar_conversacion(id);
     let actual = sesion
         .conversacion_id
         .lock()
         .map(|g| *g)
         .map_err(|_| "sesión bloqueada".to_string())?;
     if actual == id {
+        /* El tramo pendiente pertenecía a la conversación borrada: se limpia. */
+        if let Ok(mut g) = sesion.tramo_rewind.lock() {
+            *g = None;
+        }
         return conversacion_nueva(estado, None);
     }
     info_desde_sesion(&sesion).map(|i| i.conversacion)
@@ -942,10 +1051,39 @@ async fn rewind_conversacion(
         .lock()
         .map(|g| *g)
         .map_err(|_| "sesión bloqueada".to_string())?;
-    sesion
+    /* [039A-3 P3] El rewind devuelve los ids de los turnos borrados: con ellos
+     * el vault localiza las rutas que tocó el tramo. En "volver a punto"
+     * (editar=false) el tramo queda pendiente de una restauración EXPLÍCITA;
+     * en "editar+reenviar" (editar=true) se limpia porque el reenvío inmediato
+     * va a reescribir los archivos (ofrecer restaurar sería incoherente). */
+    let turnos_tramo = sesion
         .persistencia
         .rewind_conversacion(conv_id, msg_id, sesion.user_id, editar)
         .map_err(|e| e.to_string())?;
+    let archivos_tramo: Vec<String> = if editar {
+        Vec::new()
+    } else {
+        sesion
+            .vault
+            .archivos_del_tramo(&turnos_tramo)
+            .into_iter()
+            .map(|e| e.ruta_relativa)
+            .collect()
+    };
+    sesion
+        .tramo_rewind
+        .lock()
+        .map(|mut g| {
+            *g = if editar {
+                None
+            } else {
+                Some(TramoRewind {
+                    archivos: archivos_tramo.clone(),
+                    turnos: turnos_tramo,
+                })
+            }
+        })
+        .map_err(|_| "sesión bloqueada".to_string())?;
     // Reconstruir la carga resultante (igual que cargar_conversacion).
     let titulo = sesion
         .persistencia
@@ -980,7 +1118,57 @@ async fn rewind_conversacion(
         mensajes,
         acciones,
         ultimo_uso,
+        archivos_tramo,
     })
+}
+
+/// [039A-3 P3] Restaura los archivos del último tramo rebobinado ("volver a
+/// punto"): acción EXPLÍCITA, nunca automática. Comprueba la fuente de cada
+/// ruta contra su último respaldo GLOBAL (si alguien editó fuera del harness,
+/// NO toca y avisa). Nunca borra archivos. Tras restaurar se limpia el tramo
+/// pendiente (las escrituras deshechas se podan del índice y se hace GC).
+#[tauri::command]
+fn restaurar_archivos_tramo(estado: State<'_, Estado>) -> Result<RestauracionTramo, String> {
+    let sesion = sesion_actual(&estado)?;
+    if estado
+        .turno
+        .lock()
+        .map(|t| t.activo)
+        .unwrap_or(true)
+    {
+        return Err("hay un turno en curso".into());
+    }
+    let tramo = sesion
+        .tramo_rewind
+        .lock()
+        .map(|g| g.clone())
+        .map_err(|_| "sesión bloqueada".to_string())?
+        .ok_or_else(|| "no hay ningún tramo rebobinado pendiente de restaurar".to_string())?;
+    let archivos = tramo.archivos.clone();
+    let resultado = sesion.vault.restaurar_tramo(&tramo.turnos);
+    /* Tras restaurar (o al decidir no hacerlo por completo) el tramo ya no
+     * está pendiente: la próxima "restaurar" volvería a intentar los mismos
+     * turnos (no-op tras la purga), así que se limpia el estado. */
+    sesion
+        .tramo_rewind
+        .lock()
+        .map(|mut g| *g = None)
+        .map_err(|_| "sesión bloqueada".to_string())?;
+    Ok(RestauracionTramo {
+        archivos,
+        restaurados: resultado.restaurados,
+        omitidos: resultado.omitidos,
+    })
+}
+
+/// [039A-3 P3] Resultado de la restauración explícita de un tramo, para que
+/// el front muestre qué se restauró y qué se omitió (y por qué).
+#[derive(serde::Serialize)]
+struct RestauracionTramo {
+    /// Rutas del tramo que se intentaron restaurar (para el aviso).
+    archivos: Vec<String>,
+    restaurados: Vec<vault::RestauracionArchivo>,
+    omitidos: Vec<vault::RestauracionArchivo>,
 }
 
 // --- F4: catálogo, config, workspace, meta ---
@@ -1098,6 +1286,7 @@ fn main() {
             listar_conversaciones,
             cargar_conversacion,
             rewind_conversacion,
+            restaurar_archivos_tramo,
             renombrar_conversacion,
             archivar_conversacion,
             eliminar_conversacion,

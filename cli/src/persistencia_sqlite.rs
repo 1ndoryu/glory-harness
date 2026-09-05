@@ -523,6 +523,12 @@ impl PersistenciaSqlite {
     /// borra también el propio mensaje objetivo para reescribirlo; con
     /// `editar=false` (volver a punto) lo conserva como último mensaje.
     ///
+    /// [039A-3 P3] Devuelve los `turno_id` borrados (los del tramo) para que
+    /// el consumidor (vault del desktop) pueda ofrecer "restaurar archivos de
+    /// este tramo" sin depender de la BD ya borrada. El hook de respaldo del
+    /// sandbox registra cada escritura con su `turno_id` en el log del vault;
+    /// con estos ids el vault sabe qué entradas corresponden al tramo.
+    ///
     /// Anclaje del borrado:
     /// - Mensajes: `rowid` implícito (orden de inserción estricto), a prueba
     ///   de timestamps con precisión de 1 s. El mensaje objetivo debe ser de
@@ -542,7 +548,7 @@ impl PersistenciaSqlite {
         hasta_mensaje_id: Uuid,
         user_id: Uuid,
         editar: bool,
-    ) -> HarnessResult<()> {
+    ) -> HarnessResult<Vec<Uuid>> {
         let mut conn = bloquear(&self.conn);
         let tx = conn
             .transaction()
@@ -570,6 +576,27 @@ impl PersistenciaSqlite {
             )
         })?;
 
+        /* [039A-3 P3] Turnos del tramo ANTES de borrarlos: los ids que el
+         * vault usará para localizar los respaldos de este tramo. */
+        let turnos_tramo: Vec<Uuid> = {
+            let mut stmt = tx
+                .prepare(
+                    "SELECT id FROM turnos WHERE conversacion_id = ?1 AND creado_en >= ?2",
+                )
+                .map_err(|e| Error::Persistencia(e.to_string()))?;
+            let filas = stmt
+                .query_map(params![conv_s, creado_punto], |f| f.get::<_, String>(0))
+                .map_err(|e| Error::Persistencia(e.to_string()))?;
+            let mut ids = Vec::new();
+            for fila in filas {
+                let s = fila.map_err(|e| Error::Persistencia(e.to_string()))?;
+                if let Ok(id) = Uuid::parse_str(&s) {
+                    ids.push(id);
+                }
+            }
+            ids
+        };
+
         // Acciones de los turnos del tramo (turnos posteriores al mensaje).
         tx.execute(
             "DELETE FROM acciones WHERE turno_id IN (
@@ -593,7 +620,7 @@ impl PersistenciaSqlite {
 
         tx.commit()
             .map_err(|e| Error::Persistencia(e.to_string()))?;
-        Ok(())
+        Ok(turnos_tramo)
     }
 }
 

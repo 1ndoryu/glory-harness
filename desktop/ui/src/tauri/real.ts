@@ -116,6 +116,24 @@ export interface CargaConversacion {
     tokens_prompt: number;
     tokens_complecion: number;
   } | null;
+  /** [039A-3 P3] Archivos que tocó el último tramo rebobinado ("volver a
+   * punto"), listos para la acción EXPLÍCITA "restaurar archivos de este
+   * tramo". Vacío cuando la carga no viene de un rewind. */
+  archivos_tramo?: string[];
+}
+
+/** [039A-3 P3] Resultado de la restauración explícita de un tramo. */
+export interface RestauracionArchivo {
+  ruta: string;
+  /** "restaurado" | "cambio_externo" | "omitido" | "error" */
+  estado: string;
+  detalle?: string | null;
+}
+
+export interface ResultadoRestauracionTramo {
+  archivos: string[];
+  restaurados: RestauracionArchivo[];
+  omitidos: RestauracionArchivo[];
 }
 
 export interface ProveedorInfo {
@@ -478,6 +496,11 @@ export function crearAdaptadorReal(hooks: HooksAdaptador = {}) {
        * también (se reescribe al reenviar desde el modo edición). */
       async rewind(hastaMensajeId: string, editar: boolean): Promise<CargaConversacion> {
         return invoke<CargaConversacion>('rewind_conversacion', { hastaMensajeId, editar });
+      },
+      /** [039A-3 P3] Restaura los archivos del último tramo rebobinado (acción
+       * EXPLÍCITA tras "volver a punto"). Falla si no hay tramo pendiente. */
+      async restaurarTramo(): Promise<ResultadoRestauracionTramo> {
+        return invoke<ResultadoRestauracionTramo>('restaurar_archivos_tramo');
       },
       async proveedores(): Promise<ProveedorInfo[]> {
         return invoke<ProveedorInfo[]>('proveedores_disponibles');
