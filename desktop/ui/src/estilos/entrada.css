@@ -60,9 +60,9 @@
 /* selector de modelo en la barra: el nombre no debe estirarse (control compacto) */
 .entrada .controles .selector-modelo .nombre { flex: none; }
 
-/* botón enviar/detener: icono único, anclado a la derecha de la barra */
+/* botón enviar/detener: icono único, anclado a la derecha de la barra
+   (junto al indicador de contexto; el auto-margin lo pone .ctx-indicador) */
 .entrada .btn-enviar {
-    margin-left: auto;
     width: 24px;
     height: 24px;
     flex: none;
@@ -79,6 +79,41 @@
 .entrada .btn-enviar:hover { opacity: 0.85; }
 .entrada .btn-enviar:disabled { opacity: 0.3; cursor: default; }
 .entrada .btn-enviar:disabled:hover { opacity: 0.3; }
+
+/* [039A-3 P6] indicador circular de contexto junto a enviar: círculo sin
+   relleno (solo stroke) cuya circunferencia se rellena según ocupacion_pct.
+   Monocromo estricto; la pista es el trazo tenue y el lleno el trazo negro.
+   Lleva el auto-margin: empuja indicador+enviar a la derecha de .controles. */
+.entrada .ctx-indicador {
+    flex: none;
+    margin-left: auto;
+    width: 20px;
+    height: 20px;
+    padding: 0;
+    background: transparent;
+    border: none;
+    cursor: default;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+.entrada .ctx-indicador svg {
+    width: 16px;
+    height: 16px;
+    fill: none;
+    stroke-width: 2;
+    stroke-linecap: round;
+}
+.entrada .ctx-indicador .ctx-pista {
+    stroke: #000;
+    opacity: 0.25;
+    fill: none;
+}
+.entrada .ctx-indicador .ctx-lleno {
+    stroke: #000;
+    fill: none;
+}
+.entrada .ctx-indicador:hover { opacity: 1; }
 
 /* [039A-3 P2] barra "editando mensaje… [cancelar]" sobre el textarea */
 .entrada .editando-msg {

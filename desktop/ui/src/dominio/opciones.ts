@@ -201,6 +201,19 @@ export const OPCIONES_CONTEXTO: GrupoOpciones = {
       nota: 'Se abre con el workspace real del backend al iniciar la sesión.',
     },
     {
+      // [039A-3 P6] Ventana de contexto configurada (default 150k). El backend
+      // la inyecta como `contexto.max_ventana` al construir la sesión (clave
+      // persistida `contexto_max_ventana`, misma que el id para configGuardar).
+      // Tope blando: si el modelo real tiene menos ventana, el % del
+      // `ContextoDetalle` manda (fuente única, decisión §2.10).
+      id: 'contexto_max_ventana',
+      etiqueta: 'Ventana de contexto',
+      tipo: 'texto',
+      valor: '150000',
+      placeholder: '150000',
+      nota: 'Máx. tokens de contexto (default 150000). Se aplica al iniciar la sesión.',
+    },
+    {
       id: 'preferencias',
       etiqueta: 'Preferencias',
       tipo: 'texto',

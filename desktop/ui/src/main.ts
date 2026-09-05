@@ -31,7 +31,7 @@ import {
 
 import { crearSimulacion } from './simulacion/simulacion';
 import { crearAdaptadorReal, esEntornoTauri } from './tauri/real';
-import type { InfoSesion } from './tauri/real';
+import type { InfoSesion, UsoTurno } from './tauri/real';
 import { el } from './util/dom';
 import { copiarAlPortapapeles } from './util/portapapeles';
 
@@ -107,6 +107,12 @@ const adaptador = crearAdaptadorReal({
     sincronizarModeloDesdeSesion(info);
     const ws = info.workspace;
     if (ws && ws !== '<desconocido>') modal.asignarValor('workspace', ws);
+  },
+  // [039A-3 P6] El `ContextoDetalle`/`usage` del backend repinta el indicador
+  // circular de TODOS los paneles con el % y la ventana real (fuente única).
+  // Seguro: se ejecuta en runtime, cuando `panelesRegistrados` ya existe.
+  onContexto(u: UsoTurno) {
+    panelesRegistrados.forEach((p) => p.setContexto(u.ocupacionPct, u.maxVentana));
   },
 });
 
@@ -594,8 +600,16 @@ const modal = montarModalConfiguracion({
     } else if (id === 'nivelRazonamiento') {
       razonamientoActual = String(valor);
       panelesRegistrados.forEach((p) => p.setRazonamiento(razonamientoActual));
+    } else if (id === 'contexto_max_ventana') {
+      // [039A-3 P6] La ventana se persiste vía configGuardar (abajo); el
+      // backend la consumirá al construir la sesión (inyección de
+      // `contexto.max_ventana`, pendiente de P6 backend). No hay estado local
+      // que actualizar: la fuente para el indicador es el ContextoDetalle.
     }
-    if (USA_REAL && (id === 'modo' || id === 'nivelRazonamiento')) {
+    if (
+      USA_REAL &&
+      (id === 'modo' || id === 'nivelRazonamiento' || id === 'contexto_max_ventana')
+    ) {
       void adaptador.sesion
         .configGuardar(id, String(valor))
         .catch((e: unknown) => avisoGlobal(`no se pudo guardar ${id}: ${String(e)}`, '', ''));
@@ -682,13 +696,14 @@ if (USA_REAL) {
   void (async () => {
     try {
       await adaptador.asegurarSesion(opcionesArranque());
-      const [provG, modG, modoG, razG, anchoG, colG] = await Promise.all([
+      const [provG, modG, modoG, razG, anchoG, colG, ctxG] = await Promise.all([
         adaptador.sesion.configLeer('proveedor'),
         adaptador.sesion.configLeer('modelo'),
         adaptador.sesion.configLeer('modo'),
         adaptador.sesion.configLeer('nivelRazonamiento'),
         adaptador.sesion.configLeer(CLAVE_ANCHO),
         adaptador.sesion.configLeer(CLAVE_COLAPSADA),
+        adaptador.sesion.configLeer('contexto_max_ventana'),
       ]);
       if (anchoG) {
         const n = Number(anchoG);
@@ -716,6 +731,12 @@ if (USA_REAL) {
         razonamientoActual = razG;
         panelesRegistrados.forEach((p) => p.setRazonamiento(razG));
         modal.asignarValor('nivelRazonamiento', razG);
+      }
+      // [039A-3 P6] Restaura la ventana de contexto persistida en el modal
+      // (el backend la lee de config al construir la sesión; aquí solo se
+      // refleja el valor guardado en el control del panel Contexto).
+      if (ctxG && Number(ctxG) > 0) {
+        modal.asignarValor('contexto_max_ventana', ctxG);
       }
       sincronizarPanelMeta();
       await resincronizarSidebar();

@@ -82,6 +82,10 @@ export interface Entrada {
   edicionId(): string | null;
   /** [039A-3 P2] Texto actual del textarea (sin recortar). */
   getTexto(): string;
+  /** [039A-3 P6] Actualiza el indicador circular de contexto (0-100). Con
+   * `maxVentana` se muestra el % sobre el total; `null` deja el círculo vacío
+   * (sin dato de contexto del `ContextoDetalle`). */
+  setContexto(pct: number | null, maxVentana: number | null): void;
 }
 
 export interface EntradaOpciones {
@@ -227,6 +231,55 @@ export function montarEntrada(opts: EntradaOpciones): Entrada {
   const btnEnviar = el('button', 'btn-enviar') as HTMLButtonElement;
   btnEnviar.id = `${opts.idPrefijo}-btn-enviar`;
   btnEnviar.type = 'button';
+  // [039A-3 P6] Indicador circular de contexto, justo antes del botón enviar.
+  // Círculo sin relleno (stroke) cuya circunferencia se rellena según el
+  // `ocupacion_pct` del `ContextoDetalle` (fuente única, decisión §2.10).
+  // Estética monocromo: solo trazo, sin relleno.
+  const indicador = el('button', 'ctx-indicador') as HTMLButtonElement;
+  indicador.type = 'button';
+  indicador.title = 'contexto 0%';
+  indicador.setAttribute('aria-label', 'contexto 0%');
+  const NS = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(NS, 'svg');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('aria-hidden', 'true');
+  const radio = 9;
+  const perimetro = 2 * Math.PI * radio;
+  const circuloFondo = document.createElementNS(NS, 'circle');
+  circuloFondo.setAttribute('cx', '12');
+  circuloFondo.setAttribute('cy', '12');
+  circuloFondo.setAttribute('r', String(radio));
+  circuloFondo.setAttribute('class', 'ctx-pista');
+  const circulo = document.createElementNS(NS, 'circle');
+  circulo.setAttribute('cx', '12');
+  circulo.setAttribute('cy', '12');
+  circulo.setAttribute('r', String(radio));
+  circulo.setAttribute('class', 'ctx-lleno');
+  // Rotado -90° para empezar arriba; dasharray = perimetro * pct.
+  circulo.setAttribute('transform', 'rotate(-90 12 12)');
+  svg.appendChild(circuloFondo);
+  svg.appendChild(circulo);
+  indicador.appendChild(svg);
+  function pintarContexto(pct: number | null, maxVentana: number | null): void {
+    // `pctF` (0-100) es la fuente del arco; sin dato queda 0 (círculo vacío).
+    const pctF = pct === null ? 0 : Math.min(100, Math.max(0, pct));
+    const off = perimetro * (1 - pctF / 100);
+    circulo.setAttribute('stroke-dasharray', `${perimetro} ${perimetro}`);
+    circulo.setAttribute('stroke-dashoffset', String(off));
+    // Etiqueta: "0%" o "N%" (sin datos → título genérico con el total si hay).
+    const rotulo =
+      pct === null
+        ? maxVentana !== null
+          ? `contexto · hasta ${Math.round(maxVentana / 1000)}k`
+          : 'contexto'
+        : `contexto ${Math.round(pct)}%`;
+    indicador.title = rotulo;
+    indicador.setAttribute('aria-label', rotulo);
+  }
+  pintarContexto(null, null);
+  // Sin acción: es informativo. El clic no debe enfocar el chat por error.
+  indicador.addEventListener('click', (e) => e.stopPropagation());
+  controles.appendChild(indicador);
   controles.appendChild(btnEnviar);
 
   caja.appendChild(textarea);
@@ -436,6 +489,9 @@ export function montarEntrada(opts: EntradaOpciones): Entrada {
     },
     getTexto() {
       return textarea.value;
+    },
+    setContexto(pct: number | null, maxVentana: number | null) {
+      pintarContexto(pct, maxVentana);
     },
   };
 }

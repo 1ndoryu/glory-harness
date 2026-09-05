@@ -131,6 +131,8 @@ export interface PanelChat {
   setSidebarAbierta(abierta: boolean): void;
   /** Repinta un aviso en este panel (mock/próximamente, sin backend). */
   avisoLocal(texto: string, meta: string, detalle: string): void;
+  /** [039A-3 P6] Actualiza el indicador circular de contexto de la entrada. */
+  setContexto(pct: number | null, maxVentana: number | null): void;
 }
 
 export interface PanelChatOpciones {
@@ -574,6 +576,10 @@ export function montarPanelChat(opts: PanelChatOpciones): PanelChat {
           modelo: 'glory/gpt-4.1',
           totalEntrada: 9100,
         });
+        // [039A-3 P6] Espejo del pie mock: el % y la ventana del pie también
+        // se reflejan en el indicador circular (verificación visual sin
+        // backend; en real el ContextoDetalle/usage alimenta setContexto).
+        entrada.setContexto(7, 150000);
       }
       d.notificarTurnoFin();
     };
@@ -743,6 +749,9 @@ export function montarPanelChat(opts: PanelChatOpciones): PanelChat {
     },
     avisoLocal(texto: string, meta: string, detalle: string) {
       avisoChat(texto, meta, detalle);
+    },
+    setContexto(pct: number | null, maxVentana: number | null) {
+      entrada.setContexto(pct, maxVentana);
     },
   };
 

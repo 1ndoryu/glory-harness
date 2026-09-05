@@ -168,6 +168,10 @@ export type ResultadoTurno = 'ok' | 'error' | 'cancelado';
 export interface HooksAdaptador {
   /** Se llama con cada `abrir_sesion`/`reconfigurar`/`elegir_workspace`. */
   onSesion?: (info: InfoSesion) => void;
+  /** [039A-3 P6] Se llama al llegar `contexto_detalle`/`usage` con el estado
+   * de contexto del turno (ocupacion_pct + max_ventana) para que la UI
+   * actualice el indicador circular en vivo. Hook opcional: no rompe API. */
+  onContexto?: (uso: UsoTurno) => void;
 }
 
 const RESPUESTA: Record<DecisionAprobacion, string> = {
@@ -314,12 +318,17 @@ export function crearAdaptadorReal(hooks: HooksAdaptador = {}) {
         // [039A-3 P1] El Usage lleva el provider/modelo REAL (tras fallback):
         // se conserva el último que respondió de verdad.
         if (ev.provider && ev.modelo) uso.modelo = `${ev.provider}/${ev.modelo}`;
+        // [039A-3 P6] Refresca el indicador en vivo con el % del último uso.
+        hooks.onContexto?.({ ...uso });
         break;
       case 'contexto_detalle':
         uso.ocupacionPct = ev.ocupacion_pct;
         uso.maxVentana = ev.max_ventana;
         uso.reservaSalida = ev.reserva_salida;
         uso.totalEntrada = ev.total_entrada;
+        // [039A-3 P6] El `ContextoDetalle` es la fuente única del % y la
+        // ventana: notifica a la UI para repintar el indicador circular.
+        hooks.onContexto?.({ ...uso });
         break;
       case 'contexto':
         break;
