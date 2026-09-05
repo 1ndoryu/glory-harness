@@ -16,9 +16,9 @@
 - **Estado:** S0 ✔ (baseline congelado, 05-09) · S1 ✔ (falsos positivos corregidos en
   glory-sentinel, bump `902c45e` v0.7.8) · S7 ✔ parcial (3 reglas D4 implementadas y
   repineadas; propuestas restantes documentadas en `Agente/documentacion/brechas-gate-2026-09-05.md`)
-  · S2 ✔ (split estructural: `f33a4de`, `3910477`, `f3d467b`) · S3 ✔ (extracción de
-  funciones largas, `79022c7`) · S4 ✔ (organización por dominio, ver checklist) ·
-  S5–S6 y S8 pendientes de ejecutar.
+  · S2 ✔ (split estructural: `f33a4de`, `3910477`, `f3d467b`)  · S3 ✔ (extracción de
+  funciones largas, `79022c7`) · S4 ✔ (organización por dominio, `8064c41`) ·
+  S5 ✔ (auditoría SOLID documentada, ver checklist) · S6 y S8 pendientes.
 - **Re-analyze 05-09 (post S1/S7):** 2 errores (ambos `expect-produccion-rs` en
   `desktop/src-tauri/src/vault.rs`, **ajeno 039A-3**, documentado y sin tocar) ·
   21 warnings / 8 archivos en core+cli (deuda de tamaño, S2–S4). core+cli a **0 errores**.
@@ -240,30 +240,37 @@ agendadas en S2–S4 (muchos hallazgos SOLID coinciden con los splits).
 
 Checklist por pieza (marcar `[x]` con hallazgo/acción al auditar):
 
-- [ ] **`AgentRuntime` (SRP):** ¿sigue siendo dios-módulo tras S2? Listar
-      responsabilidades restantes (orquestar turno, permisos, plan, guardas, hooks,
-      telemetría, reglas, subagentes). Cada una con su tipo/archivo; las que queden en el
-      struct deben ser solo **coordinación** y delegación.
-- [ ] **`LlmProviderService` (SRP/OCP):** rotación de fallos + nutrición + stream + parseo
-      en una clase (mitigado en S2.2). ¿Añadir un proveedor nuevo requiere tocar el
-      servicio o hay registro/estrategia (OCP)? Evidencia en `keys_para`/`proveedor_abierto`.
-- [ ] **`AgentToolRegistry` (ISP/OCP):** el trait `AgentTool` y el registro: ¿el runtime
-      conoce detalles de cada tool o solo el contrato? ¿`ejecutar_tool` hace downcast de
-      dominio dentro del núcleo (acoplamiento) o vía puerto? Revisar y documentar.
-- [ ] **`tool.rs` 1000+ líneas:** SRP del archivo (definición de trait + registry +
-      tools de red) — planificar split adicional si S2 no lo cubre.
-- [ ] **`tui.rs`/`UiEstado`:** separación UI-estado vs lógica de eventos vs render
-      (S2.3/S3); verificar que `UiEstado` no conozca SSE ni persistencia.
-- [ ] **Puertos (`ports.rs`, `PuertosHarness`):** ISP: ¿cada consumidor recibe solo lo que
-      usa o el struct grande con `Option`? Evaluar traits por rol (persistencia, web,
-      proveedor) y qué rompería dividirlos (dependencias concretas de PROYECTO TASKS).
-- [ ] **DIP en llm:** ¿el servicio HTTP depende de reqwest concreto o de un trait
-      inyectable (tests actuales usan stub de qué nivel)? Documentar límite de testabilidad.
-- [ ] **Errores:** ¿`Error::Validacion(String)` pierde contexto/tipos? ¿hay `unwrap`/
-      `expect` en producción fuera de test (regla del gate) o mutex locks con
-      `unwrap_or_else(|p| p.into_inner())` generalizados (ver S7)?
-- [ ] **Persistencia (cliente CLI):** `AgentPersistence` como puerto: verificar que el
-      CLI no haga SQL propio y que `persistencia_sqlite` no filtre al núcleo.
+- [x] **`AgentRuntime` (SRP):** [YA corregido en S2–S4]. Turno→`runtime/turno/`,
+      permisos→`turno/permisos.rs`, auditoría/telemetría→`turno/auditoria.rs`,
+      subagentes→`runtime/subagente.rs`; el struct (`runtime/mod.rs:225-257`) solo
+      coordina (puertos + estado transversal). Evidencia completa en el informe.
+- [x] **`LlmProviderService` (SRP/OCP):** [YA corregido en S2] — `llm/` en tres piezas
+      (fachada `mod.rs` / datos `modelo.rs` / red `red.rs`); añadir proveedor = fila en
+      `PROVIDERS`/`CHAT_FALLBACK_CHAIN` (OCP data-driven); clase nueva de protocolo =
+      comportamiento nuevo legítimo.
+- [x] **`AgentToolRegistry` (ISP/OCP):** [verificado, YA corregido en F5/F3/B3] —
+      núcleo contra trait (`tool.rs:112`); `ejecutar_tool` despacha sin `match` de
+      dominio; el `downcast` del slot `dominio` solo existe en el consumidor
+      (`tool.rs:9,47`, `runtime/mod.rs:212`); registro abierto (`registrar*`).
+- [x] **`tool.rs` 1000+ líneas:** [decisión — no corregir]. Tras S2/S4 el archivo solo
+      tiene contrato+registro+política (tools concretas fuera, en `herramientas/`);
+      Sentinel no lo reporta. Split mecánico sin ganancia de gate; queda agendado como
+      opcional si crece. Detalle en el informe §4.
+- [x] **`tui.rs`/`UiEstado`:** [YA corregido en S2/S3] — `UiEstado`
+      (`cli/src/ui/tui/mod.rs:127`) solo estado de presentación; sin SSE ni
+      persistencia; eventos en `bucle.rs`, render en `render.rs`.
+- [x] **Puertos (`ports.rs`):** [verificado — ya granular] — 7 traits por rol
+      (`ports.rs:138-345`); `Option` solo para opcionales reales; dividir más rompería
+      los repos reales de PT sin segundo consumidor (límite deliberado).
+- [x] **DIP en llm:** [decisión — no corregir]. `reqwest` concreto (`llm/red.rs:77`) es
+      inyectable como objeto; tests sin red (parseo puro + E2E offline). Trait
+      `HttpClient` solo si aparece segundo consumidor o test de reintentos.
+- [x] **Errores:** [YA corregido en S7 / verificado] — 11 variantes tipadas
+      (`contrato/error.rs:8-30`); `expect-produccion-rs` 0 hits core+cli; locks con
+      `unwrap_or_else(|p| p.into_inner())` (`sandbox.rs:307`, `tool.rs:314-332`).
+- [x] **Persistencia (CLI):** [verificado] — `cli/src/infra/persistencia.rs` es
+      adaptador en memoria del puerto (sin SQL); el único SQL del CLI está en
+      `persistencia_sqlite.rs` (ajeno, no movido); el núcleo no contiene SQL.
 
 **Criterio de éxito S5:** informe en `Agente/documentacion/auditoria-solid-2026-09-05.md`
 con hallazgos por ítem (evidencia ruta:línea), cada hallazgo marcado como
