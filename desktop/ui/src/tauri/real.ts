@@ -472,6 +472,13 @@ export function crearAdaptadorReal(hooks: HooksAdaptador = {}) {
       async eliminar(id: string): Promise<InfoConversacion> {
         return invoke<InfoConversacion>('eliminar_conversacion', { id });
       },
+      /** [039A-3 P2] Borra el hilo posterior a un mensaje de usuario y
+       * devuelve la conversación recién recortada. `editar=false` conserva el
+       * mensaje objetivo ("volver a este punto"); `editar=true` lo borra
+       * también (se reescribe al reenviar desde el modo edición). */
+      async rewind(hastaMensajeId: string, editar: boolean): Promise<CargaConversacion> {
+        return invoke<CargaConversacion>('rewind_conversacion', { hastaMensajeId, editar });
+      },
       async proveedores(): Promise<ProveedorInfo[]> {
         return invoke<ProveedorInfo[]>('proveedores_disponibles');
       },

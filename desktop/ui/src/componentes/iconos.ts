@@ -36,6 +36,8 @@ const TRAZOS: Record<IconoNombre, string> = {
   copiar:
     '<rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path>',
   'flecha-arriba': '<path d="m5 12 7-7 7 7"></path><path d="M12 19V5"></path>',
+  volver:
+    '<path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline>',
   detener: '<rect x="6.5" y="6.5" width="11" height="11"></rect>',
   'chevron-abajo': '<path d="m6 9 6 6 6-6"></path>',
   'chevron-derecha': '<path d="m9 18 6-6-6-6"></path>',

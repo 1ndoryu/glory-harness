@@ -121,6 +121,7 @@ export type IconoNombre =
   | 'ajustes'
   | 'nueva'
   | 'copiar'
+  | 'volver'
   | 'flecha-arriba'
   | 'detener'
   | 'chevron-abajo'

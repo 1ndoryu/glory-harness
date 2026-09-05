@@ -911,6 +911,78 @@ fn eliminar_conversacion(
     info_desde_sesion(&sesion).map(|i| i.conversacion)
 }
 
+/// [039A-3 P2] Rebobina la conversación hasta un mensaje de usuario.
+///
+/// Con `editar=false` (volver a este punto) conserva el mensaje objetivo como
+/// último mensaje; con `editar=true` lo borra para reescribirlo (editar+enviar
+/// hace rewind aquí y luego `enviar_turno` persiste el texto nuevo). Borra en
+/// una transacción mensajes/turnos/acciones del tramo posterior. Falla con
+/// turno en curso y si el mensaje no es de la conversación actual del usuario.
+/// Devuelve la `CargaConversacion` resultante para que el front se reconcilie
+/// (repintar sin recargar).
+#[tauri::command]
+async fn rewind_conversacion(
+    estado: State<'_, Estado>,
+    hasta_mensaje_id: String,
+    editar: bool,
+) -> Result<CargaConversacion, String> {
+    let sesion = sesion_actual(&estado)?;
+    if estado
+        .turno
+        .lock()
+        .map(|t| t.activo)
+        .unwrap_or(true)
+    {
+        return Err("hay un turno en curso".into());
+    }
+    let msg_id = Uuid::parse_str(hasta_mensaje_id.trim())
+        .map_err(|_| "id de mensaje inválido".to_string())?;
+    let conv_id = sesion
+        .conversacion_id
+        .lock()
+        .map(|g| *g)
+        .map_err(|_| "sesión bloqueada".to_string())?;
+    sesion
+        .persistencia
+        .rewind_conversacion(conv_id, msg_id, sesion.user_id, editar)
+        .map_err(|e| e.to_string())?;
+    // Reconstruir la carga resultante (igual que cargar_conversacion).
+    let titulo = sesion
+        .persistencia
+        .conversaciones_listar(sesion.user_id)
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .find(|c| c.id == conv_id)
+        .map(|c| c.titulo)
+        .ok_or_else(|| "conversación no encontrada".to_string())?;
+    let mensajes = sesion
+        .persistencia
+        .listar_mensajes(conv_id)
+        .await
+        .map_err(|e| e.to_string())?;
+    let acciones = sesion
+        .persistencia
+        .acciones_por_conversacion(conv_id)
+        .map_err(|e| e.to_string())?;
+    let ultimo_uso = sesion
+        .persistencia
+        .turno_ultimo_uso_por_conversacion(conv_id)
+        .map_err(|e| e.to_string())?
+        .map(|(provider, modelo, tokens_prompt, tokens_complecion)| UsoTurnoPersistido {
+            provider,
+            modelo,
+            tokens_prompt,
+            tokens_complecion,
+        });
+    Ok(CargaConversacion {
+        id: conv_id,
+        titulo,
+        mensajes,
+        acciones,
+        ultimo_uso,
+    })
+}
+
 // --- F4: catálogo, config, workspace, meta ---
 
 #[derive(serde::Serialize)]
@@ -1025,6 +1097,7 @@ fn main() {
             conversacion_nueva,
             listar_conversaciones,
             cargar_conversacion,
+            rewind_conversacion,
             renombrar_conversacion,
             archivar_conversacion,
             eliminar_conversacion,

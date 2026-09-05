@@ -25,6 +25,7 @@ import {
   crearMensajeUsuario,
   crearPieTurno,
 } from './componentes/mensajes';
+import { abrirMenuContextual, cerrarMenuActual, crearItemMenu } from './componentes/menu';
 import { montarPanelMeta } from './componentes/panelMeta';
 
 import { crearSimulacion } from './simulacion/simulacion';
@@ -33,6 +34,7 @@ import {
   esEntornoTauri,
   iconoDeTool,
   type AccionRecuperada,
+  type CargaConversacion,
   type InfoSesion,
   type MensajeGuardado,
   type OpcionesTurno,
@@ -76,6 +78,13 @@ function avisoChat(texto: string, meta: string, detalle: string): void {
 
 function limpiarChat(): void {
   mensajes.replaceChildren();
+  resetUsuariosHistorial();
+  // [039A-3 P2] Al cambiar de conversación o repintar se descarta una edición
+  // pendiente: su `editandoId` apuntaría a un mensaje que ya no está en el
+  // historial visible (el envío fallaría con "mensaje objetivo no
+  // encontrado"). `entrada` se monta después; el closure se ejecuta en
+  // runtime, cuando `entrada` ya existe.
+  entrada?.cancelarEnEdicion();
 }
 
 /**
@@ -119,6 +128,145 @@ function copiarUltimoTramo(): void {
   void copiarAlPortapapeles(texto)
     .then(() => avisoChat('tramo copiado al portapapeles', 'copiar', ''))
     .catch((e: unknown) => avisoChat(`no se pudo copiar: ${String(e)}`, '', ''));
+}
+
+// ---------- [039A-3 P2] acciones por mensaje (editar / volver / copiar) ----------
+// Los mensajes de usuario del historial cargado se registran aquí (id → texto)
+// para que el menú "⋯" de cada uno sepa editar/volver/copiar sin re-parsear
+// el DOM. Se resetea en `limpiarChat()` (cambio de conversación).
+let usuariosHistorial = new Map<string, string>();
+
+function resetUsuariosHistorial(): void {
+  usuariosHistorial = new Map<string, string>();
+}
+
+/**
+ * Copia al portapapeles un tramo concreto: el mensaje de usuario con `id` y
+ * su respuesta (hasta el siguiente user o el fin del historial). Se usa en el
+ * menú del mensaje ("copiar"); a diferencia de `copiarUltimoTramo` (que solo
+ * cubre el último tramo visible), aquí se reconstruye desde el mapa de ids.
+ */
+function copiarTramoMensaje(id: string): void {
+  const texto = tramoDesdeId(id);
+  if (!texto) {
+    avisoChat('no hay texto que copiar', '', '');
+    return;
+  }
+  void copiarAlPortapapeles(texto)
+    .then(() => avisoChat('mensaje copiado al portapapeles', 'copiar', ''))
+    .catch((e: unknown) => avisoChat(`no se pudo copiar: ${String(e)}`, '', ''));
+}
+
+/**
+ * Reconstruye el texto plano del tramo de un mensaje de usuario concreto a
+ * partir de los nodos DOM de #mensajes (user + sus acciones + su respuesta).
+ * Devuelve `null` si no hay un mensaje de usuario con ese id visible.
+ */
+function tramoDesdeId(id: string): string | null {
+  const nodo = mensajes.querySelector<HTMLElement>(`.msg-user[data-id="${CSS.escape(id)}"]`);
+  if (!nodo) return null;
+  const hijos = Array.from(mensajes.children);
+  const i = hijos.indexOf(nodo);
+  if (i < 0) return null;
+  // Texto del propio mensaje + bloques hasta el siguiente msg-user.
+  const partes: string[] = [];
+  for (let j = i; j < hijos.length; j++) {
+    const n = hijos[j];
+    if (j > i && n.classList.contains('msg-user')) break;
+    if (n.classList.contains('pie-turno')) continue;
+    const t = (n.textContent ?? '').trim();
+    if (t) partes.push(t);
+  }
+  return partes.length ? partes.join('\n\n') : null;
+}
+
+/**
+ * Reconstruye el DOM tras un rewind (volver a un punto o editar) usando la
+ * respuesta `CargaConversacion` que devuelve el backend. Se reutiliza la
+ * misma vía que al cargar una conversación para no duplicar lógica.
+ */
+function aplicarCarga(carga: CargaConversacion): void {
+  conversaActualId = carga.id;
+  limpiarChat();
+  pintarHistorial(carga.mensajes, carga.acciones, carga.ultimo_uso);
+  cabecera.ponerTitulo(carga.titulo);
+  sidebar.seleccionar(carga.id);
+}
+
+/**
+ * "Volver a este punto": rewind con `editar=false` (el mensaje objetivo se
+ * conserva; se borra solo el hilo posterior) y repinta con lo que devuelve
+ * el backend. Si hay turno activo se bloquea (mismo guard que el envío).
+ */
+async function volverA(id: string): Promise<void> {
+  if (entrada.getCorriendo()) {
+    avisoChat('termina el turno antes de volver a un punto', '', '');
+    return;
+  }
+  if (!USA_REAL) {
+    avisoChat('volver a un punto requiere la app Tauri', '', '');
+    return;
+  }
+  try {
+    const carga = await adaptador.sesion.rewind(id, false);
+    aplicarCarga(carga);
+  } catch (e: unknown) {
+    avisoChat(`no se pudo volver a ese punto: ${String(e)}`, '', '');
+  }
+}
+
+/**
+ * Editar un mensaje de usuario: entra en modo edición en el textarea (texto
+ * del mensaje + barra "editando…"). El borrado del hilo posterior NO ocurre
+ * aquí: se hace al enviar (rewind `editar=true` + reenvío), como pide P2.
+ */
+function empezarEdicion(id: string): void {
+  if (entrada.getCorriendo()) {
+    avisoChat('termina el turno antes de editar un mensaje', '', '');
+    return;
+  }
+  const texto = usuariosHistorial.get(id);
+  if (texto === undefined) {
+    avisoChat('el mensaje ya no está en esta conversación', '', '');
+    return;
+  }
+  entrada.ponerEnEdicion(id, texto);
+}
+
+/** Abre el menú contextual del mensaje de usuario (botón "⋯"). */
+function abrirAccionesMensaje(id: string, rect: DOMRect): void {
+  abrirMenuContextual({
+    rect,
+    construir(m) {
+      m.appendChild(
+        crearItemMenu({
+          texto: 'Editar',
+          onClick() {
+            cerrarMenuActual();
+            empezarEdicion(id);
+          },
+        }),
+      );
+      m.appendChild(
+        crearItemMenu({
+          texto: 'Volver a este punto',
+          onClick() {
+            cerrarMenuActual();
+            void volverA(id);
+          },
+        }),
+      );
+      m.appendChild(
+        crearItemMenu({
+          texto: 'Copiar',
+          onClick() {
+            cerrarMenuActual();
+            copiarTramoMensaje(id);
+          },
+        }),
+      );
+    },
+  });
 }
 
 /** Render de una acción recuperada → bloque `.herramienta` estático. */
@@ -182,7 +330,11 @@ function pintarHistorial(
   let idxUser = 0;
   for (const m of historial) {
     if (m.rol === 'user') {
-      mensajes.appendChild(crearMensajeUsuario(m.contenido));
+      // [039A-3 P2] El user se registra en el mapa id → texto y se pinta con
+      // botón "⋯" (editar/volver/copiar). Los mensajes persistidos siempre
+      // traen id: el historial viene del backend.
+      usuariosHistorial.set(m.id, m.contenido);
+      mensajes.appendChild(crearMensajeUsuario(m.contenido, m.id, abrirAccionesMensaje));
       // Acciones del turno de ESTE user (si las hay).
       (porTurno.get(idxUser) ?? []).forEach((a) => mensajes.appendChild(bloqueDesdeAccion(a)));
       idxUser++;
@@ -292,7 +444,7 @@ async function empujarMeta(): Promise<void> {
 let ultimoTextoEnviado = '';
 let inicioTurno: number | null = null;
 
-function enviarReal(texto: string): void {
+async function enviarReal(texto: string, editandoId?: string | null): Promise<void> {
   if (entrada.getCorriendo()) return;
   entrada.setCorriendo(true);
   ultimoTextoEnviado = texto;
@@ -339,6 +491,21 @@ function enviarReal(texto: string): void {
     }
     entrada.setCorriendo(false);
   };
+  // [039A-3 P2] Edición: al reenviar un mensaje reescrito, primero se borra
+  // el hilo posterior (rewind `editar=true`) y se repinta con la respuesta
+  // del backend; después se monta el turno nuevo con el texto corregido.
+  if (USA_REAL && editandoId) {
+    try {
+      const carga = await adaptador.sesion.rewind(editandoId, true);
+      aplicarCarga(carga);
+    } catch (e: unknown) {
+      avisoChat(`no se pudo editar el mensaje: ${String(e)}`, '', '');
+      entrada.setCorriendo(false);
+      inicioTurno = null;
+      if (USA_REAL) panelMeta.setEstado('inactivo');
+      return;
+    }
+  }
   if (USA_REAL) {
     void (async () => {
       // En modo meta la meta editable viaja al backend antes del turno.
@@ -516,8 +683,10 @@ const entrada = montarEntrada({
   modeloActual,
   modo: modoActual,
   razonamiento: razonamientoActual,
-  onEnviar(texto) {
-    enviarReal(texto);
+  onEnviar(texto, editandoId) {
+    // [039A-3 P2] `editandoId` viene cuando el textarea estaba en modo edición
+    // de un mensaje: se hace rewind(editar=true) + reenvío con el texto nuevo.
+    void enviarReal(texto, editandoId);
   },
   onDetener() {
     if (USA_REAL) {
@@ -636,7 +805,7 @@ const panelMeta = montarPanelMeta({
       avisoChat('nada que reanudar: envía un mensaje primero', '', '');
       return;
     }
-    enviarReal(ultimoTextoEnviado);
+    void enviarReal(ultimoTextoEnviado);
   },
 });
 entrada.raiz.insertBefore(panelMeta.raiz, entrada.raiz.firstChild);

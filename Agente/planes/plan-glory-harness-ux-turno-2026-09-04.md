@@ -4,7 +4,9 @@ ID: 039A-3
 Estado: EN EJECUCIÓN — bloque completo aprobado por el usuario ("empieza con el plan,
 completalo todo", 04-09). 039A-3a + 039A-3b (P1-P6). P1 HECHO (persistir uso real + pie de
 turno, con retoques visuales del usuario: botón copiar icono sin borde, sin línea separadora,
-sin palabras "modelo"/"contexto", opacidad 0.6). Resto de fases en curso.
+sin palabras "modelo"/"contexto", opacidad 0.6). P2 HECHO (editar/volver a punto: rewind
+conversacional transaccional por `rowid` + menú por mensaje; commit `039A-3 (P2)`).
+P3-P6 en curso.
 Plan base: plan-glory-harness-desktop-2026-09-03.md (039A-1, fases F1-F6 + anexo §10)
 Tipo: ampliación del desktop (UI + backend Tauri + core opcional)
 Revisión: supervisor_thinker — VEREDICTO VIABLE CON RESERVAS; decisiones cerradas en §6 (Fase 0)
@@ -359,22 +361,25 @@ para no acoplar el riesgo del vault al del multi-panel. Pendiente de confirmar c
       — Retoques visuales del usuario (04-09): botón copiar = icono sin borde; sin línea
       separadora superior; sin palabras "modelo"/"contexto"; opacidad 0.6. Verificado en mock.
 
-### P2 — Acciones por mensaje: editar / volver a punto (039A-3a)
-- [ ] Front: menú de acciones por mensaje (editar / volver a este punto / copiar), reutilizando
-      `menu.ts`; `data-id`/contenedor en mensajes.
-- [ ] Backend: comando `rewind_conversacion` **transaccional** anclado en **orden monotónico
+### P2 — Acciones por mensaje: editar / volver a punto (039A-3a) — HECHO (04-09)
+- [x] Front: menú de acciones por mensaje (editar / volver a este punto / copiar), reutilizando
+      `menu.ts`; `data-id` en `crearMensajeUsuario` + botón `⋯` flotante (hover/foco).
+- [x] Backend: comando `rewind_conversacion` **transaccional** anclado en **orden monotónico
       (`rowid`)**, NO en `creado_en` (precisión 1 s rompe el filtrado si dos mensajes comparten
       segundo). Borra mensajes posteriores + turnos posteriores + acciones de esos turnos; devuelve
-      los archivos del tramo.
-- [ ] Backend: `editar_mensaje { conversacion_id, mensaje_id, nuevo_texto }`. Orden transaccional
-      del editar+enviar: rewind del hilo posterior → persistir el mensaje editado como el nuevo
-      "user" del punto → enviar.
-- [ ] Al editar + enviar: rewind al punto + reenvío (el texto editado reemplaza al original).
-- [ ] Volver a punto: rewind + repintar + mostrar archivos del tramo para restaurar (acción
-      separada).
-- [ ] Bloquear rewind/editar si hay turno activo en el panel.
-- [ ] Evidencia: unit del rewind transaccional (borrado de acciones de turnos posteriores); E2E
-      editar+reenviar en navegador (mock) + `tauri dev`.
+      la `CargaConversacion` recortada (pintar sin recargar). "Mostrar archivos del tramo"
+      queda para P3 (vault) — aquí no se devuelven archivos.
+- [x] Backend: DECISIÓN de implementación: NO hay comando `editar_mensaje` separado. El orden
+      transaccional del editar+enviar se resuelve con `rewind_conversacion(mensaje_id, editar=true)`
+      (borra el objetivo y el hilo posterior) + reenvío: el texto editado se monta como el nuevo
+      "user" del punto (se cumple el objetivo sin comando extra ni duplicación de lógica).
+- [x] Al editar + enviar: rewind `editar=true` + reenvío (el texto editado reemplaza al original).
+- [x] Volver a punto: rewind `editar=false` (conserva el mensaje objetivo) + repintar con la carga
+      devuelta. La restauración de archivos del tramo es P3 (acción separada).
+- [x] Bloquear rewind/editar si hay turno activo (guard en `volverA`/`empezarEdicion`/comando).
+- [x] Evidencia: unit `rewind_conserva_y_edita_tramo_posterior` + `rewind_rechaza_ajeno_o_no_usuario`
+      (cli, verdes); E2E editar+reenviar en navegador (mock: flujo `ponerEnEdicion` → enviar →
+      `onEnviar(texto, id)` → cancelar). E2E `tauri dev` pendiente (requiere app real con ids).
 
 ### P3 — Vault de respaldos + restaurar seguro (039A-3a; la pieza delicada)
 - [ ] Core: hook opcional no-op en `SandboxArchivos::escribir` + exclusión de `.glory-harness/`
@@ -498,7 +503,8 @@ es tope blando (no validado vs catálogo en v1); retrasa la compactación (umbra
 El revisor recomendaba separar 039A-3a (P1-P4) de 039A-3b (P5-P6); el usuario eligió al aprobar
 la ejecución ("empieza con el plan, completalo todo") ejecutar el bloque completo. Se mantiene
 el orden de riesgo: P1 (pie) → P2 (editar/volver) → P3 (vault) → P4 (⋯+sidebar) → P5 (2 paneles)
-→ P6 (indicador + 150k). P1 completado y validado (mock + type-check + cargo check).
+→ P6 (indicador + 150k). P1 completado y validado (mock + type-check + cargo check); P2
+completado y validado (unit rewind + type-check + build + flujo mock).
 
 ### 6.12 Entorno → **preservar cambios ajenos**
 Otro agente trabaja en paralelo en core/cli (working tree sucio: daemon/run/runtime/
@@ -542,4 +548,5 @@ main.rs · pie en main/mensajes · config 150k en construir_harness_con.
 6. P6 indicador circular de contexto + config ventana 150k.
 
 **Estado**: EN EJECUCIÓN — bloque completo aprobado por el usuario (04-09). P1 (pie de turno +
-persistir uso/modelo real) HECHO y verificado en mock; resto de fases (P2-P6) en curso.
+persistir uso/modelo real) HECHO y verificado en mock; P2 (editar/volver a punto) HECHO y
+verificado (unit + type-check + build + flujo mock); resto de fases (P3-P6) en curso.

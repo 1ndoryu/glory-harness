@@ -515,6 +515,86 @@ impl PersistenciaSqlite {
             .map_err(|e| Error::Persistencia(e.to_string()))?;
         Ok(())
     }
+
+    /// [039A-3 P2] Rebobina una conversación hasta un mensaje de usuario.
+    ///
+    /// Borra, en una transacción, el tramo posterior a `hasta_mensaje_id`
+    /// (mensajes, turnos y las acciones de esos turnos). Con `editar=true`
+    /// borra también el propio mensaje objetivo para reescribirlo; con
+    /// `editar=false` (volver a punto) lo conserva como último mensaje.
+    ///
+    /// Anclaje del borrado:
+    /// - Mensajes: `rowid` implícito (orden de inserción estricto), a prueba
+    ///   de timestamps con precisión de 1 s. El mensaje objetivo debe ser de
+    ///   rol `user`.
+    /// - Turnos y sus acciones: `creado_en` del turno >= al del mensaje
+    ///   objetivo. El turno que responde a un mensaje se persiste SIEMPRE
+    ///   después (o en el mismo segundo) de que ese mensaje llegó, y el turno
+    ///   anterior terminó antes de que el usuario escribiera el siguiente
+    ///   mensaje: el `>=` borra el turno del propio mensaje objetivo (el
+    ///   "hilo" de ese punto) sin alcanzar al turno previo.
+    ///
+    /// Falla (sin borrado parcial) si la conversación no es del `user_id` o
+    /// el mensaje objetivo no existe en ella o no es de rol `user`.
+    pub fn rewind_conversacion(
+        &self,
+        conversacion_id: Uuid,
+        hasta_mensaje_id: Uuid,
+        user_id: Uuid,
+        editar: bool,
+    ) -> HarnessResult<()> {
+        let mut conn = bloquear(&self.conn);
+        let tx = conn
+            .transaction()
+            .map_err(|e| Error::Persistencia(e.to_string()))?;
+        let conv_s = conversacion_id.as_hyphenated().to_string();
+        let msg_s = hasta_mensaje_id.as_hyphenated().to_string();
+        let user_s = user_id.as_hyphenated().to_string();
+
+        // Propiedad de la conversación + existencia del mensaje objetivo
+        // (rol user). Si falta, error explícito: nunca borrado parcial mudo.
+        let punto: Option<(i64, String)> = tx
+            .query_row(
+                "SELECT m.rowid, m.creado_en FROM mensajes m
+                 JOIN conversaciones c ON c.id = m.conversacion_id
+                 WHERE m.id = ?1 AND m.conversacion_id = ?2 AND m.rol = 'user'
+                   AND c.user_id = ?3",
+                params![msg_s, conv_s, user_s],
+                |f| Ok((f.get(0)?, f.get(1)?)),
+            )
+            .optional()
+            .map_err(|e| Error::Persistencia(e.to_string()))?;
+        let (rowid_punto, creado_punto) = punto.ok_or_else(|| {
+            Error::Persistencia(
+                "mensaje objetivo no encontrado, no es de usuario o conversación ajena".into(),
+            )
+        })?;
+
+        // Acciones de los turnos del tramo (turnos posteriores al mensaje).
+        tx.execute(
+            "DELETE FROM acciones WHERE turno_id IN (
+                 SELECT id FROM turnos WHERE conversacion_id = ?1 AND creado_en >= ?2
+             )",
+            params![conv_s, creado_punto],
+        )
+        .map_err(|e| Error::Persistencia(e.to_string()))?;
+        // Turnos del tramo (>= borra también el turno que responde al propio
+        // mensaje objetivo: su `creado_en` es posterior o igual al del user).
+        tx.execute(
+            "DELETE FROM turnos WHERE conversacion_id = ?1 AND creado_en >= ?2",
+            params![conv_s, creado_punto],
+        )
+        .map_err(|e| Error::Persistencia(e.to_string()))?;
+        // Mensajes del tramo (rowid estricto; `>=` borra el objetivo al editar).
+        let operador = if editar { ">=" } else { ">" };
+        let sql = format!("DELETE FROM mensajes WHERE conversacion_id = ?1 AND rowid {operador} ?2");
+        tx.execute(&sql, params![conv_s, rowid_punto])
+            .map_err(|e| Error::Persistencia(e.to_string()))?;
+
+        tx.commit()
+            .map_err(|e| Error::Persistencia(e.to_string()))?;
+        Ok(())
+    }
 }
 
 #[async_trait]
@@ -1089,5 +1169,206 @@ mod tests {
         assert_eq!(tokens_c, 640);
         assert_eq!(provider.as_deref(), Some("glory"));
         assert_eq!(modelo.as_deref(), Some("gpt-4.1"));
+    }
+
+    #[tokio::test]
+    async fn rewind_conserva_y_edita_tramo_posterior() {
+        let p = PersistenciaSqlite::en_memoria().expect("BD en memoria");
+        let user = Uuid::new_v4();
+        let conv = p.conversacion_crear(user, "rewind").expect("crear");
+        // Timestamps crecientes (precisión de BD = 1 s): el turno que responde
+        // a un user SIEMPRE se persiste después de que ese user llegó y antes
+        // de su assistant (flujo real del runtime).
+        let base = Utc::now();
+        let t = |s: i64| base + chrono::Duration::seconds(s);
+        let u1 = Uuid::new_v4();
+        let t1 = Uuid::new_v4();
+        p.guardar_mensaje(&MensajePersistido {
+            id: u1,
+            conversacion_id: conv,
+            rol: "user".into(),
+            contenido: "pregunta 1".into(),
+            creado_en: t(0),
+        })
+        .await
+        .expect("user 1");
+        p.guardar_turno(&TurnoPersistido {
+            id: t1,
+            conversacion_id: conv,
+            user_id: user,
+            estado: "ok".into(),
+            resumen: Some("resumen 1".into()),
+            creado_en: t(10),
+            provider: Some("glory".into()),
+            modelo: Some("gpt-4.1".into()),
+            tokens_prompt: 100,
+            tokens_complecion: 50,
+            tools_ejecutadas: 1,
+            duracion_ms: 1000,
+            error: None,
+        })
+        .await
+        .expect("turno 1");
+        p.registrar_accion(&AccionAuditable {
+            turno_id: t1,
+            tool: "leer".into(),
+            ok: true,
+            resumen: "leyó".into(),
+            argumentos_json: None,
+            diff: None,
+        })
+        .await
+        .expect("acción 1");
+        let a1 = Uuid::new_v4();
+        p.guardar_mensaje(&MensajePersistido {
+            id: a1,
+            conversacion_id: conv,
+            rol: "assistant".into(),
+            contenido: "respuesta 1".into(),
+            creado_en: t(11),
+        })
+        .await
+        .expect("assistant 1");
+
+        // Turno 2: otro ciclo completo.
+        let u2 = Uuid::new_v4();
+        let t2 = Uuid::new_v4();
+        p.guardar_mensaje(&MensajePersistido {
+            id: u2,
+            conversacion_id: conv,
+            rol: "user".into(),
+            contenido: "pregunta 2".into(),
+            creado_en: t(20),
+        })
+        .await
+        .expect("user 2");
+        p.guardar_turno(&TurnoPersistido {
+            id: t2,
+            conversacion_id: conv,
+            user_id: user,
+            estado: "ok".into(),
+            resumen: Some("resumen 2".into()),
+            creado_en: t(30),
+            provider: Some("glory".into()),
+            modelo: Some("gpt-4.1".into()),
+            tokens_prompt: 200,
+            tokens_complecion: 100,
+            tools_ejecutadas: 1,
+            duracion_ms: 2000,
+            error: None,
+        })
+        .await
+        .expect("turno 2");
+        p.registrar_accion(&AccionAuditable {
+            turno_id: t2,
+            tool: "editar".into(),
+            ok: true,
+            resumen: "editó".into(),
+            argumentos_json: None,
+            diff: None,
+        })
+        .await
+        .expect("acción 2");
+        let a2 = Uuid::new_v4();
+        p.guardar_mensaje(&MensajePersistido {
+            id: a2,
+            conversacion_id: conv,
+            rol: "assistant".into(),
+            contenido: "respuesta 2".into(),
+            creado_en: t(31),
+        })
+        .await
+        .expect("assistant 2");
+
+        // volver a punto = conservar el user objetivo (u1) y borrar su
+        // assistant + el turno 2 completo.
+        p.rewind_conversacion(conv, u1, user, false)
+            .expect("volver a punto");
+        let mensajes = p.listar_mensajes(conv).await.expect("listar");
+        assert_eq!(mensajes.len(), 1);
+        assert_eq!(mensajes[0].id, u1);
+        assert_eq!(mensajes[0].rol, "user");
+        // Turnos: solo queda el anterior al mensaje objetivo (ninguno aquí).
+        // El guard se suelta al salir del bloque: nunca cruzar un await con un
+        // MutexGuard de `p.conn` retenido (deadlock en runtime current_thread).
+        {
+            let conn = bloquear(&p.conn);
+            let turnos: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM turnos WHERE conversacion_id = ?1",
+                    params![conv.as_hyphenated().to_string()],
+                    |f| f.get(0),
+                )
+                .expect("contar turnos");
+            assert_eq!(turnos, 0);
+            let acciones: i64 = conn
+                .query_row("SELECT COUNT(*) FROM acciones", params![], |f| f.get(0))
+                .expect("contar acciones");
+            assert_eq!(acciones, 0);
+        }
+
+        // editar = borrar el propio user objetivo (u3) para reescribirlo,
+        // conservando los mensajes ANTERIORES al punto (u1 sigue ahí: volver
+        // a un punto conservó su mensaje y editar u3 solo recorta desde u3).
+        let u3 = Uuid::new_v4();
+        p.guardar_mensaje(&MensajePersistido {
+            id: u3,
+            conversacion_id: conv,
+            rol: "user".into(),
+            contenido: "pregunta 3".into(),
+            creado_en: t(40),
+        })
+        .await
+        .expect("user 3");
+        p.rewind_conversacion(conv, u3, user, true)
+            .expect("editar");
+        let mensajes2 = p.listar_mensajes(conv).await.expect("listar 2");
+        assert_eq!(mensajes2.len(), 1);
+        assert_eq!(mensajes2[0].id, u1, "editar conserva lo anterior al punto");
+        assert_eq!(mensajes2[0].rol, "user");
+    }
+
+    #[tokio::test]
+    async fn rewind_rechaza_ajeno_o_no_usuario() {
+        let p = PersistenciaSqlite::en_memoria().expect("BD en memoria");
+        let user = Uuid::new_v4();
+        let otro = Uuid::new_v4();
+        let conv = p.conversacion_crear(user, "rewind").expect("crear");
+        let u1 = Uuid::new_v4();
+        p.guardar_mensaje(&MensajePersistido {
+            id: u1,
+            conversacion_id: conv,
+            rol: "user".into(),
+            contenido: "p".into(),
+            creado_en: Utc::now(),
+        })
+        .await
+        .expect("user");
+
+        // Mensaje de conversación ajena.
+        assert!(p
+            .rewind_conversacion(conv, Uuid::new_v4(), user, false)
+            .is_err());
+        // Conversación de otro usuario.
+        assert!(p
+            .rewind_conversacion(conv, u1, otro, false)
+            .is_err());
+        // Mensaje objetivo que no es de rol user: se inserta un assistant.
+        let asis = Uuid::new_v4();
+        p.guardar_mensaje(&MensajePersistido {
+            id: asis,
+            conversacion_id: conv,
+            rol: "assistant".into(),
+            contenido: "r".into(),
+            creado_en: Utc::now(),
+        })
+        .await
+        .expect("assistant");
+        assert!(p
+            .rewind_conversacion(conv, asis, user, false)
+            .is_err());
+        // Nada se borró en ningún caso (transacciones fallidas).
+        let mensajes = p.listar_mensajes(conv).await.expect("listar");
+        assert_eq!(mensajes.len(), 2);
     }
 }

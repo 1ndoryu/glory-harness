@@ -25,11 +25,33 @@ function aplicarResultado(nodo: HTMLElement, r: ResultadoHerramienta): void {
 
 // ---------- Mensajes ----------
 
-export function crearMensajeUsuario(texto: string): HTMLElement {
+/**
+ * [039A-3 P2] Crea un mensaje de usuario. Con `id` (UUID persistido) añade el
+ * `data-id` y el botón `⋯` flotante que abre el menú de acciones (editar /
+ * volver a este punto / copiar). El menú lo abre `main.ts` vía `onAcciones`.
+ */
+export function crearMensajeUsuario(
+  texto: string,
+  id?: string,
+  onAcciones?: (id: string, rect: DOMRect) => void,
+): HTMLElement {
   const m = el('div', 'msg-user');
+  if (id) m.dataset.id = id;
   const inner = el('div');
   inner.textContent = texto;
   m.appendChild(inner);
+  if (id && onAcciones) {
+    const mas = el('button', 'msg-mas') as HTMLButtonElement;
+    mas.type = 'button';
+    mas.title = 'acciones del mensaje';
+    mas.setAttribute('aria-label', 'acciones del mensaje');
+    mas.textContent = '⋯';
+    mas.addEventListener('click', (e) => {
+      e.stopPropagation();
+      onAcciones(id, mas.getBoundingClientRect());
+    });
+    m.appendChild(mas);
+  }
   return m;
 }
 

@@ -10,6 +10,36 @@
     padding: var(--sp-sm) var(--sp-md);
     max-width: 70%;
     font-size: var(--sm);
+    position: relative;
+}
+
+/* [039A-3 P2] Botón ⋯ de acciones del mensaje: flotante a la esquina, visible
+   al hover/foco (patrón desktop: acciones no intrusivas hasta que se pide). */
+.msg-user .msg-mas {
+    position: absolute;
+    top: -10px;
+    right: -6px;
+    width: 20px;
+    height: 20px;
+    line-height: 1;
+    border: 1px solid #000;
+    background: #fff;
+    color: #000;
+    font-size: 13px;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    padding: 0;
+}
+.msg-user:hover .msg-mas,
+.msg-user:focus-within .msg-mas,
+.msg-user .msg-mas:focus-visible {
+    display: flex;
+}
+.msg-user .msg-mas:hover {
+    background: #000;
+    color: #fff;
 }
 
 .msg-asis { max-width: 92%; font-size: var(--sm); }

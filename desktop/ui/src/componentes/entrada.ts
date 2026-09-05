@@ -61,6 +61,18 @@ export interface Entrada {
   /** Permite a la app conocer el estado interno del textarea. */
   getCorriendo(): boolean;
   getModo(): ModoEjecucion;
+  /** [039A-3 P2] Pone el textarea en modo edición de un mensaje de usuario:
+   * rellena su texto y muestra la barra "editando…" con cancelar. Al enviar
+   * en este modo, `main.ts` hace rewind(`editar=true`) + reenvío. */
+  ponerEnEdicion(id: string, texto: string): void;
+  /** [039A-3 P2] Sale del modo edición (limpia barra) sin tocar el texto. */
+  cancelarEnEdicion(): void;
+  /** [039A-3 P2] `true` si hay una edición pendiente (mensaje objetivo). */
+  enEdicion(): boolean;
+  /** [039A-3 P2] Id del mensaje en edición (`null` si no). */
+  edicionId(): string | null;
+  /** [039A-3 P2] Texto actual del textarea (sin recortar). */
+  getTexto(): string;
 }
 
 export interface EntradaOpciones {
@@ -69,8 +81,11 @@ export interface EntradaOpciones {
   modo: ModoEjecucion;
   /** [039A-1 04-09 H7] Nivel de razonamiento inicial ('low'|'medium'|'high'). */
   razonamiento?: string;
-  /** Se invoca al enviar un mensaje. */
-  onEnviar: (texto: string) => void;
+  /** Se invoca al enviar un mensaje.
+   *  [039A-3 P2] `editandoId` trae el id del mensaje de usuario reescrito
+   *  (edición), o `null` para un mensaje nuevo. El consumidor decide si
+   *  ejecutar rewind(editar=true) antes de enviar el texto. */
+  onEnviar: (texto: string, editandoId?: string | null) => void;
   /** Se invoca al pulsar detener durante un turno. */
   onDetener: () => void;
   /** Se invoca al elegir un modelo del menú. */
@@ -191,6 +206,45 @@ export function montarEntrada(opts: EntradaOpciones): Entrada {
   let corriendo = false;
   let modo: ModoEjecucion = opts.modo;
 
+  // ---------- [039A-3 P2] modo edición de mensaje ----------
+  // Al editar un mensaje de usuario del historial, el textarea rellena su
+  // texto y se muestra una barra "editando mensaje… [cancelar]". Al enviar
+  // en este modo, main.ts hace rewind(editar=true) + reenvío (P2 §2.5).
+  let edicion: { id: string } | null = null;
+
+  const barraEdicion = el('div', 'editando-msg');
+  barraEdicion.hidden = true;
+  const edicionTexto = el('span', 'editando-msg-texto');
+  const btnCancelarEdicion = el('button', 'editando-msg-cancelar') as HTMLButtonElement;
+  btnCancelarEdicion.type = 'button';
+  btnCancelarEdicion.textContent = 'cancelar';
+  btnCancelarEdicion.title = 'cancelar edición';
+  barraEdicion.appendChild(edicionTexto);
+  barraEdicion.appendChild(btnCancelarEdicion);
+  // La barra va entre el textarea y los controles.
+  caja.insertBefore(barraEdicion, textarea);
+
+  function pintarBarraEdicion(): void {
+    if (edicion) {
+      edicionTexto.textContent = 'editando mensaje';
+      barraEdicion.hidden = false;
+    } else {
+      barraEdicion.hidden = true;
+    }
+  }
+
+  function cancelarEnEdicion(): void {
+    if (!edicion) return;
+    edicion = null;
+    pintarBarraEdicion();
+    textarea.focus();
+  }
+
+  btnCancelarEdicion.addEventListener('click', (e) => {
+    e.stopPropagation();
+    cancelarEnEdicion();
+  });
+
   // ---------- textarea autoexpandible (máx 5 líneas) ----------
   function ajustarEntrada(): void {
     textarea.style.height = 'auto';
@@ -231,7 +285,12 @@ export function montarEntrada(opts: EntradaOpciones): Entrada {
     if (!texto) return;
     textarea.value = '';
     ajustarEntrada();
-    opts.onEnviar(texto);
+    // [039A-3 P2] Al enviar desde modo edición, el destino queda marcado para
+    // que main.ts ejecute rewind(editar=true)+reenvío antes de limpiarlo.
+    const editandoId = edicion ? edicion.id : null;
+    edicion = null;
+    pintarBarraEdicion();
+    opts.onEnviar(texto, editandoId);
   }
 
   btnEnviar.addEventListener('click', enviar);
@@ -325,6 +384,27 @@ export function montarEntrada(opts: EntradaOpciones): Entrada {
     },
     getModo() {
       return modo;
+    },
+    // [039A-3 P2] edición de mensaje: el textarea entra en modo edición
+    // mostrando la barra; al enviar, main.ts decide rewind+reenvío.
+    ponerEnEdicion(id: string, texto: string) {
+      edicion = { id };
+      textarea.value = texto;
+      ajustarEntrada();
+      pintarBarraEdicion();
+      textarea.focus();
+    },
+    cancelarEnEdicion() {
+      cancelarEnEdicion();
+    },
+    enEdicion() {
+      return edicion !== null;
+    },
+    edicionId() {
+      return edicion ? edicion.id : null;
+    },
+    getTexto() {
+      return textarea.value;
     },
   };
 }

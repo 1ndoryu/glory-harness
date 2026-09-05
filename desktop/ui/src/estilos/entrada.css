@@ -80,6 +80,38 @@
 #entrada .btn-enviar:disabled { opacity: 0.3; cursor: default; }
 #entrada .btn-enviar:disabled:hover { opacity: 0.3; }
 
+/* [039A-3 P2] barra "editando mensaje… [cancelar]" sobre el textarea */
+#entrada .editando-msg {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--sp-sm);
+    flex-basis: 100%;
+    padding: 2px 0 var(--sp-xs);
+    border-bottom: 1px solid #000;
+    font-size: var(--xs);
+    color: #000;
+}
+#entrada .editando-msg[hidden] { display: none; }
+#entrada .editando-msg-texto {
+    opacity: 0.6;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+#entrada .editando-msg-cancelar {
+    font-family: inherit;
+    font-size: var(--xs);
+    color: #000;
+    background: transparent;
+    border: none;
+    padding: 0;
+    cursor: pointer;
+    text-decoration: underline;
+}
+#entrada .editando-msg-cancelar:hover { opacity: 1; }
+#entrada .editando-msg-cancelar { opacity: 0.7; }
+
 /* ---------- Menú contextual de modelo (doble: proveedor → modelo) ---------- */
 .menu-ctx {
     position: fixed;
