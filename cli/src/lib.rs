@@ -8,23 +8,27 @@
 //! Sin cambio de comportamiento: los símbolos son los mismos, solo cambia la
 //! visibilidad (`pub(crate)` → `pub`) y el punto de declaración.
 
-pub mod chat;
-pub mod daemon;
-pub mod ejecutor;
-pub mod fetch;
-pub mod mcp_cli;
-pub mod persistencia;
-pub mod persistencia_sqlite;
-pub mod reglas;
-pub mod run;
-pub mod tui;
+/* [059A-S4] Organización por dominio (glory-sentinel directorio-abarrotado).
+ * Los módulos viven en `comandos/`, `ui/` e `infra/`; el glob los re-exporta
+ * en la raíz del crate para que `glory_harness::{chat, daemon, run, tui, …}`
+ * de `main.rs` y del escritorio sigan resolviendo sin cambios. `persistencia_sqlite`
+ * queda en la raíz hasta el cierre del ajeno 039A-3. */
+mod comandos;
+mod ui;
+mod infra;
 
-pub use chat::{TurnoResultado, historial_desde_persistencia, procesar_turno};
-pub use ejecutor::EjecutorCliente;
-pub use persistencia::{PersistenciaMemoria, ProgramadorMemoria};
+pub use comandos::*;
+pub use ui::*;
+pub use infra::*;
+
+pub mod persistencia_sqlite;
+
+pub use ui::chat::{TurnoResultado, historial_desde_persistencia, procesar_turno};
+pub use infra::ejecutor::EjecutorCliente;
+pub use infra::persistencia::{PersistenciaMemoria, ProgramadorMemoria};
 pub use persistencia_sqlite::{AccionRecuperada, InfoConversacion, PersistenciaSqlite};
-pub use reglas::cargar_reglas;
-pub use run::{OpcionesRun, SalidaTurno, construir_harness, construir_harness_con, quitar_prefijo_verbatim, turno_config_default};
+pub use infra::reglas::cargar_reglas;
+pub use comandos::run::{OpcionesRun, SalidaTurno, construir_harness, construir_harness_con, quitar_prefijo_verbatim, turno_config_default};
 
 /// Carga `~/.glory-harness.env` si existe (formato `CLAVE=valor`,
 /// `#` = comentario). Solo define variables aún ausentes, así el entorno real

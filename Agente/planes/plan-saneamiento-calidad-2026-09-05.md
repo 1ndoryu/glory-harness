@@ -17,7 +17,8 @@
   glory-sentinel, bump `902c45e` v0.7.8) · S7 ✔ parcial (3 reglas D4 implementadas y
   repineadas; propuestas restantes documentadas en `Agente/documentacion/brechas-gate-2026-09-05.md`)
   · S2 ✔ (split estructural: `f33a4de`, `3910477`, `f3d467b`) · S3 ✔ (extracción de
-  funciones largas, commit pendiente de este bloque) · S4–S6 y S8 pendientes de ejecutar.
+  funciones largas, `79022c7`) · S4 ✔ (organización por dominio, ver checklist) ·
+  S5–S6 y S8 pendientes de ejecutar.
 - **Re-analyze 05-09 (post S1/S7):** 2 errores (ambos `expect-produccion-rs` en
   `desktop/src-tauri/src/vault.rs`, **ajeno 039A-3**, documentado y sin tocar) ·
   21 warnings / 8 archivos en core+cli (deuda de tamaño, S2–S4). core+cli a **0 errores**.
@@ -208,25 +209,23 @@ tests + clippy verdes.
 
 ## S4 — Directorios abarrotados (organización por dominio)
 
-- [ ] **`core/src/` (28 archivos planos)** → estructura por dominio con re-export en
-      `lib.rs` (los consumidores importan `glory_harness_core::…` y **no deben cambiar**):
-      1) `nucleo/` (o `agente/`): `runtime`, `context`, `contexto`, `turno`, `subagente`;
-      2) `herramientas/` (tools): `tool`, `tools_archivo`, `tools_web`, `comando`,
-         `mcp`, `skill`, `todo`, `tareas`, `scheduler`;
-      3) `politica/` (permisos): `permiso`, `regla`, `aprobacion`, `bash_clasificar`;
-      4) `puertos/contrato`: `ports`, `error`, `evento`, `modelo` (de S2), `sandbox`,
-         `plan`, `guardas`, `pregunta`, `telemetria`, `diff`, `llm`.
-      Mover archivos con `git mv` (historia preservada) y ajustar solo `use crate::…`
-      internos + `lib.rs` (`mod`/`pub use`). Ojo: `#[path]`/rutas relativas de tests y
-      del E2E del CLI (buscar referencias directas `core/src/` en scripts).
-- [ ] **`cli/src/` (12 archivos)** → igual, en 2–3 subdirectorios (p. ej. `comandos/`,
-      `ui/` para chat/tui, `infra/` para persistencia/reglas/ejecutor) manteniendo
-      `cli::…` re-exportado. NO mover `persistencia_sqlite.rs` (ajeno 039A-3) hasta su cierre.
-- [ ] **Raíz glory-harness (11 archivos):** si S1 decide excepción de config/manifests,
-      aplicarla aquí; si decide reorganización, mover solo lo movible sin romper
-      `package.json`/`quality-tools.json`/rutas de scripts.
-- [ ] Después de cada reubicación: `cargo test --workspace` + verificación de que
-      PROYECTO TASKS (`cargo check`, report-only) sigue compilando contra el core.
+- [x] **`core/src/` (28 archivos planos)** → 4 dominios con re-export plano en `lib.rs`:
+      `nucleo/` (runtime+turno, context, llm, plan, subagente), `herramientas/`
+      (tool, tools_archivo/web, comando, mcp, skill, todo, tareas, scheduler),
+      `politica/` (permiso, regla, aprobacion, bash_clasificar), `contrato/` (ports,
+      error, evento, sandbox, plan→nucleo por conteo, guardas, pregunta, telemetria,
+      diff, llm→nucleo, contrato_tests). Movido con `git mv` (historia preservada);
+      solo se tocaron `mod` internos + `lib.rs` (`pub use`); consumidores intactos.
+- [x] **`cli/src/` (12 archivos)** → `comandos/` (daemon, run, chat→ui, mcp_cli),
+      `ui/` (chat, tui/*), `infra/` (ejecutor, fetch, persistencia, reglas) con
+      re-export plano en `lib.rs`. `persistencia_sqlite.rs` **no** se movió (ajeno).
+- [x] **Raíz glory-harness (11 archivos):** excepción de config/manifests aplicada en
+      S1 (regla `directorio-abarrotado` no aplica a archivos de config/scripts); sin
+      reorganización de raíz.
+- [x] Verificación post-reubicación: `cargo test --workspace` 233 verdes, clippy
+      `-D warnings` limpio (core+cli), `quality:analyze` **0 hallazgos en core+cli**;
+      PROYECTO TASKS `cargo check` report-only: solo falla `missing field web_fetch`
+      (port B3-F1 previo, **independiente del layout**, confirmado preexistente).
 
 **Criterio de éxito S4:** `directorio-abarrotado` 0 en core+cli (o excepción documentada
 en S1); sin cambios de comportamiento; árbol con `git mv` verificado en el log.

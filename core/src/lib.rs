@@ -11,34 +11,20 @@
 
 #![forbid(unsafe_code)]
 
-pub mod ports;
-pub mod evento;
-pub mod aprobacion;
-pub mod permiso;
-pub mod pregunta;
-pub mod plan;
-pub mod regla;
-pub mod telemetria;
-pub mod error;
-pub mod llm;
-pub mod diff;
-pub mod guardas;
-pub mod bash_clasificar;
-pub mod comando;
-pub mod context;
-pub mod sandbox;
-pub mod tool;
-pub mod todo;
-pub mod tools_archivo;
-pub mod tools_web;
-pub mod scheduler;
-pub mod tareas;
-pub mod mcp;
-pub mod skill;
-pub mod runtime;
-pub mod subagente;
-#[cfg(test)]
-pub mod contrato_tests;
+/* [059A-S4] Organización por dominio (glory-sentinel directorio-abarrotado).
+ * Cada grupo es un submódulo que re-declara sus hijos; el glob los
+ * re-exporta en la raíz del crate, de modo que los paths internos
+ * (`crate::tool::…`) y los de los consumidores (`glory_harness_core::tool`)
+ * siguen resolviendo sin tocar ningún `use`. */
+mod nucleo;
+mod herramientas;
+mod politica;
+mod contrato;
+
+pub use nucleo::*;
+pub use herramientas::*;
+pub use politica::*;
+pub use contrato::*;
 
 /// Frontera de puertos (traits) que define el núcleo y que el consumidor
 /// implementa. Ver [`ports`].
