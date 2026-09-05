@@ -138,23 +138,27 @@ Regla: cada archivo nuevo < 500 líneas efectivas objetivo (≈<350 ideal); **so
 código, nunca cambiar lógica**; los tests existentes pasan sin edición de aserciones
 (si un test cambia de archivo, se mueve con el código, sin alterar su contenido).
 
-- [ ] **`core/src/runtime.rs` (1719 → objetivo ~<450/fragmento):** extraer por dominio:
+- [x] **`core/src/runtime.rs` (1719 → objetivo ~<450/fragmento):** extraer por dominio:
       1) `bucle.rs`/`turno.rs` — el cuerpo de `ejecutar_turno` (380 efectivas) como
          runner del bucle LLM→tools; 2) `subagente_ejecucion.rs` — `ejecutar_subagente`
          y `_desde_llamada` (200); 3) dejar en `runtime.rs` la orquestación fina
          (struct `AgentRuntime`, `nuevo`, puertos, acceso a `registry`) + re-exports
          `pub use` para no romper consumidores (`cli`, `desktop`, PROYECTO TASKS).
          Atención: no romper los comentarios-memoria ni los `[318A-xx]`/`[Bloque 3]`.
-- [ ] **`core/src/llm.rs` (1592):** separar por responsabilidad sin tocar `enviar_chat*`:
+         → `core/src/runtime/mod.rs` (380) + `turno.rs` (389) + `tools.rs` (132) +
+         `subagente.rs` (209); commit `f33a4de`.
+- [x] **`core/src/llm.rs` (1592):** separar por responsabilidad sin tocar `enviar_chat*`:
       1) tipos del contrato (`AiMessage`, `AiToolCall`, `AiChatResult`, `Keys/…` ya
          exportados: mover a `modelo.rs` con re-export); 2) red/HTTP y reintentos
          (`ejecutar_request*`, `ejecutar_request_stream`, parseo de tool_calls) →
          `red.rs`; 3) `LlmProviderService` (fallos, rotación, nutrición) queda en `llm.rs`
          como fachada fina.
-- [ ] **`cli/src/tui.rs` (1305):** separar presentación de control: 1) render puro
+         → `core/src/llm/mod.rs` + `modelo.rs` + `red.rs`; commit `3910477`.
+- [x] **`cli/src/tui.rs` (1305):** separar presentación de control: 1) render puro
       (`a_lineas`, `dibujar`, `envolver_*`, `render_markdown_linea`, tipos `Line`/estado
       visual) → `tui_render.rs`; 2) `spawn_worker` (167) y `bucle_ui` (120) → `tui_bucle.rs`
       o helpers por responsabilidad; `tui.rs` conserva el montaje.
+      → `cli/src/tui/mod.rs` (458) + `texto.rs` (95) + `render.rs` (316) + `bucle.rs` (462).
 - [ ] **`cli/src/persistencia_sqlite.rs` (891, ajeno 039A-3):** NO tocar. Coordinar con el
       hilo 039A-3: si al cerrar su bloque sigue >500 efectivas, refactor propio en fase
       posterior (quedará anotada como pendiente coordinado, no como deuda de B3).
