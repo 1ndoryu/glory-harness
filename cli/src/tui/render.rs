@@ -175,27 +175,9 @@ pub(crate) fn a_lineas(ui: &UiEstado, ancho: usize) -> Vec<Line<'static>> {
 
 /// Pinta el layout completo estilo opencode-ligero: cabecera, mensajes con
 /// scroll (manual o al final), prompt inferior con borde y barra de estado.
-pub(crate) fn dibujar(f: &mut Frame, ui: &mut UiEstado, cabecera: &str, estado: &str) {
-    let area = f.area();
-
-    // Fondo uniforme para que el color por defecto de la terminal no se vea en
-    // los huecos (en Windows el terminal a veces pinta azul).
-    f.render_widget(
-        Block::default().style(Style::default().bg(Color::Black)),
-        area,
-    );
-
-    let chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(1), // cabecera
-            Constraint::Min(3),    // mensajes
-            Constraint::Length(3), // prompt (borde + 1 fila)
-            Constraint::Length(1), // barra de estado
-        ])
-        .split(area);
-
-    /* ---- Cabecera ---- */
+/// [059A-S3] Fila superior: "gh" + cabecera (y el indicador ▍ mientras el
+/// worker está ocupado).
+fn pintar_cabecera(f: &mut Frame, area: Rect, cabecera: &str, ocupado: bool) {
     let mut spans = vec![
         Span::styled(
             "gh",
@@ -206,7 +188,7 @@ pub(crate) fn dibujar(f: &mut Frame, ui: &mut UiEstado, cabecera: &str, estado: 
         Span::raw(" "),
         Span::styled(cabecera.to_string(), Style::default().fg(Color::Gray)),
     ];
-    if ui.ocupado {
+    if ocupado {
         spans.push(Span::styled(
             "  ▍",
             Style::default()
@@ -214,12 +196,15 @@ pub(crate) fn dibujar(f: &mut Frame, ui: &mut UiEstado, cabecera: &str, estado: 
                 .add_modifier(Modifier::BOLD),
         ));
     }
-    f.render_widget(Paragraph::new(Line::from(spans)), chunks[0]);
+    f.render_widget(Paragraph::new(Line::from(spans)), area);
+}
 
-    /* ---- Mensajes ---- */
-    let area_msgs = chunks[1];
+/// [059A-S3] Bloque de mensajes: pre-envuelve a `ancho − 2` y aplica el scroll
+/// (final automático o manual). Mutar `scroll_manual` para clampearlo al rango
+/// real es intencional.
+fn pintar_mensajes(f: &mut Frame, area: Rect, ui: &mut UiEstado) {
     // El ancho de texto = ancho del área menos el borde (2 columnas).
-    let ancho_texto = area_msgs.width.saturating_sub(2).max(1) as usize;
+    let ancho_texto = area.width.saturating_sub(2).max(1) as usize;
     let lineas = a_lineas(ui, ancho_texto);
     let bloque = Block::default()
         .borders(Borders::ALL)
@@ -233,7 +218,7 @@ pub(crate) fn dibujar(f: &mut Frame, ui: &mut UiEstado, cabecera: &str, estado: 
     // es `altura − 2` (borde superior + inferior).
     let total = lineas.len() as u16;
     let para = Paragraph::new(lineas).block(bloque);
-    let alto_interior = area_msgs.height.saturating_sub(2);
+    let alto_interior = area.height.saturating_sub(2);
     let max_scroll = total.saturating_sub(alto_interior);
     let scroll = if ui.siguiendo_final {
         max_scroll
@@ -241,9 +226,12 @@ pub(crate) fn dibujar(f: &mut Frame, ui: &mut UiEstado, cabecera: &str, estado: 
         ui.scroll_manual = ui.scroll_manual.min(max_scroll);
         ui.scroll_manual
     };
-    f.render_widget(para.scroll((scroll, 0)), area_msgs);
+    f.render_widget(para.scroll((scroll, 0)), area);
+}
 
-    /* ---- Prompt (entrada) ---- */
+/// [059A-S3] Prompt (entrada): borde, prefijo `> `, texto con desplazamiento
+/// horizontal y posición del cursor.
+fn pintar_prompt(f: &mut Frame, area: Rect, ui: &UiEstado) {
     let bloque_prompt = Block::default()
         .borders(Borders::ALL)
         .border_style(Style::default().fg(if ui.ocupado {
@@ -251,12 +239,12 @@ pub(crate) fn dibujar(f: &mut Frame, ui: &mut UiEstado, cabecera: &str, estado: 
         } else {
             Color::DarkGray
         }));
-    f.render_widget(bloque_prompt, chunks[2]);
+    f.render_widget(bloque_prompt, area);
     let area_prompt = Rect {
-        x: chunks[2].x + 1,
-        y: chunks[2].y + 1,
-        width: chunks[2].width.saturating_sub(2),
-        height: chunks[2].height.saturating_sub(2),
+        x: area.x + 1,
+        y: area.y + 1,
+        width: area.width.saturating_sub(2),
+        height: area.height.saturating_sub(2),
     };
 
     // Prefijo `> ` + texto con desplazamiento horizontal si excede el ancho.
@@ -297,8 +285,11 @@ pub(crate) fn dibujar(f: &mut Frame, ui: &mut UiEstado, cabecera: &str, estado: 
     // Cursor: prefijo (2) + (posición del cursor − desplazamiento horizontal).
     let col_cursor = area_entrada.x + 2 + (cursor_col as u16).saturating_sub(hscroll);
     f.set_cursor_position((col_cursor.min(area_entrada.x + area_entrada.width), area_prompt.y));
+}
 
-    /* ---- Barra de estado ---- */
+/// [059A-S3] Barra inferior: ayuda por defecto o el estado actual (errores en
+/// rojo, lo demás en amarillo).
+fn pintar_barra_estado(f: &mut Frame, area: Rect, estado: &str) {
     let barra = if estado.is_empty() {
         Line::from(Span::styled(
             "Enter enviar · /ayuda · ↑↓ historial · PgUp/PgDn o rueda scroll · Esc/Ctrl+C sale",
@@ -311,6 +302,32 @@ pub(crate) fn dibujar(f: &mut Frame, ui: &mut UiEstado, cabecera: &str, estado: 
             Style::default().fg(if es_error { Color::Red } else { Color::Yellow }),
         ))
     };
-    f.render_widget(Paragraph::new(barra), chunks[3]);
+    f.render_widget(Paragraph::new(barra), area);
+}
+
+/// Redibuja la pantalla completa de la TUI. Fondo uniforme primero (para que el
+/// color por defecto de la terminal no se vea en los huecos, en Windows a veces
+/// pinta azul); luego cabecera, mensajes, prompt y barra de estado.
+pub(crate) fn dibujar(f: &mut Frame, ui: &mut UiEstado, cabecera: &str, estado: &str) {
+    let area = f.area();
+    f.render_widget(
+        Block::default().style(Style::default().bg(Color::Black)),
+        area,
+    );
+
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(1), // cabecera
+            Constraint::Min(3),    // mensajes
+            Constraint::Length(3), // prompt (borde + 1 fila)
+            Constraint::Length(1), // barra de estado
+        ])
+        .split(area);
+
+    pintar_cabecera(f, chunks[0], cabecera, ui.ocupado);
+    pintar_mensajes(f, chunks[1], ui);
+    pintar_prompt(f, chunks[2], ui);
+    pintar_barra_estado(f, chunks[3], estado);
 }
 

@@ -181,129 +181,150 @@ async fn cmd_schedule_impl(
     programador: Arc<dyn ProgramadorTareas>,
     user_id: Uuid,
 ) -> Result<SalidaSchedule, HarnessError> {
+    match accion {
+        "list" | "listar" => accion_listar(programador, user_id).await,
+        "create" | "crear" => accion_crear(args, programador, user_id).await,
+        "remove" | "cancelar" => accion_remove(args, programador, user_id).await,
+        "logs" => accion_logs(args, programador, user_id).await,
+        otra => {
+            eprintln!("schedule: acción desconocida '{otra}' (list|create|remove|logs)");
+            Ok(SalidaSchedule::Uso)
+        }
+    }
+}
+
+/// `schedule list`: imprime las tareas programadas del proceso actual.
+async fn accion_listar(
+    programador: Arc<dyn ProgramadorTareas>,
+    user_id: Uuid,
+) -> Result<SalidaSchedule, HarnessError> {
+    let tareas = programador.tareas_listar(user_id).await?;
+    if tareas.is_empty() {
+        println!("(sin tareas programadas en este proceso)");
+        return Ok(SalidaSchedule::Ok);
+    }
+    for t in &tareas {
+        let proxima = t
+            .proxima_ejecucion
+            .map(|p| p.format("%Y-%m-%d %H:%M UTC").to_string())
+            .unwrap_or_else(|| "—".into());
+        println!(
+            "{} [{}] cron='{}' próximo='{proxima}' estado={} \"{}\"",
+            t.id,
+            t.nombre,
+            t.cron_expr.as_deref().unwrap_or("—"),
+            t.estado,
+            t.prompt
+        );
+    }
+    Ok(SalidaSchedule::Ok)
+}
+
+/// `schedule create`: valida argumentos, traduce NL→cron y registra la tarea.
+async fn accion_crear(
+    args: &[String],
+    programador: Arc<dyn ProgramadorTareas>,
+    user_id: Uuid,
+) -> Result<SalidaSchedule, HarnessError> {
     use glory_harness_core::ports::NuevaTareaProgramada;
     use glory_harness_core::tareas::frase_a_cron;
 
-    match accion {
-                "list" | "listar" => {
-                    let tareas = programador.tareas_listar(user_id).await?;
-                    if tareas.is_empty() {
-                        println!("(sin tareas programadas en este proceso)");
-                    } else {
-                        for t in &tareas {
-                            let proxima = t
-                                .proxima_ejecucion
-                                .map(|p| p.format("%Y-%m-%d %H:%M UTC").to_string())
-                                .unwrap_or_else(|| "—".into());
-                            println!(
-                                "{} [{}] cron='{}' próximo='{proxima}' estado={} \"{}\"",
-                                t.id,
-                                t.nombre,
-                                t.cron_expr.as_deref().unwrap_or("—"),
-                                t.estado,
-                                t.prompt
-                            );
-                        }
-                    }
-                    Ok(SalidaSchedule::Ok)
-                }
-                "create" | "crear" => {
-                    let nombre = extraer_opcion(args, &["--nombre", "--name"]);
-                    let prompt = extraer_opcion(args, &["--prompt", "--mensaje"]);
-                    let cuando = extraer_opcion(args, &["--cuando", "--cron", "--programacion"]);
-                    let (Some(nombre), Some(prompt), Some(cuando)) = (nombre, prompt, cuando) else {
-                        eprintln!("uso: glory-harness schedule create --nombre <n> --prompt <p> --cuando \"cada lunes a las 9\"");
-                        return Ok(SalidaSchedule::Uso);
-                    };
-                    let cron = match frase_a_cron(&cuando) {
-                        Ok(c) => c,
-                        Err(e) => {
-                            eprintln!("schedule create: {e}");
-                            return Ok(SalidaSchedule::Uso);
-                        }
-                    };
-                    let proxima =
-                        glory_harness_core::scheduler::proxima_ejecucion(&cron, chrono::Utc::now())?;
-                    let id = programador
-                        .tarea_crear(&NuevaTareaProgramada {
-                            user_id,
-                            nombre,
-                            prompt,
-                            tipo: "recurrente".into(),
-                            cron_expr: cron.clone(),
-                            proxima_ejecucion: proxima,
-                        })
-                        .await?;
-                    println!(
-                        "tarea creada: {id} — cron '{cron}' — próxima ejecución {}",
-                        proxima.format("%Y-%m-%d %H:%M UTC")
-                    );
-                    Ok(SalidaSchedule::Ok)
-                }
-                "remove" | "cancelar" => {
-                    let id_texto: String = match args.get(1) {
-                        Some(v) => v.clone(),
-                        None => match extraer_opcion(args, &["--id"]) {
-                            Some(v) => v,
-                            None => {
-                                eprintln!("uso: glory-harness schedule remove <id>");
-                                return Ok(SalidaSchedule::Uso);
-                            }
-                        },
-                    };
-                    let id = match Uuid::parse_str(&id_texto) {
-                        Ok(id) => id,
-                        Err(_) => {
-                            eprintln!("schedule remove: id inválido '{id_texto}'");
-                            return Ok(SalidaSchedule::Uso);
-                        }
-                    };
-                    if programador.tarea_cancelar(id, user_id).await? {
-                        println!("tarea {id} cancelada");
-                        Ok(SalidaSchedule::Ok)
-                    } else {
-                        eprintln!("schedule remove: no existe la tarea {id}");
-                        Ok(SalidaSchedule::Uso)
-                    }
-                }
-                "logs" => {
-                    let id_texto: String = match args.get(1) {
-                        Some(v) => v.clone(),
-                        None => match extraer_opcion(args, &["--id"]) {
-                            Some(v) => v,
-                            None => {
-                                eprintln!("uso: glory-harness schedule logs <id>");
-                                return Ok(SalidaSchedule::Uso);
-                            }
-                        },
-                    };
-                    let id = match Uuid::parse_str(&id_texto) {
-                        Ok(id) => id,
-                        Err(_) => {
-                            eprintln!("schedule logs: id inválido '{id_texto}'");
-                            return Ok(SalidaSchedule::Uso);
-                        }
-                    };
-                    let registros = programador.tarea_logs(id, user_id, 10).await?;
-                    if registros.is_empty() {
-                        println!("(la tarea {id} no tiene ejecuciones registradas)");
-                    } else {
-                        for r in &registros {
-                            let estado = if r.ok { "ok" } else { "fallo" };
-                            println!(
-                                "{} [{estado}] {}",
-                                r.ejecutada_en.format("%Y-%m-%d %H:%M UTC"),
-                                r.resumen
-                            );
-                        }
-                    }
-                    Ok(SalidaSchedule::Ok)
-                }
-                otra => {
-                    eprintln!("schedule: acción desconocida '{otra}' (list|create|remove|logs)");
-                    Ok(SalidaSchedule::Uso)
-                }
+    let nombre = extraer_opcion(args, &["--nombre", "--name"]);
+    let prompt = extraer_opcion(args, &["--prompt", "--mensaje"]);
+    let cuando = extraer_opcion(args, &["--cuando", "--cron", "--programacion"]);
+    let (Some(nombre), Some(prompt), Some(cuando)) = (nombre, prompt, cuando) else {
+        eprintln!("uso: glory-harness schedule create --nombre <n> --prompt <p> --cuando \"cada lunes a las 9\"");
+        return Ok(SalidaSchedule::Uso);
+    };
+    let cron = match frase_a_cron(&cuando) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("schedule create: {e}");
+            return Ok(SalidaSchedule::Uso);
+        }
+    };
+    let proxima = glory_harness_core::scheduler::proxima_ejecucion(&cron, chrono::Utc::now())?;
+    let id = programador
+        .tarea_crear(&NuevaTareaProgramada {
+            user_id,
+            nombre,
+            prompt,
+            tipo: "recurrente".into(),
+            cron_expr: cron.clone(),
+            proxima_ejecucion: proxima,
+        })
+        .await?;
+    println!(
+        "tarea creada: {id} — cron '{cron}' — próxima ejecución {}",
+        proxima.format("%Y-%m-%d %H:%M UTC")
+    );
+    Ok(SalidaSchedule::Ok)
+}
+
+/// Lee el id de tarea de `args` (posicional o `--id`) o imprime el uso.
+fn id_desde_args(args: &[String], comando: &str) -> Result<Uuid, SalidaSchedule> {
+    let id_texto: String = match args.get(1) {
+        Some(v) => v.clone(),
+        None => match extraer_opcion(args, &["--id"]) {
+            Some(v) => v,
+            None => {
+                eprintln!("uso: glory-harness schedule {comando} <id>");
+                return Err(SalidaSchedule::Uso);
+            }
+        },
+    };
+    match Uuid::parse_str(&id_texto) {
+        Ok(id) => Ok(id),
+        Err(_) => {
+            eprintln!("schedule {comando}: id inválido '{id_texto}'");
+            Err(SalidaSchedule::Uso)
+        }
     }
+}
+
+/// `schedule remove`: cancela la tarea indicada.
+async fn accion_remove(
+    args: &[String],
+    programador: Arc<dyn ProgramadorTareas>,
+    user_id: Uuid,
+) -> Result<SalidaSchedule, HarnessError> {
+    let id = match id_desde_args(args, "remove") {
+        Ok(id) => id,
+        Err(salida) => return Ok(salida),
+    };
+    if programador.tarea_cancelar(id, user_id).await? {
+        println!("tarea {id} cancelada");
+        Ok(SalidaSchedule::Ok)
+    } else {
+        eprintln!("schedule remove: no existe la tarea {id}");
+        Ok(SalidaSchedule::Uso)
+    }
+}
+
+/// `schedule logs`: imprime las últimas ejecuciones de la tarea indicada.
+async fn accion_logs(
+    args: &[String],
+    programador: Arc<dyn ProgramadorTareas>,
+    user_id: Uuid,
+) -> Result<SalidaSchedule, HarnessError> {
+    let id = match id_desde_args(args, "logs") {
+        Ok(id) => id,
+        Err(salida) => return Ok(salida),
+    };
+    let registros = programador.tarea_logs(id, user_id, 10).await?;
+    if registros.is_empty() {
+        println!("(la tarea {id} no tiene ejecuciones registradas)");
+        return Ok(SalidaSchedule::Ok);
+    }
+    for r in &registros {
+        let estado = if r.ok { "ok" } else { "fallo" };
+        println!(
+            "{} [{estado}] {}",
+            r.ejecutada_en.format("%Y-%m-%d %H:%M UTC"),
+            r.resumen
+        );
+    }
+    Ok(SalidaSchedule::Ok)
 }
 
 /// Lee el valor de la primera opción que coincida con uno de `nombres`,

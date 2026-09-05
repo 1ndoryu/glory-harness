@@ -14,8 +14,7 @@ mod red;
 
 pub use modelo::{AiChatOptions, AiChatResult, AiMessage, AiNutritionResult, AiStreamResult, AiToolCall, LlavesProveedor, candidatos_para, catalogo_proveedores};
 
-use modelo::{PROMPT_NUTRICION, mayuscula_primera, modelo_proveedor, resolver_candidatos, url_proveedor, validar_mensajes};
-use red::es_error_transitorio;
+use modelo::{PROMPT_NUTRICION, es_error_transitorio, mayuscula_primera, modelo_proveedor, resolver_candidatos, url_proveedor, validar_mensajes};
 
 /// Estado del circuit breaker por proveedor (R7 del plan agente).
 #[derive(Debug, Clone)]
@@ -347,7 +346,7 @@ impl LlmProviderService {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::llm::red::parsear_tool_calls;
+    use crate::llm::modelo::parsear_tool_calls;
 
     #[test]
     fn parsear_tool_calls_descarta_malformadas_y_sintetiza_id() {

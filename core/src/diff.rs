@@ -29,8 +29,30 @@ pub fn diff_lineas(antes: &str, despues: &str) -> Option<String> {
             "AVISO: archivo demasiado grande para mostrar el diff (se omite).".to_string(),
         );
     }
+    /* Fases 1-3: LCS, camino emparejado y ops de emisión (helpers puros
+     * extraídos en [059A S3]; el flujo es idéntico al original). */
+    let len = lcs_longitudes(&antes, &despues);
+    let (emparejadas_antes, emparejadas_despues) =
+        lineas_emparejadas(&antes, &despues, &len);
+    let ops = ops_emision(&antes, &despues, &emparejadas_antes, &emparejadas_despues);
+    /* Intervalos de ops visibles: cada cambio ± CONTEXTO, fusionados si se
+     * solapan. Sin cambios no hay hunks (pero antes != despues garantiza
+     * al menos uno: split con trailing '\n' puede producirlo vacío). */
+    let intervalos = intervalos_cambio(&ops);
+    let mut salida = String::new();
+    let mut anterior_fin = 0usize;
+    for &(inicio, fin) in &intervalos {
+        escribir_elididas(&mut salida, &ops[anterior_fin..inicio]);
+        escribir_hunk(&mut salida, &ops, inicio, fin, &antes, &despues);
+        anterior_fin = fin;
+    }
+    escribir_elididas(&mut salida, &ops[anterior_fin..]);
+    Some(salida)
+}
+
+/// Fase 1 — DP del LCS: `len[i][j]` = LCS de `antes[i..]` y `despues[j..]`.
+fn lcs_longitudes(antes: &[&str], despues: &[&str]) -> Vec<Vec<usize>> {
     let (n, m) = (antes.len(), despues.len());
-    /* DP: len[i][j] = LCS de antes[i..] y despues[j..]. */
     let mut len = vec![vec![0usize; m + 1]; n + 1];
     for i in (0..n).rev() {
         for j in (0..m).rev() {
@@ -41,7 +63,16 @@ pub fn diff_lineas(antes: &str, despues: &str) -> Option<String> {
             };
         }
     }
-    /* Reconstruir el camino LCS: pares (i, j) de líneas iguales. */
+    len
+}
+
+/// Fase 2 — Reconstruir el camino LCS: pares (i, j) de líneas iguales.
+fn lineas_emparejadas(
+    antes: &[&str],
+    despues: &[&str],
+    len: &[Vec<usize>],
+) -> (Vec<bool>, Vec<bool>) {
+    let (n, m) = (antes.len(), despues.len());
     let mut emparejadas_antes = vec![false; n];
     let mut emparejadas_despues = vec![false; m];
     let (mut i, mut j) = (0usize, 0usize);
@@ -57,15 +88,25 @@ pub fn diff_lineas(antes: &str, despues: &str) -> Option<String> {
             j += 1;
         }
     }
-    /* Emitir el diff por hunks: cada cambio (línea `-`/`+`) se rodea de
-     * CONTEXTO líneas de contexto; los tramos intermedios sin cambios se
-     * eliden con un placeholder que cuenta las líneas ocultas. */
-    #[derive(Clone, Copy)]
-    enum Op {
-        Igual(usize),
-        Baja(usize),
-        Alta(usize),
-    }
+    (emparejadas_antes, emparejadas_despues)
+}
+
+/// Operación unitaria de emisión de un hunk.
+#[derive(Clone, Copy)]
+enum Op {
+    Igual(usize),
+    Baja(usize),
+    Alta(usize),
+}
+
+/// Fase 3 — Secuencia de ops (igual/baja/alta) a partir del camino LCS.
+fn ops_emision(
+    antes: &[&str],
+    despues: &[&str],
+    emparejadas_antes: &[bool],
+    emparejadas_despues: &[bool],
+) -> Vec<Op> {
+    let (n, m) = (antes.len(), despues.len());
     let mut ops: Vec<Op> = Vec::new();
     let (mut i, mut j) = (0usize, 0usize);
     while i < n || j < m {
@@ -81,9 +122,12 @@ pub fn diff_lineas(antes: &str, despues: &str) -> Option<String> {
             j += 1;
         }
     }
-    /* Intervalos de ops visibles: cada cambio ± CONTEXTO, fusionados si se
-     * solapan. Sin cambios no hay hunks (pero antes != despues garantiza
-     * al menos uno: split con trailing '\n' puede producirlo vacío). */
+    ops
+}
+
+/// Fase 4 — Intervalos de ops visibles (cambio ± CONTEXTO, fusionados si
+/// se solapan).
+fn intervalos_cambio(ops: &[Op]) -> Vec<(usize, usize)> {
     let mut intervalos: Vec<(usize, usize)> = Vec::new();
     for (k, op) in ops.iter().enumerate() {
         if matches!(op, Op::Igual(..)) {
@@ -99,69 +143,78 @@ pub fn diff_lineas(antes: &str, despues: &str) -> Option<String> {
         }
         intervalos.push((inicio, fin));
     }
-    let mut salida = String::new();
-    let mut anterior_fin = 0usize;
-    for &(inicio, fin) in &intervalos {
-        let elididas = ops[anterior_fin..inicio]
-            .iter()
-            .filter(|op| matches!(op, Op::Igual(..)))
-            .count();
-        if elididas > 0 {
-            salida.push_str(&format!("… {elididas} líneas sin cambios …\n"));
-        }
-        /* Cabecera del hunk con numeración 1-based de cada lado. */
-        let (mut la, mut lb) = (0usize, 0usize);
-        for op in &ops[..inicio] {
-            match *op {
-                Op::Igual(..) | Op::Baja(_) => la += 1,
-                Op::Alta(_) => {}
-            }
-            match *op {
-                Op::Igual(..) | Op::Alta(_) => lb += 1,
-                Op::Baja(_) => {}
-            }
-        }
-        let (mut ca, mut cb) = (0usize, 0usize);
-        for op in &ops[inicio..fin] {
-            match *op {
-                Op::Igual(..) | Op::Baja(_) => ca += 1,
-                Op::Alta(_) => {}
-            }
-            match *op {
-                Op::Igual(..) | Op::Alta(_) => cb += 1,
-                Op::Baja(_) => {}
-            }
-        }
-        salida.push_str(&format!("@@ -{},{} +{},{} @@\n", la + 1, ca, lb + 1, cb));
-        for op in &ops[inicio..fin] {
-            match *op {
-                Op::Igual(a) => {
-                    salida.push(' ');
-                    salida.push_str(antes[a]);
-                    salida.push('\n');
-                }
-                Op::Baja(a) => {
-                    salida.push('-');
-                    salida.push_str(antes[a]);
-                    salida.push('\n');
-                }
-                Op::Alta(b) => {
-                    salida.push('+');
-                    salida.push_str(despues[b]);
-                    salida.push('\n');
-                }
-            }
-        }
-        anterior_fin = fin;
-    }
-    let elididas = ops[anterior_fin..]
+    intervalos
+}
+
+/// Añade el placeholder de líneas iguales elididas entre hunks.
+fn escribir_elididas(salida: &mut String, ops: &[Op]) {
+    let elididas = ops
         .iter()
         .filter(|op| matches!(op, Op::Igual(..)))
         .count();
     if elididas > 0 {
         salida.push_str(&format!("… {elididas} líneas sin cambios …\n"));
     }
-    Some(salida)
+}
+
+/// Cuántas líneas aporta `op` a cada lado (a = antes, b = después): una
+/// línea igual se cuenta en ambos lados, una baja solo en `antes` y una alta
+/// solo en `despues`.
+fn aporte_lados(op: &Op) -> (usize, usize) {
+    match *op {
+        Op::Igual(..) => (1, 1),
+        Op::Baja(_) => (1, 0),
+        Op::Alta(_) => (0, 1),
+    }
+}
+
+/// Cabecera `@@ -la,ca +lb,cb @@` del hunk `ops[inicio..fin]` con
+/// numeración 1-based de cada lado (el índice del primer op visible).
+fn escribir_cabecera(salida: &mut String, ops: &[Op], inicio: usize, fin: usize) {
+    let (mut la, mut lb) = (0usize, 0usize);
+    for op in &ops[..inicio] {
+        let (da, db) = aporte_lados(op);
+        la += da;
+        lb += db;
+    }
+    let (mut ca, mut cb) = (0usize, 0usize);
+    for op in &ops[inicio..fin] {
+        let (da, db) = aporte_lados(op);
+        ca += da;
+        cb += db;
+    }
+    salida.push_str(&format!("@@ -{},{} +{},{} @@\n", la + 1, ca, lb + 1, cb));
+}
+
+/// Emite un hunk completo (cabecera + líneas de contexto/cambio).
+fn escribir_hunk(
+    salida: &mut String,
+    ops: &[Op],
+    inicio: usize,
+    fin: usize,
+    antes: &[&str],
+    despues: &[&str],
+) {
+    escribir_cabecera(salida, ops, inicio, fin);
+    for op in &ops[inicio..fin] {
+        match *op {
+            Op::Igual(a) => {
+                salida.push(' ');
+                salida.push_str(antes[a]);
+                salida.push('\n');
+            }
+            Op::Baja(a) => {
+                salida.push('-');
+                salida.push_str(antes[a]);
+                salida.push('\n');
+            }
+            Op::Alta(b) => {
+                salida.push('+');
+                salida.push_str(despues[b]);
+                salida.push('\n');
+            }
+        }
+    }
 }
 
 #[cfg(test)]

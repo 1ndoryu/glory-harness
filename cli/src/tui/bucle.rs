@@ -143,7 +143,6 @@ pub(crate) fn spawn_worker(
                     }
                 }
             }
-
             let _ = tx_eventos.send(EventoTui::MensajeUsuario(texto.clone()));
             let _ = tx_eventos.send(EventoTui::EmpiezaTurno);
 
@@ -177,95 +176,17 @@ pub(crate) fn spawn_worker(
             }
             let _ = tx_eventos.send(EventoTui::FinTurno);
 
-            /* [318A-16 F2] Gate de aprobación (tres vías) entre turnos: si el
-             * turno dejó peticiones `ask` pendientes, el worker ofrece
-             * Rechazar / Permitir una vez / Permitir siempre por cada una y
-             * lee la decisión del canal de entrada (la UI queda viva; el
-             * prompt lo indica). "Permitir siempre" pide confirmación antes
-             * de persistir la regla de la CLASE (categoría + `**`). */
-            let mut todo_resuelto = true;
-            'gate: loop {
-                let pendientes = runtime.peticiones_aprobacion_pendientes();
-                if pendientes.is_empty() {
-                    break 'gate;
-                }
-                for peticion in &pendientes {
-                    let _ = tx_eventos.send(EventoTui::Estado(format!(
-                        "⚠ {} pide aprobación (clase: {}) — [n] Rechazar · [p] Permitir una vez · [s] Permitir siempre",
-                        peticion.tool, peticion.clasificacion
-                    )));
-                    let Some(linea) = rx_entrada.recv().await else {
-                        let _ = tx_eventos.send(EventoTui::Fin);
-                        return;
-                    };
-                    let decision = linea.trim().to_lowercase();
-                    let aplicada = match decision.as_str() {
-                        "n" | "no" | "rechazar" | "denegar" => {
-                            runtime
-                                .responder_aprobacion(&peticion.id, glory_harness_core::aprobacion::RespuestaAprobacion::Rechazar)
-                                .map(|_| {
-                                    let _ = tx_eventos.send(EventoTui::Estado(format!(
-                                        "✗ clase '{}' denegada en esta conversación",
-                                        peticion.clasificacion
-                                    )));
-                                })
-                                .is_ok()
-                        }
-                        "p" | "permitir" | "si" | "aprobar" | "ok" => {
-                            runtime
-                                .responder_aprobacion(&peticion.id, glory_harness_core::aprobacion::RespuestaAprobacion::Aprobar)
-                                .map(|_| {
-                                    let _ = tx_eventos.send(EventoTui::Estado(
-                                        "✓ permitida (solo esta vez)".into(),
-                                    ));
-                                })
-                                .is_ok()
-                        }
-                        "s" | "siempre" | "always" | "allow" => {
-                            /* Confirmación previa (opencode exige Confirm/Cancel
-                             * antes de persistir "always"). */
-                            let _ = tx_eventos.send(EventoTui::Estado(format!(
-                                "¿Permitir SIEMPRE la clase '{}'? [s/n]",
-                                peticion.clasificacion
-                            )));
-                            let Some(conf) = rx_entrada.recv().await else {
-                                let _ = tx_eventos.send(EventoTui::Fin);
-                                return;
-                            };
-                            if matches!(
-                                conf.trim().to_lowercase().as_str(),
-                                "s" | "si" | "siempre" | "y" | "yes" | "confirmar"
-                            ) {
-                                runtime
-                                    .responder_aprobacion(&peticion.id, glory_harness_core::aprobacion::RespuestaAprobacion::Siempre)
-                                    .map(|_| {
-                                        let _ = tx_eventos.send(EventoTui::Estado(format!(
-                                            "✓ permitida siempre: la clase '{}' ya no preguntará",
-                                            peticion.clasificacion
-                                        )));
-                                    })
-                                    .is_ok()
-                            } else {
-                                let _ = tx_eventos.send(EventoTui::Estado(
-                                    "(cancelado — la petición sigue pendiente)".into(),
-                                ));
-                                false
-                            }
-                        }
-                        _ => {
-                            /* Texto libre: respuesta del usuario al agente. Se
-                             * convierte en el siguiente mensaje sin resolver
-                             * la petición estructurada. */
-                            reintento = Some(linea);
-                            todo_resuelto = false;
-                            break 'gate;
-                        }
-                    };
-                    if !aplicada {
-                        todo_resuelto = false;
-                    }
-                }
-            }
+            let todo_resuelto = match resolver_gate_aprobaciones(
+                &runtime,
+                &mut rx_entrada,
+                &tx_eventos,
+                &mut reintento,
+            )
+            .await
+            {
+                None => return,
+                Some(t) => t,
+            };
             /* Todas las peticiones se respondieron con palabras clave:
              * reintentar el último mensaje para que el agente ejecute lo
              * aprobado (mismo comportamiento que el REPL). Si hubo texto
@@ -322,6 +243,240 @@ pub(crate) fn relevar_evento(tx: &tokio::sync::mpsc::UnboundedSender<EventoTui>,
     let _ = tx.send(evt);
 }
 
+/// [059A-S3] Aplica un evento del worker al estado de la UI y al historial de
+/// ↑↓. `Fin` marca `salir` (el drenador corta tras aplicarlo).
+fn aplicar_evento_tui(
+    ui: &mut UiEstado,
+    historial: &mut Vec<String>,
+    historial_idx: &mut usize,
+    ev: EventoTui,
+) {
+    match ev {
+        EventoTui::MensajeUsuario(t) => {
+            ui.push_usuario(t.clone());
+            if historial.last() != Some(&t) {
+                historial.push(t);
+            }
+            *historial_idx = historial.len();
+        }
+        EventoTui::EmpiezaTurno => {
+            ui.push_asistente();
+            ui.ocupado = true;
+            ui.estado = String::new();
+        }
+        EventoTui::Token(t) => ui.push_token(&t),
+        EventoTui::ToolInicio { tool } => ui.tool_inicio(tool),
+        EventoTui::ToolFin { tool, ok, resumen } => ui.tool_fin(&tool, ok, resumen),
+        EventoTui::Error(e) => ui.estado = format!("✗ {e}"),
+        EventoTui::Estado(e) => ui.estado = e,
+        EventoTui::FinTurno => {
+            ui.ocupado = false;
+        }
+        EventoTui::Fin => {
+            ui.salir = true;
+        }
+    }
+}
+
+/// [059A-S3] Rueda del ratón: scroll manual (3 líneas por paso). Devuelve
+/// `false` si el ratón no aportó nada (para no repintar en vano).
+fn manejar_raton(ui: &mut UiEstado, m: crossterm::event::MouseEvent) -> bool {
+    match m.kind {
+        MouseEventKind::ScrollUp => {
+            ui.siguiendo_final = false;
+            ui.scroll_manual = ui.scroll_manual.saturating_add(3);
+            true
+        }
+
+        MouseEventKind::ScrollDown => {
+            if ui.scroll_manual > 3 {
+                ui.scroll_manual -= 3;
+            } else {
+                ui.scroll_manual = 0;
+                ui.siguiendo_final = true;
+            }
+            true
+        }
+        _ => false,
+    }
+}
+
+/// [059A-S3] Gate de aprobación (tres vías) entre turnos, extraído de
+/// `spawn_worker`: si el turno dejó peticiones `ask` pendientes, ofrece
+/// Rechazar / Permitir una vez / Permitir siempre por cada una y lee la
+/// decisión del canal de entrada (la UI queda viva; el prompt lo indica).
+/// "Permitir siempre" pide confirmación antes de persistir la regla de la
+/// CLASE (categoría + `**`). Devuelve `Some(todo_resuelto)` salvo que el
+/// canal de entrada se cierre (`None` = Fin ya enviado, terminar worker).
+async fn resolver_gate_aprobaciones(
+    runtime: &AgentRuntime,
+    rx_entrada: &mut tokio::sync::mpsc::Receiver<String>,
+    tx_eventos: &tokio::sync::mpsc::UnboundedSender<EventoTui>,
+    reintento: &mut Option<String>,
+) -> Option<bool> {
+    /* [318A-16 F2] Gate de aprobación (tres vías) entre turnos: si el
+     * turno dejó peticiones `ask` pendientes, el worker ofrece
+     * Rechazar / Permitir una vez / Permitir siempre por cada una y
+     * lee la decisión del canal de entrada (la UI queda viva; el
+     * prompt lo indica). "Permitir siempre" pide confirmación antes
+     * de persistir la regla de la CLASE (categoría + `**`). */
+    let mut todo_resuelto = true;
+    'gate: loop {
+        let pendientes = runtime.peticiones_aprobacion_pendientes();
+        if pendientes.is_empty() {
+            break 'gate;
+        }
+        for peticion in &pendientes {
+            let _ = tx_eventos.send(EventoTui::Estado(format!(
+                "⚠ {} pide aprobación (clase: {}) — [n] Rechazar · [p] Permitir una vez · [s] Permitir siempre",
+                peticion.tool, peticion.clasificacion
+            )));
+            let Some(linea) = rx_entrada.recv().await else {
+                let _ = tx_eventos.send(EventoTui::Fin);
+                return None;
+            };
+            let decision = linea.trim().to_lowercase();
+            let aplicada = match decision.as_str() {
+                "n" | "no" | "rechazar" | "denegar" => {
+                    runtime
+                        .responder_aprobacion(&peticion.id, glory_harness_core::aprobacion::RespuestaAprobacion::Rechazar)
+                        .map(|_| {
+                            let _ = tx_eventos.send(EventoTui::Estado(format!(
+                                "✗ clase '{}' denegada en esta conversación",
+                                peticion.clasificacion
+                            )));
+                        })
+                        .is_ok()
+                }
+                "p" | "permitir" | "si" | "aprobar" | "ok" => {
+                    runtime
+                        .responder_aprobacion(&peticion.id, glory_harness_core::aprobacion::RespuestaAprobacion::Aprobar)
+                        .map(|_| {
+                            let _ = tx_eventos.send(EventoTui::Estado(
+                                "✓ permitida (solo esta vez)".into(),
+                            ));
+                        })
+                        .is_ok()
+                }
+                "s" | "siempre" | "always" | "allow" => {
+                    /* Confirmación previa (opencode exige Confirm/Cancel
+                     * antes de persistir "always"). */
+                    let _ = tx_eventos.send(EventoTui::Estado(format!(
+                        "¿Permitir SIEMPRE la clase '{}'? [s/n]",
+                        peticion.clasificacion
+                    )));
+                    let Some(conf) = rx_entrada.recv().await else {
+                        let _ = tx_eventos.send(EventoTui::Fin);
+                        return None;
+                    };
+                    if matches!(
+                        conf.trim().to_lowercase().as_str(),
+                        "s" | "si" | "siempre" | "y" | "yes" | "confirmar"
+                    ) {
+                        runtime
+                            .responder_aprobacion(&peticion.id, glory_harness_core::aprobacion::RespuestaAprobacion::Siempre)
+                            .map(|_| {
+                                let _ = tx_eventos.send(EventoTui::Estado(format!(
+                                    "✓ permitida siempre: la clase '{}' ya no preguntará",
+                                    peticion.clasificacion
+                                )));
+                            })
+                            .is_ok()
+                    } else {
+                        let _ = tx_eventos.send(EventoTui::Estado(
+                            "(cancelado — la petición sigue pendiente)".into(),
+                        ));
+                        false
+                    }
+                }
+                _ => {
+                    /* Texto libre: respuesta del usuario al agente. Se
+                     * convierte en el siguiente mensaje sin resolver
+                     * la petición estructurada. */
+                    *reintento = Some(linea);
+                    todo_resuelto = false;
+                    break 'gate;
+                }
+            };
+            if !aplicada {
+                todo_resuelto = false;
+            }
+        }
+    }
+
+    Some(todo_resuelto)
+}
+
+/// [059A-S3] Maneja una tecla de la TUI. `Esc`/`Ctrl+C` cortan (fin de
+/// sesión); `Enter` envía el texto pendiente por `.await` (no `blocking_send`:
+/// esto se ejecuta dentro del runtime y bloqueando paniquea — bug real
+/// 02-09-2026). Devuelve `false` para salir del bucle.
+async fn manejar_tecla(
+    ui: &mut UiEstado,
+    historial: &mut [String],
+    historial_idx: &mut usize,
+    tx_entrada: &tokio::sync::mpsc::Sender<String>,
+    k: crossterm::event::KeyEvent,
+) -> bool {
+    match k.code {
+        KeyCode::Enter => {
+            let texto = std::mem::take(&mut ui.entrada);
+            ui.cursor = 0;
+            if !texto.trim().is_empty() {
+                let _ = tx_entrada.send(texto).await;
+            }
+        }
+        KeyCode::Backspace => ui.retroceder(),
+        KeyCode::Left => ui.cursor = ui.cursor.saturating_sub(1),
+        KeyCode::Right => {
+            ui.cursor = (ui.cursor + 1).min(ui.entrada.chars().count())
+        }
+        KeyCode::Home => ui.cursor = 0,
+        KeyCode::End => ui.cursor = ui.entrada.chars().count(),
+        KeyCode::Esc => return false,
+        KeyCode::Char(c) if k.modifiers.contains(KeyModifiers::CONTROL) && c == 'c' => {
+            return false;
+        }
+        KeyCode::Up => {
+            // Si el historial está vacío, `get` devuelve None y no ocurre
+            // nada (el check externo era redundante).
+            *historial_idx = historial_idx.saturating_sub(1);
+            if let Some(prev) = historial.get(*historial_idx) {
+                ui.entrada = prev.clone();
+                ui.cursor = ui.entrada.chars().count();
+            }
+        }
+        KeyCode::Down => {
+            if *historial_idx + 1 < historial.len() {
+                *historial_idx += 1;
+                if let Some(sig) = historial.get(*historial_idx) {
+                    ui.entrada = sig.clone();
+                    ui.cursor = ui.entrada.chars().count();
+                }
+            } else {
+                *historial_idx = historial.len();
+                ui.entrada.clear();
+                ui.cursor = 0;
+            }
+        }
+        KeyCode::PageUp => {
+            ui.siguiendo_final = false;
+            ui.scroll_manual = ui.scroll_manual.saturating_add(10);
+        }
+        KeyCode::PageDown => {
+            if ui.scroll_manual > 10 {
+                ui.scroll_manual -= 10;
+            } else {
+                ui.scroll_manual = 0;
+                ui.siguiendo_final = true;
+            }
+        }
+        KeyCode::Char(c) => ui.insertar(c),
+        _ => {}
+    }
+    true
+}
+
 /// Bucle de UI: drena eventos del worker, lee teclado con `poll(50ms)` y
 /// redibuja. Sale con `Ok(())` en `/salir` del worker, Esc o Ctrl+C.
 pub(crate) async fn bucle_ui(
@@ -336,31 +491,9 @@ pub(crate) async fn bucle_ui(
     loop {
         /* 1) Drenar eventos del worker (pueden llegar durante el poll). */
         while let Ok(ev) = rx_eventos.try_recv() {
-            match ev {
-                EventoTui::MensajeUsuario(t) => {
-                    ui.push_usuario(t.clone());
-                    if historial.last() != Some(&t) {
-                        historial.push(t);
-                    }
-                    historial_idx = historial.len();
-                }
-                EventoTui::EmpiezaTurno => {
-                    ui.push_asistente();
-                    ui.ocupado = true;
-                    ui.estado = String::new();
-                }
-                EventoTui::Token(t) => ui.push_token(&t),
-                EventoTui::ToolInicio { tool } => ui.tool_inicio(tool),
-                EventoTui::ToolFin { tool, ok, resumen } => ui.tool_fin(&tool, ok, resumen),
-                EventoTui::Error(e) => ui.estado = format!("✗ {e}"),
-                EventoTui::Estado(e) => ui.estado = e,
-                EventoTui::FinTurno => {
-                    ui.ocupado = false;
-                }
-                EventoTui::Fin => {
-                    ui.salir = true;
-                    break;
-                }
+            aplicar_evento_tui(&mut ui, &mut historial, &mut historial_idx, ev);
+            if ui.salir {
+                break;
             }
         }
         if ui.salir {
@@ -371,83 +504,15 @@ pub(crate) async fn bucle_ui(
         if event::poll(Duration::from_millis(50)).map_err(|e| format!("error de terminal: {e}"))?
         {
             match event::read().map_err(|e| format!("error de terminal: {e}"))? {
-                Event::Mouse(m) => match m.kind {
-                    MouseEventKind::ScrollUp => {
-                        ui.siguiendo_final = false;
-                        ui.scroll_manual = ui.scroll_manual.saturating_add(3);
-                    }
-                    MouseEventKind::ScrollDown => {
-                        if ui.scroll_manual > 3 {
-                            ui.scroll_manual -= 3;
-                        } else {
-                            ui.scroll_manual = 0;
-                            ui.siguiendo_final = true;
-                        }
-                    }
-                    _ => {}
-                },
-                Event::Key(k) if matches!(k.kind, KeyEventKind::Press | KeyEventKind::Repeat) => {
-                    match k.code {
-                        KeyCode::Enter => {
-                            let texto = std::mem::take(&mut ui.entrada);
-                            ui.cursor = 0;
-                            if !texto.trim().is_empty() {
-                                // `.await` (no `blocking_send`): esto se ejecuta
-                                // dentro del runtime y bloqueando paniquea (bug
-                                // real 02-09-2026).
-                                let _ = tx_entrada.send(texto).await;
-                            }
-                        }
-                        KeyCode::Backspace => ui.retroceder(),
-                        KeyCode::Left => ui.cursor = ui.cursor.saturating_sub(1),
-                        KeyCode::Right => {
-                            ui.cursor = (ui.cursor + 1).min(ui.entrada.chars().count())
-                        }
-                        KeyCode::Home => ui.cursor = 0,
-                        KeyCode::End => ui.cursor = ui.entrada.chars().count(),
-                        KeyCode::Esc => return Ok(()),
-                        KeyCode::Char(c)
-                            if k.modifiers.contains(KeyModifiers::CONTROL) && c == 'c' =>
-                        {
-                            return Ok(());
-                        }
-                        KeyCode::Up => {
-                            // Si el historial está vacío, `get` devuelve None y
-                            // no ocurre nada (el check externo era redundante).
-                            historial_idx = historial_idx.saturating_sub(1);
-                            if let Some(prev) = historial.get(historial_idx) {
-                                ui.entrada = prev.clone();
-                                ui.cursor = ui.entrada.chars().count();
-                            }
-                        }
-                        KeyCode::Down => {
-                            if historial_idx + 1 < historial.len() {
-                                historial_idx += 1;
-                                if let Some(sig) = historial.get(historial_idx) {
-                                    ui.entrada = sig.clone();
-                                    ui.cursor = ui.entrada.chars().count();
-                                }
-                            } else {
-                                historial_idx = historial.len();
-                                ui.entrada.clear();
-                                ui.cursor = 0;
-                            }
-                        }
-                        KeyCode::PageUp => {
-                            ui.siguiendo_final = false;
-                            ui.scroll_manual = ui.scroll_manual.saturating_add(10);
-                        }
-                        KeyCode::PageDown => {
-                            if ui.scroll_manual > 10 {
-                                ui.scroll_manual -= 10;
-                            } else {
-                                ui.scroll_manual = 0;
-                                ui.siguiendo_final = true;
-                            }
-                        }
-                        KeyCode::Char(c) => ui.insertar(c),
-                        _ => {}
-                    }
+                Event::Mouse(m) => {
+                    manejar_raton(&mut ui, m);
+                }
+                Event::Key(k)
+                    if matches!(k.kind, KeyEventKind::Press | KeyEventKind::Repeat)
+                        && !manejar_tecla(&mut ui, &mut historial, &mut historial_idx, &tx_entrada, k)
+                            .await =>
+                {
+                    return Ok(());
                 }
                 _ => {}
             }

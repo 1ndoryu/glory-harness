@@ -19,7 +19,7 @@ use uuid::Uuid;
 use glory_harness_core::aprobacion::{PeticionAprobacion, RespuestaAprobacion};
 use glory_harness_core::evento::AgenteEvento;
 use glory_harness_core::llm::AiMessage;
-use glory_harness_core::ports::MensajePersistido;
+use glory_harness_core::ports::{AgentPersistence, MensajePersistido};
 use glory_harness_core::runtime::AgentRuntime;
 use glory_harness_core::sandbox::SandboxArchivos;
 
@@ -66,31 +66,12 @@ pub async fn chat(opciones: OpcionesRun) -> Result<(), String> {
     );
     println!("escribe un mensaje, o /ayuda para los comandos");
 
-    /* Un hilo lee stdin línea a línea (modo cooked, sin TUI); EOF o error → None
-     * y el bucle termina con exit 0. El canal evita bloquear el runtime. */
-    let (tx_lineas, mut rx_lineas) = tokio::sync::mpsc::channel::<Option<String>>(16);
-    std::thread::spawn(move || {
-        let mut linea = String::new();
-        loop {
-            linea.clear();
-            let leidas = std::io::stdin().lock().read_line(&mut linea);
-            match leidas {
-                Ok(0) | Err(_) => {
-                    let _ = tx_lineas.blocking_send(None);
-                    break;
-                }
-                Ok(_) => {
-                    let _ = tx_lineas.blocking_send(Some(std::mem::take(&mut linea)));
-                }
-            }
-        }
-    });
-
-    let mut conversacion_id = Uuid::new_v4();
     /* [318A-16 F2] Texto que reintentar tras resolver aprobaciones (tres
      * vías). El REPL reenvía el último mensaje para que el agente ejecute lo
      * aprobado SIN que el usuario escriba dos veces; el CLI no persiste
      * mensajes de usuario, así que no duplica historial. */
+    let mut rx_lineas = lanzar_lector_lineas();
+    let mut conversacion_id = Uuid::new_v4();
     let mut reintento: Option<String> = None;
     loop {
         let linea = match reintento.take() {
@@ -128,57 +109,115 @@ pub async fn chat(opciones: OpcionesRun) -> Result<(), String> {
             Comando::Continuar => {}
         }
 
-        /* Historial acumulado de la conversación → el agente recuerda el hilo. */
-        let historial = match persistencia.listar_mensajes(conversacion_id).await {
-            Ok(mensajes) => historial_desde_persistencia(mensajes),
-            Err(e) => {
-                eprintln!("[chat] no se pudo leer el historial: {e}");
-                continue;
-            }
-        };
-
-        /* El runtime persiste ambos mensajes vía puerto (`guardar_mensaje`);
-         * aquí solo se reporta el resultado. Un fallo no acaba el chat: se
-         * muestra y se vuelve al prompt para reintentar. `texto.clone()`:
-         * el resolver de aprobaciones (F2) reintenta el mismo mensaje tras
-         * decidir, así que el texto se conserva tras el turno. */
-        match procesar_turno(
-            Arc::clone(&runtime),
+        /* El turno (historial + ejecución + aprobaciones + modo plan) vive en
+         * `ejecutar_turno_chat` para mantener el bucle REPL legible. */
+        match ejecutar_turno_chat(
+            runtime.clone(),
+            persistencia.clone(),
             user_id,
             conversacion_id,
-            historial,
-            texto.clone(),
-            imprimir_evento_turno,
+            &workspace,
+            &mut rx_lineas,
+            &texto,
         )
-        .await
+        .await?
         {
-            Ok(respuesta) => {
-                if !respuesta.tools.is_empty() {
-                    eprintln!("  tools: {}", respuesta.tools.join(", "));
-                }
-                println!();
-                println!("{}", respuesta.texto);
-                println!();
-            }
-            Err(err) => eprintln!("[chat] el turno falló: {err} (puedes reintentar)"),
-        }
-
-        /* [318A-16 F2] Tras cada turno, resolver las peticiones `ask` que
-         * quedaron pendientes (el SSE es unidireccional: la decisión se aplica
-         * entre turnos y el re-envío del mensaje la consume). Si el usuario
-         * escribe texto libre en vez de una opción, ese texto es su mensaje al
-         * agente (p. ej. "adelante" responde a la pregunta del modelo). */
-        match resolver_aprobaciones(&runtime, &mut rx_lineas, &texto).await {
             Siguiente::Reenviar(texto) => reintento = Some(texto),
             Siguiente::Prompt => {}
             Siguiente::Salir => return Ok(()),
         }
-
-        /* [318A-16 F5] Modo plan: al cerrar el turno se muestra el diff
-         * acumulado y se pregunta aprobar/descartar (regla de una sola
-         * aplicación). Fuera de modo plan no hay propuesta: no pregunta. */
-        mostrar_plan_si_aplica(&runtime, &workspace, &mut rx_lineas).await?;
     }
+}
+
+/// Lanza el hilo que lee stdin línea a línea (modo cooked, sin TUI); EOF o
+/// error → `None` y el bucle termina con exit 0. El canal evita bloquear el
+/// runtime del consumidor.
+fn lanzar_lector_lineas() -> tokio::sync::mpsc::Receiver<Option<String>> {
+    let (tx_lineas, rx_lineas) = tokio::sync::mpsc::channel::<Option<String>>(16);
+    std::thread::spawn(move || {
+        let mut linea = String::new();
+        loop {
+            linea.clear();
+            let leidas = std::io::stdin().lock().read_line(&mut linea);
+            match leidas {
+                Ok(0) | Err(_) => {
+                    let _ = tx_lineas.blocking_send(None);
+                    break;
+                }
+                Ok(_) => {
+                    let _ = tx_lineas.blocking_send(Some(std::mem::take(&mut linea)));
+                }
+            }
+        }
+    });
+    rx_lineas
+}
+
+/// Ejecuta un mensaje completo de chat: lee el historial acumulado, lanza el
+/// turno, imprime el resultado y resuelve aprobaciones + modo plan. Devuelve
+/// `Siguiente` para que el bucle REPL decida (reenviar, prompt o salir).
+async fn ejecutar_turno_chat(
+    runtime: Arc<AgentRuntime>,
+    persistencia: Arc<dyn AgentPersistence>,
+    user_id: Uuid,
+    conversacion_id: Uuid,
+    workspace: &Option<std::path::PathBuf>,
+    rx_lineas: &mut tokio::sync::mpsc::Receiver<Option<String>>,
+    texto: &str,
+) -> Result<Siguiente, String> {
+    /* Historial acumulado de la conversación → el agente recuerda el hilo. */
+    let historial = match persistencia.listar_mensajes(conversacion_id).await {
+        Ok(mensajes) => historial_desde_persistencia(mensajes),
+        Err(e) => {
+            eprintln!("[chat] no se pudo leer el historial: {e}");
+            return Ok(Siguiente::Prompt);
+        }
+    };
+
+    /* El runtime persiste ambos mensajes vía puerto (`guardar_mensaje`);
+     * aquí solo se reporta el resultado. Un fallo no acaba el chat: se
+     * muestra y se vuelve al prompt para reintentar. `texto.clone()`:
+     * el resolver de aprobaciones (F2) reintenta el mismo mensaje tras
+     * decidir, así que el texto se conserva tras el turno. */
+    match procesar_turno(
+        runtime.clone(),
+        user_id,
+        conversacion_id,
+        historial,
+        texto.to_string(),
+        imprimir_evento_turno,
+    )
+    .await
+    {
+        Ok(respuesta) => {
+            if !respuesta.tools.is_empty() {
+                eprintln!("  tools: {}", respuesta.tools.join(", "));
+            }
+            println!();
+            println!("{}", respuesta.texto);
+            println!();
+        }
+        Err(err) => eprintln!("[chat] el turno falló: {err} (puedes reintentar)"),
+    }
+
+    /* [318A-16 F2] Tras cada turno, resolver las peticiones `ask` que
+     * quedaron pendientes (el SSE es unidireccional: la decisión se aplica
+     * entre turnos y el re-envío del mensaje la consume). Si el usuario
+     * escribe texto libre en vez de una opción, ese texto es su mensaje al
+     * agente (p. ej. "adelante" responde a la pregunta del modelo). */
+    /* Salir corta sin preguntar por el plan (mismo orden que el bucle
+     * anterior). */
+    let siguiente = match resolver_aprobaciones(&runtime, rx_lineas, texto).await {
+        Siguiente::Salir => Siguiente::Salir,
+        otra => {
+            /* [318A-16 F5] Modo plan: al cerrar el turno se muestra el diff
+             * acumulado y se pregunta aprobar/descartar (regla de una sola
+             * aplicación). Fuera de modo plan no hay propuesta: no pregunta. */
+            mostrar_plan_si_aplica(&runtime, workspace, rx_lineas).await?;
+            otra
+        }
+    };
+    Ok(siguiente)
 }
 
 /// [318A-16 F5] Si el modo es `plan` y hay cambios acumulados, muestra la

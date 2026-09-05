@@ -1,5 +1,7 @@
 //! [059A-N S2] Split mecánico de `runtime.rs`: sesiones hijas efímeras
 //! (`ejecutar_subagente_desde_llamada`, `ejecutar_subagente`). Movimiento puro.
+//! [059A-S3] Refactor: el bucle hijo delega el riesgo por perfil y el
+//! veredicto de permiso en helpers (misma semántica, funciones < 100 ef).
 
 use super::*;
 
@@ -143,139 +145,25 @@ impl AgentRuntime {
         let mut pasos = 0usize;
         let mut parcial_final = false;
         let mut denegadas_hijo: HashSet<String> = HashSet::new();
+        /* [059A-S3] Cada iteración es un paso acotado por presupuesto; la
+         * lógica (llamada LLM + procesado de tool_calls del hijo) vive en
+         * `paso_subagente` para mantener el bucle por debajo de 100 ef. */
         while pasos < presupuesto_pasos {
             pasos += 1;
-            let mut parcial = String::new();
-            let mut on_token = |t: &str| {
-                parcial.push_str(t);
-                true
-            };
-            let llamadas = self
-                .llm_llamada(&mensajes, &schemas, &mut on_token, tx)
-                .await?;
-            if llamadas.is_empty() {
-                /* Respuesta final del hijo: es el resumen que volverá al padre. */
-                texto_final = parcial;
+            if let Some(final_hijo) = self
+                .paso_subagente(
+                    &mut mensajes,
+                    &perfil,
+                    &schemas,
+                    user_id,
+                    turno_id,
+                    &mut denegadas_hijo,
+                    tx,
+                )
+                .await?
+            {
+                texto_final = final_hijo;
                 break;
-            }
-            for call in llamadas {
-                /* [318A-16 F3] Tope de riesgo del perfil (p. ej. explorar =
-                 * solo Seguro): el hijo nunca puede ejecutar comandos que
-                 * superen su clase, independientemente de las reglas F1. */
-                if call.nombre == "comando" {
-                    if let Some(maximo) = perfil.comandos_max_riesgo {
-                        let nivel = crate::bash_clasificar::clasificar_comando(
-                            call.argumentos
-                                .get("comando")
-                                .and_then(serde_json::Value::as_str)
-                                .unwrap_or(""),
-                        );
-                        if nivel > maximo {
-                            let aviso = format!(
-                                "[comando DENEGADA por perfil] riesgo {} supera el máximo del perfil '{}' ({}); NO la reintentes con ese comando.",
-                                nivel.clave(),
-                                perfil.id,
-                                maximo.clave()
-                            );
-                            mensajes.push(AiMessage {
-                                role: "assistant".into(),
-                                content: serde_json::Value::Null,
-                                tool_calls: Some(vec![AiToolCall {
-                                    id: call.id.clone(),
-                                    nombre: call.nombre.clone(),
-                                    argumentos: call.argumentos.clone(),
-                                }]),
-                                tool_call_id: None,
-                            });
-                            let mut tool_msg = AiMessage::texto("tool", aviso);
-                            tool_msg.tool_call_id = Some(call.id.clone());
-                            mensajes.push(tool_msg);
-                            continue;
-                        }
-                    }
-                }
-                /* Herencia de política F3: mismo registro y overrides. */
-                let permiso = self.registry.permiso_para_llamada(
-                    &call.nombre,
-                    &call.argumentos,
-                    &self.turno_config.modo,
-                );
-                let verdicto = decidir_permiso(permiso, denegadas_hijo.contains(&call.nombre));
-                let mensaje_tool = match verdicto {
-                    VerdictoPermiso::Ejecutar => {
-                        let _ = tx
-                            .send(AgenteEvento::ToolStart {
-                                tool: call.nombre.clone(),
-                                argumentos: call.argumentos.clone(),
-                            })
-                            .await;
-                        let t0_ejecucion = std::time::Instant::now();
-                        let resultado = self
-                            .ejecutar_tool(user_id, turno_id, &call, tx)
-                            .await?;
-                        let _ = tx
-                            .send(AgenteEvento::ToolResult {
-                                tool: call.nombre.clone(),
-                                ok: resultado.ok,
-                                resumen: resultado.resumen.clone(),
-                                diff: resultado.diff.clone(),
-                            })
-                            .await;
-                        /* [318A-15 F0] Telemetría del hijo: las tools del
-                         * subagente cuentan en el acumulador del turno. */
-                        self.telemetria().registrar_uso(
-                            &call.nombre,
-                            resultado.ok,
-                            t0_ejecucion.elapsed().as_millis() as u64,
-                        );
-                        resultado.contenido
-                    }
-                    VerdictoPermiso::Preguntar => {
-                        let _ = tx
-                            .send(AgenteEvento::RequiereAprobacion {
-                                tool: call.nombre.clone(),
-                                argumentos: call.argumentos.clone(),
-                            })
-                            .await;
-                        denegadas_hijo.insert(call.nombre.clone());
-                        format!(
-                            "[{} REQUIERE APROBACIÓN DEL USUARIO] No se ejecutó; pide confirmación y espera.",
-                            call.nombre
-                        )
-                    }
-                    VerdictoPermiso::RepetidoPregunta => format!(
-                        "[{} REQUIERE APROBACIÓN DEL USUARIO (repetido)] Sigue pendiente: no insistas.",
-                        call.nombre
-                    ),
-                    VerdictoPermiso::Denegar => {
-                        denegadas_hijo.insert(call.nombre.clone());
-                        let _ = tx
-                            .send(AgenteEvento::PermisoDenegado {
-                                tool: call.nombre.clone(),
-                                motivo: "denegada_por_usuario".into(),
-                            })
-                            .await;
-                        self.telemetria().registrar_denegacion();
-                        format!("[{} DENEGADA] NO la reintentes; cambia de plan.", call.nombre)
-                    }
-                    VerdictoPermiso::RepetidoDenegado => format!(
-                        "[{} DENEGADA — repetida] Ya se te indicó; no la vuelvas a proponer.",
-                        call.nombre
-                    ),
-                };
-                mensajes.push(AiMessage {
-                    role: "assistant".into(),
-                    content: serde_json::Value::Null,
-                    tool_calls: Some(vec![AiToolCall {
-                        id: call.id.clone(),
-                        nombre: call.nombre.clone(),
-                        argumentos: call.argumentos.clone(),
-                    }]),
-                    tool_call_id: None,
-                });
-                let mut tool_msg = AiMessage::texto("tool", mensaje_tool);
-                tool_msg.tool_call_id = Some(call.id.clone());
-                mensajes.push(tool_msg);
             }
         }
 
@@ -285,16 +173,7 @@ impl AgentRuntime {
             parcial_final = true;
             /* [318A-15 F0] Telemetría: subagente cerrado como parcial. */
             self.telemetria().registrar_subagente_parcial();
-            mensajes.push(AiMessage::texto("system", wrap_up_instruccion()));
-            let mut parcial = String::new();
-            let mut on_token = |t: &str| {
-                parcial.push_str(t);
-                true
-            };
-            let _ = self
-                .llm_llamada(&mensajes, &[], &mut on_token, tx)
-                .await?;
-            texto_final = parcial;
+            texto_final = self.cierre_parcial_subagente(&mut mensajes, tx).await?;
         }
 
         let resumen = crate::subagente::resumen_acotado(&texto_final);
@@ -313,5 +192,198 @@ impl AgentRuntime {
             pasos_usados: pasos,
         })
     }
+
+    /// [059A-S3] Un paso del bucle hijo: pide un avance al LLM y, si responde
+    /// con tool_calls, procesa cada una (riesgo por perfil F3 + veredicto de
+    /// permiso compartido) empujando los mensajes al historial del hijo.
+    /// Devuelve `Some(texto)` cuando el hijo concluyó (respuesta sin tools).
+    #[allow(clippy::too_many_arguments)]
+    async fn paso_subagente(
+        &self,
+        mensajes: &mut Vec<AiMessage>,
+        perfil: &PerfilSubagente,
+        schemas: &[Value],
+        user_id: Uuid,
+        turno_id: Uuid,
+        denegadas_hijo: &mut HashSet<String>,
+        tx: &Sender<AgenteEvento>,
+    ) -> Result<Option<String>> {
+        let mut parcial = String::new();
+        let mut on_token = |t: &str| {
+            parcial.push_str(t);
+            true
+        };
+        let llamadas = self
+            .llm_llamada(mensajes, schemas, &mut on_token, tx)
+            .await?;
+        if llamadas.is_empty() {
+            /* Respuesta final del hijo: es el resumen que volverá al padre. */
+            return Ok(Some(parcial));
+        }
+        for call in llamadas {
+            if let Some(aviso) = aviso_comando_excede_perfil(perfil, &call) {
+                empujar_tool_call(mensajes, &call);
+                let mut tool_msg = AiMessage::texto("tool", aviso);
+                tool_msg.tool_call_id = Some(call.id.clone());
+                mensajes.push(tool_msg);
+                continue;
+            }
+            let permiso = self.registry.permiso_para_llamada(
+                &call.nombre,
+                &call.argumentos,
+                &self.turno_config.modo,
+            );
+            let verdicto = decidir_permiso(permiso, denegadas_hijo.contains(&call.nombre));
+            let mensaje_tool = self
+                .mensaje_verdicto_subagente(
+                    user_id,
+                    turno_id,
+                    &call,
+                    verdicto,
+                    denegadas_hijo,
+                    tx,
+                )
+                .await?;
+            empujar_tool_call(mensajes, &call);
+            let mut tool_msg = AiMessage::texto("tool", mensaje_tool);
+            tool_msg.tool_call_id = Some(call.id.clone());
+            mensajes.push(tool_msg);
+        }
+        Ok(None)
+    }
+
+    /// [059A-S3] Ejecuta una llamada de tool del hijo según el veredicto F3 o
+    /// devuelve el mensaje de denegación/pendiente correspondiente. Efectos
+    /// laterales acotados: eventos SSE, telemetría y el registro local de
+    /// denegadas del hijo (evita repetir la misma tool).
+    async fn mensaje_verdicto_subagente(
+        &self,
+        user_id: Uuid,
+        turno_id: Uuid,
+        call: &AiToolCall,
+        verdicto: VerdictoPermiso,
+        denegadas_hijo: &mut HashSet<String>,
+        tx: &Sender<AgenteEvento>,
+    ) -> Result<String> {
+        let resultado = match verdicto {
+            VerdictoPermiso::Ejecutar => {
+                let _ = tx
+                    .send(AgenteEvento::ToolStart {
+                        tool: call.nombre.clone(),
+                        argumentos: call.argumentos.clone(),
+                    })
+                    .await;
+                let t0_ejecucion = std::time::Instant::now();
+                let resultado = self.ejecutar_tool(user_id, turno_id, call, tx).await?;
+                let _ = tx
+                    .send(AgenteEvento::ToolResult {
+                        tool: call.nombre.clone(),
+                        ok: resultado.ok,
+                        resumen: resultado.resumen.clone(),
+                        diff: resultado.diff.clone(),
+                    })
+                    .await;
+                /* [318A-15 F0] Telemetría del hijo: las tools del
+                 * subagente cuentan en el acumulador del turno. */
+                self.telemetria().registrar_uso(
+                    &call.nombre,
+                    resultado.ok,
+                    t0_ejecucion.elapsed().as_millis() as u64,
+                );
+                resultado.contenido
+            }
+            VerdictoPermiso::Preguntar => {
+                let _ = tx
+                    .send(AgenteEvento::RequiereAprobacion {
+                        tool: call.nombre.clone(),
+                        argumentos: call.argumentos.clone(),
+                    })
+                    .await;
+                denegadas_hijo.insert(call.nombre.clone());
+                format!(
+                    "[{} REQUIERE APROBACIÓN DEL USUARIO] No se ejecutó; pide confirmación y espera.",
+                    call.nombre
+                )
+            }
+            VerdictoPermiso::RepetidoPregunta => format!(
+                "[{} REQUIERE APROBACIÓN DEL USUARIO (repetido)] Sigue pendiente: no insistas.",
+                call.nombre
+            ),
+            VerdictoPermiso::Denegar => {
+                denegadas_hijo.insert(call.nombre.clone());
+                let _ = tx
+                    .send(AgenteEvento::PermisoDenegado {
+                        tool: call.nombre.clone(),
+                        motivo: "denegada_por_usuario".into(),
+                    })
+                    .await;
+                self.telemetria().registrar_denegacion();
+                format!("[{} DENEGADA] NO la reintentes; cambia de plan.", call.nombre)
+            }
+            VerdictoPermiso::RepetidoDenegado => format!(
+                "[{} DENEGADA — repetida] Ya se te indicó; no la vuelvas a proponer.",
+                call.nombre
+            ),
+        };
+        Ok(resultado)
+    }
+
+    /// [059A-S3] Wrap-up parcial del hijo: pide una última respuesta acotada
+    /// al LLM cuando el presupuesto se agota sin conclusión (contrato F5).
+    async fn cierre_parcial_subagente(
+        &self,
+        mensajes: &mut Vec<AiMessage>,
+        tx: &Sender<AgenteEvento>,
+    ) -> Result<String> {
+        mensajes.push(AiMessage::texto("system", wrap_up_instruccion()));
+        let mut parcial = String::new();
+        let mut on_token = |t: &str| {
+            parcial.push_str(t);
+            true
+        };
+        let _ = self.llm_llamada(mensajes, &[], &mut on_token, tx).await?;
+        Ok(parcial)
+    }
 }
 
+/// [059A-S3] Si el comando supera el riesgo máximo del perfil (F3: p. ej.
+/// `explorar` = solo Seguro), devuelve el aviso que el hijo debe ver; en caso
+/// contrario `None`. El tope del perfil manda sobre cualquier regla F1.
+fn aviso_comando_excede_perfil(perfil: &PerfilSubagente, call: &AiToolCall) -> Option<String> {
+    if call.nombre != "comando" {
+        return None;
+    }
+    let maximo = perfil.comandos_max_riesgo?;
+    let nivel = crate::bash_clasificar::clasificar_comando(
+        call.argumentos
+            .get("comando")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or(""),
+    );
+    if nivel > maximo {
+        Some(format!(
+            "[comando DENEGADA por perfil] riesgo {} supera el máximo del perfil '{}' ({}); NO la reintentes con ese comando.",
+            nivel.clave(),
+            perfil.id,
+            maximo.clave()
+        ))
+    } else {
+        None
+    }
+}
+
+/// [059A-S3] Empuja al historial el mensaje `assistant` con la `tool_call`
+/// del hijo (idem al patrón del runtime padre). Extraído para no duplicar
+/// el ensamblado entre las ramas del bucle.
+fn empujar_tool_call(mensajes: &mut Vec<AiMessage>, call: &AiToolCall) {
+    mensajes.push(AiMessage {
+        role: "assistant".into(),
+        content: serde_json::Value::Null,
+        tool_calls: Some(vec![AiToolCall {
+            id: call.id.clone(),
+            nombre: call.nombre.clone(),
+            argumentos: call.argumentos.clone(),
+        }]),
+        tool_call_id: None,
+    });
+}

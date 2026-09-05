@@ -16,7 +16,8 @@
 - **Estado:** S0 ✔ (baseline congelado, 05-09) · S1 ✔ (falsos positivos corregidos en
   glory-sentinel, bump `902c45e` v0.7.8) · S7 ✔ parcial (3 reglas D4 implementadas y
   repineadas; propuestas restantes documentadas en `Agente/documentacion/brechas-gate-2026-09-05.md`)
-  · S2–S6 y S8 pendientes de ejecutar.
+  · S2 ✔ (split estructural: `f33a4de`, `3910477`, `f3d467b`) · S3 ✔ (extracción de
+  funciones largas, commit pendiente de este bloque) · S4–S6 y S8 pendientes de ejecutar.
 - **Re-analyze 05-09 (post S1/S7):** 2 errores (ambos `expect-produccion-rs` en
   `desktop/src-tauri/src/vault.rs`, **ajeno 039A-3**, documentado y sin tocar) ·
   21 warnings / 8 archivos en core+cli (deuda de tamaño, S2–S4). core+cli a **0 errores**.
@@ -178,17 +179,27 @@ Lista objetivo (efectivas, de la línea base): `ejecutar_turno` 380 (con S2.1),
 `ejecutar_request_stream` 112 (con S2.2), `diff_lineas` 135 (`core/diff.rs`).
 Ajenos (NO tocar): `abrir_sesion_interna` 126 y `enviar_turno` 172 (desktop).
 
-- [ ] Refactor **`core/src/diff.rs`** `diff_lineas` (135): separar cálculo de línea vs
+- [x] Refactor **`core/src/diff.rs`** `diff_lineas` (135): separar cálculo de línea vs
       ensamblado del diff textual; caso de prueba por cada modo (crear/modificar/borrar).
-- [ ] Refactor **`cli/src/main.rs`** `cmd_schedule_impl` (123): extraer parseo de
+- [x] Refactor **`cli/src/main.rs`** `cmd_schedule_impl` (123): extraer parseo de
       argumentos, validación y ejecución en 2–3 helpers con tipos claros.
-- [ ] Refactor **`cli/src/chat.rs`** `chat()` (105): extraer el bucle REPL y el manejo de
+- [x] Refactor **`cli/src/chat.rs`** `chat()` (105): extraer el bucle REPL y el manejo de
       comandos `/…` a helpers (aprovechar S4 de skills si ya separó comandos).
-- [ ] Con S2 hecho, verificar que **ninguna función del núcleo/CLI** supere 100 efectivas;
+- [x] Con S2 hecho, verificar que **ninguna función del núcleo/CLI** supere 100 efectivas;
       las que queden se extraen aquí con nombre de helper por responsabilidad.
-- [ ] Regla de oro: cada extracción conserva el flujo exacto (sin cambios de semántica);
+- [x] Regla de oro: cada extracción conserva el flujo exacto (sin cambios de semántica);
       si una extracción "natural" exige tocar lógica, se marca en el plan como decisión
       (no se mezcla con el movimiento).
+
+**Ejecutado:** `diff_lineas` → helpers por fase (LCS/camino/ops/emisión) con tests por
+modo · `cmd_schedule_impl` → 4 helpers + parser de id compartido · `chat()` → helpers
+REPL/comandos · `ejecutar_request_stream` (llm/red.rs, 112→ok) · TUI (`bucle_ui`, `dibujar`
+→ helpers; `spawn_worker` → `resolver_gate_aprobaciones` + fase de turno) · `ejecutar_subagente`
+(200→orquestador+helpers) · `red.rs` 522→468 (helpers puros movidos) · `ejecutar_turno`
+(380→`turno/` dir: mod.rs + `auditoria.rs` + `permisos.rs`) · `manejar_verdicto_no_ejecutar`
+101→ok (helpers `empujar_tool_call_asistente`/`empujar_mensaje_tool_denegado`).
+Re-analyze: `funcion-larga-rs`/`limite-lineas-rs` en **0 para core+cli**; 233 tests verdes,
+clippy `-D warnings` limpio.
 
 **Criterio de éxito S3:** `funcion-larga-rs` en 0 para core+cli en el re-analyze;
 tests + clippy verdes.

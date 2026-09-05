@@ -2,38 +2,11 @@
 //! cambios de lógica; el contenido se cortó por rangos del archivo original.
 //!
 use super::*;
+use super::modelo::{es_error_transitorio, parsear_tool_calls};
 
 const REINTENTOS_TRANSITORIOS: u32 = 2;
 const BACKOFF_BASE_MS: u64 = 500;
 
-/// ¿El error del proveedor es transitorio (reintentar tiene sentido)?
-/// `Error::Proveedor` con prefijo de red (reqwest send/read) o con un código
-/// HTTP 5xx/429; el resto (4xx de auth/billing/schema) es permanente.
-pub(crate) fn es_error_transitorio(error: &Error) -> bool {
-    let Error::Proveedor { detalle, causa: _ } = error else {
-        return false;
-    };
-    if detalle.starts_with("Error de red:") || detalle.contains("Error leyendo el stream") {
-        return true;
-    }
-    /* El detalle tiene la forma "{proveedor} {status}: {mensaje}" donde
-     * {status} es el Display de reqwest StatusCode, p. ej. "503 Service
-     * Unavailable" (incluye la razón). Extraemos el primer token numérico
-     * tras el proveedor (el código de 3 dígitos). */
-    let despues_proveedor = detalle
-        .find(' ')
-        .and_then(|i| detalle.get(i + 1..))
-        .unwrap_or("");
-    let status_txt = despues_proveedor
-        .split_whitespace()
-        .next()
-        .unwrap_or("")
-        .trim();
-    let Ok(status) = status_txt.parse::<u16>() else {
-        return false;
-    };
-    status == 429 || (500..=599).contains(&status)
-}
 
 /// Espera de backoff exponencial entre reintentos (0.5s, 1.5s). Devuelve
 /// inmediatamente si el intento es el primero (sin espera previa).
@@ -43,6 +16,141 @@ async fn esperar_backoff(intento: u32) {
     }
     let ms = BACKOFF_BASE_MS * 2u64.pow(intento);
     tokio::time::sleep(std::time::Duration::from_millis(ms)).await;
+}
+
+/// [059A-S3] Cuerpo JSON de una petición de streaming (modelo, mensajes,
+/// tools, max_tokens por proveedor y reasoning_effort solo donde el proveedor
+/// lo acepta). Movimiento fiel del cuerpo que antes vivía en
+/// `ejecutar_request_stream`.
+fn construir_cuerpo_stream(
+    proveedor: &str,
+    modelo: &str,
+    mensajes: &[AiMessage],
+    opciones: &AiChatOptions,
+    tools: &[serde_json::Value],
+) -> serde_json::Value {
+    let mut body = serde_json::json!({
+        "model": modelo,
+        "messages": mensajes,
+        "temperature": opciones.temperature,
+        "stream": true,
+    });
+    if !tools.is_empty() {
+        body["tools"] = serde_json::Value::Array(tools.to_vec());
+    }
+    if proveedor == "groq" {
+        body["max_completion_tokens"] = serde_json::json!(opciones.max_tokens);
+    } else {
+        body["max_tokens"] = serde_json::json!(opciones.max_tokens);
+    }
+    /* [318A-10 02-09-2026] Mismo criterio que ejecutar_request: solo se
+     * envía `reasoning_effort` a proveedores que lo aceptan.
+     * [318A-11 02-09-2026] Incluye `glory` (gloryapi local lo acepta,
+     * verificado 02-09). */
+    if let Some(esfuerzo) = &opciones.reasoning_effort {
+        if proveedor == "deepseek"
+            || proveedor == "groq"
+            || proveedor == "cerebras"
+            || proveedor == "glory"
+        {
+            body["reasoning_effort"] = serde_json::json!(esfuerzo);
+        }
+    }
+    body
+}
+
+/// ¿La respuesta del proveedor es un stream SSE real? Guía el fallback
+/// no-stream de `ejecutar_request_stream`.
+fn respuesta_es_stream(respuesta: &reqwest::Response) -> bool {
+    respuesta
+        .headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .contains("text/event-stream")
+}
+
+/// Envía la petición JSON y valida el status HTTP. Devuelve la respuesta solo
+/// si fue exitosa; los errores del proveedor (4xx/5xx) se propagan con su
+/// mensaje como `Error::Proveedor`.
+async fn enviar_solicitud(
+    cliente: &reqwest::Client,
+    proveedor: &str,
+    api_key: &str,
+    url: &str,
+    body: &serde_json::Value,
+) -> Result<reqwest::Response, Error> {
+    let mut request = cliente.post(url);
+    if !api_key.is_empty() {
+        request = request.bearer_auth(api_key);
+    }
+    let respuesta = request
+        .json(body)
+        .send()
+        .await
+        .map_err(|error| Error::Proveedor {
+            detalle: format!("Error de red: {error}"),
+            causa: None,
+        })?;
+    let status = respuesta.status();
+    if !status.is_success() {
+        let datos: serde_json::Value = respuesta.json().await.unwrap_or_default();
+        let mensaje = datos
+            .get("error")
+            .and_then(|error| error.get("message"))
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("Error del proveedor");
+        return Err(Error::Proveedor {
+            detalle: format!("{proveedor} {status}: {mensaje}"),
+            causa: None,
+        });
+    }
+    Ok(respuesta)
+}
+
+/// [059A-S3] Fallback no-stream: convierte una respuesta JSON directa en un
+/// único `on_token` y construye el `AiStreamResult` (usage incluido). Si el
+/// cliente canceló (`on_token` → false) se aborta con `Error::Cancelado` sin
+/// devolver una respuesta parcial como éxito.
+async fn resultado_no_stream(
+    respuesta: reqwest::Response,
+    proveedor: &str,
+    modelo: &str,
+    on_token: &mut (dyn FnMut(&str) -> bool + Send),
+) -> Result<AiStreamResult, Error> {
+    let datos: serde_json::Value = respuesta.json().await.map_err(|error| {
+        Error::Proveedor {
+            detalle: format!("Respuesta no JSON del proveedor: {error}"),
+            causa: None,
+        }
+    })?;
+    let contenido = datos
+        .pointer("/choices/0/message/content")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("")
+        .to_string();
+    if !on_token(&contenido) {
+        return Err(Error::Cancelado);
+    }
+    Ok(AiStreamResult {
+        contenido,
+        tool_calls: Vec::new(),
+        tokens_prompt: datos
+            .pointer("/usage/prompt_tokens")
+            .and_then(serde_json::Value::as_u64)
+            .unwrap_or(0) as u32,
+        tokens_complecion: datos
+            .pointer("/usage/completion_tokens")
+            .and_then(serde_json::Value::as_u64)
+            .unwrap_or(0) as u32,
+        finish_reason: datos
+            .pointer("/choices/0/finish_reason")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("")
+            .to_string(),
+        provider: proveedor.to_string(),
+        modelo: modelo.to_string(),
+    })
 }
 
 impl LlmProviderService {
@@ -152,107 +260,15 @@ impl LlmProviderService {
         } = solicitud;
         let url = url_proveedor(proveedor);
         let modelo = modelo_proveedor(proveedor, modelo);
+        let body = construir_cuerpo_stream(proveedor, &modelo, mensajes, opciones, tools);
 
-        let mut body = serde_json::json!({
-            "model": modelo,
-            "messages": mensajes,
-            "temperature": opciones.temperature,
-            "stream": true,
-        });
-        if !tools.is_empty() {
-            body["tools"] = serde_json::Value::Array(tools.to_vec());
-        }
-        if proveedor == "groq" {
-            body["max_completion_tokens"] = serde_json::json!(opciones.max_tokens);
-        } else {
-            body["max_tokens"] = serde_json::json!(opciones.max_tokens);
-        }
-        /* [318A-10 02-09-2026] Mismo criterio que ejecutar_request: solo se
-         * envía `reasoning_effort` a proveedores que lo aceptan.
-         * [318A-11 02-09-2026] Incluye `glory` (gloryapi local lo acepta,
-         * verificado 02-09). */
-        if let Some(esfuerzo) = &opciones.reasoning_effort {
-            if proveedor == "deepseek"
-                || proveedor == "groq"
-                || proveedor == "cerebras"
-                || proveedor == "glory"
-            {
-                body["reasoning_effort"] = serde_json::json!(esfuerzo);
-            }
-        }
-
-        let mut request = self.client.post(url);
-        if !api_key.is_empty() {
-            request = request.bearer_auth(api_key);
-        }
-        let respuesta = request
-            .json(&body)
-            .send()
-            .await
-            .map_err(|error| Error::Proveedor {
-                detalle: format!("Error de red: {error}"),
-                causa: None,
-            })?;
-        let status = respuesta.status();
-        if !status.is_success() {
-            let datos: serde_json::Value = respuesta.json().await.unwrap_or_default();
-            let mensaje = datos
-                .get("error")
-                .and_then(|error| error.get("message"))
-                .and_then(serde_json::Value::as_str)
-                .unwrap_or("Error del proveedor");
-            return Err(Error::Proveedor {
-                detalle: format!("{proveedor} {status}: {mensaje}"),
-                causa: None,
-            });
-        }
-
-        let content_type = respuesta
-            .headers()
-            .get("content-type")
-            .and_then(|v| v.to_str().ok())
-            .unwrap_or("")
-            .to_string();
+        let respuesta = enviar_solicitud(&self.client, proveedor, api_key, &url, &body).await?;
 
         /* Fallback no-stream: si el proveedor no devuelve text/event-stream
          * (p. ej. un proxy que responde JSON directo), se hace la llamada
          * normal y se emite un único token. */
-        if !content_type.contains("text/event-stream") {
-            let datos: serde_json::Value = respuesta.json().await.map_err(|error| {
-                Error::Proveedor {
-                    detalle: format!("Respuesta no JSON del proveedor: {error}"),
-                    causa: None,
-                }
-            })?;
-            let contenido = datos
-                .pointer("/choices/0/message/content")
-                .and_then(serde_json::Value::as_str)
-                .unwrap_or("")
-                .to_string();
-            /* Fase 4: si el cliente canceló (on_token → false), se aborta y
-             * no se devuelve una respuesta parcial como resultado exitoso. */
-            if !on_token(&contenido) {
-                return Err(Error::Cancelado);
-            }
-            return Ok(AiStreamResult {
-                contenido,
-                tool_calls: Vec::new(),
-                tokens_prompt: datos
-                    .pointer("/usage/prompt_tokens")
-                    .and_then(serde_json::Value::as_u64)
-                    .unwrap_or(0) as u32,
-                tokens_complecion: datos
-                    .pointer("/usage/completion_tokens")
-                    .and_then(serde_json::Value::as_u64)
-                    .unwrap_or(0) as u32,
-                finish_reason: datos
-                    .pointer("/choices/0/finish_reason")
-                    .and_then(serde_json::Value::as_str)
-                    .unwrap_or("")
-                    .to_string(),
-                provider: proveedor.to_string(),
-                modelo: modelo.to_string(),
-            });
+        if !respuesta_es_stream(&respuesta) {
+            return resultado_no_stream(respuesta, proveedor, &modelo, on_token).await;
         }
 
         let (contenido, tool_calls, tokens_prompt, tokens_complecion, finish_reason) =
@@ -540,55 +556,3 @@ async fn hojear_stream(
 
     Ok((contenido, tool_calls, tokens_prompt, tokens_complecion, finish_reason))
 }
-
-/* Convierte las tool_calls crudas del SSE a la estructura tipada del dominio.
- * Función pura extraída del método stream para acortarlo (funcion-larga-rs).
- * [318A-10 02-09-2026] Sanidad defensiva: Laguna S 2.1 free (commandcode)
- * devuelve tool_calls en streaming con `id` y `function.name` VACÍOS. Antes
- * eso llegaba al runtime como AiToolCall{id:"", nombre:"", ...} → la tool
- * fallaba con "Tool desconocida: " y, al reenviar el par assistant/tool, el
- * `tool_call_id` vacío hacía que el proveedor respondiera 400 "Tool message
- * must have tool_call_id". Ahora:
- * - si `function.name` falta o es vacío → se descarta la tool_call (malformada);
- * - si `id` falta o es vacío → se sintetiza uno estable para que el par
- *   assistant(tool_calls)/tool conserve un tool_call_id válido. */
-pub(crate) fn parsear_tool_calls(tool_calls: Vec<serde_json::Value>) -> Vec<AiToolCall> {
-    tool_calls
-        .into_iter()
-        .filter_map(|call| {
-            let nombre = call
-                .pointer("/function/name")
-                .and_then(serde_json::Value::as_str)
-                .map(str::trim)
-                .filter(|nombre| !nombre.is_empty())
-                .map(str::to_owned)?;
-            let id = call
-                .get("id")
-                .and_then(serde_json::Value::as_str)
-                .map(str::trim)
-                .filter(|id| !id.is_empty())
-                .map(str::to_owned)
-                .unwrap_or_else(|| format!("call_{nombre}_{:x}", rand_fallback()));
-            let argumentos: serde_json::Value = call
-                .pointer("/function/arguments")
-                .and_then(serde_json::Value::as_str)
-                .and_then(|args| serde_json::from_str(args).ok())
-                .unwrap_or_else(|| serde_json::json!({}));
-            Some(AiToolCall { id, nombre, argumentos })
-        })
-        .collect()
-}
-
-/// Fuente de entropía para sintetizar `tool_call_id` (sin dependencia nueva):
-/// mezcla un contador volátil con el reloj. Suficiente para un id estable
-/// dentro del turno; el proveedor solo exige que NO sea vacío y que el par
-/// assistant/tool lo repita.
-fn rand_fallback() -> u64 {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.subsec_nanos())
-        .unwrap_or(0);
-    (nanos as u64) ^ (nanos as u64).rotate_left(17)
-}
-

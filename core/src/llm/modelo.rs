@@ -479,3 +479,87 @@ pub(crate) fn mayuscula_primera(texto: &str) -> String {
     }
 }
 
+/* [059A-S3] Relocalización desde `red.rs` (límite de 500 ef del archivo):
+ * el parseo de tool_calls y la clasificación de errores transitorios son lógica
+ * pura sobre el contrato; el transporte HTTP queda en `red.rs`. Movimiento fiel,
+ * sin cambios de lógica. */
+/// ¿El error del proveedor es transitorio (reintentar tiene sentido)?
+/// `Error::Proveedor` con prefijo de red (reqwest send/read) o con un código
+/// HTTP 5xx/429; el resto (4xx de auth/billing/schema) es permanente.
+pub(crate) fn es_error_transitorio(error: &Error) -> bool {
+    let Error::Proveedor { detalle, causa: _ } = error else {
+        return false;
+    };
+    if detalle.starts_with("Error de red:") || detalle.contains("Error leyendo el stream") {
+        return true;
+    }
+    /* El detalle tiene la forma "{proveedor} {status}: {mensaje}" donde
+     * {status} es el Display de reqwest StatusCode, p. ej. "503 Service
+     * Unavailable" (incluye la razón). Extraemos el primer token numérico
+     * tras el proveedor (el código de 3 dígitos). */
+    let despues_proveedor = detalle
+        .find(' ')
+        .and_then(|i| detalle.get(i + 1..))
+        .unwrap_or("");
+    let status_txt = despues_proveedor
+        .split_whitespace()
+        .next()
+        .unwrap_or("")
+        .trim();
+    let Ok(status) = status_txt.parse::<u16>() else {
+        return false;
+    };
+    status == 429 || (500..=599).contains(&status)
+}
+
+
+/* Convierte las tool_calls crudas del SSE a la estructura tipada del dominio.
+ * Función pura extraída del método stream para acortarlo (funcion-larga-rs).
+ * [318A-10 02-09-2026] Sanidad defensiva: Laguna S 2.1 free (commandcode)
+ * devuelve tool_calls en streaming con `id` y `function.name` VACÍOS. Antes
+ * eso llegaba al runtime como AiToolCall{id:"", nombre:"", ...} → la tool
+ * fallaba con "Tool desconocida: " y, al reenviar el par assistant/tool, el
+ * `tool_call_id` vacío hacía que el proveedor respondiera 400 "Tool message
+ * must have tool_call_id". Ahora:
+ * - si `function.name` falta o es vacío → se descarta la tool_call (malformada);
+ * - si `id` falta o es vacío → se sintetiza uno estable para que el par
+ *   assistant(tool_calls)/tool conserve un tool_call_id válido. */
+pub(crate) fn parsear_tool_calls(tool_calls: Vec<serde_json::Value>) -> Vec<AiToolCall> {
+    tool_calls
+        .into_iter()
+        .filter_map(|call| {
+            let nombre = call
+                .pointer("/function/name")
+                .and_then(serde_json::Value::as_str)
+                .map(str::trim)
+                .filter(|nombre| !nombre.is_empty())
+                .map(str::to_owned)?;
+            let id = call
+                .get("id")
+                .and_then(serde_json::Value::as_str)
+                .map(str::trim)
+                .filter(|id| !id.is_empty())
+                .map(str::to_owned)
+                .unwrap_or_else(|| format!("call_{nombre}_{:x}", rand_fallback()));
+            let argumentos: serde_json::Value = call
+                .pointer("/function/arguments")
+                .and_then(serde_json::Value::as_str)
+                .and_then(|args| serde_json::from_str(args).ok())
+                .unwrap_or_else(|| serde_json::json!({}));
+            Some(AiToolCall { id, nombre, argumentos })
+        })
+        .collect()
+}
+
+/// Fuente de entropía para sintetizar `tool_call_id` (sin dependencia nueva):
+/// mezcla un contador volátil con el reloj. Suficiente para un id estable
+/// dentro del turno; el proveedor solo exige que NO sea vacío y que el par
+/// assistant/tool lo repita.
+fn rand_fallback() -> u64 {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.subsec_nanos())
+        .unwrap_or(0);
+    (nanos as u64) ^ (nanos as u64).rotate_left(17)
+}
