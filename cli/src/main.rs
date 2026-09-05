@@ -38,6 +38,20 @@ fn main() -> ExitCode {
             );
             ExitCode::SUCCESS
         }
+        /* [059A-20 05-09] `--help`/`-h` se caían al brazo de subcomando
+         * desconocido (exit 2). Ayuda explícita a stdout con exit 0. */
+        Some("--help" | "-h") => {
+            println!("uso: glory-harness <run|chat|daemon|schedule|tools|doctor|--version>");
+            println!();
+            println!("  run       turno único (--prompt/--stdin/--dir/--provider/--modelo/--modo)");
+            println!("  chat      sesión interactiva; --tui para la interfaz enriquecida");
+            println!("  daemon    servicio de fondo por NDJSON (consumidor-daemon.mjs)");
+            println!("  schedule  tareas programadas: <list|create|remove|logs>");
+            println!("  tools     tools disponibles del núcleo");
+            println!("  doctor    diagnóstico de configuración y proveedores");
+            println!("  --version versión del CLI y del contrato core");
+            ExitCode::SUCCESS
+        }
         Some("run") => {
             let prompt = extraer_opcion(&args, &["--prompt", "--mensaje", "-p"]);
             let usa_stdin = args.iter().any(|a| a == "--stdin");

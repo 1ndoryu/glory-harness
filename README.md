@@ -51,6 +51,25 @@ consumidores; el frontend no cambia.
 - **Como chat interactivo (Fase 5):** `glory-harness chat` (REPL en la terminal
   que mantiene la misma conversación entre turnos).
 
+## Build e instalación (paso obligatorio tras cada fase)
+
+El binario que el usuario ejecuta es `~/.cargo/bin/glory-harness.exe` (ya en
+`PATH`). `cargo build` **no** lo actualiza: escribe solo en `CARGO_TARGET_DIR`
+(p. ej. `C:/tmp/glory-target/glory-harness`). Tras tocar `cli/` o el contrato
+del core, reinstala y verifica para que el artefacto no quede por detrás del
+árbol (lección 059A-20 05-09: el binario instalado llevaba 3 días de fases
+atrasadas — `schedule` y `--help` inexistentes en el binario, presentes en el
+código):
+
+```bash
+cd "glory-harness"
+export CARGO_TARGET_DIR="C:/tmp/glory-target/glory-harness"
+cargo build --release --package glory-harness
+cp "$CARGO_TARGET_DIR/release/glory-harness.exe" "$HOME/.cargo/bin/glory-harness.exe"
+# verificación mínima: la ayuda lista `schedule` y los subcomandos responden
+glory-harness --help && glory-harness schedule list
+```
+
 ## CLI `run` — un comando, desde cualquier carpeta
 
 El binario se instala en `~/.cargo/bin/glory-harness.exe` (ya en `PATH`), así que
