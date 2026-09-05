@@ -4,7 +4,8 @@
 //! consumidores.
 
 pub mod context;
-pub mod plan;
-pub mod subagente;
 pub mod llm;
+pub mod plan;
+pub mod prompt;
 pub mod runtime;
+pub mod subagente;
