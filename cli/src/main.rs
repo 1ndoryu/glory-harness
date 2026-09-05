@@ -27,8 +27,12 @@ fn main() -> ExitCode {
     // binario funcione "desde cualquier carpeta" sin depender del .env de un
     // proyecto). Solo define variables que aún no existan en el entorno.
     cargar_env_usuario();
+    despachar(std::env::args().skip(1).collect())
+}
 
-    let args: Vec<String> = std::env::args().skip(1).collect();
+/// [059A-22] Despacho de subcomandos, extraído de `fn main` (que queda como
+/// stub de entrada por debajo del límite de 100 líneas efectivas del gate).
+fn despachar(args: Vec<String>) -> ExitCode {
     match args.first().map(String::as_str) {
         Some("--version" | "-V") => {
             println!(
@@ -41,15 +45,7 @@ fn main() -> ExitCode {
         /* [059A-20 05-09] `--help`/`-h` se caían al brazo de subcomando
          * desconocido (exit 2). Ayuda explícita a stdout con exit 0. */
         Some("--help" | "-h") => {
-            println!("uso: glory-harness <run|chat|daemon|schedule|tools|doctor|--version>");
-            println!();
-            println!("  run       turno único (--prompt/--stdin/--dir/--provider/--modelo/--modo)");
-            println!("  chat      sesión interactiva; --tui para la interfaz enriquecida");
-            println!("  daemon    servicio de fondo por NDJSON (consumidor-daemon.mjs)");
-            println!("  schedule  tareas programadas: <list|create|remove|logs>");
-            println!("  tools     tools disponibles del núcleo");
-            println!("  doctor    diagnóstico de configuración y proveedores");
-            println!("  --version versión del CLI y del contrato core");
+            imprimir_ayuda();
             ExitCode::SUCCESS
         }
         Some("run") => {
@@ -71,13 +67,7 @@ fn main() -> ExitCode {
             } else {
                 None
             };
-            match tokio::runtime::Runtime::new() {
-                Ok(rt) => rt.block_on(run::run(prompt, opciones)),
-                Err(e) => {
-                    eprintln!("glory-harness run: no se pudo iniciar el runtime tokio: {e}");
-                    ExitCode::from(1)
-                }
-            }
+            con_runtime("run", |rt| rt.block_on(run::run(prompt, opciones)))
         }
         Some("chat") => {
             let opciones = run::OpcionesRun {
@@ -90,39 +80,27 @@ fn main() -> ExitCode {
                 razonamiento: None,
             };
             let usa_tui = args.iter().any(|a| a == "--tui");
-            match tokio::runtime::Runtime::new() {
-                Ok(rt) => {
-                    let res = if usa_tui {
-                        rt.block_on(tui::tui(opciones))
-                    } else {
-                        rt.block_on(chat::chat(opciones))
-                    };
-                    match res {
-                        Ok(()) => ExitCode::SUCCESS,
-                        Err(e) => {
-                            eprintln!("glory-harness chat: {e}");
-                            ExitCode::from(1)
-                        }
+            con_runtime("chat", |rt| {
+                let res = if usa_tui {
+                    rt.block_on(tui::tui(opciones))
+                } else {
+                    rt.block_on(chat::chat(opciones))
+                };
+                match res {
+                    Ok(()) => ExitCode::SUCCESS,
+                    Err(e) => {
+                        eprintln!("glory-harness chat: {e}");
+                        ExitCode::from(1)
                     }
                 }
-                Err(e) => {
-                    eprintln!("glory-harness chat: no se pudo iniciar el runtime tokio: {e}");
-                    ExitCode::from(1)
-                }
-            }
+            })
         }
         Some("daemon") => {
             let puerto = extraer_opcion(&args, &["--puerto", "--port"])
                 .and_then(|p| p.parse::<u16>().ok())
                 .unwrap_or(8798);
             let mostrar = args.iter().any(|a| a == "--mostrar-token");
-            match tokio::runtime::Runtime::new() {
-                Ok(rt) => rt.block_on(daemon::run(puerto, mostrar)),
-                Err(e) => {
-                    eprintln!("glory-harness daemon: no se pudo iniciar el runtime tokio: {e}");
-                    ExitCode::from(1)
-                }
-            }
+            con_runtime("daemon", |rt| rt.block_on(daemon::run(puerto, mostrar)))
         }
         Some("schedule") => cmd_schedule(&args[1..]),
         Some("tools") => {
@@ -143,6 +121,35 @@ fn main() -> ExitCode {
             ExitCode::from(2)
         }
     }
+}
+
+/// [059A-22] Ejecuta `f` con un runtime tokio nuevo; ante fallo imprime el
+/// error con el nombre del subcomando y sale con código 1 (antes era un match
+/// duplicado en cada brazo run/chat/daemon).
+fn con_runtime<F>(nombre: &str, f: F) -> ExitCode
+where
+    F: FnOnce(&tokio::runtime::Runtime) -> ExitCode,
+{
+    match tokio::runtime::Runtime::new() {
+        Ok(rt) => f(&rt),
+        Err(e) => {
+            eprintln!("glory-harness {nombre}: no se pudo iniciar el runtime tokio: {e}");
+            ExitCode::from(1)
+        }
+    }
+}
+
+/// [059A-22] Texto de `--help`, extraído del brazo para acotar `despachar`.
+fn imprimir_ayuda() {
+    println!("uso: glory-harness <run|chat|daemon|schedule|tools|doctor|--version>");
+    println!();
+    println!("  run       turno único (--prompt/--stdin/--dir/--provider/--modelo/--modo)");
+    println!("  chat      sesión interactiva; --tui para la interfaz enriquecida");
+    println!("  daemon    servicio de fondo por NDJSON (consumidor-daemon.mjs)");
+    println!("  schedule  tareas programadas: <list|create|remove|logs>");
+    println!("  tools     tools disponibles del núcleo");
+    println!("  doctor    diagnóstico de configuración y proveedores");
+    println!("  --version versión del CLI y del contrato core");
 }
 
 /// `glory-harness schedule <list|create|remove|logs>`: administra las tareas
