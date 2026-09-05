@@ -51,6 +51,11 @@ export interface SidebarOpciones {
   onArchivar: (id: string, archivada: boolean) => void;
   /** Se invoca al eliminar una conversación. */
   onEliminar: (id: string) => void;
+  /** [039A-3 P5] Consulta si se puede ofrecer "Abrir en panel lateral"
+   * (el orquestador decide: <2 chats abiertos y ancho suficiente). */
+  puedeAbrirLateral?: () => boolean;
+  /** [039A-3 P5] Abre el id en un segundo panel lateral. */
+  onAbrirEnLateral?: (id: string) => void;
   /** Al pulsar un botón superior del nav (nueva/agentes/flujo/complementos). */
   onAccionNav?: (accion: AccionNav) => void;
   abrirConfig: () => void;
@@ -225,6 +230,20 @@ export function montarSidebar(opts: SidebarOpciones): Sidebar {
               },
             }),
           );
+          // [039A-3 P5] "Abrir en panel lateral" (D4): solo se ofrece si el
+          // orquestador lo permite (<2 chats y ancho suficiente).
+          if (opts.puedeAbrirLateral?.() && opts.onAbrirEnLateral) {
+            m.appendChild(crearSeparadorMenu());
+            m.appendChild(
+              crearItemMenu({
+                texto: 'Abrir en panel lateral',
+                onClick() {
+                  cerrarMenuActual();
+                  opts.onAbrirEnLateral?.(conv.id);
+                },
+              }),
+            );
+          }
           m.appendChild(crearSeparadorMenu());
           m.appendChild(
             crearItemMenu({

@@ -68,6 +68,10 @@ export interface OpcionesTurno {
   modo: string;
   /** [039A-1 04-09 H7] Nivel de razonamiento (low|medium|high). */
   razonamiento: string;
+  /** [039A-3 P5] Panel destino del turno (`'principal'` default en el backend;
+   * el panel lateral pasa `'lateral'`). En M1 solo hay un turno a la vez y
+   * este panel es el que recibe los eventos (el adaptador es compartido). */
+  panelId?: string;
 }
 
 export interface InfoConversacion {
@@ -429,7 +433,7 @@ export function crearAdaptadorReal(hooks: HooksAdaptador = {}) {
         escuchando = true;
       }
       await asegurarSesion(opts);
-      await invoke('enviar_turno', { mensaje: texto });
+      await invoke('enviar_turno', { mensaje: texto, panel_id: opts.panelId ?? null });
     } catch (e: unknown) {
       await cerrar(false, String(e));
     }
@@ -438,8 +442,9 @@ export function crearAdaptadorReal(hooks: HooksAdaptador = {}) {
   function detener(): void {
     // El backend aborta, marca el turno `cancelado` y emite `turno-fin`
     // (ok:false). El cierre local es optimista; el `turno-fin` tardío se
-    // ignora por el flag `cerrado`.
-    void invoke('cancelar_turno').catch(() => {});
+    // ignora por el flag `cerrado`. [039A-3 P5] Cancela el turno del panel
+    // que lanzó `montar` (el adaptador guarda la última `OpcionesTurno`).
+    void invoke('cancelar_turno', { panel_id: ultimaOpcion.panelId ?? null }).catch(() => {});
     if (!cerrado) {
       cerrado = true;
       ultimoResultado = 'cancelado';
@@ -470,15 +475,24 @@ export function crearAdaptadorReal(hooks: HooksAdaptador = {}) {
     /** Abre la sesión si aún no existe (para listar/cargar al arrancar). */
     asegurarSesion,
     sesion: {
-      async nueva(titulo?: string): Promise<InfoConversacion> {
-        const conv = await invoke<InfoConversacion>('conversacion_nueva', { titulo: titulo ?? null });
+      /** [039A-3 P5] Crea una conversación en el panel dado (default
+       * 'principal'). Devuelve la conversación nueva. */
+      async nueva(titulo?: string, panelId?: string): Promise<InfoConversacion> {
+        const conv = await invoke<InfoConversacion>('conversacion_nueva', {
+          titulo: titulo ?? null,
+          panel_id: panelId ?? null,
+        });
         return conv;
       },
       async listar(): Promise<InfoConversacion[]> {
         return invoke<InfoConversacion[]>('listar_conversaciones');
       },
-      async cargar(id: string): Promise<CargaConversacion> {
-        return invoke<CargaConversacion>('cargar_conversacion', { id });
+      /** [039A-3 P5] Carga una conversación en el panel dado. */
+      async cargar(id: string, panelId?: string): Promise<CargaConversacion> {
+        return invoke<CargaConversacion>('cargar_conversacion', {
+          id,
+          panel_id: panelId ?? null,
+        });
       },
       async renombrar(id: string, titulo: string): Promise<boolean> {
         return invoke<boolean>('renombrar_conversacion', { id, titulo });
@@ -486,21 +500,37 @@ export function crearAdaptadorReal(hooks: HooksAdaptador = {}) {
       async archivar(id: string, archivada: boolean): Promise<boolean> {
         return invoke<boolean>('archivar_conversacion', { id, archivada });
       },
-      /** Si era la actual, el backend crea una nueva y la devuelve. */
-      async eliminar(id: string): Promise<InfoConversacion> {
-        return invoke<InfoConversacion>('eliminar_conversacion', { id });
+      /** [039A-3 P5] Si era la actual del panel, el backend crea una nueva en
+       * ese panel y la devuelve. */
+      async eliminar(id: string, panelId?: string): Promise<InfoConversacion> {
+        return invoke<InfoConversacion>('eliminar_conversacion', {
+          id,
+          panel_id: panelId ?? null,
+        });
       },
       /** [039A-3 P2] Borra el hilo posterior a un mensaje de usuario y
        * devuelve la conversación recién recortada. `editar=false` conserva el
        * mensaje objetivo ("volver a este punto"); `editar=true` lo borra
-       * también (se reescribe al reenviar desde el modo edición). */
-      async rewind(hastaMensajeId: string, editar: boolean): Promise<CargaConversacion> {
-        return invoke<CargaConversacion>('rewind_conversacion', { hastaMensajeId, editar });
+       * también (se reescribe al reenviar desde el modo edición).
+       * [039A-3 P5] Opera sobre el panel dado. */
+      async rewind(
+        hastaMensajeId: string,
+        editar: boolean,
+        panelId?: string,
+      ): Promise<CargaConversacion> {
+        return invoke<CargaConversacion>('rewind_conversacion', {
+          hastaMensajeId,
+          editar,
+          panel_id: panelId ?? null,
+        });
       },
       /** [039A-3 P3] Restaura los archivos del último tramo rebobinado (acción
-       * EXPLÍCITA tras "volver a punto"). Falla si no hay tramo pendiente. */
-      async restaurarTramo(): Promise<ResultadoRestauracionTramo> {
-        return invoke<ResultadoRestauracionTramo>('restaurar_archivos_tramo');
+       * EXPLÍCITA tras "volver a punto"). Falla si no hay tramo pendiente.
+       * [039A-3 P5] Opera sobre el tramo del panel dado. */
+      async restaurarTramo(panelId?: string): Promise<ResultadoRestauracionTramo> {
+        return invoke<ResultadoRestauracionTramo>('restaurar_archivos_tramo', {
+          panel_id: panelId ?? null,
+        });
       },
       async proveedores(): Promise<ProveedorInfo[]> {
         return invoke<ProveedorInfo[]>('proveedores_disponibles');

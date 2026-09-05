@@ -158,6 +158,17 @@
 /* [039A-3 P5] Con 2 paneles cada uno ocupa la mitad; el borde entre ambos
    lo pone `.chat + .chat`. */
 #paneles .chat + .chat { border-left: 1px solid var(--borde); }
+/* [039A-3 P5] Si la ventana encoge por debajo de ~900px (p. ej. el usuario
+   abrió el lateral con ventana ancha y luego la reduce), los dos .chat se
+   apilan verticalmente en lugar de romper el layout. El JS además no ofrece
+   "Abrir en panel lateral" por debajo de 900px (puedeAbrirLateral). */
+@media (max-width: 900px) {
+    #paneles { flex-direction: column; }
+    #paneles .chat + .chat {
+        border-left: none;
+        border-top: 1px solid var(--borde);
+    }
+}
 
 .cabecera-chat {
     border-bottom: 1px solid var(--borde);
