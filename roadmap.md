@@ -101,7 +101,14 @@ Orden propuesto (dependencias de abajo arriba):
   `rowid` + menú por mensaje) HECHO (unit + type-check + build + mock; commit `039A-3 (P2)`).
   P4 (⋯ cabecera + sidebar colapsable/redimensionable + botón expandir) HECHO (type-check +
   build + navegador mock; commit `039A-3 (P4)`).
-  En curso: P3 vault de respaldos → P5 2 paneles → P6 indicador circular + config 150k.
+  P5 (2 paneles, M1) HECHO (05-09, commit `903a54b`): backend ya estaba (045f7e1, `panel_id`
+  por panel); front gestor de 1-2 `.chat` — fábrica `panelChat.ts` + orquestador delgado en
+  `main.ts` + "Abrir en panel lateral" (sidebar ⋯, D4) + responsive <900px apila los 2 chats.
+  Verificado con navegador mock (2 paneles, turno global M1, foco al cerrar lateral, guard
+  responsive). Evidencia en `Agente/completados/tareas-2026-09-05.md`.
+  En curso: P3 vault de respaldos → P6 indicador circular + config 150k.
+  Pendiente de P5: E2E `tauri dev` (2 conversaciones reales, eventos al panel correcto) —
+  bloqueada mientras el agente paralelo (318A-17) toca `cli/`/`core/`.
   ⚠️ Core (`sandbox.rs`) se toca en P3 (hook opcional + exclusión `.glory-harness/`) — coordinar
   con el agente paralelo (318A-17) que trabaja en core/cli y commitea en `main`.
 - `Agente/planes/plan-saneamiento-calidad-2026-09-05.md` (059A-1) — **activo** (05-09): deuda de

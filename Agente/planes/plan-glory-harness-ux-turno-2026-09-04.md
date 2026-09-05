@@ -434,12 +434,14 @@ para no acoplar el riesgo del vault al del multi-panel. Pendiente de confirmar c
       arranque. Sin acceso real a `tauri dev` en esta pasada (ver §P2 E2E).
 
 ### P5 — Dos conversaciones (panel lateral máx 2) (039A-3b; requiere Fase 1)
-- [ ] Backend: `PanelManager` (mapa hasta 2 paneles); comandos aceptan `panel_id`; eventos llevan
+- [x] Backend: `PanelManager` (mapa hasta 2 paneles); comandos aceptan `panel_id`; eventos llevan
       `panel_id`. Turnos NO simultáneos (M1): al enviar en un panel se desactiva el otro.
-- [ ] Front: `#cuerpo > #paneles` con 1-2 `#chat`; abrir 2º desde menú contextual de la
+      (Commit `045f7e1`.)
+- [x] Front: `#cuerpo > #paneles` con 1-2 `#chat`; abrir 2º desde menú contextual de la
       conversación; cerrar panel; cabecera/entrada por panel. Estado vacío/ocupado del 2º panel
       definido; la sidebar mantiene "activa" la conversación del panel enfocado. Responsive: a
       ancho pequeño los 2 chats se apilan o se prohíbe abrir el 2º.
+      (Commit `903a54b`; verificado con navegador mock 05-09.)
 - [ ] Evidencia: E2E `tauri dev` (2 conversaciones, turnos seriales, eventos al panel correcto).
 
 ### P6 — Indicador circular de contexto + config ventana 150k (039A-3b)
