@@ -115,6 +115,36 @@
 }
 .entrada .ctx-indicador:hover { opacity: 1; }
 
+/* [039A-3 P6+] menú de detalle del uso de la ventana (hover sobre el círculo).
+   Informativo, sin ítems accionables: pointer-events:none para que lo abra y
+   cierre el hover del propio círculo y nunca bloquee otros menús (z-index
+   por encima de .menu-ctx). Monocromo estricto, filas etiqueta/valor. */
+.ctx-detalle {
+    position: fixed;
+    z-index: 110;
+    background: #fff;
+    border: 1px solid #000;
+    padding: var(--sp-xs) var(--sp-sm);
+    font-size: var(--xs);
+    line-height: 1.5;
+    color: #000;
+    white-space: nowrap;
+    pointer-events: none;
+}
+.ctx-detalle-titulo {
+    opacity: 0.6;
+    margin-bottom: 4px;
+    padding-bottom: 4px;
+    border-bottom: 1px solid #000;
+}
+.ctx-detalle-fila {
+    display: flex;
+    align-items: baseline;
+    gap: var(--sp-sm);
+}
+.ctx-detalle-fila .etiqueta { opacity: 0.6; }
+.ctx-detalle-fila .valor { margin-left: auto; }
+
 /* [039A-3 P2] barra "editando mensaje… [cancelar]" sobre el textarea */
 .entrada .editando-msg {
     display: flex;

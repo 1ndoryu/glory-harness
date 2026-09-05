@@ -18,6 +18,7 @@ import { montarCabeceraChat, type CabeceraChat } from './cabecera';
 import {
   montarEntrada,
   type Entrada,
+  type EstadoContexto,
   type ModoEjecucion,
 } from './entrada';
 import type { PanelMeta } from './panelMeta';
@@ -132,7 +133,7 @@ export interface PanelChat {
   /** Repinta un aviso en este panel (mock/próximamente, sin backend). */
   avisoLocal(texto: string, meta: string, detalle: string): void;
   /** [039A-3 P6] Actualiza el indicador circular de contexto de la entrada. */
-  setContexto(pct: number | null, maxVentana: number | null): void;
+  setContexto(estado: EstadoContexto): void;
 }
 
 export interface PanelChatOpciones {
@@ -579,7 +580,7 @@ export function montarPanelChat(opts: PanelChatOpciones): PanelChat {
         // [039A-3 P6] Espejo del pie mock: el % y la ventana del pie también
         // se reflejan en el indicador circular (verificación visual sin
         // backend; en real el ContextoDetalle/usage alimenta setContexto).
-        entrada.setContexto(7, 150000);
+        entrada.setContexto({ pct: 7, maxVentana: 150000, reservaSalida: 20000, totalEntrada: 9100 });
       }
       d.notificarTurnoFin();
     };
@@ -750,8 +751,8 @@ export function montarPanelChat(opts: PanelChatOpciones): PanelChat {
     avisoLocal(texto: string, meta: string, detalle: string) {
       avisoChat(texto, meta, detalle);
     },
-    setContexto(pct: number | null, maxVentana: number | null) {
-      entrada.setContexto(pct, maxVentana);
+    setContexto(estado: EstadoContexto) {
+      entrada.setContexto(estado);
     },
   };
 

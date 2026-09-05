@@ -112,7 +112,14 @@ const adaptador = crearAdaptadorReal({
   // circular de TODOS los paneles con el % y la ventana real (fuente única).
   // Seguro: se ejecuta en runtime, cuando `panelesRegistrados` ya existe.
   onContexto(u: UsoTurno) {
-    panelesRegistrados.forEach((p) => p.setContexto(u.ocupacionPct, u.maxVentana));
+    panelesRegistrados.forEach((p) =>
+      p.setContexto({
+        pct: u.ocupacionPct,
+        maxVentana: u.maxVentana,
+        reservaSalida: u.reservaSalida,
+        totalEntrada: u.totalEntrada,
+      }),
+    );
   },
 });
 
