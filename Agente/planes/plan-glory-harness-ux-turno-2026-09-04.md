@@ -520,6 +520,32 @@ ocultar la lista no, solo para mostrar, se oculta automáticamente si se reduce 
       `restaurarLateralAncho()`. Verificado en navegador mock: arrastre a la izquierda
       342→465→725 (máx 70%), a la derecha 465→328→260 (mín), persistencia `lateral_ancho` en
       cada soltura. Captura `C:/tmp/p6b-ret2-divisor-corregido.png`.
+- [x] Retoque 3 (05-09, commit `260c08e`): los grips de la sidebar y del lateral eran franjas de
+      5px en el flujo flex (`flex:none; width:5px; background:#fff`) que ROBABAN ancho útil
+      permanentemente (blancas sobre blanco = "no se ven pero ocupan") y al hacer hover/
+      arrastrar se pintaban de negro (`:hover{background:#000}`) → el "borde negro de 5px" que
+      veía el usuario al redimensionar. Ahora son áreas de captura ABSOLUTAS:
+      `#cuerpo{position:relative}` + `#paneles{position:relative}` como anclas; `.sidebar-grip`
+      = `position:absolute; left:var(--sidebar-ancho); transform:translateX(-50%)` y
+      `.lateral-grip` = `right:var(--lateral-ancho); transform:translateX(50%)`, ambos de 9px,
+      `top:0;bottom:0`, `z-index:5`, SIN fondo ni hover. No ocupan layout, no hay franja al
+      hover, y el borde divisorio real lo marca el `border` de 1px del panel contiguo. La
+      fórmula del mousemove no cambia (el cursor define el borde). Verificado en navegador
+      mock: `#paneles` arranca en left 260 con sidebar visible (antes 265 = perdía 5px);
+      principal 838px con lateral; hover del grip `rgba(0,0,0,0)` (transparente); arrastre
+      lateral 462→562→462 y persistencia OK; colapso sidebar por arrastre OK; <900px el grip se
+      sigue ocultando. Capturas `C:/tmp/p6b-ret3-grip-hover-negro.png` (antes),
+      `C:/tmp/p6b-ret3-grips-overlay.png` (después).
+- [x] Retoque 4 (05-09, commit `a0b965c`): al abrir el panel lateral su área de escritura no se
+      veía (en el HTML el `#lateral-input` quedaba con `style="height:0px"`; solo se veían los
+      controles modelo/razonamiento/modo). Causa: `montarEntrada` llama a `ajustarEntrada()` en
+      el constructor, cuando el textarea aún NO está en el DOM (`scrollHeight` = 0), así que
+      fija `height:0`; el `medir()` de arranque solo recorría `panelesRegistrados` del momento
+      (el lateral se crea después). Fix: en `abrirEnLateral`, tras `appendChild` del grip y del
+      lateral, se llama `lateral.medir()` (el panel ya está en el DOM → recalcula la altura).
+      Verificado en navegador mock: `#lateral-input` `height:16px` (igual que el principal),
+      autoresize al escribir (crece a 64px con 4 líneas). Captura
+      `C:/tmp/p6b-ret4-input-lateral-visible.png`.
 - [ ] E2E `tauri dev` (bloqueado por el agente paralelo en `cli/`/`core/`).
 
 ---

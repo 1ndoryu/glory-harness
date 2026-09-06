@@ -137,6 +137,19 @@ Orden propuesto (dependencias de abajo arriba):
   ENGRANDE el lateral y a la derecha lo ENCOGE (clamp 260 / 70%). Verificado con navegador mock
   (crece 342→465→725 máx, encoge →328→260 mín, persistencia `lateral_ancho`). Evidencia en
   `Agente/completados/tareas-2026-09-05.md`.
+  P6b retoque 3 HECHO (05-09, commit `260c08e`): los grips (sidebar y lateral) eran franjas de
+  5px en el flujo flex que robaban ancho permanentemente y se pintaban de negro al hover/
+  arrastrar (el "borde negro de 5px" al redimensionar). Ahora son áreas de captura ABSOLUTAS
+  (`position:absolute`, 9px centrados sobre la línea divisoria de 1px, `z-index:5`, sin fondo):
+  no ocupan layout y no muestran franja al pasar el cursor. Verificado con navegador mock
+  (principal ocupa 838px sin perder 5px, hover transparente, arrastre y colapso intactos,
+  <900px se sigue ocultando). Evidencia en `Agente/completados/tareas-2026-09-05.md`.
+  P6b retoque 4 HECHO (05-09, commit `a0b965c`): al abrir el panel lateral su input no se veía
+  (el `medir()` de `montarEntrada` corre en el constructor antes de estar en el DOM →
+  `scrollHeight` 0 → `#lateral-input` quedaba con `height:0px`; solo se veían los controles).
+  Ahora `abrirEnLateral` llama a `lateral.medir()` tras montar el panel. Verificado con
+  navegador mock (input lateral 16px como el principal, autoresize al escribir). Evidencia en
+  `Agente/completados/tareas-2026-09-05.md`.
   En curso: P3 vault de respaldos. Pendiente P6-backend (inyectar `contexto.max_ventana` 150k en
   `construir_harness_con`/`reconfigurar_sesion` de `cli/run.rs`) — BLOQUEADO por el agente
   paralelo que toca `cli/`/`core/` (sin tocar el default del core 128k).
