@@ -678,13 +678,16 @@ function crearGripLateral(): HTMLElement {
   });
   window.addEventListener('mousemove', (e) => {
     if (!arrastrando) return;
-    const anchoPaneles = medirPanelesAncho();
-    const izquierda = paneles.getBoundingClientRect().left;
-    const cursorEnLateral = e.clientX - izquierda;
-    // El lateral va DESPUÉS del grip: ancho del lateral ≈ cursor - grip.
-    const ancho = cursorEnLateral;
+    const rect = paneles.getBoundingClientRect();
+    // [039A-3 P6b retoque] El lateral está ANCLADO al borde DERECHO de
+    // #paneles (flex: principal 1 + grip 5px + lateral `0 0 var(--lateral-ancho)`).
+    // El ancho del lateral es la distancia del cursor (el borde del divisor)
+    // hasta el borde derecho: arrastrar el divisor a la IZQUIERDA ENGRANDE el
+    // lateral y a la DERECHA lo encoge (gesto natural). Antes se calculaba
+    // desde el borde izquierdo y funcionaba INVERTIDO.
+    const ancho = rect.right - e.clientX;
     const MIN = 260;
-    const MAX = Math.round(anchoPaneles * 0.7);
+    const MAX = Math.round(rect.width * 0.7);
     const clampeado = Math.min(MAX, Math.max(MIN, Math.round(ancho)));
     aplicarLateralAncho(clampeado);
   });
