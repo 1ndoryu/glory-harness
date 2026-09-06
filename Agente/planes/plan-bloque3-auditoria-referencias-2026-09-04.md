@@ -17,9 +17,11 @@
   `Notification` diferido por decisión), Fase 5 ✅ (`318A-17 B3-F5`,
   export conversación→markdown en REPL y TUI; item `session` diferido:
   depende de `persistencia_sqlite.rs`, ajeno del hilo 039A-3), Fase 6 ✅
-  (`318A-17 B3-F6`, checkpoint/undo: `core/src/nucleo/historial.rs` + gate de
-  aprobación TUI extraído a `cli/src/ui/tui/gate.rs`).
-  Fases 7–8 pendientes.
+   (`318A-17 B3-F6`, checkpoint/undo: `core/src/nucleo/historial.rs` + gate de
+   aprobación TUI extraído a `cli/src/ui/tui/gate.rs`), Fase 7 ✅ (`318A-17
+   B3-F7`, 06-09: repo map opción B — `core/src/herramientas/repo_map.rs` +
+   tool `repo_map` de solo lectura, sin LSP).
+   Fase 8 pendiente.
 - **IDs sugeridos** para las fases del Bloque 3: `049A-N` (verificar contra
   `Agente/completados/` y `roadmap` antes de asignar).
 
@@ -551,13 +553,27 @@ commit por fase). Mover a ejecución solo tras aprobación del usuario.
       `bucle.rs`, al límite de tamaño) se extrajo a `cli/src/ui/tui/gate.rs`
       en este mismo pase para mantener `bucle.rs` bajo el límite del gate.
 
-### Fase 7 — LSP ligero o repo map (decisión)
-- [ ] Decidir A vs B: (A) cliente LSP opcional por lenguaje con tool
-      `definicion`/`simbolos`; (B) **repo map** tipo Aider (índice de símbolos por
-      relevancia alimentado por `grep`-like). Evidencia: claurst `lsp_tool.rs`,
-      opencode `tool/lsp.ts`, Aider.
-- [ ] La opción B es más barata y agnóstica; la A es más precisa. Recomendación
-      inicial: **B** en núcleo, A como plugin futuro.
+### Fase 7 — LSP ligero o repo map (decisión) ✅ (`318A-17 B3-F7`, 06-09)
+- [x] Decidir A vs B: **B** (repo map). La A (claurst `lsp_tool.rs`: manager global +
+      `lsp_servers` por lenguaje, procesos externos, JSON-RPC) es alto esfuerzo y pide
+      dependencias nuevas; B es barata, agnóstica, determinista y testeable sin red.
+      A queda como plugin futuro (sin fecha).
+- [x] Repo map en núcleo (`core/src/herramientas/repo_map.rs`): walk acotado (prof 8,
+      2000 archivos, 200 KB/archivo; excluye deps/build/.git/vault/secretos) + extracción
+      por línea (rs/ts/js/py: fn/struct/enum/trait/impl/mod/class/interface/def…) +
+      ranking nombre×10 + ruta×5 + peso de tipo (determinista: desempata por ruta/línea) +
+      render `ruta:linea:tipo nombre` (default 80, máx 200, ~12 KB con aviso de truncado).
+- [x] Tool `repo_map` (`consulta`/`ruta`/`limite`, solo lectura → `efecto: false`,
+      categoría `lectura` en `categorias_core`): registrada en `registrar_tools_archivo`
+      (mismo fail-closed: solo local). Sin inyección automática al prompt (futuro).
+- [x] Evidencia: 7 tests nuevos (extracción rs/ts/py, ranking, límite, alcance, vault/
+      secretos/pesados, tool ok + fail-closed); workspace 276 verdes (226 core + 43 cli +
+      7 desktop); clippy core+cli `-D warnings` limpio; gate `318A-17` PASS 0 errores.
+- [x] Gotchas del gate (documentados, sin tocar la herramienta): `funcion-larga-rs`
+      cuenta llaves textuales (llegó a atribuir 415 líneas a una fn de 6): se evitaron
+      literales `{` en el fuente (`export {` → chequeo por prefijo; `{` delimitador →
+      `char::from(123)`). Deuda aceptada (warning): `herramientas/` queda en 11 archivos
+      (máx 10); reorganizar a subdominios es refactor aparte.
 
 ### Fase 8 — IA de Tasks: cron de agente + memoria de aprendizaje (diseño)
 - [ ] Cron que **ejecuta un turno de agente** (no solo comando) y entrega resumen

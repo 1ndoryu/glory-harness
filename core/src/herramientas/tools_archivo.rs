@@ -401,6 +401,9 @@ pub fn registrar_tools_archivo(
     registry.registrar(Box::new(ToolFileWrite));
     registry.registrar(Box::new(ToolFilePatch));
     registry.registrar(Box::new(ToolFileSearch));
+    /* [Bloque 3, F7] El mapa necesita la raíz del workspace: mismo
+     * fail-closed (solo con sandbox local). */
+    crate::repo_map::registrar_tool_repo_map(registry);
     true
 }
 
@@ -425,17 +428,20 @@ mod tests {
     }
 
     #[test]
-    fn registra_las_cuatro_tools_con_sandbox() {
+    fn registra_las_tools_con_sandbox() {
         let (registry, _dir) = registry_con_sandbox();
         let ids = registry.ids();
         assert!(ids.contains(&"file_read"));
         assert!(ids.contains(&"file_write"));
         assert!(ids.contains(&"file_patch"));
         assert!(ids.contains(&"file_search"));
-        /* write/patch son efecto; read/search no. */
+        /* [Bloque 3, F7] repo_map viaja con las tools de archivo. */
+        assert!(ids.contains(&"repo_map"));
+        /* write/patch son efecto; read/search/map no. */
         assert!(registry.tiene_efecto("file_write"));
         assert!(registry.tiene_efecto("file_patch"));
         assert!(!registry.tiene_efecto("file_read"));
+        assert!(!registry.tiene_efecto("repo_map"));
     }
 
     fn dir_aislada(nombre: &str) -> std::path::PathBuf {

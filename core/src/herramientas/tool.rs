@@ -615,13 +615,14 @@ mod tests {
      * cada una. */
     #[test]
     fn descripciones_ricas_sin_escapes_rotos() {
-        let descripciones: [(&str, &'static str); 6] = [
+        let descripciones: [(&str, &'static str); 7] = [
             ("file_read", crate::tools_archivo::ToolFileRead.descripcion()),
             ("file_write", crate::tools_archivo::ToolFileWrite.descripcion()),
             ("file_patch", crate::tools_archivo::ToolFilePatch.descripcion()),
             ("file_search", crate::tools_archivo::ToolFileSearch.descripcion()),
             ("web_search", crate::tools_web::ToolWebSearch.descripcion()),
             ("todo", crate::todo::ToolTodo.descripcion()),
+            ("repo_map", crate::repo_map::ToolRepoMap.descripcion()),
         ];
         for (nombre, d) in descripciones {
             assert!(

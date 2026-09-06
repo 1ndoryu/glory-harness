@@ -4,6 +4,7 @@
 
 pub mod comando;
 pub mod mcp;
+pub mod repo_map;
 pub mod scheduler;
 pub mod skill;
 pub mod tareas;

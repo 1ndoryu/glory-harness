@@ -217,6 +217,9 @@ pub fn categorias_core() -> Vec<(&'static str, &'static str, Option<Clasificador
     vec![
         ("file_read", CAT_LECTURA, Some(clasificar_lectura)),
         ("file_search", CAT_LECTURA, None),
+        /* [Bloque 3, F7] `repo_map` es solo lectura sobre el workspace local
+         * ya acotado por el sandbox: categoría lectura, sin clasificador. */
+        ("repo_map", CAT_LECTURA, None),
         ("file_write", CAT_ESCRITURA, Some(clasificar_escritura)),
         ("file_patch", CAT_ESCRITURA, Some(clasificar_escritura)),
         ("web_search", CAT_RED, Some(clasificar_red)),
