@@ -9,7 +9,7 @@
   (cubierto por el spec clean-room de claurst `spec/`), Meta/Codex, Gemini CLI, Cursor, Aider.
 - **Estado:** auditoría inicial hecha (04-09). Este documento es la **hoja de
   trabajo**: checklists por referencia para marcar `[x]` y anotar, y al final el
-  **Bloque 3 recomendado** (aún NO ejecutado).
+  **Bloque 3 recomendado** (ejecutado F1–F8 el 04/05/06-09, ver Progreso).
 - **Progreso Bloque 3:** Fase 1 ✅ (`318A-17 B3-F1`), Fase 2 ✅ (`318A-17
   B3-F2`, cliente MCP stdio fail-closed), Fase 3 ✅ (`318A-17 B3-F3`, skills +
   comandos slash unificados), Fase 4 ✅ (`318A-17 B3-F4`, hooks de ciclo de
@@ -20,8 +20,10 @@
    (`318A-17 B3-F6`, checkpoint/undo: `core/src/nucleo/historial.rs` + gate de
    aprobación TUI extraído a `cli/src/ui/tui/gate.rs`), Fase 7 ✅ (`318A-17
    B3-F7`, 06-09: repo map opción B — `core/src/herramientas/repo_map.rs` +
-   tool `repo_map` de solo lectura, sin LSP).
-   Fase 8 pendiente.
+   tool `repo_map` de solo lectura, sin LSP), Fase 8 ✅ (`318A-18 B3-F8`,
+   06-09: cron que ejecuta turnos con entrega durable + diseño de memoria de
+   aprendizaje; evidencia en `Agente/completados/tareas-2026-09-06.md`).
+   Bloque 3 completo.
 - **IDs sugeridos** para las fases del Bloque 3: `049A-N` (verificar contra
   `Agente/completados/` y `roadmap` antes de asignar).
 

@@ -2,7 +2,7 @@
 
 - **Fecha:** 2026-09-03
 - **ID:** 039A-1 (libre; el 039A-2 lo usa el plan de mejora del agente en `core/src/diff.rs`)
-- **Estado:** F1 hecha (lib compartida, 2026-09-04); F2 cubierta por 318A-16 F2 sin hook nuevo; F4 en curso (src-tauri + adaptador TS real). Detour egui nativo probado y retirado el mismo día por decisión del usuario (UI TS). **04-09 (tarde):** corregidos los 7 hallazgos del primer `tauri dev` (ver `hallazgos-primer-tauri-dev-2026-09-04.md`); pendiente E2E en ventana + gate final del bloque.
+- **Estado:** F1 hecha (lib compartida, 2026-09-04); F2 cubierta por 318A-16 F2 sin hook nuevo; F4 en curso (src-tauri + adaptador TS real). Detour egui nativo probado y retirado el mismo día por decisión del usuario (UI TS). **04-09 (tarde):** corregidos los 7 hallazgos del primer `tauri dev` (ver `hallazgos-primer-tauri-dev-2026-09-04.md`); **06-09:** E2E en ventana real Todo OK + gate 039A-3 PASS (evidencia en `Agente/completados/tareas-2026-09-06.md`). Plan cerrado.
 - **Ampliación 2026-09-03 (pedido del usuario):** dentro de la app Tauri real TODAS las acciones
   de la UI deben funcionar de verdad: nueva conversación, acciones del agente bien renderizadas,
   selector de modelo real, configuraciones funcionales, cancelar ejecución, modos. Mapa

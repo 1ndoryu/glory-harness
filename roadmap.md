@@ -58,9 +58,7 @@ Orden propuesto (dependencias de abajo arriba):
       (reabre donde se quedó), modelo/modo/razonamiento en config persistida, deriva
       allowlist commandcode→glory, meta del boceto → `actualizar_meta` con puerta de modo en
       backend, `reconfigurar_sesion` al cambiar modelo/modo. Tipos `AgenteEvento` fieles al
-      núcleo. El primer `tauri dev` (04-09) señaló 7 hallazgos (H1–H7) ya corregidos en el
-      bloque siguiente; falta el ciclo E2E completo en ventana (enviar → streaming → tools →
-      aprobación → `turno-fin`).
+      núcleo.
 - [x] **F6 — Empaquetado + RAM + gate** (04-09, commit `8a8768c`): `tauri build` ok — exe
       release + MSI (`Glory Harness_0.1.0_x64_en-US.msi`) + NSIS setup en
       `C:\tmp\glory-target\glory-harness\release\bundle\`. Iconos válidos generados
@@ -71,15 +69,15 @@ Orden propuesto (dependencias de abajo arriba):
 > **Hecho (04-09, correcciones del primer `tauri dev`):** los 7 hallazgos del primer arranque
 > real quedaron corregidos (H1–H7, bloque 039A-1). Detalle en
 > `Agente/documentacion/hallazgos-primer-tauri-dev-2026-09-04.md` y evidencia en
-> `Agente/completados/tareas-2026-09-04.md`. Pendiente del bloque: E2E en la ventana real
-> (enviar → streaming → tools → aprobación → `turno-fin`) y gate final.
+> `Agente/completados/tareas-2026-09-04.md`. El E2E en ventana real quedó HECHO el 06-09
+> (Todo OK + gate 039A-3 PASS; evidencia en `Agente/completados/tareas-2026-09-06.md`).
 >
 > **Corrección de causa raíz H2 (04-09, tras el primer fix):** el usuario confirmó que la
 > respuesta del asistente seguía sin aparecer EN VIVO (solo al recargar). Causa: el frontend
 > `real.ts` leía el discriminante `evento` pero el backend serializa `AgenteEvento` con tag
 > `tipo` (`core/src/evento.rs`) → el switch no pintaba ningún evento. Fix aplicado en
-> `desktop/ui/src/tauri/real.ts` (`evento` → `tipo`; type-check limpio). **Pendiente validar en
-> vivo:** relanzar `tauri dev` y confirmar que el streaming de tokens aparece en la ventana.
+> `desktop/ui/src/tauri/real.ts` (`evento` → `tipo`; type-check limpio). **Validado en
+> vivo el 06-09:** el streaming de tokens aparece en la ventana (E2E Todo OK).
 >
 > **Hecho (UI, 03-09):** los botones del nav «Agentes» / «Flujo» / «Complementos» ahora
 > muestran «próximamente» en el chat (`onAccionNav` en sidebar + aviso en main.ts; §10.4).
@@ -93,10 +91,10 @@ Orden propuesto (dependencias de abajo arriba):
 
 ## Planes activos
 
-- `Agente/planes/plan-glory-harness-desktop-2026-09-03.md` (039A-1) — **activo**, en curso; las
+- `Agente/planes/plan-glory-harness-desktop-2026-09-03.md` (039A-1) — **cerrado 06-09**; las
   fases F1–F6 y el Bloque A (backend + cableado + panel meta real) están cerrados; los 7
-  hallazgos del primer `tauri dev` quedaron corregidos (H1–H7). Siguiente hito: E2E en la
-  ventana Tauri real y gate final del bloque.
+  hallazgos del primer `tauri dev` quedaron corregidos (H1–H7) y el E2E en la ventana
+  Tauri real quedó Todo OK con gate 039A-3 PASS.
 - `Agente/planes/plan-glory-harness-ux-turno-2026-09-04.md` (039A-3) — **activo, EN EJECUCIÓN**
   (04-09): bloque completo aprobado (P1-P6). P1 (pie de turno + persistir uso/modelo real)
   HECHO (mock + type-check + cargo check). P2 (editar/volver a punto: rewind transaccional por

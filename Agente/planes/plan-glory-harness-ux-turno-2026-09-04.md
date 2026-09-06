@@ -696,8 +696,8 @@ main.rs · pie en main/mensajes · config 150k en construir_harness_con.
 5. P5 dos conversaciones (panel lateral máx 2, M1).
 6. P6 indicador circular de contexto + config ventana 150k.
 
-**Estado**: EN EJECUCIÓN — bloque completo aprobado por el usuario (04-09). P1 (pie de turno +
-persistir uso/modelo real) HECHO y verificado en mock; P2 (editar/volver a punto) HECHO y
-verificado (unit + type-check + build + flujo mock); P4 (⋯ cabecera + sidebar
-colapsable/redimensionable) HECHO y verificado en navegador mock; resto de fases (P3, P5, P6)
-en curso.
+**Estado**: CERRADO 06-09 — bloque completo (P1-P6, P6b, P6-backend) + E2E en ventana
+real Todo OK (streaming en vivo, tools → aprobación → turno-fin, P3 rewind+restaurar,
+P5 2 paneles, P6 150k tras reiniciar) + gate 039A-3 PASS 0 errores. Evidencia en
+`Agente/completados/tareas-2026-09-06.md`. (Antes: P1/P2/P4 HECHO en mock; P3/P5/P6
+se cerraron después con commits `039A-3 (P2)`, `903a54b`, `769492d`+retoques, P6-backend.)
