@@ -34,3 +34,14 @@ reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
 crossterm = "0.28"
 unicode-width = "0.1"
+
+# [069A-2 F1] Servidor HTTP loopback del modo web (`glory-harness web`):
+# axum para las rutas HTTP/SSE, tokio-stream para envolver el canal SSE y
+# tower-http para servir la UI compilada desde el mismo proceso (sin CORS).
+axum = "0.8"
+tokio-stream = { version = "0.1", features = ["sync"] }
+tower-http = { version = "0.6", features = ["fs"] }
+
+# [069A-2 F2] Solo tests: `oneshot` para probar el router sin socket.
+[dev-dependencies]
+tower = { version = "0.5", features = ["util"] }
