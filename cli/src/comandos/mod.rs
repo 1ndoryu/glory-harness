@@ -3,6 +3,7 @@
 
 pub mod daemon;
 pub mod mcp_cli;
+pub mod memoria;
 pub mod notificar;
 pub mod run;
 pub mod sesion;

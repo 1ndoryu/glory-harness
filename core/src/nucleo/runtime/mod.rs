@@ -21,13 +21,14 @@ use uuid::Uuid;
 
 use crate::context::{AgentContextManager, ContextoConfig};
 use crate::error::Result;
+use crate::evento::AgenteEvento;
 use crate::guardas::{
     aviso_por_repeticion, aviso_vacio, decidir_reintento_vacio, texto_vacio, GuardasTurno,
 };
 use crate::hooks::{DispatcherHooks, EventoHook};
-use crate::ports::EjecutorComando;
-use crate::evento::AgenteEvento;
 use crate::llm::{AiChatOptions, AiMessage, AiToolCall, LlmProviderService};
+use crate::memoria::registrar_tools_memoria;
+use crate::ports::EjecutorComando;
 use crate::ports::{
     AccionAuditable, AgentPersistence, MensajePersistido, ProgramadorTareas, TurnoPersistido,
     WebFetchProvider, WebSearchProvider,
@@ -37,11 +38,11 @@ use crate::sandbox::SandboxArchivos;
 use std::collections::HashSet;
 
 use crate::subagente::{
-    CONCURRENTES_MAX_SUBAGENTES, GuardiaConcurrencia, GuardiaProfundidad, PerfilSubagente,
-    SUBAGENTES_EN_CURSO, concurrencia_permitida, perfil_subagente, perfiles_disponibles,
-    presupuesto_efectivo, profundidad_permitida, registrar_tool_task, schema_hijo,
+    concurrencia_permitida, perfil_subagente, perfiles_disponibles, presupuesto_efectivo,
+    profundidad_permitida, registrar_tool_task, schema_hijo, GuardiaConcurrencia,
+    GuardiaProfundidad, PerfilSubagente, CONCURRENTES_MAX_SUBAGENTES, SUBAGENTES_EN_CURSO,
 };
-use crate::telemetria::{TelemetriaTurno, construir_evento, motivo_cierre};
+use crate::telemetria::{construir_evento, motivo_cierre, TelemetriaTurno};
 use crate::todo::registrar_tool_todo;
 use crate::tool::{AgentToolContext, AgentToolRegistry};
 use crate::tools_archivo::registrar_tools_archivo;
@@ -207,6 +208,11 @@ impl AgentRuntime {
          * runtime la intercepta en el bucle y ejecuta la sesión hija
          * (`ejecutar_subagente`). */
         registrar_tool_task(&mut registry);
+        /* [069A-4] Tools `memoria_*` (guardar/recordar/borrar): siempre
+         * disponibles; la persistencia es puerto obligatorio y la escritura
+         * pasa por el sanitizado (los secretos se rechazan, nunca se
+         * guardan). */
+        registrar_tools_memoria(&mut registry);
         /* [Bloque 3, F1] Tool `ask_user`: siempre disponible; el runtime la
          * intercepta en el bucle (patrón `task`) y termina el turno tras
          * emitir el evento `Pregunta`. */
@@ -281,6 +287,23 @@ impl AgentRuntime {
         *self.hooks.lock().unwrap_or_else(|p| p.into_inner()) = Arc::new(hooks);
     }
 
+    /// [069A-4] Pasada del curador de memoria sin LLM (diseño §3): poda
+    /// duplicadas, archiva obsoletas sin uso reciente y promueve a skill lo
+    /// maduro y muy usado. La usa el motor del cron cuando el prompt es el
+    /// marcador [`crate::memoria::MARCADOR_CURADOR`] y el subcomando CLI
+    /// `memoria curar`. Determinista y sin coste de proveedor.
+    pub async fn ejecutar_curador_nativo(
+        &self,
+        user_id: Uuid,
+    ) -> Result<crate::memoria::ResumenCurador> {
+        crate::memoria::ejecutar_curador(
+            &self.puertos.persistencia,
+            user_id,
+            &crate::memoria::PoliticaCurador::default(),
+        )
+        .await
+    }
+
     /* [318A-16 F2] Canal de aprobación explícito: la UI responde las
      * peticiones emitidas como `PeticionAprobacion` (id) entre turnos. Las
      * tres vías — Aprobar (una vez), Rechazar (regla deny de la clase),
@@ -320,7 +343,11 @@ impl AgentRuntime {
     /// (base estática → ranura [REGLAS] con las reglas del consumidor → bloque
     /// [ENTORNO] con la fecha real).
     fn prompt_sistema(&self) -> String {
-        let reglas = self.reglas.lock().unwrap_or_else(|p| p.into_inner()).clone();
+        let reglas = self
+            .reglas
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone();
         ensamblar_prompt_sistema(&self.turno_config, &reglas, &fecha_hoy())
     }
 
@@ -329,15 +356,10 @@ impl AgentRuntime {
     /// cambia su comportamiento). Devuelve `true` si un hook pidió bloquear la
     /// acción en curso (solo aplica en los eventos bloqueables de hooks.rs).
     async fn disparar_hook(&self, evento: EventoHook, payload: Value) -> bool {
-        let hooks = self
-            .hooks
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .clone();
+        let hooks = self.hooks.lock().unwrap_or_else(|p| p.into_inner()).clone();
         hooks.disparar(evento, payload).await
     }
 }
-
 
 /* [059A-21] El veredicto de permiso del turno (`VerdictoPermiso` +
  * `decidir_permiso`) vive en `politica::permiso` junto a las demás decisiones
@@ -352,10 +374,10 @@ pub use crate::politica::permiso::{decidir_permiso, VerdictoPermiso};
  * turno (`super::*`) y los consumidores (`crate::runtime::fecha_hoy` en
  * context.rs, `glory_harness_core::runtime::ensamblar_prompt_sistema` en el
  * cli) sigan resolviendo sin conocer el detalle. */
-pub use crate::nucleo::prompt::{DesgloseContexto, ensamblar_prompt_sistema};
 pub(crate) use crate::nucleo::prompt::fecha_hoy;
 #[cfg(test)]
 pub(crate) use crate::nucleo::prompt::info_git;
+pub use crate::nucleo::prompt::{ensamblar_prompt_sistema, DesgloseContexto};
 
 fn mensajes_usuario_resumen(mensaje: &str) -> String {
     mensaje.chars().take(500).collect()
@@ -384,7 +406,11 @@ fn sandbox_desde_entorno(workspace: Option<&str>) -> Option<Arc<SandboxArchivos>
         .map(str::trim)
         .filter(|r| !r.is_empty())
         .map(str::to_owned)
-        .or_else(|| std::env::var("AGENTE_WORKSPACE_ROOT").ok().filter(|r| !r.trim().is_empty()))
+        .or_else(|| {
+            std::env::var("AGENTE_WORKSPACE_ROOT")
+                .ok()
+                .filter(|r| !r.trim().is_empty())
+        })
         .unwrap_or_else(|| {
             std::env::current_dir()
                 .map(|p| p.to_string_lossy().into_owned())
@@ -570,17 +596,29 @@ mod tests {
         let prompt = ensamblar_prompt_sistema(&config, reglas, "2026-09-03");
 
         assert!(prompt.contains(MARCA_ENTORNO), "marca [ENTORNO] presente");
-        assert!(prompt.contains(CIERRE_ENTORNO), "cierre [/ENTORNO] presente");
+        assert!(
+            prompt.contains(CIERRE_ENTORNO),
+            "cierre [/ENTORNO] presente"
+        );
         assert!(prompt.contains("Fecha: 2026-09-03"), "fecha inyectada");
         assert!(
             prompt.contains("Workspace: C:/workspace/fixture-proyecto"),
             "workspace inyectado"
         );
-        assert!(prompt.contains(MARCA_REGLAS), "marca [REGLAS] presente con contenido");
+        assert!(
+            prompt.contains(MARCA_REGLAS),
+            "marca [REGLAS] presente con contenido"
+        );
         assert!(prompt.contains(CIERRE_REGLAS), "cierre [/REGLAS] presente");
         assert!(prompt.contains(reglas), "contenido de reglas presente");
-        assert!(prompt.contains("Modelo activo"), "modelo activo en el entorno");
-        assert!(prompt.contains("Git: no"), "sin repo en el fixture → Git: no");
+        assert!(
+            prompt.contains("Modelo activo"),
+            "modelo activo en el entorno"
+        );
+        assert!(
+            prompt.contains("Git: no"),
+            "sin repo en el fixture → Git: no"
+        );
     }
 
     #[test]
@@ -609,7 +647,10 @@ mod tests {
         let reglas = prompt.find(MARCA_REGLAS).expect("ranura reglas presente");
         let entorno = prompt.find(MARCA_ENTORNO).expect("entorno presente");
         let modelo = prompt.find("Modelo activo").expect("modelo presente");
-        assert!(base < reglas && reglas < entorno && entorno < modelo, "orden base → reglas → entorno");
+        assert!(
+            base < reglas && reglas < entorno && entorno < modelo,
+            "orden base → reglas → entorno"
+        );
     }
 
     #[test]
@@ -626,7 +667,8 @@ mod tests {
     fn info_git_detecta_rama_y_ausencia_de_repo() {
         let repo = dir_temporal("git-rama");
         std::fs::create_dir_all(repo.join(".git")).expect("crear .git");
-        std::fs::write(repo.join(".git").join("HEAD"), "ref: refs/heads/main\n").expect("escribir HEAD");
+        std::fs::write(repo.join(".git").join("HEAD"), "ref: refs/heads/main\n")
+            .expect("escribir HEAD");
         let rama = info_git(repo.to_str().expect("ruta utf8"));
         assert_eq!(rama.as_deref(), Some("main"));
         std::fs::remove_dir_all(&repo).ok();

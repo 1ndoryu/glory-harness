@@ -65,10 +65,20 @@ Orden propuesto (dependencias de abajo arriba):
       (`tauri icon`, array `icon` en config). RAM arranque release: WS 40 MB (objetivo
       ≤140 MB ✓). `install-release.bat` (copia el release a `%LOCALAPPDATA%\GloryHarness`).
       Gate `039A-1` **PASS** (0 errores, warnings preexistentes).
-- [ ] **069A-4 — Memoria de aprendizaje fases 1–5** (B3-F8b): puerto `ProveedorMemoria` +
-      base sobre `memoria_*` + curador recurrente + `skills_registrar` + tools de memoria,
-      según `Agente/documentacion/memoria-aprendizaje-diseno-2026-09-06.md`.
-      Decidido 06-09 (alcance todo 1–5).
+- [ ] **069A-2 — Modo web local unificado con Tauri**: arquitectura HTTP + SSE como API única.
+      Tanto Tauri como el navegador usan el mismo backend Rust y el mismo adaptador HTTP/SSE
+      en TypeScript. Tauri embebe el servidor HTTP en loopback y la webview carga localhost.
+      `glory-harness web` arranca el mismo servidor para modo navegador local (usuario
+      avanzado). Acceso completo al workspace local mediante el backend
+      (`POST /api/v1/workspace` con ruta absoluta validada). Sin multiusuario, exposición
+      remota ni dos adaptadores de transporte. Plan v2:
+      `Agente/planes/plan-web-real-069A-2.md`.
+- [x] **069A-4 — Memoria de aprendizaje fases 1–5** (B3-F8b): HECHO 06-09
+      (ver `Agente/completados/tareas-2026-09-06.md`).
+- [ ] **069A-1 — Navegador interno visible controlable por el agente**: spike F1/F2 de
+      WebView2 child con Tauri 2 (`add_child`, navegación, redimensionado, captura y ciclo
+      de vida) antes de panel UI, overlay o tool del núcleo. Plan:
+      `Agente/planes/plan-navegador-interno-069A-1.md`.
 
 > **Hecho (04-09, correcciones del primer `tauri dev`):** los 7 hallazgos del primer arranque
 > real quedaron corregidos (H1–H7, bloque 039A-1). Detalle en

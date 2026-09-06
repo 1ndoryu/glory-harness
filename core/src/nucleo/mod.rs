@@ -8,6 +8,7 @@ pub mod cron;
 pub mod historial;
 pub mod hooks;
 pub mod llm;
+pub mod memoria;
 pub mod plan;
 pub mod prompt;
 pub mod runtime;

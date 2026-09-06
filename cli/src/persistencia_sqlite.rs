@@ -75,6 +75,13 @@ CREATE TABLE IF NOT EXISTS memoria (
     user_id TEXT NOT NULL,
     clave TEXT NOT NULL,
     contenido TEXT NOT NULL,
+    /* [069A-4] Metadatos de auditoría y curaduría (migración para BDs
+     * antiguas en MIGRACIONES; filas previas leen NULL → se tratan como
+     * nuevas al leer, nunca como obsoletas). */
+    actualizada_en TEXT NOT NULL DEFAULT '',
+    origen TEXT NOT NULL DEFAULT '',
+    usos INTEGER NOT NULL DEFAULT 0,
+    ultimo_uso TEXT,
     PRIMARY KEY (user_id, clave)
 );
 CREATE TABLE IF NOT EXISTS skills (
@@ -118,6 +125,13 @@ const MIGRACIONES: &[&str] = &[
      * insertar; el ORDER BY usa COALESCE al leer. */
     "ALTER TABLE acciones ADD COLUMN diff TEXT",
     "ALTER TABLE acciones ADD COLUMN creado_en TEXT",
+    /* [069A-4] Metadatos de memoria (ver tabla `memoria`): columnas nuevas
+     * sin DEFAULT salvo `usos` (las filas antiguas leen NULL y se tratan
+     * como nuevas al leer). */
+    "ALTER TABLE memoria ADD COLUMN actualizada_en TEXT",
+    "ALTER TABLE memoria ADD COLUMN origen TEXT",
+    "ALTER TABLE memoria ADD COLUMN usos INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE memoria ADD COLUMN ultimo_uso TEXT",
 ];
 
 /// Vista de conversación para la sidebar (Tauri la serializa tal cual).
@@ -756,17 +770,47 @@ impl AgentPersistence for PersistenciaSqlite {
     async fn memoria_listar(&self, user_id: Uuid) -> HarnessResult<Vec<MemoriaEntrada>> {
         let conn = bloquear(&self.conn);
         let mut stmt = conn
-            .prepare("SELECT clave, contenido FROM memoria WHERE user_id = ?1")
+            .prepare(
+                "SELECT clave, contenido, actualizada_en, origen, usos, ultimo_uso
+                 FROM memoria WHERE user_id = ?1",
+            )
             .map_err(|e| Error::Persistencia(e.to_string()))?;
         let filas = stmt
             .query_map(params![user_id.as_hyphenated().to_string()], |f| {
-                Ok((f.get::<_, String>(0)?, f.get::<_, String>(1)?))
+                Ok((
+                    f.get::<_, String>(0)?,
+                    f.get::<_, String>(1)?,
+                    f.get::<_, Option<String>>(2)?,
+                    f.get::<_, Option<String>>(3)?,
+                    f.get::<_, i64>(4)?,
+                    f.get::<_, Option<String>>(5)?,
+                ))
             })
             .map_err(|e| Error::Persistencia(e.to_string()))?;
         let mut out = Vec::new();
         for fila in filas {
-            let (clave, contenido) = fila.map_err(|e| Error::Persistencia(e.to_string()))?;
-            out.push(MemoriaEntrada { clave, contenido });
+            let (clave, contenido, actualizada_en, origen, usos, ultimo_uso) =
+                fila.map_err(|e| Error::Persistencia(e.to_string()))?;
+            // [069A-4] Filas de BDs antiguas (NULL): se tratan como nuevas
+            // (fecha actual), nunca como obsoletas — el curador no poda lo
+            // que no sabe fechar.
+            let leida = actualizada_en
+                .filter(|s| !s.is_empty())
+                .map(a_fecha)
+                .transpose()?
+                .unwrap_or_else(Utc::now);
+            let usado = ultimo_uso
+                .filter(|s| !s.is_empty())
+                .map(a_fecha)
+                .transpose()?;
+            out.push(MemoriaEntrada {
+                clave,
+                contenido,
+                actualizada_en: leida,
+                origen: origen.unwrap_or_default(),
+                usos: usos.max(0) as u32,
+                ultimo_uso: usado,
+            });
         }
         Ok(out)
     }
@@ -774,12 +818,24 @@ impl AgentPersistence for PersistenciaSqlite {
     async fn memoria_upsert(&self, user_id: Uuid, entrada: &MemoriaEntrada) -> HarnessResult<()> {
         bloquear(&self.conn)
             .execute(
-                "INSERT INTO memoria (user_id, clave, contenido) VALUES (?1, ?2, ?3)
-                 ON CONFLICT(user_id, clave) DO UPDATE SET contenido = excluded.contenido",
+                "INSERT INTO memoria (user_id, clave, contenido, actualizada_en, origen, usos, ultimo_uso)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+                 ON CONFLICT(user_id, clave) DO UPDATE SET
+                    contenido = excluded.contenido,
+                    actualizada_en = excluded.actualizada_en,
+                    origen = excluded.origen,
+                    usos = excluded.usos,
+                    ultimo_uso = excluded.ultimo_uso",
                 params![
                     user_id.as_hyphenated().to_string(),
                     entrada.clave,
-                    entrada.contenido
+                    entrada.contenido,
+                    entrada.actualizada_en.to_rfc3339_opts(SecondsFormat::Secs, true),
+                    entrada.origen,
+                    entrada.usos as i64,
+                    entrada
+                        .ultimo_uso
+                        .map(|d| d.to_rfc3339_opts(SecondsFormat::Secs, true)),
                 ],
             )
             .map_err(|e| Error::Persistencia(e.to_string()))?;
@@ -827,6 +883,31 @@ impl AgentPersistence for PersistenciaSqlite {
             });
         }
         Ok(out)
+    }
+
+    async fn skills_registrar(&self, user_id: Uuid, skill: &SkillEntrada) -> HarnessResult<()> {
+        // [069A-4] Alta o sustitución por (user_id, nombre): el curador
+        // promueve recuerdos sin duplicar skills.
+        bloquear(&self.conn)
+            .execute(
+                "INSERT INTO skills (id, user_id, nombre, descripcion, instrucciones, activa)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+                 ON CONFLICT(id) DO UPDATE SET
+                    nombre = excluded.nombre,
+                    descripcion = excluded.descripcion,
+                    instrucciones = excluded.instrucciones,
+                    activa = excluded.activa",
+                params![
+                    skill.id.as_hyphenated().to_string(),
+                    user_id.as_hyphenated().to_string(),
+                    skill.nombre,
+                    skill.descripcion,
+                    skill.instrucciones,
+                    i64::from(skill.activa),
+                ],
+            )
+            .map_err(|e| Error::Persistencia(e.to_string()))?;
+        Ok(())
     }
 
     async fn tareas_recuperar_interrumpidas(&self) -> HarnessResult<u64> {

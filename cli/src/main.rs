@@ -123,6 +123,7 @@ fn despachar(args: Vec<String>) -> ExitCode {
         }
         Some("schedule") => cmd_schedule(&args[1..]),
         Some("session") => cmd_session(&args[1..]),
+        Some("memoria") => cmd_memoria(&args[1..]),
         Some("tools") => {
             listar_tools();
             ExitCode::SUCCESS
@@ -133,12 +134,12 @@ fn despachar(args: Vec<String>) -> ExitCode {
         }
         Some(other) => {
             eprintln!("glory-harness: subcomando desconocido '{other}'");
-            eprintln!("uso: glory-harness <run|chat|daemon|schedule|session|tools|doctor|--version>");
+            eprintln!("uso: glory-harness <run|chat|daemon|schedule|session|memoria|tools|doctor|--version>");
             ExitCode::from(2)
         }
         None => {
             eprintln!(
-                "glory-harness: falta subcomando (run|chat|daemon|schedule|session|tools|doctor|--version)"
+                "glory-harness: falta subcomando (run|chat|daemon|schedule|session|memoria|tools|doctor|--version)"
             );
             ExitCode::from(2)
         }
@@ -163,13 +164,18 @@ where
 
 /// [059A-22] Texto de `--help`, extraído del brazo para acotar `despachar`.
 fn imprimir_ayuda() {
-    println!("uso: glory-harness <run|chat|daemon|schedule|session|tools|doctor|--version>");
+    println!(
+        "uso: glory-harness <run|chat|daemon|schedule|session|memoria|tools|doctor|--version>"
+    );
     println!();
-    println!("  run       turno único (--prompt/--stdin/--dir/--provider/--modelo/--modo/--notificar)");
+    println!(
+        "  run       turno único (--prompt/--stdin/--dir/--provider/--modelo/--modo/--notificar)"
+    );
     println!("  chat      sesión interactiva; --tui para la interfaz enriquecida; --notificar para toast de Windows");
     println!("  daemon    servicio de fondo por NDJSON (consumidor-daemon.mjs)");
     println!("  schedule  tareas programadas: <list|create|remove|logs|run>");
     println!("  session   conversaciones: <list|ver|resume|borrar> [id]");
+    println!("  memoria   recuerdos: <listar|recordar|guardar|borrar|curar> [args]");
     println!("  tools     tools disponibles del núcleo");
     println!("  doctor    diagnóstico de configuración y proveedores");
     println!("  --version versión del CLI y del contrato core");
@@ -262,8 +268,7 @@ fn cmd_session(args: &[String]) -> ExitCode {
     let opciones = run::OpcionesRun {
         provider: extraer_opcion(args, &["--provider", "--proveedor"]),
         modelo: extraer_opcion(args, &["--modelo", "--model"]),
-        dir: extraer_opcion(args, &["--dir", "--cwd", "--workspace"])
-            .map(std::path::PathBuf::from),
+        dir: extraer_opcion(args, &["--dir", "--cwd", "--workspace"]).map(std::path::PathBuf::from),
         modo: extraer_opcion(args, &["--modo"]),
         razonamiento: None,
         max_ventana: None,
@@ -286,6 +291,36 @@ fn cmd_session(args: &[String]) -> ExitCode {
         }
         Err(e) => {
             eprintln!("glory-harness session: {e}");
+            ExitCode::from(1)
+        }
+    }
+}
+
+/// [069A-4] `glory-harness memoria <listar|recordar|guardar|borrar|curar>`:
+/// mantiene a mano la memoria de aprendizaje (misma BD durable y usuario
+/// estable que `chat`/`session`). Sin subacción o con argumentos
+/// incompletos → exit 2 (mismo contrato que `session`).
+fn cmd_memoria(args: &[String]) -> ExitCode {
+    if args.is_empty() {
+        eprintln!("uso: glory-harness memoria <listar|recordar|guardar|borrar|curar> [args]");
+        return ExitCode::from(2);
+    }
+    let resultado = match tokio::runtime::Runtime::new() {
+        Ok(rt) => rt.block_on(glory_harness::memoria::memoria(args)),
+        Err(e) => {
+            eprintln!("glory-harness memoria: no se pudo iniciar el runtime tokio: {e}");
+            return ExitCode::from(1);
+        }
+    };
+    use glory_harness::memoria::SalidaMemoria;
+    match resultado {
+        Ok(SalidaMemoria::Ok) => ExitCode::SUCCESS,
+        Ok(SalidaMemoria::Uso) => {
+            eprintln!("uso: glory-harness memoria <listar|recordar|guardar|borrar|curar> [args]");
+            ExitCode::from(2)
+        }
+        Err(e) => {
+            eprintln!("glory-harness memoria: {e}");
             ExitCode::from(1)
         }
     }

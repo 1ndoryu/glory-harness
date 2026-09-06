@@ -1,9 +1,9 @@
 //! [059A-15 S2] Split mecánico de `tui.rs`: bucle de UI, worker y relevador de eventos. Movimiento puro — sin
 //! cambios de lógica; el contenido se cortó por rangos del archivo original.
 //!
-use super::*;
 use super::gate::resolver_gate_aprobaciones;
 use super::render::dibujar;
+use super::*;
 use crate::turno::TurnoResultado;
 use crate::ui::exportar::{guardar_export, render_markdown, ItemExport};
 
@@ -55,7 +55,6 @@ fn exportar_en_tui(
     }
 }
 
-
 /// Ejecuta `chat --tui`: pantalla completa (modo raw + alternate screen).
 /// Devuelve `Err` solo si la terminal no admite la TUI; Ctrl+C/Esc/`/salir`
 /// salen con `Ok(())`.
@@ -73,7 +72,9 @@ pub async fn tui(opciones: OpcionesRun) -> Result<(), String> {
     let workspace = harness.workspace.clone();
     let comandos = workspace
         .as_deref()
-        .map(|ws| glory_harness_core::skill::descubrir_comandos(&ws.join(".glory").join("comandos")))
+        .map(|ws| {
+            glory_harness_core::skill::descubrir_comandos(&ws.join(".glory").join("comandos"))
+        })
         .unwrap_or_default();
     let raiz = workspace
         .as_deref()
@@ -175,11 +176,9 @@ fn manejar_comando_tui(
             /* [Bloque 3, F3] Comandos personalizados (`.glory/comandos/`): si
              * coincide una plantilla, el texto expandido fluye como mensaje del
              * usuario (sin el aviso de desconocido). */
-            if let Some(expandido) = glory_harness_core::skill::expandir_comando(
-                texto,
-                comandos,
-                workspace.as_deref(),
-            ) {
+            if let Some(expandido) =
+                glory_harness_core::skill::expandir_comando(texto, comandos, workspace.as_deref())
+            {
                 ComandoTui::Enviar(expandido)
             } else {
                 let _ = tx_eventos.send(EventoTui::Estado(format!(
@@ -267,6 +266,19 @@ pub(crate) fn spawn_worker(
                     continue;
                 }
             };
+            /* [069A-4] Memoria a largo plazo antepuesta al hilo (mismo
+             * camino que el REPL lineal; un fallo avisa y el turno sigue). */
+            let historial = crate::memoria::anteponer_memoria(
+                historial,
+                crate::memoria::bloque_memoria_para_turno(
+                    &persistencia,
+                    user_id,
+                    &texto,
+                    runtime.turno_config.incluir_memoria,
+                    runtime.turno_config.incluir_skills,
+                )
+                .await,
+            );
 
             let tx_ev = tx_eventos.clone();
             match procesar_turno(
@@ -279,10 +291,20 @@ pub(crate) fn spawn_worker(
             )
             .await
             {
-                Ok(respuesta) => anotar_asistente(&mut transcripcion, &respuesta),
+                Ok(respuesta) => {
+                    anotar_asistente(&mut transcripcion, &respuesta);
+                    /* [069A-4] Sync post-turno (mejor esfuerzo con aviso). */
+                    crate::memoria::sincronizar_memoria_tras_turno(
+                        &persistencia,
+                        user_id,
+                        &respuesta.texto,
+                        &texto,
+                        "turno:tui",
+                    )
+                    .await;
+                }
                 Err(err) => {
-                    let _ = tx_eventos
-                        .send(EventoTui::Error(format!("el turno falló: {err}")));
+                    let _ = tx_eventos.send(EventoTui::Error(format!("el turno falló: {err}")));
                 }
             }
             let _ = tx_eventos.send(EventoTui::FinTurno);
@@ -314,25 +336,19 @@ pub(crate) fn spawn_worker(
 /// Canal sin límite: `send` es síncrono y nunca bloquea, así que no puede
 /// paniquear con "Cannot block the current thread from within a runtime"
 /// (bug real 02-09-2026) y no se pierden tokens por un canal lleno.
-pub(crate) fn relevar_evento(tx: &tokio::sync::mpsc::UnboundedSender<EventoTui>, evento: &AgenteEvento) {
+pub(crate) fn relevar_evento(
+    tx: &tokio::sync::mpsc::UnboundedSender<EventoTui>,
+    evento: &AgenteEvento,
+) {
     let evt = match evento {
         AgenteEvento::Token { texto } => EventoTui::Token(texto.clone()),
-        AgenteEvento::ToolStart { tool, .. } => EventoTui::ToolInicio {
-            tool: tool.clone(),
-        },
+        AgenteEvento::ToolStart { tool, .. } => EventoTui::ToolInicio { tool: tool.clone() },
         AgenteEvento::ToolResult {
-            tool,
-            ok,
-            resumen,
-            ..
+            tool, ok, resumen, ..
         } => EventoTui::ToolFin {
             tool: tool.clone(),
             ok: *ok,
-            resumen: if *ok {
-                None
-            } else {
-                Some(resumen.clone())
-            },
+            resumen: if *ok { None } else { Some(resumen.clone()) },
         },
         AgenteEvento::SubagenteInicio {
             perfil,
@@ -345,9 +361,9 @@ pub(crate) fn relevar_evento(tx: &tokio::sync::mpsc::UnboundedSender<EventoTui>,
             "[subagente] {}",
             if *ok { "fin" } else { "sin resumen" }
         )),
-        AgenteEvento::RequiereAprobacion { tool, .. } => EventoTui::Estado(format!(
-            "{tool} requiere aprobación (modo predeterminado)"
-        )),
+        AgenteEvento::RequiereAprobacion { tool, .. } => {
+            EventoTui::Estado(format!("{tool} requiere aprobación (modo predeterminado)"))
+        }
         AgenteEvento::Error { mensaje, .. } => EventoTui::Error(mensaje.clone()),
         _ => return,
     };
@@ -433,9 +449,7 @@ async fn manejar_tecla(
         }
         KeyCode::Backspace => ui.retroceder(),
         KeyCode::Left => ui.cursor = ui.cursor.saturating_sub(1),
-        KeyCode::Right => {
-            ui.cursor = (ui.cursor + 1).min(ui.entrada.chars().count())
-        }
+        KeyCode::Right => ui.cursor = (ui.cursor + 1).min(ui.entrada.chars().count()),
         KeyCode::Home => ui.cursor = 0,
         KeyCode::End => ui.cursor = ui.entrada.chars().count(),
         KeyCode::Esc => return false,
@@ -506,16 +520,21 @@ pub(crate) async fn bucle_ui(
         }
 
         /* 2) Teclado y ratón (con timeout para que el repintado siga vivo). */
-        if event::poll(Duration::from_millis(50)).map_err(|e| format!("error de terminal: {e}"))?
-        {
+        if event::poll(Duration::from_millis(50)).map_err(|e| format!("error de terminal: {e}"))? {
             match event::read().map_err(|e| format!("error de terminal: {e}"))? {
                 Event::Mouse(m) => {
                     manejar_raton(&mut ui, m);
                 }
                 Event::Key(k)
                     if matches!(k.kind, KeyEventKind::Press | KeyEventKind::Repeat)
-                        && !manejar_tecla(&mut ui, &mut historial, &mut historial_idx, &tx_entrada, k)
-                            .await =>
+                        && !manejar_tecla(
+                            &mut ui,
+                            &mut historial,
+                            &mut historial_idx,
+                            &tx_entrada,
+                            k,
+                        )
+                        .await =>
                 {
                     return Ok(());
                 }

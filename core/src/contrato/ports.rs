@@ -47,11 +47,50 @@ pub struct TurnoPersistido {
     pub error: Option<String>,
 }
 
-/// Entrada de memoria persistente (clave → contenido).
+/// Entrada de memoria persistente (clave → contenido) con metadatos de
+/// auditoría ([069A-4], diseño §4.3): fecha de última escritura, origen
+/// (qué turno o pasada la produjo) y uso (veces recordada + última vez).
+/// Los campos nuevos llevan `#[serde(default)]`: JSON antiguo sin ellos
+/// sigue parseando (compatibilidad de tienda).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MemoriaEntrada {
     pub clave: String,
     pub contenido: String,
+    #[serde(default = "ahora_utc")]
+    pub actualizada_en: DateTime<Utc>,
+    #[serde(default)]
+    pub origen: String,
+    #[serde(default)]
+    pub usos: u32,
+    #[serde(default)]
+    pub ultimo_uso: Option<DateTime<Utc>>,
+}
+
+fn ahora_utc() -> DateTime<Utc> {
+    Utc::now()
+}
+
+impl MemoriaEntrada {
+    /// Constructor para entradas nuevas (origen = turno o pasada que la
+    /// produce; usos a cero, sin último uso).
+    #[must_use]
+    pub fn nueva(clave: String, contenido: String, origen: String) -> Self {
+        Self {
+            clave,
+            contenido,
+            actualizada_en: Utc::now(),
+            origen,
+            usos: 0,
+            ultimo_uso: None,
+        }
+    }
+
+    /// Entrada archivada por el curador (conservada para auditar/revertir
+    /// pero invisible al agente: `prefetch` la excluye).
+    #[must_use]
+    pub fn archivada(&self) -> bool {
+        self.origen.starts_with("archivada:")
+    }
 }
 
 /// Skill persistente del agente (inyectada al prompt cuando está activa).
@@ -161,6 +200,16 @@ pub trait AgentPersistence: Send + Sync {
 
     // --- Skills ---
     async fn skills_listar(&self, user_id: Uuid) -> Result<Vec<SkillEntrada>>;
+    /// [069A-4] Promueve un recuerdo a skill persistente (el curador la usa;
+    /// el agente no: las skills del agente son de solo lectura). Método con
+    /// default que falla explícito para no romper consumidores existentes
+    /// (DIP sin breaking change): cada tienda lo implementa si guarda skills.
+    async fn skills_registrar(&self, user_id: Uuid, skill: &SkillEntrada) -> Result<()> {
+        let _ = (user_id, skill);
+        Err(crate::error::Error::Persistencia(
+            "skills_registrar no implementado por esta tienda".into(),
+        ))
+    }
 
     // --- Tareas programadas (scheduler) ---
     /// Recupera tareas interrumpidas (heartbeat vencido) → 'pendiente'.
@@ -252,6 +301,31 @@ pub struct ContenidoWeb {
 pub trait WebFetchProvider: Send + Sync {
     /// Descarga `url` y devuelve el texto legible acotado a `limite_bytes`.
     async fn obtener(&self, url: &str, limite_bytes: usize) -> Result<ContenidoWeb>;
+}
+
+// ---------------------------------------------------------------------------
+// Memoria de aprendizaje (puerto + proveedor, 069A-4)
+// ---------------------------------------------------------------------------
+
+/// [069A-4] Proveedor de memoria de aprendizaje (diseño §2, misma forma que
+/// `WebSearchProvider`): el núcleo no sabe dónde vive la memoria. La
+/// implementación base ([`crate::memoria::MemoriaBase`]) opera sobre el
+/// puerto `AgentPersistence::memoria_*`.
+#[async_trait]
+pub trait ProveedorMemoria: Send + Sync {
+    /// Recupera contexto relevante para `query` (devolución acotada en
+    /// caracteres; el núcleo la anexa al system prompt tras `[REGLAS]`).
+    async fn prefetch(&self, user_id: Uuid, query: &str, limite: usize) -> Result<String>;
+    /// Extrae y guarda lo aprendido del turno (devuelve lo guardado para
+    /// auditoría; la persistencia viaja por `memoria_upsert`, nunca SQL).
+    /// `origen` identifica qué produjo el recuerdo (`turno:run`,
+    /// `tool:memoria_guardar`, ...) para auditar y depurar.
+    async fn sync(
+        &self,
+        user_id: Uuid,
+        resumen_turno: &str,
+        origen: &str,
+    ) -> Result<Vec<MemoriaEntrada>>;
 }
 
 // ---------------------------------------------------------------------------

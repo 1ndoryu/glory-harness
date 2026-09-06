@@ -36,9 +36,10 @@ pub async fn chat(opciones: OpcionesRun) -> Result<(), String> {
     let harness = construir_harness_durable(&opciones).await?;
     // [069A-3] Avisos de escritorio solo si el operador los pidió.
     crate::notificar::aplicar_notificacion(&harness.runtime, opciones.notificar);
-    let sqlite = harness.sqlite.clone().ok_or_else(|| {
-        "chat durable sin tienda sqlite (inconsistencia interna)".to_string()
-    })?;
+    let sqlite = harness
+        .sqlite
+        .clone()
+        .ok_or_else(|| "chat durable sin tienda sqlite (inconsistencia interna)".to_string())?;
     let user_id = harness.user_id;
     let titulo = format!("sesión {}", chrono::Local::now().format("%d-%m %H:%M"));
     let conversacion_id = sqlite
@@ -54,9 +55,10 @@ pub async fn chat_resume(opciones: OpcionesRun, conversacion_id: Uuid) -> Result
     let harness = construir_harness_durable(&opciones).await?;
     // [069A-3] Como en `chat` (mismo REPL sobre otra conversación).
     crate::notificar::aplicar_notificacion(&harness.runtime, opciones.notificar);
-    let sqlite = harness.sqlite.clone().ok_or_else(|| {
-        "chat durable sin tienda sqlite (inconsistencia interna)".to_string()
-    })?;
+    let sqlite = harness
+        .sqlite
+        .clone()
+        .ok_or_else(|| "chat durable sin tienda sqlite (inconsistencia interna)".to_string())?;
     let user_id = harness.user_id;
     // Guarda de ownership: la conversación debe existir y ser del usuario
     // estable (una ajena se rechaza sin revelar nada más).
@@ -123,7 +125,9 @@ async fn bucle_chat(
      * colisione se ignora (fail-closed). */
     let comandos = workspace
         .as_deref()
-        .map(|ws| glory_harness_core::skill::descubrir_comandos(&ws.join(".glory").join("comandos")))
+        .map(|ws| {
+            glory_harness_core::skill::descubrir_comandos(&ws.join(".glory").join("comandos"))
+        })
         .unwrap_or_default();
 
     let raiz = workspace
@@ -207,7 +211,10 @@ async fn bucle_chat(
              * texto del usuario: la plantilla (con `$ARGUMENTOS` y `@archivo`
              * embebidos) fluye como mensaje normal al turno. */
             Comando::Enviar(expandido) => {
-                eprintln!("[comando] plantilla expandida ({} caracteres)", expandido.len());
+                eprintln!(
+                    "[comando] plantilla expandida ({} caracteres)",
+                    expandido.len()
+                );
                 texto = expandido;
             }
             Comando::Continuar => {}
@@ -306,6 +313,19 @@ async fn ejecutar_turno_chat(
             return Ok(Siguiente::Prompt);
         }
     };
+    /* [069A-4] Memoria a largo plazo antepuesta al hilo (respeta los flags
+     * del turno; un fallo avisa y el turno sigue sin recuerdos). */
+    let historial = crate::memoria::anteponer_memoria(
+        historial,
+        crate::memoria::bloque_memoria_para_turno(
+            &ctx.persistencia,
+            ctx.user_id,
+            texto,
+            ctx.runtime.turno_config.incluir_memoria,
+            ctx.runtime.turno_config.incluir_skills,
+        )
+        .await,
+    );
 
     /* El runtime persiste ambos mensajes vía puerto (`guardar_mensaje`);
      * aquí solo se reporta el resultado. Un fallo no acaba el chat: se
@@ -335,6 +355,15 @@ async fn ejecutar_turno_chat(
             if !respuesta.tools.is_empty() {
                 eprintln!("  tools: {}", respuesta.tools.join(", "));
             }
+            /* [069A-4] Sync post-turno (mejor esfuerzo con aviso). */
+            crate::memoria::sincronizar_memoria_tras_turno(
+                &ctx.persistencia,
+                ctx.user_id,
+                &respuesta.texto,
+                texto,
+                "turno:chat",
+            )
+            .await;
             println!();
             println!("{}", respuesta.texto);
             println!();
@@ -404,7 +433,10 @@ async fn manejar_comando(
             if let Some(plan) = runtime.plan_actual() {
                 println!("{}", glory_harness_core::plan::descartar_plan(&plan));
             } else {
-                println!("[chat] no hay propuesta de plan (modo actual: {})", runtime.turno_config.modo);
+                println!(
+                    "[chat] no hay propuesta de plan (modo actual: {})",
+                    runtime.turno_config.modo
+                );
             }
             Ok(Comando::Continuar)
         }
@@ -456,11 +488,9 @@ async fn manejar_comando(
              * plantilla se expande con `$ARGUMENTOS` y `@archivo` y el
              * resultado viaja como mensaje del usuario. Sin coincidencia →
              * comando desconocido (igual que antes). */
-            if let Some(expandido) = glory_harness_core::skill::expandir_comando(
-                texto,
-                comandos,
-                workspace.as_deref(),
-            ) {
+            if let Some(expandido) =
+                glory_harness_core::skill::expandir_comando(texto, comandos, workspace.as_deref())
+            {
                 Ok(Comando::Enviar(expandido))
             } else {
                 eprintln!("[chat] comando desconocido: {texto} (usa /ayuda)");
@@ -545,7 +575,6 @@ fn imprimir_evento_turno(evento: AgenteEvento) {
     }
 }
 
-
 /// Línea siguiente del hilo de stdin del REPL. `None` = Ctrl+C o EOF (fin de
 /// sesión). Comparte la semántica de cancelación del bucle principal.
 /// `pub(super)`: también la usa el modo plan (`ui/plan.rs`), que pregunta
@@ -575,7 +604,10 @@ enum Siguiente {
 /// Pinta una petición de aprobación con su detalle para que el humano decida.
 fn pintar_peticion(peticion: &PeticionAprobacion) {
     println!();
-    println!("⚠ {} pide aprobación (clase: {})", peticion.tool, peticion.clasificacion);
+    println!(
+        "⚠ {} pide aprobación (clase: {})",
+        peticion.tool, peticion.clasificacion
+    );
     if let Some(objeto) = peticion.argumentos.as_object() {
         for (clave, valor) in objeto {
             println!("    {clave}: {valor}");
@@ -599,81 +631,83 @@ async fn resolver_aprobaciones(
     if pendientes.is_empty() {
         return Siguiente::Prompt;
     }
-        for peticion in &pendientes {
-            pintar_peticion(peticion);
-            let decision = loop {
-                print!("  [n] Rechazar · [p] Permitir una vez · [s] Permitir siempre → ");
+    for peticion in &pendientes {
+        pintar_peticion(peticion);
+        let decision = loop {
+            print!("  [n] Rechazar · [p] Permitir una vez · [s] Permitir siempre → ");
+            let _ = std::io::stdout().flush();
+            match leer_linea(rx_lineas).await {
+                Some(linea) => {
+                    let d = linea.trim().to_lowercase();
+                    if !d.is_empty() {
+                        break d;
+                    }
+                }
+                None => return Siguiente::Salir,
+            }
+        };
+        match decision.as_str() {
+            "n" | "no" | "rechazar" | "denegar" => {
+                if let Err(e) =
+                    runtime.responder_aprobacion(&peticion.id, RespuestaAprobacion::Rechazar)
+                {
+                    eprintln!("[chat] {e}");
+                } else {
+                    println!("  ✗ rechazada (la clase queda denegada en esta conversación)");
+                }
+            }
+            "p" | "permitir" | "si" | "aprobar" | "ok" => {
+                if let Err(e) =
+                    runtime.responder_aprobacion(&peticion.id, RespuestaAprobacion::Aprobar)
+                {
+                    eprintln!("[chat] {e}");
+                } else {
+                    println!("  ✓ permitida (solo esta vez)");
+                }
+            }
+            "s" | "siempre" | "always" | "allow" => {
+                /* opencode exige confirmación antes de persistir "always". */
+                print!(
+                    "  ¿Permitir SIEMPRE la clase '{}'? [s/n] → ",
+                    peticion.clasificacion
+                );
                 let _ = std::io::stdout().flush();
                 match leer_linea(rx_lineas).await {
-                    Some(linea) => {
-                        let d = linea.trim().to_lowercase();
-                        if !d.is_empty() {
-                            break d;
+                    Some(linea)
+                        if matches!(
+                            linea.trim().to_lowercase().as_str(),
+                            "s" | "si" | "siempre" | "y" | "yes" | "confirmar"
+                        ) =>
+                    {
+                        if let Err(e) =
+                            runtime.responder_aprobacion(&peticion.id, RespuestaAprobacion::Siempre)
+                        {
+                            eprintln!("[chat] {e}");
+                        } else {
+                            println!(
+                                "  ✓ permitida siempre: la clase '{}' ya no preguntará",
+                                peticion.clasificacion
+                            );
                         }
+                    }
+                    Some(_) => {
+                        println!("  (cancelado — la petición sigue pendiente)");
+                        return Siguiente::Prompt;
                     }
                     None => return Siguiente::Salir,
                 }
-            };
-            match decision.as_str() {
-                "n" | "no" | "rechazar" | "denegar" => {
-                    if let Err(e) = runtime.responder_aprobacion(
-                        &peticion.id,
-                        RespuestaAprobacion::Rechazar,
-                    ) {
-                        eprintln!("[chat] {e}");
-                    } else {
-                        println!("  ✗ rechazada (la clase queda denegada en esta conversación)");
-                    }
-                }
-                "p" | "permitir" | "si" | "aprobar" | "ok" => {
-                    if let Err(e) = runtime
-                        .responder_aprobacion(&peticion.id, RespuestaAprobacion::Aprobar)
-                    {
-                        eprintln!("[chat] {e}");
-                    } else {
-                        println!("  ✓ permitida (solo esta vez)");
-                    }
-                }
-                "s" | "siempre" | "always" | "allow" => {
-                    /* opencode exige confirmación antes de persistir "always". */
-                    print!(
-                        "  ¿Permitir SIEMPRE la clase '{}'? [s/n] → ",
-                        peticion.clasificacion
-                    );
-                    let _ = std::io::stdout().flush();
-                    match leer_linea(rx_lineas).await {
-                        Some(linea)
-                            if matches!(
-                                linea.trim().to_lowercase().as_str(),
-                                "s" | "si" | "siempre" | "y" | "yes" | "confirmar"
-                            ) =>
-                        {
-                            if let Err(e) = runtime
-                                .responder_aprobacion(&peticion.id, RespuestaAprobacion::Siempre)
-                            {
-                                eprintln!("[chat] {e}");
-                            } else {
-                                println!("  ✓ permitida siempre: la clase '{}' ya no preguntará", peticion.clasificacion);
-                            }
-                        }
-                        Some(_) => {
-                            println!("  (cancelado — la petición sigue pendiente)");
-                            return Siguiente::Prompt;
-                        }
-                        None => return Siguiente::Salir,
-                    }
-                }
-                _ => {
-                    /* Texto libre: el humano respondió al agente (p. ej.
-                     * "adelante"). No resuelve la petición estructurada; se
-                     * reenvía como mensaje. */
-                    return Siguiente::Reenviar(decision);
-                }
+            }
+            _ => {
+                /* Texto libre: el humano respondió al agente (p. ej.
+                 * "adelante"). No resuelve la petición estructurada; se
+                 * reenvía como mensaje. */
+                return Siguiente::Reenviar(decision);
             }
         }
-        /* Todas las peticiones se respondieron con palabras clave: reintentar
-         * el último mensaje para que el agente ejecute lo aprobado. */
-        Siguiente::Reenviar(ultimo_texto.to_string())
+    }
+    /* Todas las peticiones se respondieron con palabras clave: reintentar
+     * el último mensaje para que el agente ejecute lo aprobado. */
+    Siguiente::Reenviar(ultimo_texto.to_string())
 }
 
 #[cfg(test)]

@@ -19,7 +19,7 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 use glory_harness_core::evento::AgenteEvento;
-use glory_harness_core::llm::{LlmProviderService, LlavesProveedor};
+use glory_harness_core::llm::{LlavesProveedor, LlmProviderService};
 use glory_harness_core::runtime::{AgentRuntime, PuertosHarness, TurnoConfig};
 use glory_harness_core::tool::AgentToolRegistry;
 use glory_harness_core::{AgentPersistence, ProgramadorTareas};
@@ -134,11 +134,9 @@ pub async fn construir_harness_durable(opciones: &OpcionesRun) -> Result<Harness
 /// (creado una vez en `config`). Compartido por `schedule` (tareas), `chat`,
 /// `tui` y `session` (conversaciones): una sola tienda y un solo usuario.
 pub fn abrir_tiendas_durables() -> Result<(Arc<PersistenciaSqlite>, Uuid), String> {
-    let ruta = PersistenciaSqlite::ruta_bd_app().ok_or_else(|| {
-        "sin directorio de app para la BD (APPDATA/HOME ausente)".to_string()
-    })?;
-    let tiendas =
-        Arc::new(PersistenciaSqlite::abrir(&ruta).map_err(|e| e.to_string())?);
+    let ruta = PersistenciaSqlite::ruta_bd_app()
+        .ok_or_else(|| "sin directorio de app para la BD (APPDATA/HOME ausente)".to_string())?;
+    let tiendas = Arc::new(PersistenciaSqlite::abrir(&ruta).map_err(|e| e.to_string())?);
     let user_id = usuario_cli_estable(&tiendas)?;
     Ok((tiendas, user_id))
 }
@@ -147,10 +145,7 @@ pub fn abrir_tiendas_durables() -> Result<(Arc<PersistenciaSqlite>, Uuid), Strin
 /// corrupto se sustituye por uno nuevo, nunca se aborta por ello).
 pub fn usuario_cli_estable(tiendas: &PersistenciaSqlite) -> Result<Uuid, String> {
     const CLAVE: &str = "usuario_cli";
-    if let Some(previo) = tiendas
-        .config_leer(CLAVE)
-        .map_err(|e| e.to_string())?
-    {
+    if let Some(previo) = tiendas.config_leer(CLAVE).map_err(|e| e.to_string())? {
         if let Ok(id) = Uuid::parse_str(previo.trim()) {
             return Ok(id);
         }
@@ -173,7 +168,13 @@ pub fn construir_harness_con(
     programador: Arc<dyn ProgramadorTareas>,
     user_id: Uuid,
 ) -> HarnessCli {
-    construir_harness_con_impl(opciones, persistencia, programador, user_id, AgentToolRegistry::new())
+    construir_harness_con_impl(
+        opciones,
+        persistencia,
+        programador,
+        user_id,
+        AgentToolRegistry::new(),
+    )
 }
 
 /// Núcleo compartido de construcción (registro de tools inyectado).
@@ -184,7 +185,6 @@ pub fn construir_harness_con_impl(
     user_id: Uuid,
     registry: AgentToolRegistry,
 ) -> HarnessCli {
-
     /* La raíz del workspace: `--dir`, o el cwd donde se invocó el comando.
      * Así el agente "trabaja en esa carpeta" con sus tools de archivo. */
     let workspace = opciones
@@ -206,16 +206,31 @@ pub fn construir_harness_con_impl(
     let llm = Arc::new(LlmProviderService::new(LlavesProveedor::from_env()));
 
     let mut config = turno_config_default(workspace.clone());
-    if let Some(provider) = opciones.provider.as_deref().map(str::trim).filter(|p| !p.is_empty()) {
+    if let Some(provider) = opciones
+        .provider
+        .as_deref()
+        .map(str::trim)
+        .filter(|p| !p.is_empty())
+    {
         config.provider = provider.to_string();
     }
-    if let Some(modelo) = opciones.modelo.as_deref().map(str::trim).filter(|m| !m.is_empty()) {
+    if let Some(modelo) = opciones
+        .modelo
+        .as_deref()
+        .map(str::trim)
+        .filter(|m| !m.is_empty())
+    {
         config.modelo = modelo.to_string();
     }
     /* [318A-16 F5] `--modo plan` activa la propuesta con diff; cualquier otro
      * valor explícito se respeta (meta/autonomo). El default sigue
      * `predeterminado` (fail-closed: un typo no abre permisos). */
-    if let Some(modo) = opciones.modo.as_deref().map(str::trim).filter(|m| !m.is_empty()) {
+    if let Some(modo) = opciones
+        .modo
+        .as_deref()
+        .map(str::trim)
+        .filter(|m| !m.is_empty())
+    {
         config.modo = modo.to_string();
     }
     /* [039A-1 04-09 H7] Nivel de razonamiento del turno. Se valida contra el
@@ -316,12 +331,29 @@ pub fn quitar_prefijo_verbatim(p: PathBuf) -> PathBuf {
 
 /// Ejecuta un turno con el mensaje dado y recoge la respuesta de texto.
 /// Devuelve la salida o un error presentable al usuario de la CLI.
-pub async fn ejecutar_turno_run(mensaje: String, opciones: OpcionesRun) -> Result<SalidaTurno, String> {
+pub async fn ejecutar_turno_run(
+    mensaje: String,
+    opciones: OpcionesRun,
+) -> Result<SalidaTurno, String> {
     let harness = construir_harness(&opciones).await?;
     let user_id = harness.user_id;
     let runtime = harness.runtime;
     // [069A-3] Avisos de escritorio solo si el operador los pidió.
     crate::notificar::aplicar_notificacion(&runtime, opciones.notificar);
+
+    // [069A-4] Prefetch de memoria: la misma vía que chat/tui (aquí la
+    // tienda es efímera, pero el camino queda cableado y verificado).
+    let historial = crate::memoria::anteponer_memoria(
+        Vec::new(),
+        crate::memoria::bloque_memoria_para_turno(
+            &harness.persistencia,
+            user_id,
+            &mensaje,
+            harness.config.incluir_memoria,
+            harness.config.incluir_skills,
+        )
+        .await,
+    );
 
     let turno_id = Uuid::new_v4();
     let conversacion_id = Uuid::new_v4();
@@ -329,7 +361,19 @@ pub async fn ejecutar_turno_run(mensaje: String, opciones: OpcionesRun) -> Resul
 
     let handle = tokio::spawn({
         let runtime = Arc::clone(&runtime);
-        async move { runtime.ejecutar_turno(user_id, turno_id, conversacion_id, Vec::new(), mensaje, &tx).await }
+        let mensaje_usuario = mensaje.clone();
+        async move {
+            runtime
+                .ejecutar_turno(
+                    user_id,
+                    turno_id,
+                    conversacion_id,
+                    historial,
+                    mensaje_usuario,
+                    &tx,
+                )
+                .await
+        }
     });
 
     let mut texto = String::new();
@@ -355,7 +399,19 @@ pub async fn ejecutar_turno_run(mensaje: String, opciones: OpcionesRun) -> Resul
      * turno fallido salía vacío con exit 0). */
     let resultado = handle.await;
     match resultado {
-        Ok(Ok(())) => Ok(SalidaTurno { texto, tools, ok }),
+        Ok(Ok(())) => {
+            // [069A-4] Sync post-turno (mejor esfuerzo con aviso; el turno
+            // ya respondió y su éxito no depende de la memoria).
+            crate::memoria::sincronizar_memoria_tras_turno(
+                &harness.persistencia,
+                user_id,
+                &texto,
+                &mensaje,
+                "turno:run",
+            )
+            .await;
+            Ok(SalidaTurno { texto, tools, ok })
+        }
         // El runtime propaga errores de proveedor/red con `?`; sean o no
         // acompañados por un evento Error previo, el turno fallido se reporta
         // como `Err` para que el CLI salga con código ≠ 0 y muestre la causa.

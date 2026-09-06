@@ -27,7 +27,7 @@ struct Estado {
     turnos: HashMap<Uuid, TurnoPersistido>,
     mensajes: HashMap<Uuid, Vec<MensajePersistido>>,
     acciones: Vec<AccionAuditable>,
-    memoria: HashMap<Uuid, HashMap<String, String>>,
+    memoria: HashMap<Uuid, HashMap<String, MemoriaEntrada>>,
     skills: HashMap<Uuid, Vec<SkillEntrada>>,
     tareas: HashMap<Uuid, TareaProgramadaPendiente>,
     tareas_tomadas: std::collections::HashSet<Uuid>,
@@ -153,14 +153,7 @@ impl AgentPersistence for PersistenciaMemoria {
         Ok(estado
             .memoria
             .get(&user_id)
-            .map(|mapa| {
-                mapa.iter()
-                    .map(|(clave, contenido)| MemoriaEntrada {
-                        clave: clave.clone(),
-                        contenido: contenido.clone(),
-                    })
-                    .collect()
-            })
+            .map(|mapa| mapa.values().cloned().collect())
             .unwrap_or_default())
     }
 
@@ -173,7 +166,7 @@ impl AgentPersistence for PersistenciaMemoria {
             .memoria
             .entry(user_id)
             .or_default()
-            .insert(entrada.clave.clone(), entrada.contenido.clone());
+            .insert(entrada.clave.clone(), entrada.clone());
         Ok(())
     }
 
@@ -194,6 +187,21 @@ impl AgentPersistence for PersistenciaMemoria {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         Ok(estado.skills.get(&user_id).cloned().unwrap_or_default())
+    }
+
+    async fn skills_registrar(&self, user_id: Uuid, skill: &SkillEntrada) -> HarnessResult<()> {
+        // [069A-4] Paridad con la tienda sqlite (alta o sustitución por nombre).
+        let mut estado = self
+            .estado
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let lista = estado.skills.entry(user_id).or_default();
+        if let Some(previa) = lista.iter_mut().find(|s| s.nombre == skill.nombre) {
+            *previa = skill.clone();
+        } else {
+            lista.push(skill.clone());
+        }
+        Ok(())
     }
 
     async fn tareas_recuperar_interrumpidas(&self) -> HarnessResult<u64> {

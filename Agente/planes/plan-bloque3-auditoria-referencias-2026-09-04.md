@@ -612,6 +612,23 @@ commit por fase). Mover a ejecución solo tras aprobación del usuario.
       Hecho 06-09: `Agente/documentacion/memoria-aprendizaje-diseno-2026-09-06.md`
       (puerto `ProveedorMemoria`, curador como tarea recurrente, reglas de
       sanitizado, criterios de aceptación). Sin implementar, por decisión del plan.
+- [x] Implementación de la memoria de aprendizaje fases 1–5 (069A-4, hecho
+      06-09, alcance todo 1–5): `core/src/nucleo/memoria.rs` (sanitizado con
+      sesgo a no guardar + `Bearer <valor>`, extracción determinista solo
+      explícita, `MemoriaBase`, curador podar/archivar/promover, tools
+      `memoria_guardar/recordar/borrar` registradas siempre en
+      `AgentRuntime::nuevo`); `MemoriaEntrada` extendida + migración sqlite;
+      `skills_registrar` en el puerto (default explícito) con impls sqlite/
+      memoria; prefetch+sync cableados en `run`/`chat`/`tui` (respeta
+      `incluir_memoria/skills`, mejor esfuerzo con aviso); curador nativo vía
+      marcador `[curador-memoria]` interceptado en
+      `MotorTurno` (cero coste LLM, entrega en `tarea_logs`); subcomando CLI
+      `memoria <listar|recordar|guardar|borrar|curar>`. Verificación: 309
+      tests (251 core + 58 cli-lib), clippy `-D warnings` limpio core+cli,
+      ciclo E2E real contra sqlite (guardar→listar→recordar con uso 0→1→
+      secreto rechazado→curar→borrar→listar vacío, exit 2 en uso), gate
+      069A-4 PASS. Desvíos del diseño: `sync` recibe `origen`; archivo por
+      marca sin tabla propia; sin re-scoring LLM en v1.
 
 ### Quedan fuera de este bloque (con razón)
 MCP oauth remoto y marketplace de plugins (después de F2/F4), computer use,

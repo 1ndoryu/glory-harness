@@ -62,6 +62,25 @@ pub trait MotorTurno: Send + Sync {
 #[async_trait::async_trait]
 impl MotorTurno for Arc<AgentRuntime> {
     async fn ejecutar(&self, user_id: Uuid, prompt: String) -> Result<SalidaTurnoCron> {
+        /* [069A-4] El curador de memoria corre nativo: el marcador evita
+         * gastar un turno de LLM en una pasada determinista (podar,
+         * archivar, promover). La entrega viaja por el camino normal
+         * (`tarea_finalizar` + `tarea_registrar_log` en `ejecutar_lista`).
+         * Un fallo del curador se entrega como error del turno (visible en
+         * `tarea_logs`, nunca a medias en silencio). */
+        if crate::memoria::es_peticion_curador(&prompt) {
+            return match self.ejecutar_curador_nativo(user_id).await {
+                Ok(resumen) => Ok(SalidaTurnoCron {
+                    texto: resumen.texto(),
+                    herramientas: vec!["curador-memoria".to_string()],
+                    error: None,
+                }),
+                Err(e) => Ok(SalidaTurnoCron {
+                    error: Some(format!("curador de memoria: {e}")),
+                    ..SalidaTurnoCron::default()
+                }),
+            };
+        }
         let turno_id = Uuid::new_v4();
         let conversacion_id = Uuid::new_v4();
         // Cada ejecución del cron es una conversación propia (como hermes:
@@ -560,5 +579,35 @@ mod tests {
         assert!(ok);
         assert!(resumen.chars().count() <= RESUMEN_MAX_CHARS + 40);
         assert!(resumen.ends_with("[tools: repo_map]"));
+    }
+
+    /// [069A-4] El marcador `[curador-memoria]` corre la pasada determinista
+    /// sin gastar un turno de LLM (sin red: la tienda vacía deja "sin
+    /// cambios" y la herramienta citada es el curador, no una tool).
+    #[tokio::test]
+    async fn marcador_curador_corre_nativo_sin_llm() {
+        use crate::llm::{LlavesProveedor, LlmProviderService};
+        use crate::runtime::{PuertosHarness, TurnoConfig};
+        use crate::tool::AgentToolRegistry;
+        let persistencia = Arc::new(PersistenciaGrabadora::nueva(Vec::new(), HashSet::new()));
+        let runtime = Arc::new(AgentRuntime::nuevo(
+            AgentToolRegistry::new(),
+            PuertosHarness {
+                persistencia,
+                llm: Arc::new(LlmProviderService::new(LlavesProveedor::from_env())),
+                web_search: None,
+                web_fetch: None,
+                dominio: None,
+                ejecutor_comando: None,
+                programador_tareas: None,
+            },
+            TurnoConfig::default(),
+        ));
+        let salida = MotorTurno::ejecutar(&runtime, Uuid::new_v4(), "[curador-memoria]".into())
+            .await
+            .expect("curador nativo");
+        assert!(salida.error.is_none());
+        assert!(salida.texto.contains("sin cambios"), "{}", salida.texto);
+        assert_eq!(salida.herramientas, vec!["curador-memoria".to_string()]);
     }
 }
