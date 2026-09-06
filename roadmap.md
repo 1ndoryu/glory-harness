@@ -126,6 +126,11 @@ Orden propuesto (dependencias de abajo arriba):
   botón solo aparece cuando está oculta para MOSTRARLA. Verificado con navegador mock (arrastre,
   clamp 260, persistencia, 650px/1200px, M1 compartido). Evidencia en
   `Agente/completados/tareas-2026-09-05.md`.
+  P6b retoque HECHO (05-09, commit `aa8dbd4`): al arrastrar el divisor de la sidebar hasta el
+  borde la lista se oculta del todo al soltar (antes el clamp la dejaba en 180px) y el botón
+  "mostrar lista" la reabre; el grupo izquierdo de la cabecera colapsa cuando su botón está
+  oculto (sin hueco fantasma). Verificado con navegador mock. Evidencia en
+  `Agente/completados/tareas-2026-09-05.md`.
   En curso: P3 vault de respaldos. Pendiente P6-backend (inyectar `contexto.max_ventana` 150k en
   `construir_harness_con`/`reconfigurar_sesion` de `cli/run.rs`) — BLOQUEADO por el agente
   paralelo que toca `cli/`/`core/` (sin tocar el default del core 128k).

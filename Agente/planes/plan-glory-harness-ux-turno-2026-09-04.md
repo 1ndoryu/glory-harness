@@ -504,6 +504,12 @@ ocultar la lista no, solo para mostrar, se oculta automáticamente si se reduce 
 - [x] Evidencia: type-check + build limpios; verificaciones funcionales del navegador mock (8765)
       en `Agente/completados/tareas-2026-09-05.md` (a–k); capturas `C:/tmp/p6b-2paneles.png`,
       `C:/tmp/p6b-angosto.png`.
+- [x] Retoque (05-09, commit `aa8dbd4`): al arrastrar el divisor de la sidebar hasta el borde la
+      lista se oculta del todo al soltar (antes el clamp `[180,420]` la dejaba en 180px); el
+      botón "mostrar lista" de la cabecera la reabre a 260px. El grupo izquierdo de la cabecera
+      colapsa (`display:none` vía `:has`) cuando su botón "mostrar lista" está oculto: sin hueco
+      fantasma entre el borde y el título. Verificado en navegador mock (colapso por arrastre,
+      reapertura, arrastre medio sin colapso, lateral intacto).
 - [ ] E2E `tauri dev` (bloqueado por el agente paralelo en `cli/`/`core/`).
 
 ---
