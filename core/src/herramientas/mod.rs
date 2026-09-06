@@ -1,11 +1,12 @@
 //! [059A-S4] Herramientas del agente: registro `AgentToolRegistry`, tools de
 //! archivos/web/comando y los dominios reutilizables (mcp, skill, todo,
-//! tareas programadas, scheduler). Se re-exportan en la raíz del crate.
+//! tareas programadas). Se re-exportan en la raíz del crate.
+//!
+//! [069A-5 F4] `scheduler` vive en el dominio propio `tareas_programadas`.
 
 pub mod comando;
 pub mod mcp;
 pub mod repo_map;
-pub mod scheduler;
 pub mod skill;
 pub mod tareas;
 pub mod todo;

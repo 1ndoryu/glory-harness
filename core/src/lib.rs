@@ -20,11 +20,13 @@ mod contrato;
 mod herramientas;
 mod nucleo;
 mod politica;
+mod tareas_programadas;
 
 pub use contrato::*;
 pub use herramientas::*;
 pub use nucleo::*;
 pub use politica::*;
+pub use tareas_programadas::*;
 
 /// Errores propios del núcleo (sin dependencia de `AppError` de task).
 pub use error::{Error as HarnessError, Result as HarnessResult};

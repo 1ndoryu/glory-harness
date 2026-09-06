@@ -25,11 +25,8 @@ pub const HEARTBEAT_STALE: Duration = Duration::from_secs(10 * 60);
 /// Worker del scheduler: loop cada `intervalo`. Se ejecuta en background desde
 /// el binario del consumidor; los errores se loguean y el loop continúa
 /// (nunca muere).
-pub async fn correr_scheduler<E, R, Fut>(
-    persistencia: &E,
-    ejecutar_tarea: R,
-    intervalo: Duration,
-) where
+pub async fn correr_scheduler<E, R, Fut>(persistencia: &E, ejecutar_tarea: R, intervalo: Duration)
+where
     E: AgentPersistence + ?Sized,
     R: Fn(TareaProgramadaPendiente, DateTime<Utc>) -> Fut,
     Fut: Future<Output = Result<String>>,
@@ -114,11 +111,7 @@ pub fn proxima_ejecucion(expr: &str, desde: DateTime<Utc>) -> Result<DateTime<Ut
             "min" => chrono::Duration::minutes(numero),
             "h" => chrono::Duration::hours(numero),
             "d" => chrono::Duration::days(numero),
-            _ => {
-                return Err(Error::Validacion(format!(
-                    "Unidad cron inválida: {unidad}"
-                )))
-            }
+            _ => return Err(Error::Validacion(format!("Unidad cron inválida: {unidad}"))),
         };
         return Ok(desde + duracion);
     }
@@ -147,23 +140,22 @@ fn proxima_cron_v2(expr: &str, desde: DateTime<Utc>) -> Result<DateTime<Utc>> {
             "cron v2 inválido: '{expr}' — el subconjunto v1 soporta solo día-de-semana (dom y mes deben ser '*')"
         )));
     }
-    let parse_rango =
-        |campo: &str, max: u32, nombre: &str| -> Result<Option<u32>> {
-            if campo == "*" {
-                return Ok(None);
-            }
-            let valor: u32 = campo.parse().map_err(|_| {
-                Error::Validacion(format!(
-                    "cron v2 inválido: '{nombre}'='{campo}' (número o '*')"
-                ))
-            })?;
-            if valor > max {
-                return Err(Error::Validacion(format!(
-                    "cron v2 inválido: '{nombre}'={valor} fuera de rango 0-{max}"
-                )));
-            }
-            Ok(Some(valor))
-        };
+    let parse_rango = |campo: &str, max: u32, nombre: &str| -> Result<Option<u32>> {
+        if campo == "*" {
+            return Ok(None);
+        }
+        let valor: u32 = campo.parse().map_err(|_| {
+            Error::Validacion(format!(
+                "cron v2 inválido: '{nombre}'='{campo}' (número o '*')"
+            ))
+        })?;
+        if valor > max {
+            return Err(Error::Validacion(format!(
+                "cron v2 inválido: '{nombre}'={valor} fuera de rango 0-{max}"
+            )));
+        }
+        Ok(Some(valor))
+    };
     let min = parse_rango(minuto, 59, "minuto")?;
     let hora = parse_rango(hora, 23, "hora")?;
     let dow = parse_rango(dow, 7, "dow")?.map(|d| if d == 7 { 0 } else { d });
@@ -214,8 +206,10 @@ mod tests {
     fn runner_falso(
         fallar: bool,
         ejecuciones: Arc<AtomicUsize>,
-    ) -> impl Fn(TareaProgramadaPendiente, DateTime<Utc>) -> std::pin::Pin<Box<dyn Future<Output = CoreResult<String>> + Send>>
-    {
+    ) -> impl Fn(
+        TareaProgramadaPendiente,
+        DateTime<Utc>,
+    ) -> std::pin::Pin<Box<dyn Future<Output = CoreResult<String>> + Send>> {
         move |tarea, _ahora| {
             let contador = ejecuciones.clone();
             Box::pin(async move {
@@ -278,16 +272,10 @@ mod tests {
         async fn conversacion_tocar(&self, _c: Uuid) -> CoreResult<()> {
             Ok(())
         }
-        async fn registrar_accion(
-            &self,
-            _a: &crate::ports::AccionAuditable,
-        ) -> CoreResult<()> {
+        async fn registrar_accion(&self, _a: &crate::ports::AccionAuditable) -> CoreResult<()> {
             Ok(())
         }
-        async fn memoria_listar(
-            &self,
-            _u: Uuid,
-        ) -> CoreResult<Vec<crate::ports::MemoriaEntrada>> {
+        async fn memoria_listar(&self, _u: Uuid) -> CoreResult<Vec<crate::ports::MemoriaEntrada>> {
             Ok(Vec::new())
         }
         async fn memoria_upsert(
@@ -319,11 +307,17 @@ mod tests {
             }
             Ok(!falla)
         }
-        async fn tarea_finalizar(&self, id: Uuid, ok: bool, resumen: Option<&str>) -> CoreResult<()> {
-            self.finalizadas
-                .lock()
-                .expect("lock")
-                .push((id, ok, resumen.unwrap_or_default().to_string()));
+        async fn tarea_finalizar(
+            &self,
+            id: Uuid,
+            ok: bool,
+            resumen: Option<&str>,
+        ) -> CoreResult<()> {
+            self.finalizadas.lock().expect("lock").push((
+                id,
+                ok,
+                resumen.unwrap_or_default().to_string(),
+            ));
             Ok(())
         }
         async fn tarea_reprogramar(
@@ -332,10 +326,7 @@ mod tests {
             _user_id: Uuid,
             proxima: Option<DateTime<Utc>>,
         ) -> CoreResult<()> {
-            self.reprogramadas
-                .lock()
-                .expect("lock")
-                .push((id, proxima));
+            self.reprogramadas.lock().expect("lock").push((id, proxima));
             Ok(())
         }
     }
@@ -390,7 +381,16 @@ mod tests {
             .expect("fecha")
             .with_timezone(&chrono::Utc);
         let prox = proxima_ejecucion("0 9 * * *", desde).expect("válido");
-        assert_eq!(prox, desde.date_naive().succ_opt().unwrap().and_hms_opt(9, 0, 0).unwrap().and_utc());
+        assert_eq!(
+            prox,
+            desde
+                .date_naive()
+                .succ_opt()
+                .unwrap()
+                .and_hms_opt(9, 0, 0)
+                .unwrap()
+                .and_utc()
+        );
     }
 
     #[test]
@@ -447,12 +447,20 @@ mod tests {
         let ahora = chrono::Utc::now();
         let tarea = tarea_pendiente("resumen", "recurrente", Some("diario"));
         let persistencia = PersistenciaScheduler::default();
-        persistencia.tareas.lock().expect("lock").push(tarea.clone());
+        persistencia
+            .tareas
+            .lock()
+            .expect("lock")
+            .push(tarea.clone());
         let ejecuciones = Arc::new(AtomicUsize::new(0));
 
-        let n = ciclo_scheduler(&persistencia, runner_falso(false, ejecuciones.clone()), ahora)
-            .await
-            .expect("ciclo ok");
+        let n = ciclo_scheduler(
+            &persistencia,
+            runner_falso(false, ejecuciones.clone()),
+            ahora,
+        )
+        .await
+        .expect("ciclo ok");
 
         assert_eq!(n, 1);
         assert_eq!(ejecuciones.load(Ordering::SeqCst), 1);
@@ -495,12 +503,20 @@ mod tests {
         let ahora = chrono::Utc::now();
         let tarea = tarea_pendiente("resumen", "recurrente", Some("cada2h"));
         let persistencia = PersistenciaScheduler::default();
-        persistencia.tareas.lock().expect("lock").push(tarea.clone());
+        persistencia
+            .tareas
+            .lock()
+            .expect("lock")
+            .push(tarea.clone());
         let ejecuciones = Arc::new(AtomicUsize::new(0));
 
-        let n = ciclo_scheduler(&persistencia, runner_falso(true, ejecuciones.clone()), ahora)
-            .await
-            .expect("ciclo no aborta por fallo de una tarea");
+        let n = ciclo_scheduler(
+            &persistencia,
+            runner_falso(true, ejecuciones.clone()),
+            ahora,
+        )
+        .await
+        .expect("ciclo no aborta por fallo de una tarea");
 
         assert_eq!(n, 0);
         assert_eq!(ejecuciones.load(Ordering::SeqCst), 1, "el runner se llamó");
@@ -527,9 +543,13 @@ mod tests {
         persistencia.tareas.lock().expect("lock").push(tarea);
         let ejecuciones = Arc::new(AtomicUsize::new(0));
 
-        let n = ciclo_scheduler(&persistencia, runner_falso(false, ejecuciones.clone()), ahora)
-            .await
-            .expect("ciclo ok");
+        let n = ciclo_scheduler(
+            &persistencia,
+            runner_falso(false, ejecuciones.clone()),
+            ahora,
+        )
+        .await
+        .expect("ciclo ok");
 
         assert_eq!(n, 0);
         assert_eq!(
