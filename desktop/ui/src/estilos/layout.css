@@ -123,7 +123,6 @@
 }
 
 #sidebar .pie {
-    border-top: 1px solid var(--borde);
     padding: var(--sp-xs) 0 var(--sp-xs);
 }
 #sidebar .pie-boton {
