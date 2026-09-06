@@ -23,7 +23,7 @@ pub use infra::*;
 
 pub mod persistencia_sqlite;
 
-pub use ui::chat::{TurnoResultado, historial_desde_persistencia, procesar_turno};
+pub use ui::turno::{TurnoResultado, historial_desde_persistencia, procesar_turno};
 pub use infra::ejecutor::EjecutorCliente;
 pub use infra::persistencia::{PersistenciaMemoria, ProgramadorMemoria};
 pub use persistencia_sqlite::{AccionRecuperada, InfoConversacion, PersistenciaSqlite};

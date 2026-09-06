@@ -53,7 +53,7 @@ pub(crate) use uuid::Uuid;
 pub(crate) use glory_harness_core::evento::AgenteEvento;
 pub(crate) use glory_harness_core::runtime::AgentRuntime;
 
-pub(crate) use crate::chat::{historial_desde_persistencia, procesar_turno};
+pub(crate) use crate::turno::{historial_desde_persistencia, procesar_turno};
 pub(crate) use crate::run::{construir_harness, OpcionesRun};
 
 mod texto;

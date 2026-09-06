@@ -3,6 +3,56 @@
 //!
 use super::*;
 use super::render::dibujar;
+use crate::turno::TurnoResultado;
+use crate::ui::exportar::{guardar_export, render_markdown, ItemExport};
+
+/* [318A-17 B3-F5] Helpers de transcripción para `/export`: mantienen el
+ * bucle worker corto (el cuerpo de `spawn_worker` ya está al límite). */
+
+/// Anota el mensaje de usuario solo si es nuevo (los reenvíos tras aprobar
+/// repiten el mismo texto y no deben duplicar la transcripción).
+fn anotar_usuario(transcripcion: &mut Vec<ItemExport>, texto: &str, es_reenvio: bool) {
+    if !es_reenvio {
+        transcripcion.push(ItemExport::usuario(texto.to_string()));
+    }
+}
+
+/// Anota la respuesta del asistente con sus tools; se omite solo si no hubo
+/// ni texto ni herramientas (p. ej. turnos sin contenido).
+fn anotar_asistente(transcripcion: &mut Vec<ItemExport>, respuesta: &TurnoResultado) {
+    if !respuesta.texto.is_empty() || !respuesta.herramientas.is_empty() {
+        transcripcion.push(ItemExport::asistente(
+            respuesta.texto.clone(),
+            respuesta.herramientas.clone(),
+        ));
+    }
+}
+
+/// [318A-17 B3-F5] `/export [archivo]` en la TUI: escribe el Markdown a
+/// archivo (ruta dada o nombre por defecto `export-<fecha>.md`) y avisa por
+/// `EventoTui::Estado`/`Error`. La TUI no vuelca a consola (pantalla raw).
+fn exportar_en_tui(
+    tx_eventos: &tokio::sync::mpsc::UnboundedSender<EventoTui>,
+    transcripcion: &[ItemExport],
+    conversacion_id: Uuid,
+    ruta: Option<&str>,
+) {
+    let markdown = render_markdown(conversacion_id, transcripcion, chrono::Utc::now());
+    let destino = match ruta {
+        Some(ruta) if !ruta.trim().is_empty() => ruta.trim().to_string(),
+        _ => crate::ui::exportar::ruta_predeterminada(),
+    };
+    match guardar_export(&destino, &markdown) {
+        Ok(()) => {
+            let _ = tx_eventos.send(EventoTui::Estado(format!(
+                "conversación exportada a {destino}"
+            )));
+        }
+        Err(e) => {
+            let _ = tx_eventos.send(EventoTui::Error(e));
+        }
+    }
+}
 
 
 /// Ejecuta `chat --tui`: pantalla completa (modo raw + alternate screen).
@@ -69,6 +119,72 @@ pub async fn tui(opciones: OpcionesRun) -> Result<(), String> {
     resultado
 }
 
+/// Resultado de procesar una línea de comando `/` en el worker de la TUI.
+enum ComandoTui {
+    /// Terminar la sesión (el worker envía `Fin` y rompe el bucle).
+    Salir,
+    /// Conversación reseteada (id + transcripción): siguiente línea sin turno.
+    NuevaConversacion,
+    /// `/export` atendido: siguiente línea sin turno.
+    Exportar,
+    /// Comando personalizado expandido: sustituye el texto del usuario.
+    Enviar(String),
+    /// Ayuda mostrada o comando desconocido avisado: siguiente línea sin turno.
+    Descartar,
+}
+
+/// Procesa los comandos `/` del worker de la TUI (mismo conjunto que el REPL
+/// lineal, con la mutación de estado aquí para que el bucle del worker quede
+/// como despachador fino). Fuera de turno: no ejecuta ninguna tool.
+fn manejar_comando_tui(
+    texto: &str,
+    tx_eventos: &tokio::sync::mpsc::UnboundedSender<EventoTui>,
+    conversacion_id: &mut Uuid,
+    transcripcion: &mut Vec<ItemExport>,
+    comandos: &[glory_harness_core::skill::ComandoSlash],
+    workspace: &Option<std::path::PathBuf>,
+) -> ComandoTui {
+    match texto {
+        "/salir" | "/exit" | "/quit" => ComandoTui::Salir,
+        "/nuevo" | "/reset" => {
+            *conversacion_id = Uuid::new_v4();
+            transcripcion.clear();
+            let _ = tx_eventos.send(EventoTui::Estado(
+                "conversación nueva (el agente ya no recuerda lo anterior)".into(),
+            ));
+            ComandoTui::NuevaConversacion
+        }
+        s if s == "/export" || s.starts_with("/export ") => {
+            let ruta = s.strip_prefix("/export ").map(str::trim);
+            exportar_en_tui(tx_eventos, transcripcion, *conversacion_id, ruta);
+            ComandoTui::Exportar
+        }
+        "/ayuda" | "/help" | "/?" => {
+            let _ = tx_eventos.send(EventoTui::Estado(
+                "comandos: /salir · /nuevo · /export [archivo] · /ayuda · ↑↓ historial · PgUp/PgDn o rueda scroll · Esc/Ctrl+C sale".into(),
+            ));
+            ComandoTui::Descartar
+        }
+        _ => {
+            /* [Bloque 3, F3] Comandos personalizados (`.glory/comandos/`): si
+             * coincide una plantilla, el texto expandido fluye como mensaje del
+             * usuario (sin el aviso de desconocido). */
+            if let Some(expandido) = glory_harness_core::skill::expandir_comando(
+                texto,
+                comandos,
+                workspace.as_deref(),
+            ) {
+                ComandoTui::Enviar(expandido)
+            } else {
+                let _ = tx_eventos.send(EventoTui::Estado(format!(
+                    "comando desconocido: {texto} (usa /ayuda)"
+                )));
+                ComandoTui::Descartar
+            }
+        }
+    }
+}
+
 /// Worker del turno: dueño de la conversación (id + historial acumulado).
 /// Recibe las líneas del usuario, ejecuta `procesar_turno` y publica eventos
 /// a la UI. El historial sale de la persistencia real (misma fuente que el
@@ -89,7 +205,11 @@ pub(crate) fn spawn_worker(
          * la tool y esta vez ejecuta. El texto libre rompe el gate y se
          * convierte directamente en el siguiente mensaje del usuario. */
         let mut reintento: Option<String> = None;
+        /* [318A-17 B3-F5] Transcripción de la sesión para `/export` (misma
+         * fuente que el REPL; se resetea con `/nuevo`). */
+        let mut transcripcion: Vec<ItemExport> = Vec::new();
         loop {
+            let es_reenvio = reintento.is_some();
             let linea = match reintento.take() {
                 Some(linea) => linea,
                 None => {
@@ -105,44 +225,29 @@ pub(crate) fn spawn_worker(
                 continue;
             }
             if texto.starts_with('/') {
-                match texto.as_str() {
-                    "/salir" | "/exit" | "/quit" => {
+                match manejar_comando_tui(
+                    &texto,
+                    &tx_eventos,
+                    &mut conversacion_id,
+                    &mut transcripcion,
+                    &comandos,
+                    &workspace,
+                ) {
+                    ComandoTui::Salir => {
                         let _ = tx_eventos.send(EventoTui::Fin);
                         break;
                     }
-                    "/nuevo" | "/reset" => {
-                        conversacion_id = Uuid::new_v4();
-                        let _ = tx_eventos.send(EventoTui::Estado(
-                            "conversación nueva (el agente ya no recuerda lo anterior)".into(),
-                        ));
-                        continue;
-                    }
-                    "/ayuda" | "/help" | "/?" => {
-                        let _ = tx_eventos.send(EventoTui::Estado(
-                            "comandos: /salir · /nuevo · /ayuda · ↑↓ historial · PgUp/PgDn o rueda scroll · Esc/Ctrl+C sale".into(),
-                        ));
-                        continue;
-                    }
-                    _ => {
-                        /* [Bloque 3, F3] Comandos personalizados
-                         * (`.glory/comandos/`): si coincide una plantilla, el
-                         * texto expandido fluye como mensaje del usuario (sin
-                         * el aviso de desconocido). */
-                        if let Some(expandido) = glory_harness_core::skill::expandir_comando(
-                            &texto,
-                            &comandos,
-                            workspace.as_deref(),
-                        ) {
-                            texto = expandido;
-                        } else {
-                            let _ = tx_eventos.send(EventoTui::Estado(format!(
-                                "comando desconocido: {texto} (usa /ayuda)"
-                            )));
-                            continue;
-                        }
-                    }
+                    /* [318A-16 F2] La plantilla expandida sustituye el texto y
+                     * fluye como mensaje al turno. */
+                    ComandoTui::Enviar(expandido) => texto = expandido,
+                    /* NuevaConversacion, Exportar y Descartar ya aplicaron su
+                     * estado o mostraron el aviso: siguiente línea sin turno. */
+                    ComandoTui::NuevaConversacion
+                    | ComandoTui::Exportar
+                    | ComandoTui::Descartar => continue,
                 }
             }
+            anotar_usuario(&mut transcripcion, &texto, es_reenvio);
             let _ = tx_eventos.send(EventoTui::MensajeUsuario(texto.clone()));
             let _ = tx_eventos.send(EventoTui::EmpiezaTurno);
 
@@ -168,7 +273,7 @@ pub(crate) fn spawn_worker(
             )
             .await
             {
-                Ok(_) => {}
+                Ok(respuesta) => anotar_asistente(&mut transcripcion, &respuesta),
                 Err(err) => {
                     let _ = tx_eventos
                         .send(EventoTui::Error(format!("el turno falló: {err}")));

@@ -18,23 +18,13 @@ use uuid::Uuid;
 
 use glory_harness_core::aprobacion::{PeticionAprobacion, RespuestaAprobacion};
 use glory_harness_core::evento::AgenteEvento;
-use glory_harness_core::llm::AiMessage;
-use glory_harness_core::ports::{AgentPersistence, MensajePersistido};
+use glory_harness_core::ports::AgentPersistence;
 use glory_harness_core::runtime::AgentRuntime;
 use glory_harness_core::sandbox::SandboxArchivos;
 
 use crate::run::{construir_harness, OpcionesRun};
-
-/// Convierte los mensajes persistidos de una conversación en el historial que
-/// el runtime espera (`AiMessage`). Es la fuente entre turnos del chat: el
-/// agente recuerda el hilo porque cada turno recibe todo lo anterior.
-/// Compartido con la TUI (`tui.rs`, Fase 5 opción B): misma fuente, otra UI.
-pub fn historial_desde_persistencia(mensajes: Vec<MensajePersistido>) -> Vec<AiMessage> {
-    mensajes
-        .into_iter()
-        .map(|m| AiMessage::texto(&m.rol, m.contenido))
-        .collect()
-}
+use crate::ui::exportar::{guardar_export, render_markdown, ItemExport};
+use crate::ui::turno::{historial_desde_persistencia, procesar_turno};
 
 /// Ejecuta el subcomando `chat`: abre la sesión interactiva y no devuelve
 /// hasta que el usuario salga (`/salir`, Ctrl+C o EOF).
@@ -73,7 +63,12 @@ pub async fn chat(opciones: OpcionesRun) -> Result<(), String> {
     let mut rx_lineas = lanzar_lector_lineas();
     let mut conversacion_id = Uuid::new_v4();
     let mut reintento: Option<String> = None;
+    /* [318A-17 B3-F5] Transcripción de la sesión para `/export`: mensajes de
+     * usuario + respuestas del asistente con sus tools. Se resetea con
+     * `/nuevo` (nueva conversación). */
+    let mut transcripcion: Vec<ItemExport> = Vec::new();
     loop {
+        let es_reenvio = reintento.is_some();
         let linea = match reintento.take() {
             Some(linea) => linea,
             None => {
@@ -96,7 +91,15 @@ pub async fn chat(opciones: OpcionesRun) -> Result<(), String> {
             Comando::Salir => return Ok(()),
             Comando::NuevaConversacion => {
                 conversacion_id = Uuid::new_v4();
+                transcripcion.clear();
                 println!("[chat] conversación nueva (el agente ya no recuerda lo anterior)");
+                continue;
+            }
+            /* [318A-17 B3-F5] `/export [archivo]`: vuelca la transcripción
+             * de la sesión a Markdown (consola sin ruta, archivo con ruta).
+             * No ejecuta turno. */
+            Comando::Exportar(ruta) => {
+                exportar_sesion(&transcripcion, conversacion_id, ruta.as_deref())?;
                 continue;
             }
             /* [Bloque 3, F3] Un comando personalizado expandido sustituye el
@@ -110,15 +113,23 @@ pub async fn chat(opciones: OpcionesRun) -> Result<(), String> {
         }
 
         /* El turno (historial + ejecución + aprobaciones + modo plan) vive en
-         * `ejecutar_turno_chat` para mantener el bucle REPL legible. */
+         * `ejecutar_turno_chat` para mantener el bucle REPL legible. El
+         * mensaje del usuario se registra solo si es nuevo (los reenvíos tras
+         * aprobar repiten el mismo texto y no deben duplicarse). */
+        if !es_reenvio {
+            transcripcion.push(ItemExport::usuario(texto.clone()));
+        }
         match ejecutar_turno_chat(
-            runtime.clone(),
-            persistencia.clone(),
-            user_id,
-            conversacion_id,
-            &workspace,
+            CtxTurnoChat {
+                runtime: runtime.clone(),
+                persistencia: persistencia.clone(),
+                user_id,
+                conversacion_id,
+                workspace: &workspace,
+            },
             &mut rx_lineas,
             &texto,
+            &mut transcripcion,
         )
         .await?
         {
@@ -153,20 +164,29 @@ fn lanzar_lector_lineas() -> tokio::sync::mpsc::Receiver<Option<String>> {
     rx_lineas
 }
 
-/// Ejecuta un mensaje completo de chat: lee el historial acumulado, lanza el
-/// turno, imprime el resultado y resuelve aprobaciones + modo plan. Devuelve
-/// `Siguiente` para que el bucle REPL decida (reenviar, prompt o salir).
-async fn ejecutar_turno_chat(
+/// Estado estable de una sesión de chat para `ejecutar_turno_chat`: los
+/// valores que no cambian entre turnos del REPL (agrupados para mantener la
+/// firma del turno legible). `workspace` se presta del bucle; la
+/// `conversacion_id` se re-crea al hacer `/nuevo`.
+struct CtxTurnoChat<'a> {
     runtime: Arc<AgentRuntime>,
     persistencia: Arc<dyn AgentPersistence>,
     user_id: Uuid,
     conversacion_id: Uuid,
-    workspace: &Option<std::path::PathBuf>,
+    workspace: &'a Option<std::path::PathBuf>,
+}
+
+/// Ejecuta un mensaje completo de chat: lee el historial acumulado, lanza el
+/// turno, imprime el resultado y resuelve aprobaciones + modo plan. Devuelve
+/// `Siguiente` para que el bucle REPL decida (reenviar, prompt o salir).
+async fn ejecutar_turno_chat(
+    ctx: CtxTurnoChat<'_>,
     rx_lineas: &mut tokio::sync::mpsc::Receiver<Option<String>>,
     texto: &str,
+    transcripcion: &mut Vec<ItemExport>,
 ) -> Result<Siguiente, String> {
     /* Historial acumulado de la conversación → el agente recuerda el hilo. */
-    let historial = match persistencia.listar_mensajes(conversacion_id).await {
+    let historial = match ctx.persistencia.listar_mensajes(ctx.conversacion_id).await {
         Ok(mensajes) => historial_desde_persistencia(mensajes),
         Err(e) => {
             eprintln!("[chat] no se pudo leer el historial: {e}");
@@ -180,9 +200,9 @@ async fn ejecutar_turno_chat(
      * el resolver de aprobaciones (F2) reintenta el mismo mensaje tras
      * decidir, así que el texto se conserva tras el turno. */
     match procesar_turno(
-        runtime.clone(),
-        user_id,
-        conversacion_id,
+        ctx.runtime.clone(),
+        ctx.user_id,
+        ctx.conversacion_id,
         historial,
         texto.to_string(),
         imprimir_evento_turno,
@@ -190,6 +210,15 @@ async fn ejecutar_turno_chat(
     .await
     {
         Ok(respuesta) => {
+            /* [318A-17 B3-F5] La respuesta del asistente entra a la
+             * transcripción con las herramientas ejecutadas (eventos del
+             * turno). Se omite solo si no hubo texto ni tools. */
+            if !respuesta.texto.is_empty() || !respuesta.herramientas.is_empty() {
+                transcripcion.push(ItemExport::asistente(
+                    respuesta.texto.clone(),
+                    respuesta.herramientas.clone(),
+                ));
+            }
             if !respuesta.tools.is_empty() {
                 eprintln!("  tools: {}", respuesta.tools.join(", "));
             }
@@ -207,13 +236,13 @@ async fn ejecutar_turno_chat(
      * agente (p. ej. "adelante" responde a la pregunta del modelo). */
     /* Salir corta sin preguntar por el plan (mismo orden que el bucle
      * anterior). */
-    let siguiente = match resolver_aprobaciones(&runtime, rx_lineas, texto).await {
+    let siguiente = match resolver_aprobaciones(&ctx.runtime, rx_lineas, texto).await {
         Siguiente::Salir => Siguiente::Salir,
         otra => {
             /* [318A-16 F5] Modo plan: al cerrar el turno se muestra el diff
              * acumulado y se pregunta aprobar/descartar (regla de una sola
              * aplicación). Fuera de modo plan no hay propuesta: no pregunta. */
-            mostrar_plan_si_aplica(&runtime, workspace, rx_lineas).await?;
+            mostrar_plan_si_aplica(&ctx.runtime, ctx.workspace, rx_lineas).await?;
             otra
         }
     };
@@ -241,6 +270,8 @@ async fn mostrar_plan_si_aplica(
 enum Comando {
     Salir,
     NuevaConversacion,
+    /// [318A-17 B3-F5] `/export [archivo]` — vuelca la sesión a Markdown.
+    Exportar(Option<String>),
     /// [Bloque 3, F3] Comando personalizado expandido (plantilla markdown).
     Enviar(String),
     Continuar,
@@ -278,10 +309,21 @@ async fn manejar_comando(
             }
             Ok(Comando::Continuar)
         }
+        s if s == "/export" || s.starts_with("/export ") => {
+            /* [318A-17 B3-F5] /export [archivo]: sin ruta imprime en consola,
+             * con ruta escribe el archivo. Built-in que manda sobre un
+             * comando personalizado que colisione (fail-closed, como F3). */
+            let ruta = s
+                .strip_prefix("/export ")
+                .map(str::trim)
+                .filter(|r| !r.is_empty());
+            Ok(Comando::Exportar(ruta.map(ToString::to_string)))
+        }
         "/ayuda" | "/help" | "/?" => {
             println!("comandos:");
             println!("  /salir   termina la sesión (también Ctrl+C o EOF)");
             println!("  /nuevo   reinicia la conversación (historial limpio)");
+            println!("  /export  vuelca la conversación a Markdown (/export archivo.md)");
             if runtime.turno_config.modo == "plan" {
                 println!("  /plan            muestra la propuesta acumulada (diff)");
                 println!("  /plan aprobar    aplica la propuesta una sola vez");
@@ -317,6 +359,25 @@ async fn manejar_comando(
             }
         }
     }
+}
+
+/// [318A-17 B3-F5] `/export [archivo]`: vuelca la transcripción a Markdown.
+/// Sin ruta imprime en consola (REPL lineal); con ruta escribe el archivo y
+/// reporta la ruta.
+fn exportar_sesion(
+    transcripcion: &[ItemExport],
+    conversacion_id: Uuid,
+    ruta: Option<&str>,
+) -> Result<(), String> {
+    let markdown = render_markdown(conversacion_id, transcripcion, chrono::Utc::now());
+    match ruta {
+        Some(ruta) => {
+            guardar_export(ruta, &markdown)?;
+            println!("[chat] conversación exportada a {ruta}");
+        }
+        None => println!("{markdown}"),
+    }
+    Ok(())
 }
 
 /// Imprime en stderr el progreso de un turno (tools, subagentes, telemetría).
@@ -555,105 +616,4 @@ async fn resolver_aprobaciones(
         /* Todas las peticiones se respondieron con palabras clave: reintentar
          * el último mensaje para que el agente ejecute lo aprobado. */
         Siguiente::Reenviar(ultimo_texto.to_string())
-}
-
-/// Resultado de un turno de chat: texto del asistente + tools ejecutadas.
-/// Compartido entre el REPL lineal y la TUI (`chat --tui`). Los errores se
-/// muestran en vivo por el callback de eventos, no se acumulan aquí.
-pub struct TurnoResultado {
-    pub texto: String,
-    pub tools: Vec<String>,
-}
-
-/// Ejecuta un turno sobre la conversación y consume el contrato `AgenteEvento`
-/// con un callback por evento (cada UI decide cómo pintarlo: el REPL imprime
-/// en vivo; la TUI lo acumula en sus paneles). El runtime persiste ambos
-/// mensajes vía puerto; aquí solo se recolecta el resultado. Un fallo se
-/// devuelve como `Err` y no acaba la sesión: el llamador puede reintentar.
-pub async fn procesar_turno(
-    runtime: Arc<AgentRuntime>,
-    user_id: Uuid,
-    conversacion_id: Uuid,
-    historial: Vec<AiMessage>,
-    texto: String,
-    mut on_evento: impl FnMut(AgenteEvento),
-) -> Result<TurnoResultado, String> {
-    let turno_id = Uuid::new_v4();
-    let (tx, mut rx) = tokio::sync::mpsc::channel::<AgenteEvento>(64);
-    let handle = tokio::spawn({
-        let runtime = Arc::clone(&runtime);
-        async move {
-            runtime
-                .ejecutar_turno(user_id, turno_id, conversacion_id, historial, texto, &tx)
-                .await
-        }
-    });
-
-    let mut texto_respuesta = String::new();
-    let mut tools = Vec::new();
-    while let Some(evento) = rx.recv().await {
-        match &evento {
-            AgenteEvento::Token { texto: t } => texto_respuesta.push_str(t),
-            AgenteEvento::ToolStart { tool, .. } => tools.push(tool.clone()),
-            AgenteEvento::Done { .. } => break,
-            _ => {}
-        }
-        on_evento(evento);
-    }
-
-    match handle.await {
-        Ok(Ok(())) => Ok(TurnoResultado {
-            texto: texto_respuesta,
-            tools,
-        }),
-        Ok(Err(err)) => Err(err.to_string()),
-        Err(err) => Err(format!("el turno abortó con pánico: {err}")),
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use chrono::Utc;
-
-    #[test]
-    fn historial_preserva_orden_y_roles() {
-        let ahora = Utc::now();
-        let conv = Uuid::new_v4();
-        let mensajes = vec![
-            MensajePersistido {
-                id: Uuid::new_v4(),
-                conversacion_id: conv,
-                rol: "user".into(),
-                contenido: "primero".into(),
-                creado_en: ahora,
-            },
-            MensajePersistido {
-                id: Uuid::new_v4(),
-                conversacion_id: conv,
-                rol: "assistant".into(),
-                contenido: "respuesta".into(),
-                creado_en: ahora,
-            },
-            MensajePersistido {
-                id: Uuid::new_v4(),
-                conversacion_id: conv,
-                rol: "user".into(),
-                contenido: "segundo".into(),
-                creado_en: ahora,
-            },
-        ];
-        let historial = historial_desde_persistencia(mensajes);
-        assert_eq!(historial.len(), 3);
-        assert_eq!(historial[0].role, "user");
-        assert_eq!(historial[0].content, serde_json::Value::String("primero".into()));
-        assert_eq!(historial[1].role, "assistant");
-        assert_eq!(historial[1].content, serde_json::Value::String("respuesta".into()));
-        assert_eq!(historial[2].content, serde_json::Value::String("segundo".into()));
-    }
-
-    #[test]
-    fn historial_vacio_es_vacio() {
-        assert!(historial_desde_persistencia(vec![]).is_empty());
-    }
 }

@@ -14,7 +14,10 @@
   B3-F2`, cliente MCP stdio fail-closed), Fase 3 ✅ (`318A-17 B3-F3`, skills +
   comandos slash unificados), Fase 4 ✅ (`318A-17 B3-F4`, hooks de ciclo de
   vida: `core/src/nucleo/hooks.rs` + emisión fina en el runtime; item 3
-  `Notification` diferido por decisión). Fases 5–8 pendientes.
+  `Notification` diferido por decisión), Fase 5 ✅ (`318A-17 B3-F5`,
+  export conversación→markdown en REPL y TUI; item `session` diferido:
+  depende de `persistencia_sqlite.rs`, ajeno del hilo 039A-3).
+  Fases 6–8 pendientes.
 - **IDs sugeridos** para las fases del Bloque 3: `049A-N` (verificar contra
   `Agente/completados/` y `roadmap` antes de asignar).
 
@@ -502,9 +505,27 @@ commit por fase). Mover a ejecución solo tras aprobación del usuario.
 
 ### Fase 5 — Sesiones y export
 - [ ] Subcomando `session` (list/ver/resume/borrar) sobre `persistencia_sqlite`;
-      resume de conversación con contexto recompuesto.
-- [ ] `export` (conversación/turno → markdown con decisiones y eventos).
+      resume de conversación con contexto recompuesto. **Diferido por
+      decisión:** `cli/src/persistencia_sqlite.rs` es ajeno del hilo 039A-3
+      (WIP desktop, commits propios) — implementar encima pisaría trabajo de
+      otro hilo. La transcripción de sesión en memoria de F5 (`ui/turno.rs`,
+      alimentada igual por REPL y TUI) deja la base lista para adoptar esa
+      persistencia cuando sea estable.
+- [x] `export` (conversación/turno → markdown con decisiones y eventos).
       Evidencia: claurst `commands/export.rs`, opencode `src/session/`.
+      Implementado: `cli/src/ui/exportar.rs` (`ItemExport`
+      usuario/asistente+fecha, `HerramientaEjecutada` desde el evento
+      `ToolResult`, `render_markdown` puro con cabecera/rol/estado de tool y
+      líneas de diff, `guardar_export` con error propagado, `ruta_predeterminada`)
+      + `/export [archivo]` en el REPL (`ui/chat.rs`; sin ruta vuelca en
+      consola) y en la TUI (`ui/tui/bucle.rs`; escribe a archivo y avisa).
+      La maquinaria de turno compartida se extrajo a `ui/turno.rs`
+      (`historial_desde_persistencia`, `TurnoResultado` con `herramientas`,
+      `procesar_turno` capturando `ToolResult`) para que REPL y TUI tengan una
+      sola fuente. Verificación: 256 tests (212 core + 40 cli + 4 desktop),
+      clippy `-D warnings` limpio core+cli, `sentinel analyze` 0 hallazgos en
+      core/cli (3 clippy desktop y 2 vault = ajenos), release reconstruido,
+      reinstalado en `~/.cargo/bin` y batería README verde.
 
 ### Fase 6 — Checkpoint/undo (git)
 - [ ] Antes de aplicar un plan (F5 del plan 2) o cambios de tools de archivo:
