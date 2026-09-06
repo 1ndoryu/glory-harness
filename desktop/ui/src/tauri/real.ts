@@ -178,6 +178,104 @@ export interface HooksAdaptador {
   /** [069A-1 F4] El agente usó una tool de navegador: refleja la acción
    * en el UI del navegador (log + anotaciones). */
   onToolNavegador?: (ev: AgenteEvento & { tipo: 'tool_navegador' }) => void;
+  /** [069A-2 F4] Estado de la conexión del transporte (solo el HTTP/SSE la
+   * reporta; Tauri in-process no la usa). */
+  onConexion?: (estado: 'conectando' | 'en-linea' | 'reconectando' | 'error', detalle?: string) => void;
+}
+
+/** [069A-2 F4] Transporte del adaptador: la fuente de los eventos y el
+ * destino de los comandos. El render (aplicar/aviso/montar) vive una sola
+ * vez en `crearAdaptadorReal`; Tauri IPC y HTTP/SSE solo implementan esto. */
+export interface Transporte {
+  abrirSesion(opts: OpcionesTurno): Promise<InfoSesion>;
+  reconfigurarSesion(opts: OpcionesTurno): Promise<InfoSesion>;
+  enviarTurno(mensaje: string, panelId: string | null): Promise<void>;
+  detenerTurno(panelId: string | null): void;
+  responderAprobacion(id: string, respuesta: string): Promise<void>;
+  pendientesAprobacion(): Promise<unknown[]>;
+  /** Tauri responde aprobaciones entre turnos y reenvía; HTTP resuelve en
+   * vivo durante el turno y nunca reenvía. */
+  requiereReenvioTrasAprobar(): boolean;
+  /** Registra (una vez) el reenvío turno→UI: eventos + cierre. */
+  escucharTurno(
+    onEvento: (ev: AgenteEvento) => void,
+    onFin: (ok: boolean, error?: string) => void,
+  ): Promise<void>;
+  convNueva(titulo: string | null, panelId: string | null): Promise<InfoConversacion>;
+  convListar(): Promise<InfoConversacion[]>;
+  convCargar(id: string, panelId: string | null): Promise<CargaConversacion>;
+  convRenombrar(id: string, titulo: string): Promise<boolean>;
+  convArchivar(id: string, archivada: boolean): Promise<boolean>;
+  convEliminar(id: string, panelId: string | null): Promise<InfoConversacion>;
+  convRewind(hastaMensajeId: string, editar: boolean, panelId: string | null): Promise<CargaConversacion>;
+  tramoRestaurar(panelId: string | null): Promise<ResultadoRestauracionTramo>;
+  leerProveedores(): Promise<ProveedorInfo[]>;
+  leerConfig(clave: string): Promise<string | null>;
+  guardarConfig(clave: string, valor: string): Promise<void>;
+  elegirWorkspace(): Promise<InfoSesion>;
+  fijarWorkspace(ruta: string): Promise<InfoSesion>;
+  fijarMeta(meta: string | null): Promise<string | null>;
+}
+
+/** Transporte Tauri in-process (comportamiento 039A-1 intacto). */
+export function transporteTauri(): Transporte {
+  return {
+    abrirSesion: (opts) =>
+      invoke<InfoSesion>('abrir_sesion', {
+        provider: opts.proveedor || null,
+        modelo: opts.modelo || null,
+        dir: null,
+        modo: opts.modo || null,
+        razonamiento: opts.razonamiento || null,
+      }),
+    reconfigurarSesion: (opts) =>
+      invoke<InfoSesion>('reconfigurar_sesion', {
+        provider: opts.proveedor || null,
+        modelo: opts.modelo || null,
+        modo: opts.modo || null,
+        razonamiento: opts.razonamiento || null,
+      }),
+    enviarTurno: (mensaje, panelId) => invoke<void>('enviar_turno', { mensaje, panel_id: panelId }),
+    detenerTurno: (panelId) => {
+      void invoke('cancelar_turno', { panel_id: panelId }).catch(() => {});
+    },
+    responderAprobacion: (id, respuesta) =>
+      invoke<void>('responder_aprobacion', { id, respuesta }),
+    pendientesAprobacion: () => invoke<unknown[]>('pendientes_aprobacion'),
+    requiereReenvioTrasAprobar: () => true,
+    escucharTurno: async (onEvento, onFin) => {
+      await listen<AgenteEvento>('agente-evento', (e) => onEvento(e.payload));
+      await listen<{ ok: boolean; error?: string }>('turno-fin', (e) =>
+        onFin(e.payload.ok, e.payload.error),
+      );
+    },
+    convNueva: (titulo, panelId) =>
+      invoke<InfoConversacion>('conversacion_nueva', { titulo, panel_id: panelId }),
+    convListar: () => invoke<InfoConversacion[]>('listar_conversaciones'),
+    convCargar: (id, panelId) =>
+      invoke<CargaConversacion>('cargar_conversacion', { id, panel_id: panelId }),
+    convRenombrar: (id, titulo) => invoke<boolean>('renombrar_conversacion', { id, titulo }),
+    convArchivar: (id, archivada) => invoke<boolean>('archivar_conversacion', { id, archivada }),
+    convEliminar: (id, panelId) =>
+      invoke<InfoConversacion>('eliminar_conversacion', { id, panel_id: panelId }),
+    convRewind: (hastaMensajeId, editar, panelId) =>
+      invoke<CargaConversacion>('rewind_conversacion', {
+        hastaMensajeId,
+        editar,
+        panel_id: panelId,
+      }),
+    tramoRestaurar: (panelId) =>
+      invoke<ResultadoRestauracionTramo>('restaurar_archivos_tramo', { panel_id: panelId }),
+    leerProveedores: () => invoke<ProveedorInfo[]>('proveedores_disponibles'),
+    leerConfig: (clave) => invoke<string | null>('config_leer', { clave }),
+    guardarConfig: (clave, valor) => invoke<void>('config_guardar', { clave, valor }),
+    elegirWorkspace: () => invoke<InfoSesion>('elegir_workspace'),
+    fijarWorkspace: () =>
+      Promise.reject(
+        new Error('en Tauri el workspace se elige con el diálogo nativo (elegirWorkspace)'),
+      ),
+    fijarMeta: (meta) => invoke<string | null>('actualizar_meta', { meta }),
+  };
 }
 
 const RESPUESTA: Record<DecisionAprobacion, string> = {
@@ -204,7 +302,7 @@ export function esEntornoTauri(): boolean {
   return typeof (window as unknown as { __TAURI__?: unknown }).__TAURI__ !== 'undefined';
 }
 
-export function crearAdaptadorReal(hooks: HooksAdaptador = {}) {
+export function crearAdaptadorReal(hooks: HooksAdaptador = {}, transporte: Transporte = transporteTauri()) {
   let escuchando = false;
   let sesionAbierta = false;
   let claveSesion = '';
@@ -282,7 +380,8 @@ export function crearAdaptadorReal(hooks: HooksAdaptador = {}) {
           titulo: `${ev.tool} (clase: ${ev.clasificacion})`,
           argsTexto: compacto(ev.argumentos),
           onDecidir: (decision, t) => {
-            void invoke('responder_aprobacion', { id: ev.id, respuesta: RESPUESTA[decision] })
+            void transporte
+              .responderAprobacion(ev.id, RESPUESTA[decision])
               .then(() => {
                 t.ponerEstado(
                   decision === 'denegar' ? 'denegada por el usuario' : 'aprobada · se ejecuta al reenviar',
@@ -361,9 +460,11 @@ export function crearAdaptadorReal(hooks: HooksAdaptador = {}) {
     fin?.();
     // Reenvío tras aprobar (paridad REPL): si hubo peticiones y ya no quedan
     // pendientes, el agente ejecuta lo aprobado sin repetir el mensaje.
-    if (ok && huboPeticiones && ultimoMensaje) {
+    // [069A-2 F4] Solo el transporte que lo requiere (Tauri entre turnos);
+    // HTTP resuelve en vivo y nunca reenvía.
+    if (ok && huboPeticiones && ultimoMensaje && transporte.requiereReenvioTrasAprobar()) {
       try {
-        const pendientes = await invoke<unknown[]>('pendientes_aprobacion');
+        const pendientes = await transporte.pendientesAprobacion();
         if (pendientes.length === 0) {
           const reintento = ultimoMensaje;
           aviso('aprobaciones resueltas: se reenvía el mensaje', '', '');
@@ -385,13 +486,7 @@ export function crearAdaptadorReal(hooks: HooksAdaptador = {}) {
   async function asegurarSesion(opts: OpcionesTurno): Promise<InfoSesion | null> {
     const clave = `${opts.proveedor}|${opts.modelo}|${opts.modo}|${opts.razonamiento}`;
     if (!sesionAbierta) {
-      const info = await invoke<InfoSesion>('abrir_sesion', {
-        provider: opts.proveedor || null,
-        modelo: opts.modelo || null,
-        dir: null,
-        modo: opts.modo || null,
-        razonamiento: opts.razonamiento || null,
-      });
+      const info = await transporte.abrirSesion(opts);
       sesionAbierta = true;
       claveSesion = clave;
       if (info.aviso) aviso(info.aviso, 'persistencia', '');
@@ -401,12 +496,7 @@ export function crearAdaptadorReal(hooks: HooksAdaptador = {}) {
     if (clave !== claveSesion) {
       // Cambio de modelo/modo/razonamiento: reconfigura SIN perder la
       // conversación (abrir_sesion crearía una conversación nueva vacía).
-      const info = await invoke<InfoSesion>('reconfigurar_sesion', {
-        provider: opts.proveedor || null,
-        modelo: opts.modelo || null,
-        modo: opts.modo || null,
-        razonamiento: opts.razonamiento || null,
-      });
+      const info = await transporte.reconfigurarSesion(opts);
       claveSesion = clave;
       hooks.onSesion?.(info);
       return info;
@@ -444,14 +534,14 @@ export function crearAdaptadorReal(hooks: HooksAdaptador = {}) {
     if (mensajes) mensajes.scrollTop = mensajes.scrollHeight;
     try {
       if (!escuchando) {
-        await listen<AgenteEvento>('agente-evento', (e) => aplicar(e.payload));
-        await listen<{ ok: boolean; error?: string }>('turno-fin', (e) =>
-          void cerrar(e.payload.ok, e.payload.error),
+        await transporte.escucharTurno(
+          (ev) => aplicar(ev),
+          (ok, error) => void cerrar(ok, error),
         );
         escuchando = true;
       }
       await asegurarSesion(opts);
-      await invoke('enviar_turno', { mensaje: texto, panel_id: opts.panelId ?? null });
+      await transporte.enviarTurno(texto, opts.panelId ?? null);
     } catch (e: unknown) {
       await cerrar(false, String(e));
     }
@@ -462,7 +552,7 @@ export function crearAdaptadorReal(hooks: HooksAdaptador = {}) {
     // (ok:false). El cierre local es optimista; el `turno-fin` tardío se
     // ignora por el flag `cerrado`. [039A-3 P5] Cancela el turno del panel
     // que lanzó `montar` (el adaptador guarda la última `OpcionesTurno`).
-    void invoke('cancelar_turno', { panel_id: ultimaOpcion.panelId ?? null }).catch(() => {});
+    transporte.detenerTurno(ultimaOpcion.panelId ?? null);
     if (!cerrado) {
       cerrado = true;
       ultimoResultado = 'cancelado';
@@ -496,35 +586,25 @@ export function crearAdaptadorReal(hooks: HooksAdaptador = {}) {
       /** [039A-3 P5] Crea una conversación en el panel dado (default
        * 'principal'). Devuelve la conversación nueva. */
       async nueva(titulo?: string, panelId?: string): Promise<InfoConversacion> {
-        const conv = await invoke<InfoConversacion>('conversacion_nueva', {
-          titulo: titulo ?? null,
-          panel_id: panelId ?? null,
-        });
-        return conv;
+        return transporte.convNueva(titulo ?? null, panelId ?? null);
       },
       async listar(): Promise<InfoConversacion[]> {
-        return invoke<InfoConversacion[]>('listar_conversaciones');
+        return transporte.convListar();
       },
       /** [039A-3 P5] Carga una conversación en el panel dado. */
       async cargar(id: string, panelId?: string): Promise<CargaConversacion> {
-        return invoke<CargaConversacion>('cargar_conversacion', {
-          id,
-          panel_id: panelId ?? null,
-        });
+        return transporte.convCargar(id, panelId ?? null);
       },
       async renombrar(id: string, titulo: string): Promise<boolean> {
-        return invoke<boolean>('renombrar_conversacion', { id, titulo });
+        return transporte.convRenombrar(id, titulo);
       },
       async archivar(id: string, archivada: boolean): Promise<boolean> {
-        return invoke<boolean>('archivar_conversacion', { id, archivada });
+        return transporte.convArchivar(id, archivada);
       },
       /** [039A-3 P5] Si era la actual del panel, el backend crea una nueva en
        * ese panel y la devuelve. */
       async eliminar(id: string, panelId?: string): Promise<InfoConversacion> {
-        return invoke<InfoConversacion>('eliminar_conversacion', {
-          id,
-          panel_id: panelId ?? null,
-        });
+        return transporte.convEliminar(id, panelId ?? null);
       },
       /** [039A-3 P2] Borra el hilo posterior a un mensaje de usuario y
        * devuelve la conversación recién recortada. `editar=false` conserva el
@@ -536,41 +616,43 @@ export function crearAdaptadorReal(hooks: HooksAdaptador = {}) {
         editar: boolean,
         panelId?: string,
       ): Promise<CargaConversacion> {
-        return invoke<CargaConversacion>('rewind_conversacion', {
-          hastaMensajeId,
-          editar,
-          panel_id: panelId ?? null,
-        });
+        return transporte.convRewind(hastaMensajeId, editar, panelId ?? null);
       },
       /** [039A-3 P3] Restaura los archivos del último tramo rebobinado (acción
        * EXPLÍCITA tras "volver a punto"). Falla si no hay tramo pendiente.
        * [039A-3 P5] Opera sobre el tramo del panel dado. */
       async restaurarTramo(panelId?: string): Promise<ResultadoRestauracionTramo> {
-        return invoke<ResultadoRestauracionTramo>('restaurar_archivos_tramo', {
-          panel_id: panelId ?? null,
-        });
+        return transporte.tramoRestaurar(panelId ?? null);
       },
       async proveedores(): Promise<ProveedorInfo[]> {
-        return invoke<ProveedorInfo[]>('proveedores_disponibles');
+        return transporte.leerProveedores();
       },
       async configLeer(clave: string): Promise<string | null> {
-        return invoke<string | null>('config_leer', { clave });
+        return transporte.leerConfig(clave);
       },
       async configGuardar(clave: string, valor: string): Promise<void> {
-        await invoke('config_guardar', { clave, valor });
+        await transporte.guardarConfig(clave, valor);
       },
       /**
        * Diálogo nativo de carpeta. Reabre la sesión (conversación nueva).
        * Si el usuario cancela, devuelve la sesión actual sin cambios.
        */
       async elegirWorkspace(): Promise<InfoSesion> {
-        const info = await invoke<InfoSesion>('elegir_workspace');
+        const info = await transporte.elegirWorkspace();
+        sesionAbierta = true;
+        hooks.onSesion?.(info);
+        return info;
+      },
+      /** [069A-2 F4] Fija el workspace por ruta (modo web). En Tauri se
+       * rechaza: el diálogo nativo es el dueño. */
+      async fijarWorkspace(ruta: string): Promise<InfoSesion> {
+        const info = await transporte.fijarWorkspace(ruta);
         sesionAbierta = true;
         hooks.onSesion?.(info);
         return info;
       },
       async actualizarMeta(meta: string | null): Promise<string | null> {
-        return invoke<string | null>('actualizar_meta', { meta });
+        return transporte.fijarMeta(meta);
       },
     },
   };

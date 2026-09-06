@@ -615,7 +615,7 @@ export function montarPanelChat(opts: PanelChatOpciones): PanelChat {
       d.simulacion.montar(mensajes, texto, d.getModo() === 'autonomo', alTerminar);
     } else {
       mensajes.appendChild(
-        crearAvisoSistema('Abre esta UI desde la app Tauri', 'sin backend', 'en navegador solo maqueta con VITE_MOCK=1'),
+        crearAvisoSistema('Sin backend: abre desde la app Tauri o sirve la UI con `glory-harness web` (?api=<url>&token=...)', 'sin backend', 'con VITE_MOCK=1 se usa la simulación'),
       );
       inicioTurno = null;
       d.notificarTurnoFin();
@@ -646,7 +646,7 @@ export function montarPanelChat(opts: PanelChatOpciones): PanelChat {
       return;
     }
     if (!d.usaReal) {
-      avisoChat('nueva conversación requiere la app Tauri', '', '');
+      avisoChat('nueva conversación requiere backend (Tauri o modo web)', '', '');
       return;
     }
     try {

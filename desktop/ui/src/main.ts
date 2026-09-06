@@ -33,7 +33,8 @@ import {
 import { crearSimulacion } from './simulacion/simulacion';
 import { invoke } from '@tauri-apps/api/core';
 import { crearAdaptadorReal, esEntornoTauri } from './tauri/real';
-import type { InfoSesion, UsoTurno } from './tauri/real';
+import { crearAdaptadorApi } from './adaptadores/api';
+import type { HooksAdaptador, InfoSesion, UsoTurno } from './tauri/real';
 import { el } from './util/dom';
 import { copiarAlPortapapeles } from './util/portapapeles';
 
@@ -65,8 +66,27 @@ const RAZONAMIENTO_ETIQUETA: Record<string, string> = {
 };
 
 const simulacion = crearSimulacion();
-const USA_REAL = esEntornoTauri();
+/** [069A-2 F4] Factoría simple: Tauri → IPC; `?api=`/`gh_api`/origen http
+ * → adaptador HTTP/SSE; sin backend → mock o maqueta con aviso claro.
+ * `?token=` aporta el maestro (solo memoria); la sesión viaja en cookie. */
+function detectarBaseApi(): string | null {
+  const q = new URLSearchParams(window.location.search).get('api');
+  if (q) return q.replace(/\/$/, '');
+  try {
+    const g = window.localStorage.getItem('gh_api');
+    if (g) return g.replace(/\/$/, '');
+  } catch {
+    /* sin localStorage */
+  }
+  // UI servida por `glory-harness web`: el backend existe trivialmente.
+  if (window.location.protocol === 'http:' || window.location.protocol === 'https:') return '';
+  return null;
+}
+const USA_TAURI = esEntornoTauri();
+const BASE_API = USA_TAURI ? null : detectarBaseApi();
+const USA_REAL = USA_TAURI || BASE_API !== null;
 const USA_MOCK = !USA_REAL && import.meta.env.VITE_MOCK === '1';
+const MODO_TEXTO = USA_TAURI ? 'tauri in-process' : BASE_API !== null ? `web (${BASE_API || 'mismo origen'})` : 'sin backend';
 
 // Lista de conversaciones (fuente para la sidebar y el ⋯ de cabecera).
 let conversaciones: Conversacion[] = USA_REAL
@@ -104,7 +124,7 @@ const panelMeta = montarPanelMeta({
 
 // ---------- Backend real: adaptador (compartido). ----------
 // onSesion se ejecuta en runtime (tras montar todo); `modal` es seguro.
-const adaptador = crearAdaptadorReal({
+const hooksAdaptador: HooksAdaptador = {
   onSesion(info: InfoSesion) {
     sincronizarModeloDesdeSesion(info);
     const ws = info.workspace;
@@ -139,7 +159,17 @@ const adaptador = crearAdaptadorReal({
       navegador.actualizarCaptura(ev.captura_base64);
     }
   },
-});
+  // [069A-2 F4] Estado de conexión SSE (solo modo web): visible, nunca
+  // silencioso. Seguro: `avisoGlobal` solo corre en runtime.
+  onConexion(estado, detalle) {
+    if (estado !== 'en-linea') avisoGlobal(`backend web: ${estado}`, '', detalle ?? '');
+  },
+};
+// Tauri → IPC in-process; web (`?api=`/`gh_api`/mismo origen) → HTTP/SSE.
+// `adaptador` se usa en cierres de runtime; en modo ni-ni nunca se monta.
+const adaptador = USA_TAURI
+  ? crearAdaptadorReal(hooksAdaptador)
+  : crearAdaptadorApi(BASE_API ?? '', hooksAdaptador);
 
 // ---------- Gestión de paneles (1 principal + 0..1 lateral) ----------
 const panelesRegistrados: PanelChat[] = [];
@@ -809,10 +839,21 @@ function abrirNavegador(): void {
   }
   navegadorAbierto = true;
   navegador.mostrar(true);
-  // Invoca navegador_abrir (crea la webview hija)
+
+  // Calcular la posición del contenedor webview dentro de la ventana
   void (async () => {
     try {
-      await invoke('navegador_abrir', { url: 'https://example.com', ancho: 800, alto: 600 });
+      const contenedor = document.getElementById('navegador-webview-contenedor');
+      if (!contenedor) throw new Error('contenedor webview no encontrado');
+      const rect = contenedor.getBoundingClientRect();
+
+      await invoke('navegador_abrir', {
+        url: 'https://example.com',
+        ancho: Math.round(rect.width),
+        alto: Math.round(rect.height),
+        posX: Math.round(rect.left),
+        posY: Math.round(rect.top),
+      });
       navegador.fijarURL('https://example.com');
       navegador.registrarAccion({
         herramienta: 'abrir',
@@ -820,6 +861,20 @@ function abrirNavegador(): void {
         ok: true,
         tiempo: Date.now(),
       });
+
+      // Observar cambios de tamaño/posición para reposicionar la webview
+      const ro = new ResizeObserver(() => {
+        const r = contenedor.getBoundingClientRect();
+        void invoke('navegador_posicionar', {
+          x: Math.round(r.left),
+          y: Math.round(r.top),
+          ancho: Math.round(r.width),
+          alto: Math.round(r.height),
+        }).catch(() => {});
+      });
+      ro.observe(contenedor);
+      // Guardar observer para cleanup al cerrar
+      (navegador as unknown as Record<string, unknown>).__resizeObserver = ro;
     } catch (error) {
       navegador.registrarAccion({
         herramienta: 'abrir',
@@ -836,6 +891,12 @@ function cerrarNavegador(): void {
   navegadorAbierto = false;
   navegador.mostrar(false);
   void invoke('navegador_cerrar').catch(() => {});
+  // Limpiar ResizeObserver
+  const ro = (navegador as unknown as Record<string, unknown>).__resizeObserver as ResizeObserver | undefined;
+  if (ro) {
+    ro.disconnect();
+    delete (navegador as unknown as Record<string, unknown>).__resizeObserver;
+  }
 }
 
 // ---------- Montaje del DOM ----------
@@ -892,7 +953,7 @@ if (USA_MOCK) {
 } else if (USA_REAL) {
   principal.avisoLocal(
     'Sesión real del núcleo (sin simulación)',
-    'tauri in-process',
+    MODO_TEXTO,
     'escribe y envía',
   );
 }
@@ -958,8 +1019,10 @@ if (USA_REAL) {
     } catch (e: unknown) {
       principal.avisoLocal(
         `el backend no arrancó: ${String(e)}`,
-        'tauri',
-        'puedes escribir igual (reintenta al enviar)',
+        MODO_TEXTO,
+        BASE_API !== null && !USA_TAURI
+          ? 'revisa ?api= y ?token= y recarga'
+          : 'puedes escribir igual (reintenta al enviar)',
       );
     }
   })();
