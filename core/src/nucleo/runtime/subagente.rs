@@ -61,6 +61,7 @@ impl AgentRuntime {
                 ),
                 resumen: "agente_desconocido".into(),
                 diff: None,
+                evento_extra: None,
             });
         };
         let mut instruccion = objetivo.to_string();
@@ -290,14 +291,7 @@ impl AgentRuntime {
             );
             let verdicto = decidir_permiso(permiso, denegadas_hijo.contains(&call.nombre));
             let mensaje_tool = self
-                .mensaje_verdicto_subagente(
-                    user_id,
-                    turno_id,
-                    &call,
-                    verdicto,
-                    denegadas_hijo,
-                    tx,
-                )
+                .mensaje_verdicto_subagente(user_id, turno_id, &call, verdicto, denegadas_hijo, tx)
                 .await?;
             empujar_tool_call(mensajes, &call);
             let mut tool_msg = AiMessage::texto("tool", mensaje_tool);
@@ -373,7 +367,10 @@ impl AgentRuntime {
                     })
                     .await;
                 self.telemetria().registrar_denegacion();
-                format!("[{} DENEGADA] NO la reintentes; cambia de plan.", call.nombre)
+                format!(
+                    "[{} DENEGADA] NO la reintentes; cambia de plan.",
+                    call.nombre
+                )
             }
             VerdictoPermiso::RepetidoDenegado => format!(
                 "[{} DENEGADA — repetida] Ya se te indicó; no la vuelvas a proponer.",

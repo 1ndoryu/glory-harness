@@ -74,6 +74,7 @@ impl AgentRuntime {
                 ),
                 resumen: "bloqueada_por_hook".into(),
                 diff: None,
+                evento_extra: None,
             });
         }
         let ctx = AgentToolContext {
@@ -91,6 +92,7 @@ impl AgentRuntime {
             dominio: self.puertos.dominio.as_deref(),
             todo: self.registry.todo(),
             plan: self.plan_actual(),
+            navegador: self.puertos.navegador.as_deref(),
         };
         let resultado = self
             .registry
@@ -101,7 +103,8 @@ impl AgentRuntime {
                 error
             })?;
         /* Auditoría de acción (sin secretos). */
-        self.puertos.persistencia
+        self.puertos
+            .persistencia
             .registrar_accion(&AccionAuditable {
                 turno_id,
                 tool: call.nombre.clone(),
@@ -129,4 +132,3 @@ impl AgentRuntime {
         Ok(resultado)
     }
 }
-

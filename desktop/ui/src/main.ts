@@ -21,6 +21,7 @@ import type { ModoEjecucion } from './componentes/entrada';
 import { montarModalConfiguracion } from './componentes/modal';
 import { montarPanelMeta } from './componentes/panelMeta';
 import { montarPanelChat, type PanelChat } from './componentes/panelChat';
+import { montarPanelNavegador } from './componentes/panelNavegador';
 import { renderizarBloque } from './componentes/mensajes';
 import {
   abrirMenuContextual,
@@ -30,6 +31,7 @@ import {
 } from './componentes/menu';
 
 import { crearSimulacion } from './simulacion/simulacion';
+import { invoke } from '@tauri-apps/api/core';
 import { crearAdaptadorReal, esEntornoTauri } from './tauri/real';
 import type { InfoSesion, UsoTurno } from './tauri/real';
 import { el } from './util/dom';
@@ -120,6 +122,22 @@ const adaptador = crearAdaptadorReal({
         totalEntrada: u.totalEntrada,
       }),
     );
+  },
+  // [069A-1 F6] Refleja las tools de navegador del agente en el panel UI,
+  // incluyendo captura base64 para mostrar la imagen.
+  onToolNavegador(ev) {
+    const urlPart = ev.url ? ` (${ev.url.slice(0, 60)})` : '';
+    navegador.registrarAccion({
+      herramienta: ev.accion,
+      descripcion: `${ev.descripcion}${urlPart}`,
+      ok: ev.ok,
+      tiempo: Date.now(),
+    });
+    if (ev.ok && ev.url) navegador.fijarURL(ev.url);
+    // [069A-1 F6] Mostrar captura base64 si viene en el evento
+    if (ev.accion === 'capturar' && ev.captura_base64) {
+      navegador.actualizarCaptura(ev.captura_base64);
+    }
   },
 });
 
@@ -435,6 +453,14 @@ const sidebar = montarSidebar({
           : accion === 'complementos'
             ? 'Complementos'
             : accion;
+    if (accion === 'navegador') {
+      if (navegadorAbierto) {
+        cerrarNavegador();
+      } else {
+        abrirNavegador();
+      }
+      return;
+    }
     panelActivo()?.avisoLocal(
       `${nombre}: próximamente`,
       'sin backend',
@@ -771,11 +797,53 @@ const modal = montarModalConfiguracion({
 // ---------- Panel principal ----------
 const principal = crearPanel('principal', 'principal');
 
+// ---------- Navegador interno (069A-1 F3) ----------
+const navegador = montarPanelNavegador();
+let navegadorAbierto = false;
+
+function abrirNavegador(): void {
+  if (navegadorAbierto) return;
+  if (gripLateral) {
+    avisoGlobal('cierra el panel lateral para abrir el navegador', '', ''); // eslint-disable-line
+    return;
+  }
+  navegadorAbierto = true;
+  navegador.mostrar(true);
+  // Invoca navegador_abrir (crea la webview hija)
+  void (async () => {
+    try {
+      await invoke('navegador_abrir', { url: 'https://example.com', ancho: 800, alto: 600 });
+      navegador.fijarURL('https://example.com');
+      navegador.registrarAccion({
+        herramienta: 'abrir',
+        descripcion: 'navegador iniciado en https://example.com',
+        ok: true,
+        tiempo: Date.now(),
+      });
+    } catch (error) {
+      navegador.registrarAccion({
+        herramienta: 'abrir',
+        descripcion: `error: ${String(error).slice(0, 120)}`,
+        ok: false,
+        tiempo: Date.now(),
+      });
+    }
+  })();
+}
+
+function cerrarNavegador(): void {
+  if (!navegadorAbierto) return;
+  navegadorAbierto = false;
+  navegador.mostrar(false);
+  void invoke('navegador_cerrar').catch(() => {});
+}
+
 // ---------- Montaje del DOM ----------
 cuerpo.appendChild(sidebar.raiz);
 cuerpo.appendChild(grip);
 paneles.appendChild(principal.raiz);
 cuerpo.appendChild(paneles);
+cuerpo.appendChild(navegador.raiz); // Navegador a la derecha de paneles
 app.appendChild(cuerpo);
 raizApp.appendChild(app);
 

@@ -4,7 +4,6 @@
 use super::*;
 
 impl AgentRuntime {
-
     /// [059A-S3] Una tool del lote: emite `ToolStart`, resuelve el veredicto de
     /// permiso F3 y delega en la rama correspondiente (no-ejecutada vs
     /// ejecución real).
@@ -65,8 +64,8 @@ impl AgentRuntime {
          * política. Solo aplica a la primera petición (`Preguntar`); las
          * repetidas ya están registradas y no vuelven a preguntar. Sin hooks
          * configurados es un no-op que no cambia el flujo de aprobación. */
-        let vetada_por_hook = verdicto == VerdictoPermiso::Preguntar
-            && self.peticion_vetada_por_hook(call).await;
+        let vetada_por_hook =
+            verdicto == VerdictoPermiso::Preguntar && self.peticion_vetada_por_hook(call).await;
         let verdicto = if vetada_por_hook {
             VerdictoPermiso::Denegar
         } else {
@@ -259,9 +258,15 @@ impl AgentRuntime {
         };
         self.tool_en_curso
             .store(false, std::sync::atomic::Ordering::Relaxed);
-        let (ok, contenido, resumen, diff) = match resultado {
-            Ok(r) => (r.ok, r.contenido.clone(), r.resumen.clone(), r.diff.clone()),
-            Err(error) => (false, format!("Error: {error}"), "error".to_string(), None),
+        let (ok, contenido, resumen, diff, evento_extra) = match resultado {
+            Ok(r) => (
+                r.ok,
+                r.contenido.clone(),
+                r.resumen.clone(),
+                r.diff.clone(),
+                r.evento_extra.clone(),
+            ),
+            Err(error) => (false, format!("Error: {error}"), "error".to_string(), None, None),
         };
         estado.tools_ejecutadas += 1;
         /* [318A-15 F0] Telemetría: uso/fallo/duración de la tool (el timeout
@@ -280,6 +285,12 @@ impl AgentRuntime {
                 diff: diff.clone(),
             })
             .await;
+        /* [069A-1 F6] Emitir evento_extra si la tool lo incluye (p. ej.
+         * ToolNavegador con captura base64). Se emite después de ToolResult
+         * para que el front lo reciba como evento adicional. */
+        if let Some(ev) = &evento_extra {
+            let _ = tx.send(ev.clone()).await;
+        }
         /* Cancelación real: si el SSE se cortó a mitad de la ejecución de
          * tools, no seguimos con el resto de tool_calls. */
         if tx.is_closed() {
@@ -314,5 +325,4 @@ impl AgentRuntime {
         });
         Ok(PasoTool::Continua)
     }
-
 }

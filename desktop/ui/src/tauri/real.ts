@@ -60,7 +60,10 @@ export type AgenteEvento =
     }
   | { tipo: 'telemetria'; subagentes_parciales: number; herramientas: Array<{ tool: string; usos: number; fallos: number; duracion_ms_total: number }> }
   | { tipo: 'error'; mensaje: string; retryable: boolean }
-  | { tipo: 'done'; turno_id: string };
+  | { tipo: 'done'; turno_id: string }
+  /** [069A-1 F6] El agente ejecutó una operación del navegador interno.
+   * `captura_base64` solo está presente para accion="capturar". */
+  | { tipo: 'tool_navegador'; accion: string; url?: string; selector?: string; captura_base64?: string; ok: boolean; descripcion: string };
 
 export interface OpcionesTurno {
   proveedor: string;
@@ -172,6 +175,9 @@ export interface HooksAdaptador {
    * de contexto del turno (ocupacion_pct + max_ventana) para que la UI
    * actualice el indicador circular en vivo. Hook opcional: no rompe API. */
   onContexto?: (uso: UsoTurno) => void;
+  /** [069A-1 F4] El agente usó una tool de navegador: refleja la acción
+   * en el UI del navegador (log + anotaciones). */
+  onToolNavegador?: (ev: AgenteEvento & { tipo: 'tool_navegador' }) => void;
 }
 
 const RESPUESTA: Record<DecisionAprobacion, string> = {
@@ -338,6 +344,9 @@ export function crearAdaptadorReal(hooks: HooksAdaptador = {}) {
       case 'done':
         asistente = null;
         herramienta = null;
+        break;
+      case 'tool_navegador':
+        hooks.onToolNavegador?.(ev);
         break;
     }
   }

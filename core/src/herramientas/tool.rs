@@ -10,9 +10,11 @@
 
 use crate::aprobacion::{PeticionAprobacion, RespuestaAprobacion};
 use crate::error::{Error, Result};
-use crate::pregunta::PreguntaPendiente;
 use crate::permiso::{es_tool_propuesta, permiso_por_modo, resolver_permiso, Permiso};
-use crate::ports::{AgentPersistence, McpProveedor, ProviderPort, WebFetchProvider, WebSearchProvider};
+use crate::ports::{
+    AgentPersistence, McpProveedor, NavegadorPort, ProviderPort, WebFetchProvider, WebSearchProvider,
+};
+use crate::pregunta::PreguntaPendiente;
 use crate::regla::{categorias_core, Clasificador, ReglaPermiso};
 use crate::sandbox::SandboxArchivos;
 use crate::todo::TodoCompartida;
@@ -54,6 +56,9 @@ pub struct AgentToolContext<'a> {
     /// propuesta (diff) en vez de escribir; el resto de consumidores lo
     /// ignoran (`None`).
     pub plan: Option<crate::plan::PlanCompartida>,
+    /// [069A-1 F5] Puerto del navegador interno (webview child). `None` →
+    /// la tool `navegador_reflejo` falla con error claro.
+    pub navegador: Option<&'a dyn NavegadorPort>,
 }
 
 /// Resultado de ejecutar una tool: texto legible para el LLM + estado.
@@ -66,6 +71,10 @@ pub struct AgentToolResult {
     /// [31-08-2026] Fase 4: diff de líneas del cambio (file_write/file_patch)
     /// para mostrarlo en el front; `None` si no aplica.
     pub diff: Option<String>,
+    /// [069A-1 F6] Evento extra que el runtime emite junto a `ToolResult`
+    /// (p. ej. `AgenteEvento::ToolNavegador` con captura base64). El front
+    /// lo consume para mostrar la imagen.
+    pub evento_extra: Option<crate::evento::AgenteEvento>,
 }
 
 impl AgentToolResult {
@@ -76,6 +85,7 @@ impl AgentToolResult {
             contenido: contenido.into(),
             resumen: resumen.into(),
             diff: None,
+            evento_extra: None,
         }
     }
 
@@ -91,6 +101,7 @@ impl AgentToolResult {
             contenido: contenido.into(),
             resumen: resumen.into(),
             diff,
+            evento_extra: None,
         }
     }
 
@@ -101,6 +112,23 @@ impl AgentToolResult {
             contenido: contenido.into(),
             resumen: "error".to_string(),
             diff: None,
+            evento_extra: None,
+        }
+    }
+
+    /// Constructor con evento_extra (p. ej. captura base64 del navegador).
+    #[must_use]
+    pub fn ok_con_evento(
+        contenido: impl Into<String>,
+        resumen: impl Into<String>,
+        evento_extra: crate::evento::AgenteEvento,
+    ) -> Self {
+        Self {
+            ok: true,
+            contenido: contenido.into(),
+            resumen: resumen.into(),
+            diff: None,
+            evento_extra: Some(evento_extra),
         }
     }
 }
@@ -220,7 +248,11 @@ impl AgentToolRegistry {
         let herramientas = proveedor.listar_herramientas().await?;
         let prefijo = crate::mcp::sanitizar_id(servidor);
         for herramienta in herramientas {
-            let id = format!("mcp_{}_{}", prefijo, crate::mcp::sanitizar_id(&herramienta.nombre));
+            let id = format!(
+                "mcp_{}_{}",
+                prefijo,
+                crate::mcp::sanitizar_id(&herramienta.nombre)
+            );
             self.categorias.insert(id.clone(), crate::regla::CAT_MCP);
             self.tools.insert(
                 id.clone(),
@@ -271,7 +303,11 @@ impl AgentToolRegistry {
         let mut schemas: Vec<Value> = self
             .tools
             .iter()
-            .filter(|(id, _)| solo_ids.map(|ids| ids.contains(&id.as_str())).unwrap_or(true))
+            .filter(|(id, _)| {
+                solo_ids
+                    .map(|ids| ids.contains(&id.as_str()))
+                    .unwrap_or(true)
+            })
             .filter(|(id, _)| {
                 /* deny silencioso: override `deny`, modo meta con efecto o
                  * regla v2 deny con patrón `*` (opencode `visibleTools`) — la
@@ -318,7 +354,10 @@ impl AgentToolRegistry {
     /// Reglas vigentes (para la UI de F2 y tests deterministas).
     #[must_use]
     pub fn reglas(&self) -> Vec<ReglaPermiso> {
-        self.reglas.read().unwrap_or_else(|p| p.into_inner()).clone()
+        self.reglas
+            .read()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone()
     }
 
     /// [318A-16 F2] Siembra una aprobación de UNA vez (categoría + patrón
@@ -423,9 +462,10 @@ impl AgentToolRegistry {
          * preguntar en ese mismo turno. */
         {
             let mut tokens = self.una_vez.write().unwrap_or_else(|p| p.into_inner());
-            if let Some(pos) = tokens.iter().position(|(cat, pat)| {
-                claves[..limite].iter().any(|(c, p)| c == cat && p == pat)
-            }) {
+            if let Some(pos) = tokens
+                .iter()
+                .position(|(cat, pat)| claves[..limite].iter().any(|(c, p)| c == cat && p == pat))
+            {
                 tokens.remove(pos);
                 return Permiso::Allow;
             }
@@ -497,9 +537,9 @@ impl AgentToolRegistry {
     ) -> std::result::Result<(), String> {
         let peticion = {
             let mut guard = self.pendientes.write().unwrap_or_else(|p| p.into_inner());
-            guard
-                .remove(id)
-                .ok_or_else(|| format!("petición de aprobación desconocida o ya respondida: {id}"))?
+            guard.remove(id).ok_or_else(|| {
+                format!("petición de aprobación desconocida o ya respondida: {id}")
+            })?
         };
         let clave = self
             .claves_para(&peticion.tool, &peticion.argumentos)
@@ -616,10 +656,22 @@ mod tests {
     #[test]
     fn descripciones_ricas_sin_escapes_rotos() {
         let descripciones: [(&str, &'static str); 7] = [
-            ("file_read", crate::tools_archivo::ToolFileRead.descripcion()),
-            ("file_write", crate::tools_archivo::ToolFileWrite.descripcion()),
-            ("file_patch", crate::tools_archivo::ToolFilePatch.descripcion()),
-            ("file_search", crate::tools_archivo::ToolFileSearch.descripcion()),
+            (
+                "file_read",
+                crate::tools_archivo::ToolFileRead.descripcion(),
+            ),
+            (
+                "file_write",
+                crate::tools_archivo::ToolFileWrite.descripcion(),
+            ),
+            (
+                "file_patch",
+                crate::tools_archivo::ToolFilePatch.descripcion(),
+            ),
+            (
+                "file_search",
+                crate::tools_archivo::ToolFileSearch.descripcion(),
+            ),
             ("web_search", crate::tools_web::ToolWebSearch.descripcion()),
             ("todo", crate::todo::ToolTodo.descripcion()),
             ("repo_map", crate::repo_map::ToolRepoMap.descripcion()),
@@ -629,7 +681,10 @@ mod tests {
                 !d.contains('\\'),
                 "{nombre}: backslash literal = escape roto en la descripción"
             );
-            assert!(d.contains('\n'), "{nombre}: descripción debe ser multilínea");
+            assert!(
+                d.contains('\n'),
+                "{nombre}: descripción debe ser multilínea"
+            );
             assert!(
                 d.contains("FORMATO DE SALIDA"),
                 "{nombre}: documenta el formato de salida"
@@ -764,7 +819,10 @@ mod tests {
         );
         /* Allow explícito gana incluso al deny del modo meta. */
         registry.establecer_permiso("escribir_demo", Some(Permiso::Allow));
-        assert_eq!(registry.permiso_para("escribir_demo", "meta"), Permiso::Allow);
+        assert_eq!(
+            registry.permiso_para("escribir_demo", "meta"),
+            Permiso::Allow
+        );
     }
 
     #[test]
@@ -909,11 +967,7 @@ mod tests {
             Permiso::Deny,
         ));
         assert_eq!(
-            registry.permiso_para_llamada(
-                "file_write",
-                &json!({ "ruta": "../x.txt" }),
-                "autonomo"
-            ),
+            registry.permiso_para_llamada("file_write", &json!({ "ruta": "../x.txt" }), "autonomo"),
             Permiso::Deny,
             "deny fuera gana incluso en modo autonomo (fail-closed)"
         );
@@ -927,11 +981,7 @@ mod tests {
             "la regla deny de FUERA no bloquea la escritura dentro"
         );
         assert_eq!(
-            registry.permiso_para_llamada(
-                "file_read",
-                &json!({ "ruta": "notas.md" }),
-                "autonomo"
-            ),
+            registry.permiso_para_llamada("file_read", &json!({ "ruta": "notas.md" }), "autonomo"),
             Permiso::Allow
         );
     }
@@ -941,11 +991,7 @@ mod tests {
         /* opencode `visibleTools`: una regla deny con patrón `*` retira la
          * tool del schema (no solo policy). */
         let registry = registry_con_fixture();
-        registry.establecer_regla(crate::regla::ReglaPermiso::nueva(
-            "red",
-            "*",
-            Permiso::Deny,
-        ));
+        registry.establecer_regla(crate::regla::ReglaPermiso::nueva("red", "*", Permiso::Deny));
         let nombres: Vec<String> = registry
             .schemas_openai(None, "predeterminado")
             .iter()
@@ -1037,11 +1083,7 @@ mod tests {
     fn f2_aprobar_una_vez_ejecuta_y_consume_el_token() {
         let registry = registry_con_fixture();
         let llamada = |ruta: &str| {
-            registry.permiso_para_llamada(
-                "file_write",
-                &json!({ "ruta": ruta }),
-                "predeterminado",
-            )
+            registry.permiso_para_llamada("file_write", &json!({ "ruta": ruta }), "predeterminado")
         };
         assert_eq!(llamada("src/a.rs"), Permiso::Ask, "base: ask");
         registry.registrar_peticion(peticion_file_write("p1", "src/a.rs"));
@@ -1064,11 +1106,7 @@ mod tests {
     fn f2_siempre_crea_regla_de_clase_que_no_vuelve_a_preguntar() {
         let registry = registry_con_fixture();
         let llamada = |ruta: &str| {
-            registry.permiso_para_llamada(
-                "file_write",
-                &json!({ "ruta": ruta }),
-                "predeterminado",
-            )
+            registry.permiso_para_llamada("file_write", &json!({ "ruta": ruta }), "predeterminado")
         };
         registry.registrar_peticion(peticion_file_write("p2", "src/a.rs"));
         registry
@@ -1086,11 +1124,7 @@ mod tests {
     fn f2_rechazar_crea_regla_deny_de_clase_y_no_reintenta() {
         let registry = registry_con_fixture();
         let llamada = |ruta: &str| {
-            registry.permiso_para_llamada(
-                "file_write",
-                &json!({ "ruta": ruta }),
-                "predeterminado",
-            )
+            registry.permiso_para_llamada("file_write", &json!({ "ruta": ruta }), "predeterminado")
         };
         registry.registrar_peticion(peticion_file_write("p3", "../fuera.txt"));
         registry
@@ -1112,16 +1146,20 @@ mod tests {
     fn f2_aprobacion_una_vez_sembrada_se_consume_en_la_primera_llamada_igual() {
         let registry = registry_con_fixture();
         let llamada = |ruta: &str| {
-            registry.permiso_para_llamada(
-                "file_write",
-                &json!({ "ruta": ruta }),
-                "predeterminado",
-            )
+            registry.permiso_para_llamada("file_write", &json!({ "ruta": ruta }), "predeterminado")
         };
         /* Consumidor con runtime por turno (PT): siembra sin petición. */
         registry.aprobacion_una_vez("escritura", "src/a.rs");
-        assert_eq!(llamada("src/a.rs"), Permiso::Allow, "siembra: ejecuta sin preguntar");
-        assert_eq!(llamada("src/a.rs"), Permiso::Ask, "token consumido: vuelve a preguntar");
+        assert_eq!(
+            llamada("src/a.rs"),
+            Permiso::Allow,
+            "siembra: ejecuta sin preguntar"
+        );
+        assert_eq!(
+            llamada("src/a.rs"),
+            Permiso::Ask,
+            "token consumido: vuelve a preguntar"
+        );
     }
 
     #[test]
@@ -1140,7 +1178,11 @@ mod tests {
         registry.registrar_peticion(peticion_file_write("p-old", "src/a.rs"));
         registry.registrar_peticion(peticion_file_write("p-nueva", "src/b.rs"));
         let pendientes = registry.peticiones_pendientes();
-        assert_eq!(pendientes.len(), 1, "la petición vieja deja de estar pendiente");
+        assert_eq!(
+            pendientes.len(),
+            1,
+            "la petición vieja deja de estar pendiente"
+        );
         assert_eq!(pendientes[0].id, "p-nueva");
     }
 }

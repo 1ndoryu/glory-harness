@@ -151,6 +151,7 @@ async fn accion_run(
         /* [069A-3] `schedule run` es desatendido (sin usuario ante la
          * consola): sin avisos aunque el flag exista en otro subcomando. */
         notificar: false,
+        navegador: None,
     };
     let harness = run::construir_harness_con(
         &opciones,

@@ -52,7 +52,10 @@ impl AgentTool for ToolComando {
             .and_then(Value::as_str)
             .ok_or_else(|| Error::Argumentos("comando requerido".into()))?
             .to_string();
-        let fondo = argumentos.get("fondo").and_then(Value::as_bool).unwrap_or(false);
+        let fondo = argumentos
+            .get("fondo")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
         let nivel = clasificar_comando(&comando);
         let resumen = format!(
             "comando [{}] {}",
@@ -85,6 +88,7 @@ impl AgentTool for ToolComando {
             contenido,
             resumen,
             diff: None,
+            evento_extra: None,
         })
     }
 }
@@ -184,7 +188,10 @@ impl AgentTool for ToolComandoMatar {
 /// Registra la tool `comando` y su gestión de fondo SOLO cuando hay runner
 /// (fail-closed: sin `ejecutor`, el runtime no llama a esta función y el
 /// modelo no ve la tool).
-pub fn registrar_tools_comando(registry: &mut crate::tool::AgentToolRegistry, ejecutor: Arc<dyn EjecutorComando>) {
+pub fn registrar_tools_comando(
+    registry: &mut crate::tool::AgentToolRegistry,
+    ejecutor: Arc<dyn EjecutorComando>,
+) {
     registry.registrar(Box::new(ToolComando {
         ejecutor: Arc::clone(&ejecutor),
     }));
@@ -209,11 +216,7 @@ mod tests {
 
     #[async_trait]
     impl EjecutorComando for EjecutorMock {
-        async fn ejecutar(
-            &self,
-            comando: &str,
-            fondo: bool,
-        ) -> Result<ResultadoEjecucionComando> {
+        async fn ejecutar(&self, comando: &str, fondo: bool) -> Result<ResultadoEjecucionComando> {
             self.llamado.lock().unwrap().push(comando.to_string());
             Ok(ResultadoEjecucionComando {
                 codigo_salida: Some(if fondo { 0 } else { 7 }),
@@ -284,7 +287,10 @@ mod tests {
             ejecutor: Arc::clone(&ejecutor) as Arc<dyn EjecutorComando>,
         };
         let r = tool
-            .ejecutar(&ctx(&mock), json!({"comando": "cargo build", "fondo": true}))
+            .ejecutar(
+                &ctx(&mock),
+                json!({"comando": "cargo build", "fondo": true}),
+            )
             .await
             .unwrap();
         assert!(r.contenido.contains("[FONDO id=f-1]"));

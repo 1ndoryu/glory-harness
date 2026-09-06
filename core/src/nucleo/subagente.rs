@@ -19,7 +19,7 @@
 use crate::error::{Error, Result};
 use crate::tool::{AgentTool, AgentToolContext, AgentToolRegistry, AgentToolResult};
 use async_trait::async_trait;
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use std::sync::atomic::{AtomicU8, Ordering};
 
 /// Perfil de sesión hija: identidad, system prompt, whitelist de tools y
@@ -113,6 +113,7 @@ pub(crate) fn enmarcar_resultado_para_padre(resultado: ResultadoSubagente) -> Ag
         },
         resumen: resultado.resumen,
         diff: None,
+        evento_extra: None,
     }
 }
 
@@ -122,10 +123,7 @@ pub(crate) fn resumen_acotado(texto: &str) -> String {
     if texto.chars().count() <= RESUMEN_SUBAGENTE_MAX_CHARS {
         texto.to_string()
     } else {
-        let recortado: String = texto
-            .chars()
-            .take(RESUMEN_SUBAGENTE_MAX_CHARS)
-            .collect();
+        let recortado: String = texto.chars().take(RESUMEN_SUBAGENTE_MAX_CHARS).collect();
         format!("{recortado}\n…[resumen truncado por el límite del subagente]")
     }
 }
@@ -309,8 +307,17 @@ mod tests {
     /// Invariante de seguridad F4: ninguna herramienta de ejecución de
     /// comandos ni edición de sistema entra en los perfiles del dominio.
     const PROHIBIDAS: &[&str] = &[
-        "comando", "bash", "terminal", "exec", "system", "run_cmd", "powershell", "sudo",
-        "shell", "proceso", "script",
+        "comando",
+        "bash",
+        "terminal",
+        "exec",
+        "system",
+        "run_cmd",
+        "powershell",
+        "sudo",
+        "shell",
+        "proceso",
+        "script",
     ];
 
     /// Stub de tool para tests de schema (el núcleo no expone un constructor
@@ -354,6 +361,7 @@ mod tests {
                 contenido: "ok".into(),
                 resumen: "ok".into(),
                 diff: None,
+                evento_extra: None,
             })
         }
     }
@@ -398,9 +406,16 @@ mod tests {
         let perfil = perfil_subagente("redactar").expect("perfil redactar existe");
         let schemas = schema_hijo(&registry, &perfil, "predeterminado");
         let nombres: Vec<&str> = schemas.iter().map(nombre_de_schema).collect();
-        assert!(!nombres.contains(&"task"), "task no puede aparecer en el hijo");
+        assert!(
+            !nombres.contains(&"task"),
+            "task no puede aparecer en el hijo"
+        );
         for id in perfil.tools {
-            assert!(nombres.contains(id), "whitelist '{}' ausente del schema hijo", id);
+            assert!(
+                nombres.contains(id),
+                "whitelist '{}' ausente del schema hijo",
+                id
+            );
         }
         assert!(
             !nombres.contains(&"web_search"),
@@ -414,7 +429,10 @@ mod tests {
          * la tool `task` (sin recursión de scheduling desde un hijo). Aunque el
          * registry la tenga registrada, ningún perfil de subagente la expone. */
         let mut registry = AgentToolRegistry::new();
-        registry.registrar(Box::new(StubTool { id: "programar_tarea", efecto: true }));
+        registry.registrar(Box::new(StubTool {
+            id: "programar_tarea",
+            efecto: true,
+        }));
         registrar_tool_task(&mut registry);
         for perfil in perfiles_disponibles() {
             let perfil = perfil_subagente(&perfil).expect("perfil existe");
@@ -431,8 +449,14 @@ mod tests {
     #[test]
     fn f4_schema_hijo_respeta_deny_del_padre() {
         let mut registry = AgentToolRegistry::new();
-        registry.registrar(Box::new(StubTool { id: "file_write", efecto: true }));
-        registry.registrar(Box::new(StubTool { id: "file_read", efecto: false }));
+        registry.registrar(Box::new(StubTool {
+            id: "file_write",
+            efecto: true,
+        }));
+        registry.registrar(Box::new(StubTool {
+            id: "file_read",
+            efecto: false,
+        }));
         registrar_tool_task(&mut registry);
         registry.establecer_permiso("file_write", Some(Permiso::Deny));
         let perfil = perfil_subagente("redactar").expect("perfil redactar existe");
@@ -466,11 +490,11 @@ mod tests {
     #[test]
     fn f4_presupuesto_efectivo_valida_max_pasos() {
         assert_eq!(presupuesto_efectivo(8, None).expect("default"), 8);
-        assert_eq!(
-            presupuesto_efectivo(8, Some(3)).expect("recortado"),
-            3
+        assert_eq!(presupuesto_efectivo(8, Some(3)).expect("recortado"), 3);
+        assert!(
+            presupuesto_efectivo(8, Some(0)).is_err(),
+            "0 fuera de rango"
         );
-        assert!(presupuesto_efectivo(8, Some(0)).is_err(), "0 fuera de rango");
         assert!(
             presupuesto_efectivo(8, Some(17)).is_err(),
             "17 supera el límite absoluto"
@@ -497,10 +521,7 @@ mod tests {
         let requeridos = schema["function"]["parameters"]["required"]
             .as_array()
             .expect("required");
-        let requeridos: Vec<&str> = requeridos
-            .iter()
-            .filter_map(Value::as_str)
-            .collect();
+        let requeridos: Vec<&str> = requeridos.iter().filter_map(Value::as_str).collect();
         assert_eq!(requeridos, vec!["agente", "objetivo"]);
         assert!(!props.contains_key("perfil"), "vocabulario viejo eliminado");
         assert!(!props.contains_key("instruccion"));
@@ -550,7 +571,9 @@ mod tests {
             parcial: true,
             pasos_usados: 8,
         });
-        assert!(parcial.contenido.contains("[SUBAGENTE PARCIAL — presupuesto agotado en 8 pasos]"));
+        assert!(parcial
+            .contenido
+            .contains("[SUBAGENTE PARCIAL — presupuesto agotado en 8 pasos]"));
         assert!(parcial.contenido.contains("falta el módulo"));
 
         let rechazado = enmarcar_resultado_para_padre(ResultadoSubagente {

@@ -32,7 +32,10 @@ pub enum AgenteEvento {
     /// Un fragmento de texto generado por el LLM.
     Token { texto: String },
     /// Inicio de una herramienta.
-    ToolStart { tool: String, argumentos: serde_json::Value },
+    ToolStart {
+        tool: String,
+        argumentos: serde_json::Value,
+    },
     /// Resultado de una herramienta (con diff opcional de líneas).
     ToolResult {
         tool: String,
@@ -43,7 +46,10 @@ pub enum AgenteEvento {
     },
     /// La tool requiere aprobación del usuario (política de permisos: modo
     /// predeterminado / override `ask`).
-    RequiereAprobacion { tool: String, argumentos: serde_json::Value },
+    RequiereAprobacion {
+        tool: String,
+        argumentos: serde_json::Value,
+    },
     /// [318A-16 F2] Petición de aprobación con `id` para responder por canal
     /// explícito (`AgentRuntime::responder_aprobacion`) con tres vías
     /// (Rechazar / Permitir / Permitir siempre). Se emite junto a
@@ -81,18 +87,12 @@ pub enum AgenteEvento {
     /// [318A-15 F4] Inicio de una sesión hija (subagente): la tool `task`
     /// del modelo padre delegó trabajo a un perfil efímero con presupuesto
     /// propio. La sesión hija nunca escribe en la conversación del padre.
-    SubagenteInicio {
-        perfil: String,
-        instruccion: String,
-    },
+    SubagenteInicio { perfil: String, instruccion: String },
     /// [318A-16 F5] Propuesta acumulada del modo plan al cerrar el turno:
     /// la UI muestra el diff (`resumen`) y ofrece "Aprobar y aplicar" (una
     /// sola aplicación) o descartar. Solo se emite en modo `plan` con
     /// cambios pendientes; aditivo para los consumidores existentes.
-    PlanPropuesto {
-        cambios: usize,
-        resumen: String,
-    },
+    PlanPropuesto { cambios: usize, resumen: String },
     /// [318A-15 F4] Fin de la sesión hija: resumen acotado devuelto al
     /// padre como resultado de la tool `task`. `parcial=true` cuando el
     /// presupuesto de pasos se agotó sin respuesta final del hijo (cierre
@@ -168,4 +168,19 @@ pub enum AgenteEvento {
     /// Fin del turno. `turno_id` es el id de auditoría que el consumidor
     /// creó antes del turno (el front lo usa para asociar la respuesta).
     Done { turno_id: Uuid },
+    /// [069A-1 F6] El agente ejecutó una operación del navegador interno
+    /// (`navegador_reflejo`). El front refleja la acción en el panel y, si
+    /// es `capturar`, muestra la imagen.
+    ToolNavegador {
+        accion: String,
+        ok: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        url: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        selector: Option<String>,
+        /// Base64 de la captura PNG (solo para accion="capturar").
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        captura_base64: Option<String>,
+        descripcion: String,
+    },
 }

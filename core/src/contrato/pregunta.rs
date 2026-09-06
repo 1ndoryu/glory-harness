@@ -142,6 +142,7 @@ pub async fn procesar_pregunta(
         ),
         resumen: "pregunta_enviada".into(),
         diff: None,
+        evento_extra: None,
     })
 }
 
@@ -178,7 +179,9 @@ mod tests {
                 todo: None,
                 plan: None,
             };
-            ToolAskUser.ejecutar(&ctx, json!({"texto": "¿sí o no?"})).await
+            ToolAskUser
+                .ejecutar(&ctx, json!({"texto": "¿sí o no?"}))
+                .await
         });
         let error = error.expect_err("debe fallar sin runtime");
         assert!(error.to_string().contains("a través del runtime"));
@@ -186,7 +189,8 @@ mod tests {
 
     #[test]
     fn pregunta_pendiente_serde_ida_y_vuelta() {
-        let pregunta = PreguntaPendiente::nueva("p-1", "¿Continúo?", vec!["sí".into(), "no".into()]);
+        let pregunta =
+            PreguntaPendiente::nueva("p-1", "¿Continúo?", vec!["sí".into(), "no".into()]);
         let json = serde_json::to_value(&pregunta).expect("serializa");
         assert_eq!(json["id"], "p-1");
         assert_eq!(json["texto"], "¿Continúo?");
@@ -209,7 +213,9 @@ mod tests {
             nombre: "ask_user".into(),
             argumentos: json!({"texto": "¿Continúo?", "opciones": ["sí", "no"]}),
         };
-        let resultado = procesar_pregunta(&registry, &call, &tx).await.expect("pregunta");
+        let resultado = procesar_pregunta(&registry, &call, &tx)
+            .await
+            .expect("pregunta");
         assert!(resultado.ok);
         assert!(
             resultado.contenido.contains("NO asumas"),
@@ -217,7 +223,11 @@ mod tests {
         );
         let ev = rx.recv().await.expect("evento Pregunta");
         match ev {
-            AgenteEvento::Pregunta { id, texto, opciones } => {
+            AgenteEvento::Pregunta {
+                id,
+                texto,
+                opciones,
+            } => {
                 assert_eq!(texto, "¿Continúo?");
                 assert_eq!(opciones, vec!["sí", "no"]);
                 /* Queda registrada y consumible una sola vez por id. */
@@ -238,7 +248,9 @@ mod tests {
             nombre: "ask_user".into(),
             argumentos: json!({}),
         };
-        let error = procesar_pregunta(&registry, &call, &tx).await.expect_err("sin texto");
+        let error = procesar_pregunta(&registry, &call, &tx)
+            .await
+            .expect_err("sin texto");
         assert!(error.to_string().contains("texto"));
         assert!(registry.preguntas_pendientes().is_empty());
     }
