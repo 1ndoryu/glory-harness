@@ -4,4 +4,5 @@
 pub mod chat;
 pub mod turno;
 pub mod exportar;
+pub mod plan;
 pub mod tui;

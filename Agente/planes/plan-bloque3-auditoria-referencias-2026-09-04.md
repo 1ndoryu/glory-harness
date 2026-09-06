@@ -16,8 +16,10 @@
   vida: `core/src/nucleo/hooks.rs` + emisión fina en el runtime; item 3
   `Notification` diferido por decisión), Fase 5 ✅ (`318A-17 B3-F5`,
   export conversación→markdown en REPL y TUI; item `session` diferido:
-  depende de `persistencia_sqlite.rs`, ajeno del hilo 039A-3).
-  Fases 6–8 pendientes.
+  depende de `persistencia_sqlite.rs`, ajeno del hilo 039A-3), Fase 6 ✅
+  (`318A-17 B3-F6`, checkpoint/undo: `core/src/nucleo/historial.rs` + gate de
+  aprobación TUI extraído a `cli/src/ui/tui/gate.rs`).
+  Fases 7–8 pendientes.
 - **IDs sugeridos** para las fases del Bloque 3: `049A-N` (verificar contra
   `Agente/completados/` y `roadmap` antes de asignar).
 
@@ -527,12 +529,27 @@ commit por fase). Mover a ejecución solo tras aprobación del usuario.
       core/cli (3 clippy desktop y 2 vault = ajenos), release reconstruido,
       reinstalado en `~/.cargo/bin` y batería README verde.
 
-### Fase 6 — Checkpoint/undo (git)
-- [ ] Antes de aplicar un plan (F5 del plan 2) o cambios de tools de archivo:
-      snapshot git opcional (stash-less: commit local `glory-harness/checkpoint`)
-      o copia de archivos tocados; `undo` del último checkpoint. Evidencia: grok
-      `verify/checkpoint.ts`, claude checkpoints, claurst `file_history.rs`.
-- [ ] Integrar con el modo plan: aprobar deja checkpoint recuperable.
+### Fase 6 — Checkpoint/undo (git) ✅ (`318A-17 B3-F6`)
+- [x] Checkpoint antes de aplicar cambios de archivo y `undo` del último:
+      `core/src/nucleo/historial.rs` — `Checkpoint` con imágenes previas
+      (before-images) de los archivos tocados, `aplicar_undo` que las
+      restaura/elimina, `HistorialCompartido` compartido por sesión. Sin git
+      real (determinista y sin estado destructivo; fixture de archivos en
+      `%TEMP%`). Evidencia: claurst `file_history.rs` (snapshots por turno),
+      no git shadow (decisión: el historial en memoria es suficiente para el
+      alcance CLI; git shadow queda descartado — comportamiento destructivo
+      sobre el repo real prohibido en tests).
+- [x] Integrar con el modo plan: `aplicar_plan_con_checkpoint()` (núcleo)
+      captura las imágenes previas ANTES de escribir la propuesta aprobada;
+      `/plan aprobar` del REPL la usa y `/undo` revierte el último checkpoint.
+      Verificación: 263 tests (219 core + 40 cli + 4 desktop), clippy `-D
+      warnings` limpio core+cli, `sentinel analyze` 0 hallazgos en core/cli
+      (hallazgos restantes solo en ajenos: persistencia_sqlite + desktop),
+      release reconstruido, reinstalado en `~/.cargo/bin` y batería README
+      verde. Nota: la TUI no expone `/plan aprobar`/`/undo` (modo plan es del
+      REPL); queda cubierto por el REPL. El gate de aprobación TUI (de
+      `bucle.rs`, al límite de tamaño) se extrajo a `cli/src/ui/tui/gate.rs`
+      en este mismo pase para mantener `bucle.rs` bajo el límite del gate.
 
 ### Fase 7 — LSP ligero o repo map (decisión)
 - [ ] Decidir A vs B: (A) cliente LSP opcional por lenguaje con tool

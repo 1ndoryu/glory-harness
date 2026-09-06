@@ -18,6 +18,7 @@ use std::sync::{Arc, RwLock};
 
 use crate::diff::diff_lineas;
 use crate::error::{Error, Result};
+use crate::historial::{tomar_checkpoint, HistorialCompartido};
 use crate::sandbox::SandboxArchivos;
 
 /// Un cambio propuesto por el agente en modo plan (aún NO aplicado).
@@ -86,6 +87,15 @@ pub fn tiene_cambios(plan: &PlanCompartida) -> bool {
     !guardia.cambios.is_empty() && !guardia.aplicado
 }
 
+/// [318A-17 F6] Rutas relativas de los cambios propuestos: exactamente los
+/// archivos que `aplicar_plan` va a tocar (lo que necesita un checkpoint
+/// previo). Orden estable: el del registro.
+#[must_use]
+pub fn rutas_plan(plan: &PlanCompartida) -> Vec<String> {
+    let guardia = plan.read().unwrap_or_else(|p| p.into_inner());
+    guardia.cambios.iter().map(|cambio| cambio.ruta.clone()).collect()
+}
+
 /// Número de cambios pendientes.
 #[must_use]
 pub fn cuenta_cambios(plan: &PlanCompartida) -> usize {
@@ -142,6 +152,20 @@ pub fn aplicar_plan(plan: &PlanCompartida, sandbox: &SandboxArchivos) -> Result<
         aplicados.len(),
         aplicados.join("\n")
     ))
+}
+
+/// [318A-17 F6] Aplica la propuesta dejando un checkpoint recuperable: captura
+/// la imagen previa de los archivos objetivo ANTES de escribir (fail-closed:
+/// si el snapshot falla no se aplica nada) y luego delega en `aplicar_plan`.
+/// El consumidor ofrece `/undo` sobre el mismo historial de sesión.
+pub fn aplicar_plan_con_checkpoint(
+    plan: &PlanCompartida,
+    sandbox: &SandboxArchivos,
+    historial: &HistorialCompartido,
+) -> Result<String> {
+    let rutas = rutas_plan(plan);
+    tomar_checkpoint(historial, sandbox, "plan aprobado", &rutas)?;
+    aplicar_plan(plan, sandbox)
 }
 
 /// Descarta la propuesta sin aplicar nada.
@@ -263,5 +287,48 @@ mod tests {
         let (nota, _) = sandbox.leer("nota.txt", 1024).expect("leer nota");
         assert_eq!(nota, "nota nueva\n");
         assert!(!tiene_cambios(&plan), "aplicado → ya no hay pendientes");
+    }
+
+    /* E2E determinista (plan 318A-17 F6): aprobar con `aplicar_plan_con_`
+     * `checkpoint` deja imagen previa recuperable; `revertir_ultimo` restaura
+     * el estado original (archivo modificado y archivo creado) sin tocar git.
+     * Fixture plan → aprobar → undo, sin proveedor LLM. */
+    #[test]
+    fn e2e_aprobar_con_checkpoint_y_undo_restaura() {
+        use crate::historial::{historial_compartido, revertir_ultimo};
+
+        let plan = plan_nuevo();
+        let sandbox = sandbox_tmp();
+        sandbox
+            .escribir("doc.txt", "v1\n")
+            .expect("fixture");
+        let (antes, _) = sandbox.leer("doc.txt", 1024).expect("leer");
+        registrar_cambio(&plan, "doc.txt", &antes, "v2\n");
+        registrar_cambio(&plan, "nuevo.txt", "", "creado\n");
+        let historial = historial_compartido();
+
+        /* Aprobar: captura previa ANTES de escribir y aplica una sola vez. */
+        let msg = aplicar_plan_con_checkpoint(&plan, &sandbox, &historial).expect("aplicar");
+        assert!(msg.contains("2 cambio(s)"));
+        assert_eq!(sandbox.leer("doc.txt", 1024).expect("leer").0, "v2\n");
+        assert_eq!(sandbox.leer("nuevo.txt", 1024).expect("leer").0, "creado\n");
+
+        /* Un segundo aplicar falla (regla de una sola aplicación). */
+        assert!(aplicar_plan(&plan, &sandbox).is_err());
+
+        /* Undo: doc.txt vuelve a v1 y nuevo.txt desaparece (no existía). */
+        let undo = revertir_ultimo(&historial, &sandbox)
+            .expect("undo")
+            .expect("hay checkpoint");
+        assert!(undo.contains("#1") && undo.contains("plan aprobado"));
+        assert!(undo.contains("restaurado") && undo.contains("eliminado"));
+        assert_eq!(sandbox.leer("doc.txt", 1024).expect("leer").0, "v1\n");
+        assert!(sandbox.leer("nuevo.txt", 1024).is_err(), "el archivo creado se eliminó");
+        assert!(
+            revertir_ultimo(&historial, &sandbox)
+                .expect("undo vacío")
+                .is_none(),
+            "la pila quedó vacía tras el undo"
+        );
     }
 }

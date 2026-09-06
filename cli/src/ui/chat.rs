@@ -18,12 +18,13 @@ use uuid::Uuid;
 
 use glory_harness_core::aprobacion::{PeticionAprobacion, RespuestaAprobacion};
 use glory_harness_core::evento::AgenteEvento;
+use glory_harness_core::historial::{historial_compartido, HistorialCompartido};
 use glory_harness_core::ports::AgentPersistence;
 use glory_harness_core::runtime::AgentRuntime;
-use glory_harness_core::sandbox::SandboxArchivos;
 
 use crate::run::{construir_harness, OpcionesRun};
 use crate::ui::exportar::{guardar_export, render_markdown, ItemExport};
+use crate::ui::plan::{ejecutar_undo, gestionar_plan, mostrar_plan_si_aplica};
 use crate::ui::turno::{historial_desde_persistencia, procesar_turno};
 
 /// Ejecuta el subcomando `chat`: abre la sesión interactiva y no devuelve
@@ -67,6 +68,12 @@ pub async fn chat(opciones: OpcionesRun) -> Result<(), String> {
      * usuario + respuestas del asistente con sus tools. Se resetea con
      * `/nuevo` (nueva conversación). */
     let mut transcripcion: Vec<ItemExport> = Vec::new();
+    /* [318A-17 B3-F6] Historial de checkpoints de la sesión para `/undo`:
+     * aprobar un plan deja imagen previa recuperable; el undo revierte el
+     * último checkpoint. Vive toda la sesión del REPL (los cambios de disco
+     * son reales y un undo posterior sigue siendo válido aunque la
+     * conversación se haya reiniciado con `/nuevo`). */
+    let historial = historial_compartido();
     loop {
         let es_reenvio = reintento.is_some();
         let linea = match reintento.take() {
@@ -87,7 +94,16 @@ pub async fn chat(opciones: OpcionesRun) -> Result<(), String> {
         if texto.is_empty() {
             continue;
         }
-        match manejar_comando(&texto, &runtime, &workspace, &mut rx_lineas, &comandos).await? {
+        match manejar_comando(
+            &texto,
+            &runtime,
+            &workspace,
+            &historial,
+            &mut rx_lineas,
+            &comandos,
+        )
+        .await?
+        {
             Comando::Salir => return Ok(()),
             Comando::NuevaConversacion => {
                 conversacion_id = Uuid::new_v4();
@@ -126,6 +142,7 @@ pub async fn chat(opciones: OpcionesRun) -> Result<(), String> {
                 user_id,
                 conversacion_id,
                 workspace: &workspace,
+                historial: historial.clone(),
             },
             &mut rx_lineas,
             &texto,
@@ -174,6 +191,8 @@ struct CtxTurnoChat<'a> {
     user_id: Uuid,
     conversacion_id: Uuid,
     workspace: &'a Option<std::path::PathBuf>,
+    /// [318A-17 B3-F6] Checkpoints de la sesión (para `/undo` tras aprobar).
+    historial: HistorialCompartido,
 }
 
 /// Ejecuta un mensaje completo de chat: lee el historial acumulado, lanza el
@@ -242,26 +261,11 @@ async fn ejecutar_turno_chat(
             /* [318A-16 F5] Modo plan: al cerrar el turno se muestra el diff
              * acumulado y se pregunta aprobar/descartar (regla de una sola
              * aplicación). Fuera de modo plan no hay propuesta: no pregunta. */
-            mostrar_plan_si_aplica(&ctx.runtime, ctx.workspace, rx_lineas).await?;
+            mostrar_plan_si_aplica(&ctx.runtime, ctx.workspace, &ctx.historial, rx_lineas).await?;
             otra
         }
     };
     Ok(siguiente)
-}
-
-/// [318A-16 F5] Si el modo es `plan` y hay cambios acumulados, muestra la
-/// propuesta al terminar el turno. Fuera de modo plan no hace nada.
-async fn mostrar_plan_si_aplica(
-    runtime: &AgentRuntime,
-    workspace: &Option<std::path::PathBuf>,
-    rx_lineas: &mut tokio::sync::mpsc::Receiver<Option<String>>,
-) -> Result<(), String> {
-    if runtime.turno_config.modo == "plan"
-        && runtime.plan_actual().is_some_and(|p| glory_harness_core::plan::tiene_cambios(&p))
-    {
-        gestionar_plan(runtime, workspace, rx_lineas, false).await?;
-    }
-    Ok(())
 }
 
 /// Resultado del manejador de comandos `/` del REPL: salir, nueva
@@ -284,6 +288,7 @@ async fn manejar_comando(
     texto: &str,
     runtime: &AgentRuntime,
     workspace: &Option<std::path::PathBuf>,
+    historial: &HistorialCompartido,
     rx_lineas: &mut tokio::sync::mpsc::Receiver<Option<String>>,
     comandos: &[glory_harness_core::skill::ComandoSlash],
 ) -> Result<Comando, String> {
@@ -294,11 +299,11 @@ async fn manejar_comando(
         "/salir" | "/exit" | "/quit" => Ok(Comando::Salir),
         "/nuevo" | "/reset" => Ok(Comando::NuevaConversacion),
         "/plan" | "/plan estado" => {
-            gestionar_plan(runtime, workspace, rx_lineas, false).await?;
+            gestionar_plan(runtime, workspace, historial, rx_lineas, false).await?;
             Ok(Comando::Continuar)
         }
         "/plan aprobar" => {
-            gestionar_plan(runtime, workspace, rx_lineas, true).await?;
+            gestionar_plan(runtime, workspace, historial, rx_lineas, true).await?;
             Ok(Comando::Continuar)
         }
         "/plan descartar" => {
@@ -306,6 +311,15 @@ async fn manejar_comando(
                 println!("{}", glory_harness_core::plan::descartar_plan(&plan));
             } else {
                 println!("[chat] no hay propuesta de plan (modo actual: {})", runtime.turno_config.modo);
+            }
+            Ok(Comando::Continuar)
+        }
+        "/undo" => {
+            /* [318A-17 B3-F6] Revierte el último checkpoint aprobado (la
+             * maquinaria vive en `ui/plan.rs` junto al modo plan). */
+            match ejecutar_undo(historial, workspace) {
+                Ok(msg) => println!("{msg}"),
+                Err(e) => eprintln!("[chat] {e}"),
             }
             Ok(Comando::Continuar)
         }
@@ -328,6 +342,7 @@ async fn manejar_comando(
                 println!("  /plan            muestra la propuesta acumulada (diff)");
                 println!("  /plan aprobar    aplica la propuesta una sola vez");
                 println!("  /plan descartar  descarta la propuesta sin aplicar");
+                println!("  /undo            revierte el último plan aprobado (checkpoint)");
             }
             println!("  /ayuda   muestra esta ayuda");
             if !comandos.is_empty() {
@@ -436,65 +451,14 @@ fn imprimir_evento_turno(evento: AgenteEvento) {
     }
 }
 
-/// [318A-16 F5] Muestra la propuesta del modo plan y, si el usuario aprueba,
-/// la aplica una sola vez sobre el workspace (misma semántica que las tools
-/// de archivo: ruta relativa al sandbox). Con `auto_preguntar` se entra en
-/// modo pregunta; con `false` solo muestra el estado.
-async fn gestionar_plan(
-    runtime: &AgentRuntime,
-    workspace: &Option<std::path::PathBuf>,
-    rx_lineas: &mut tokio::sync::mpsc::Receiver<Option<String>>,
-    auto_preguntar: bool,
-) -> Result<(), String> {
-    let Some(plan) = runtime.plan_actual() else {
-        println!("[plan] no hay propuesta (modo actual: {})", runtime.turno_config.modo);
-        return Ok(());
-    };
-    println!("───────────────── propuesta en modo plan ─────────────────");
-    println!("{}", glory_harness_core::plan::resumen_plan(&plan));
-    println!("───────────────────────────────────────────────────────────");
-    if !auto_preguntar {
-        return Ok(());
-    }
-    if !glory_harness_core::plan::tiene_cambios(&plan) {
-        return Ok(());
-    }
-    let sandbox = match workspace
-        .as_deref()
-        .map(SandboxArchivos::nuevo)
-        .transpose()
-    {
-        Ok(Some(sandbox)) => sandbox,
-        Ok(None) => {
-            eprintln!("[plan] sin workspace: no se puede aplicar");
-            return Ok(());
-        }
-        Err(e) => {
-            eprintln!("[plan] sandbox inválido: {e}");
-            return Ok(());
-        }
-    };
-    print!("¿Aprobar y aplicar? (s=aprobar · n=dejar pendiente · d=descartar) ");
-    let _ = std::io::stdout().flush();
-    match leer_linea(rx_lineas).await {
-        Some(linea) if matches!(linea.trim().to_lowercase().as_str(), "s" | "si" | "y" | "yes" | "aprobar") => {
-            match glory_harness_core::plan::aplicar_plan(&plan, &sandbox) {
-                Ok(msg) => println!("[plan] {msg}"),
-                Err(e) => eprintln!("[plan] no se pudo aplicar: {e}"),
-            }
-        }
-        Some(linea) if matches!(linea.trim().to_lowercase().as_str(), "d" | "descartar") => {
-            println!("[plan] {}", glory_harness_core::plan::descartar_plan(&plan));
-        }
-        Some(_) => println!("[plan] propuesta pendiente (usa /plan aprobar o /plan descartar)"),
-        None => return Err("fin de sesión durante la pregunta del plan".into()),
-    }
-    Ok(())
-}
 
 /// Línea siguiente del hilo de stdin del REPL. `None` = Ctrl+C o EOF (fin de
 /// sesión). Comparte la semántica de cancelación del bucle principal.
-async fn leer_linea(rx: &mut tokio::sync::mpsc::Receiver<Option<String>>) -> Option<String> {
+/// `pub(super)`: también la usa el modo plan (`ui/plan.rs`), que pregunta
+/// aprobar/descartar en mitad del turno con la misma cancelación.
+pub(super) async fn leer_linea(
+    rx: &mut tokio::sync::mpsc::Receiver<Option<String>>,
+) -> Option<String> {
     tokio::select! {
         _ = tokio::signal::ctrl_c() => None,
         opt = rx.recv() => match opt {

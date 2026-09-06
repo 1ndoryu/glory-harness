@@ -58,6 +58,7 @@ pub(crate) use crate::run::{construir_harness, OpcionesRun};
 
 mod texto;
 mod render;
+mod gate;
 mod bucle;
 pub use bucle::tui;
 use texto::byte_index;
