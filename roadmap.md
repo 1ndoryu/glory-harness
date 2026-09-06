@@ -81,11 +81,12 @@ Orden propuesto (dependencias de abajo arriba):
       (F2 turnos SSE+cookie), `40e47d0` (F3 datos+workspace), `8b597e7` (F4
       adaptador), `c28e653` (F6-backend: body 256K, 16 sesiones, TTL 24h,
       413/429/410). E2E curl 07-09: session+cookie, config, turns fixture,
-      SSE `ready`/`turn.started`/`agent.event`/`turn.finished`. F5b embebida
+      SSE `ready`/`turn.started`/`agent.event`/`turn.finished`.       F5b embebida
       NO justificada (evaluada con datos: sin ganancia, colisión con refactor
-      ajeno). Gate 069A-2 FAIL solo por regla desactualizada
-      (`axum-ruta-sintaxis` exige `:id` con matchit 0.8.4: falso positivo
-      probado en vivo) + deuda ajena. Doc:
+      ajeno). Gate 069A-2 re-ejecutado tras fix de Sentinel (repineado a
+      `6baf87c` con regla `axum-ruta-sintaxis-rs` version-aware): 11 falsos
+      positivos eliminados (13→2 errores); quedan 2 `broadcast-mutex`
+      (diseño SSE consciente, sin contención posible) + deuda ajena. Doc:
       `Agente/documentacion/modo-web-2026-09-07.md`. Plan v3:
       `Agente/planes/plan-web-real-069A-2.md`.
 - [x] **069A-4 — Memoria de aprendizaje fases 1–5** (B3-F8b): HECHO 06-09
