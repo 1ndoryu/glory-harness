@@ -198,18 +198,8 @@ pub trait AgentPersistence: Send + Sync {
     async fn memoria_upsert(&self, user_id: Uuid, entrada: &MemoriaEntrada) -> Result<()>;
     async fn memoria_borrar(&self, user_id: Uuid, clave: &str) -> Result<()>;
 
-    // --- Skills ---
+    // --- Skills (solo lectura para el agente) ---
     async fn skills_listar(&self, user_id: Uuid) -> Result<Vec<SkillEntrada>>;
-    /// [069A-4] Promueve un recuerdo a skill persistente (el curador la usa;
-    /// el agente no: las skills del agente son de solo lectura). Método con
-    /// default que falla explícito para no romper consumidores existentes
-    /// (DIP sin breaking change): cada tienda lo implementa si guarda skills.
-    async fn skills_registrar(&self, user_id: Uuid, skill: &SkillEntrada) -> Result<()> {
-        let _ = (user_id, skill);
-        Err(crate::error::Error::Persistencia(
-            "skills_registrar no implementado por esta tienda".into(),
-        ))
-    }
 
     // --- Tareas programadas (scheduler) ---
     /// Recupera tareas interrumpidas (heartbeat vencido) → 'pendiente'.
@@ -228,6 +218,21 @@ pub trait AgentPersistence: Send + Sync {
         user_id: Uuid,
         proxima: Option<DateTime<Utc>>,
     ) -> Result<()>;
+
+    /// [069A-4] Promueve un recuerdo a skill persistente (el curador la usa;
+    /// el agente no: las skills del agente son de solo lectura). Default que
+    /// falla explícito para no romper consumidores existentes (DIP sin
+    /// breaking change): cada tienda lo implementa si guarda skills. Va el
+    /// último del trait a propósito: `funcion-larga-rs` mide las firmas sin
+    /// cuerpo contra el siguiente bloque con cuerpo del fichero y las
+    /// declara largas pasados ~100; con el único default al final, ninguna
+    /// firma queda tras un cuerpo y el conteo es correcto.
+    async fn skills_registrar(&self, user_id: Uuid, skill: &SkillEntrada) -> Result<()> {
+        let _ = (user_id, skill);
+        Err(crate::error::Error::Persistencia(
+            "skills_registrar no implementado por esta tienda".into(),
+        ))
+    }
 }
 
 /// [318A-16 F6] Puerto CRUD de tareas programadas (tool `programar_tarea` +

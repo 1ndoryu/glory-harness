@@ -252,62 +252,17 @@ pub(crate) fn spawn_worker(
                     | ComandoTui::Descartar => continue,
                 }
             }
-            anotar_usuario(&mut transcripcion, &texto, es_reenvio);
-            let _ = tx_eventos.send(EventoTui::MensajeUsuario(texto.clone()));
-            let _ = tx_eventos.send(EventoTui::EmpiezaTurno);
-
-            let historial = match persistencia.listar_mensajes(conversacion_id).await {
-                Ok(mensajes) => historial_desde_persistencia(mensajes),
-                Err(e) => {
-                    let _ = tx_eventos.send(EventoTui::Error(format!(
-                        "no se pudo leer el historial: {e}"
-                    )));
-                    let _ = tx_eventos.send(EventoTui::FinTurno);
-                    continue;
-                }
-            };
-            /* [069A-4] Memoria a largo plazo antepuesta al hilo (mismo
-             * camino que el REPL lineal; un fallo avisa y el turno sigue). */
-            let historial = crate::memoria::anteponer_memoria(
-                historial,
-                crate::memoria::bloque_memoria_para_turno(
-                    &persistencia,
-                    user_id,
-                    &texto,
-                    runtime.turno_config.incluir_memoria,
-                    runtime.turno_config.incluir_skills,
-                )
-                .await,
-            );
-
-            let tx_ev = tx_eventos.clone();
-            match procesar_turno(
-                Arc::clone(&runtime),
+            ejecutar_turno_tui(CtxTurnoTui {
+                persistencia: &persistencia,
+                runtime: &runtime,
                 user_id,
                 conversacion_id,
-                historial,
-                texto.clone(),
-                move |evento| relevar_evento(&tx_ev, &evento),
-            )
-            .await
-            {
-                Ok(respuesta) => {
-                    anotar_asistente(&mut transcripcion, &respuesta);
-                    /* [069A-4] Sync post-turno (mejor esfuerzo con aviso). */
-                    crate::memoria::sincronizar_memoria_tras_turno(
-                        &persistencia,
-                        user_id,
-                        &respuesta.texto,
-                        &texto,
-                        "turno:tui",
-                    )
-                    .await;
-                }
-                Err(err) => {
-                    let _ = tx_eventos.send(EventoTui::Error(format!("el turno falló: {err}")));
-                }
-            }
-            let _ = tx_eventos.send(EventoTui::FinTurno);
+                tx_eventos: &tx_eventos,
+                texto: &texto,
+                es_reenvio,
+                transcripcion: &mut transcripcion,
+            })
+            .await;
 
             let todo_resuelto = match resolver_gate_aprobaciones(
                 &runtime,
@@ -330,6 +285,90 @@ pub(crate) fn spawn_worker(
             }
         }
     });
+}
+
+/// [069A-5] Ejecución de un turno de la TUI extraída de `spawn_worker`
+/// (deuda funcion-larga): anota al usuario, resuelve historial + memoria,
+/// corre el turno, hace sync de memoria y cierra con `FinTurno`. El error de
+/// historial corta solo el turno (avisa y vuelve al bucle), nunca el worker.
+struct CtxTurnoTui<'a> {
+    persistencia: &'a Arc<dyn glory_harness_core::AgentPersistence>,
+    runtime: &'a Arc<AgentRuntime>,
+    user_id: Uuid,
+    conversacion_id: Uuid,
+    tx_eventos: &'a tokio::sync::mpsc::UnboundedSender<EventoTui>,
+    texto: &'a str,
+    es_reenvio: bool,
+    transcripcion: &'a mut Vec<ItemExport>,
+}
+
+async fn ejecutar_turno_tui(ctx: CtxTurnoTui<'_>) {
+    let CtxTurnoTui {
+        persistencia,
+        runtime,
+        user_id,
+        conversacion_id,
+        tx_eventos,
+        texto,
+        es_reenvio,
+        transcripcion,
+    } = ctx;
+    anotar_usuario(transcripcion, texto, es_reenvio);
+    let _ = tx_eventos.send(EventoTui::MensajeUsuario(texto.to_string()));
+    let _ = tx_eventos.send(EventoTui::EmpiezaTurno);
+
+    let historial = match persistencia.listar_mensajes(conversacion_id).await {
+        Ok(mensajes) => historial_desde_persistencia(mensajes),
+        Err(e) => {
+            let _ = tx_eventos.send(EventoTui::Error(format!(
+                "no se pudo leer el historial: {e}"
+            )));
+            let _ = tx_eventos.send(EventoTui::FinTurno);
+            return;
+        }
+    };
+    /* [069A-4] Memoria a largo plazo antepuesta al hilo (mismo camino que
+     * el REPL lineal; un fallo avisa y el turno sigue). */
+    let historial = crate::memoria::anteponer_memoria(
+        historial,
+        crate::memoria::bloque_memoria_para_turno(
+            persistencia,
+            user_id,
+            texto,
+            runtime.turno_config.incluir_memoria,
+            runtime.turno_config.incluir_skills,
+        )
+        .await,
+    );
+
+    let tx_ev = tx_eventos.clone();
+    match procesar_turno(
+        Arc::clone(runtime),
+        user_id,
+        conversacion_id,
+        historial,
+        texto.to_string(),
+        move |evento| relevar_evento(&tx_ev, &evento),
+    )
+    .await
+    {
+        Ok(respuesta) => {
+            anotar_asistente(transcripcion, &respuesta);
+            /* [069A-4] Sync post-turno (mejor esfuerzo con aviso). */
+            crate::memoria::sincronizar_memoria_tras_turno(
+                persistencia,
+                user_id,
+                &respuesta.texto,
+                texto,
+                "turno:tui",
+            )
+            .await;
+        }
+        Err(err) => {
+            let _ = tx_eventos.send(EventoTui::Error(format!("el turno falló: {err}")));
+        }
+    }
+    let _ = tx_eventos.send(EventoTui::FinTurno);
 }
 
 /// Publica un evento del contrato hacia la UI desde el hilo del runtime.

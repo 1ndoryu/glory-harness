@@ -130,15 +130,7 @@ async fn bucle_chat(
         })
         .unwrap_or_default();
 
-    let raiz = workspace
-        .as_ref()
-        .map(|p| p.to_string_lossy().into_owned())
-        .unwrap_or_else(|| "<desconocido>".to_string());
-    println!(
-        "glory-harness chat — modelo {}/{} · workspace {raiz}",
-        config.provider, config.modelo
-    );
-    println!("escribe un mensaje, o /ayuda para los comandos");
+    anunciar_sesion(&workspace, &config);
 
     /* [318A-16 F2] Texto que reintentar tras resolver aprobaciones (tres
      * vías). El REPL reenvía el último mensaje para que el agente ejecute lo
@@ -183,21 +175,13 @@ async fn bucle_chat(
         {
             Comando::Salir => return Ok(()),
             Comando::NuevaConversacion => {
-                // [069A-2] `/nuevo` crea fila nueva (la anterior queda en la
-                // BD para `session resume`); el título llega con el primer
-                // mensaje. Un fallo aquí no tumba el REPL: se sigue en la
-                // conversación actual.
-                match sqlite.conversacion_crear(user_id, "sesión") {
-                    Ok(id) => {
-                        conversacion_id = id;
-                        titulada = false;
-                        transcripcion.clear();
-                        println!(
-                            "[chat] conversación nueva (el agente ya no recuerda lo anterior)"
-                        );
-                    }
-                    Err(e) => eprintln!("[chat] no se pudo crear la conversación: {e}"),
-                }
+                nueva_conversacion(
+                    &sqlite,
+                    user_id,
+                    &mut conversacion_id,
+                    &mut transcripcion,
+                    &mut titulada,
+                );
                 continue;
             }
             /* [318A-17 B3-F5] `/export [archivo]`: vuelca la transcripción
@@ -226,15 +210,7 @@ async fn bucle_chat(
          * aprobar repiten el mismo texto y no deben duplicarse). */
         if !es_reenvio {
             transcripcion.push(ItemExport::usuario(texto.clone()));
-            // [069A-2] La fila nueva toma el primer mensaje como título (60
-            // caracteres); el resume conserva el suyo. No bloquea el turno.
-            if !titulada {
-                titulada = true;
-                let titulo: String = texto.chars().take(60).collect();
-                if let Err(e) = sqlite.conversacion_renombrar(conversacion_id, user_id, &titulo) {
-                    eprintln!("[chat] no se pudo titular la conversación: {e}");
-                }
-            }
+            titular_si_nueva(&sqlite, conversacion_id, user_id, &texto, &mut titulada);
         }
         match ejecutar_turno_chat(
             CtxTurnoChat {
@@ -255,6 +231,64 @@ async fn bucle_chat(
             Siguiente::Prompt => {}
             Siguiente::Salir => return Ok(()),
         }
+    }
+}
+
+/// [069A-5] Banner del REPL extraído de `bucle_chat` (deuda funcion-larga).
+fn anunciar_sesion(
+    workspace: &Option<std::path::PathBuf>,
+    config: &glory_harness_core::runtime::TurnoConfig,
+) {
+    let raiz = workspace
+        .as_ref()
+        .map(|p| p.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "<desconocido>".to_string());
+    println!(
+        "glory-harness chat — modelo {}/{} · workspace {raiz}",
+        config.provider, config.modelo
+    );
+    println!("escribe un mensaje, o /ayuda para los comandos");
+}
+
+/// [069A-5] Titulado de `/nuevo` extraído de `bucle_chat` (deuda
+/// funcion-larga): la fila nueva toma el primer mensaje como título (60
+/// caracteres); el resume conserva el suyo. No bloquea el turno.
+fn titular_si_nueva(
+    sqlite: &std::sync::Arc<crate::persistencia_sqlite::PersistenciaSqlite>,
+    conversacion_id: Uuid,
+    user_id: Uuid,
+    texto: &str,
+    titulada: &mut bool,
+) {
+    if *titulada {
+        return;
+    }
+    *titulada = true;
+    let titulo: String = texto.chars().take(60).collect();
+    if let Err(e) = sqlite.conversacion_renombrar(conversacion_id, user_id, &titulo) {
+        eprintln!("[chat] no se pudo titular la conversación: {e}");
+    }
+}
+
+/// [069A-5] `/nuevo` del REPL extraído de `bucle_chat` (deuda funcion-larga):
+/// crea la fila nueva (la anterior queda en la BD para `session resume`) y
+/// resetea el estado de sesión; el título llega con el primer mensaje. Un
+/// fallo no tumba el REPL: se sigue en la conversación actual.
+fn nueva_conversacion(
+    sqlite: &std::sync::Arc<crate::persistencia_sqlite::PersistenciaSqlite>,
+    user_id: Uuid,
+    conversacion_id: &mut Uuid,
+    transcripcion: &mut Vec<ItemExport>,
+    titulada: &mut bool,
+) {
+    match sqlite.conversacion_crear(user_id, "sesión") {
+        Ok(id) => {
+            *conversacion_id = id;
+            *titulada = false;
+            transcripcion.clear();
+            println!("[chat] conversación nueva (el agente ya no recuerda lo anterior)");
+        }
+        Err(e) => eprintln!("[chat] no se pudo crear la conversación: {e}"),
     }
 }
 
