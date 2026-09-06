@@ -15,9 +15,11 @@
 //! - `doctor` → comprueba configuración (envs de proveedores) y salida.
 //! - `--version`/`-V` → versión del binario + contrato core.
 
+use chrono::{DateTime, Utc};
 use glory_harness::cargar_env_usuario;
-use glory_harness::{chat, daemon, ejecutor, persistencia, run, tui};
-use glory_harness_core::{HarnessError, ProgramadorTareas};
+use glory_harness::{chat, daemon, ejecutor, persistencia, run, tui, PersistenciaSqlite};
+use glory_harness_core::ports::{TareaProgramada, TareaProgramadaPendiente};
+use glory_harness_core::{AgentPersistence, HarnessError, ProgramadorTareas};
 use std::process::ExitCode;
 use std::sync::Arc;
 use uuid::Uuid;
@@ -54,7 +56,8 @@ fn despachar(args: Vec<String>) -> ExitCode {
             let opciones = run::OpcionesRun {
                 provider: extraer_opcion(&args, &["--provider", "--proveedor"]),
                 modelo: extraer_opcion(&args, &["--modelo", "--model"]),
-                dir: extraer_opcion(&args, &["--dir", "--cwd", "--workspace"]).map(std::path::PathBuf::from),
+                dir: extraer_opcion(&args, &["--dir", "--cwd", "--workspace"])
+                    .map(std::path::PathBuf::from),
                 modo: extraer_opcion(&args, &["--modo"]),
                 /* [039A-1 04-09 H7] El CLI run no expone flag de razonamiento:
                  * deja el default del proveedor (None → config intacta). */
@@ -76,7 +79,8 @@ fn despachar(args: Vec<String>) -> ExitCode {
             let opciones = run::OpcionesRun {
                 provider: extraer_opcion(&args, &["--provider", "--proveedor"]),
                 modelo: extraer_opcion(&args, &["--modelo", "--model"]),
-                dir: extraer_opcion(&args, &["--dir", "--cwd", "--workspace"]).map(std::path::PathBuf::from),
+                dir: extraer_opcion(&args, &["--dir", "--cwd", "--workspace"])
+                    .map(std::path::PathBuf::from),
                 modo: extraer_opcion(&args, &["--modo"]),
                 /* [039A-1 04-09 H7] El CLI chat/tui no expone flag de
                  * razonamiento: deja el default del proveedor. */
@@ -123,7 +127,9 @@ fn despachar(args: Vec<String>) -> ExitCode {
             ExitCode::from(2)
         }
         None => {
-            eprintln!("glory-harness: falta subcomando (run|chat|daemon|schedule|tools|doctor|--version)");
+            eprintln!(
+                "glory-harness: falta subcomando (run|chat|daemon|schedule|tools|doctor|--version)"
+            );
             ExitCode::from(2)
         }
     }
@@ -152,39 +158,88 @@ fn imprimir_ayuda() {
     println!("  run       turno único (--prompt/--stdin/--dir/--provider/--modelo/--modo)");
     println!("  chat      sesión interactiva; --tui para la interfaz enriquecida");
     println!("  daemon    servicio de fondo por NDJSON (consumidor-daemon.mjs)");
-    println!("  schedule  tareas programadas: <list|create|remove|logs>");
+    println!("  schedule  tareas programadas: <list|create|remove|logs|run>");
     println!("  tools     tools disponibles del núcleo");
     println!("  doctor    diagnóstico de configuración y proveedores");
     println!("  --version versión del CLI y del contrato core");
 }
 
-/// `glory-harness schedule <list|create|remove|logs>`: administra las tareas
-/// programadas del CLI standalone (store en memoria, [318A-16 F6]). Usa el
-/// mismo puerto [`ProgramadorTareas`] que registra la tool `programar_tarea`
-/// en las sesiones de `chat`/`daemon`, y la traducción NL→cron pura del
-/// núcleo. El worker de producción lo corre el consumidor (PT ya tiene cron +
-/// heartbeat); este subcomando expone la cara CRUD para el proceso actual.
+/// `glory-harness schedule <list|create|remove|logs|run>`: administra y
+/// ejecuta las tareas programadas del CLI standalone sobre la BD durable
+/// (`%APPDATA%/glory-harness/glory-harness.db`, [B3-F8a]). `PersistenciaSqlite`
+/// implementa AMBAS caras (CRUD [`ProgramadorTareas`] + cola del scheduler en
+/// [`AgentPersistence`]), de modo que `create` en un proceso y `run` en otro
+/// comparten las tareas; el `user_id` es estable (tabla `config`). `run`
+/// ejecuta las vencidas como turnos del agente y entrega el resumen en
+/// `tarea_logs` (núcleo `cron::ejecutar_lista`, claim fence por tarea).
 /// Resultado del subcomando `schedule`: `Uso` = error de argumentos (exit 2).
 enum SalidaSchedule {
     Ok,
     Uso,
 }
 
-fn cmd_schedule(args: &[String]) -> ExitCode {
-    use glory_harness_core::ProgramadorTareas;
-    use std::sync::Arc;
-    use uuid::Uuid;
+/// Abre la BD de la app y resuelve el usuario estable del CLI (se crea una
+/// vez en `config` y se reutiliza: las tareas sobreviven a los procesos).
+fn abrir_tiendas_schedule() -> Result<(Arc<PersistenciaSqlite>, Uuid), HarnessError> {
+    let ruta = PersistenciaSqlite::ruta_bd_app().ok_or_else(|| {
+        HarnessError::Persistencia("sin directorio de app para la BD (APPDATA/HOME ausente)".into())
+    })?;
+    let tiendas = Arc::new(PersistenciaSqlite::abrir(&ruta)?);
+    let user_id = usuario_cli_estable(&tiendas)?;
+    Ok((tiendas, user_id))
+}
 
+/// Lee o crea el `user_id` estable del CLI en la tabla `config` (un valor
+/// corrupto se sustituye por uno nuevo, nunca se aborta por ello).
+fn usuario_cli_estable(tiendas: &PersistenciaSqlite) -> Result<Uuid, HarnessError> {
+    const CLAVE: &str = "usuario_cli";
+    if let Some(previo) = tiendas.config_leer(CLAVE)? {
+        if let Ok(id) = Uuid::parse_str(previo.trim()) {
+            return Ok(id);
+        }
+    }
+    let nuevo = Uuid::new_v4();
+    tiendas.config_guardar(CLAVE, &nuevo.to_string())?;
+    Ok(nuevo)
+}
+
+/// Filtro puro de vencimiento: pendientes con próxima pasada (las
+/// desprogramadas —`proxima` ausente— y las canceladas/completadas no tocan).
+fn seleccionar_vencidas(
+    tareas: &[TareaProgramada],
+    ahora: DateTime<Utc>,
+) -> Vec<TareaProgramadaPendiente> {
+    tareas
+        .iter()
+        .filter(|t| {
+            t.estado == "pendiente" && t.proxima_ejecucion.map(|p| p <= ahora).unwrap_or(false)
+        })
+        .map(|t| TareaProgramadaPendiente {
+            id: t.id,
+            user_id: t.user_id,
+            nombre: t.nombre.clone(),
+            prompt: t.prompt.clone(),
+            tipo: t.tipo.clone(),
+            cron_expr: t.cron_expr.clone(),
+        })
+        .collect()
+}
+
+fn cmd_schedule(args: &[String]) -> ExitCode {
     let Some(accion) = args.first().map(String::as_str) else {
-        eprintln!("uso: glory-harness schedule <list|create|remove|logs>");
+        eprintln!("uso: glory-harness schedule <list|create|remove|logs|run>");
         return ExitCode::from(2);
     };
-    let programador: Arc<dyn ProgramadorTareas> =
-        Arc::new(persistencia::ProgramadorMemoria::nuevo());
-    let user_id = Uuid::new_v4();
+    let (tiendas, user_id) = match abrir_tiendas_schedule() {
+        Ok(par) => par,
+        Err(e) => {
+            eprintln!("glory-harness schedule: {e}");
+            return ExitCode::from(1);
+        }
+    };
 
     let resultado = match tokio::runtime::Runtime::new() {
-        Ok(rt) => rt.block_on(cmd_schedule_impl(accion, args, programador, user_id)),
+        Ok(rt) => rt.block_on(cmd_schedule_impl(accion, args, &tiendas, user_id)),
         Err(e) => {
             eprintln!("glory-harness schedule: no se pudo iniciar el runtime tokio: {e}");
             return ExitCode::from(1);
@@ -205,29 +260,96 @@ fn cmd_schedule(args: &[String]) -> ExitCode {
 async fn cmd_schedule_impl(
     accion: &str,
     args: &[String],
-    programador: Arc<dyn ProgramadorTareas>,
+    tiendas: &Arc<PersistenciaSqlite>,
     user_id: Uuid,
 ) -> Result<SalidaSchedule, HarnessError> {
+    let programador: Arc<dyn ProgramadorTareas> = tiendas.clone();
     match accion {
         "list" | "listar" => accion_listar(programador, user_id).await,
         "create" | "crear" => accion_crear(args, programador, user_id).await,
         "remove" | "cancelar" => accion_remove(args, programador, user_id).await,
         "logs" => accion_logs(args, programador, user_id).await,
+        "run" | "ejecutar" => accion_run(args, tiendas, user_id).await,
         otra => {
-            eprintln!("schedule: acción desconocida '{otra}' (list|create|remove|logs)");
+            eprintln!("schedule: acción desconocida '{otra}' (list|create|remove|logs|run)");
             Ok(SalidaSchedule::Uso)
         }
     }
 }
 
-/// `schedule list`: imprime las tareas programadas del proceso actual.
+/// `schedule run [--limite N]`: ejecuta las tareas vencidas como turnos del
+/// agente y entrega el resumen en `tarea_logs` ([B3-F8a]). Construye el
+/// harness sobre la misma BD (sin MCP en v1: registry base; documentado como
+/// límite). Sin claves LLM los turnos fallan con error presentable y la
+/// tarea queda pendiente con el fallo registrado (reintento visible).
+async fn accion_run(
+    args: &[String],
+    tiendas: &Arc<PersistenciaSqlite>,
+    user_id: Uuid,
+) -> Result<SalidaSchedule, HarnessError> {
+    let limite = extraer_opcion(args, &["--limite", "--limit"])
+        .and_then(|s| s.parse::<u32>().ok())
+        .unwrap_or(10)
+        .clamp(1, 100);
+    let persistencia: Arc<dyn AgentPersistence> = tiendas.clone();
+    let programador: Arc<dyn ProgramadorTareas> = tiendas.clone();
+    // Recupera ejecuciones interrumpidas (proceso muerto a mitad de turno)
+    // antes de seleccionar: sin esto una tarea 'ejecutando' huérfana no
+    // vuelve a tocar nunca (hermes `recover_abandoned`).
+    let recuperadas = persistencia.tareas_recuperar_interrumpidas().await?;
+    if recuperadas > 0 {
+        println!("schedule run: {recuperadas} interrumpida(s) recuperada(s)");
+    }
+    let todas = programador.tareas_listar(user_id).await?;
+    let mut vencidas = seleccionar_vencidas(&todas, Utc::now());
+    vencidas.truncate(limite as usize);
+    if vencidas.is_empty() {
+        println!("(sin tareas vencidas)");
+        return Ok(SalidaSchedule::Ok);
+    }
+    let opciones = run::OpcionesRun {
+        provider: extraer_opcion(args, &["--provider", "--proveedor"]),
+        modelo: extraer_opcion(args, &["--modelo", "--model"]),
+        dir: None,
+        modo: None,
+        razonamiento: None,
+        max_ventana: None,
+    };
+    let harness = run::construir_harness_con(
+        &opciones,
+        persistencia.clone(),
+        programador.clone(),
+        user_id,
+    );
+    for v in &vencidas {
+        eprintln!("schedule run: ejecutando {} [{}] …", v.id, v.nombre);
+    }
+    let resumen = glory_harness_core::cron::ejecutar_lista(
+        &harness.runtime,
+        &persistencia,
+        &programador,
+        &vencidas,
+    )
+    .await?;
+    println!(
+        "schedule run: vencidas={} ejecutadas={} fallidas={} omitidas={} reprogramadas={}",
+        resumen.pendientes,
+        resumen.ejecutadas,
+        resumen.fallidas,
+        resumen.omitidas,
+        resumen.reprogramadas,
+    );
+    Ok(SalidaSchedule::Ok)
+}
+
+/// `schedule list`: imprime las tareas programadas del usuario estable.
 async fn accion_listar(
     programador: Arc<dyn ProgramadorTareas>,
     user_id: Uuid,
 ) -> Result<SalidaSchedule, HarnessError> {
     let tareas = programador.tareas_listar(user_id).await?;
     if tareas.is_empty() {
-        println!("(sin tareas programadas en este proceso)");
+        println!("(sin tareas programadas)");
         return Ok(SalidaSchedule::Ok);
     }
     for t in &tareas {
@@ -373,7 +495,11 @@ fn leer_stdin() -> Option<String> {
         .read_to_string(&mut buf)
         .map(|_| {
             let t = buf.trim().to_string();
-            if t.is_empty() { None } else { Some(t) }
+            if t.is_empty() {
+                None
+            } else {
+                Some(t)
+            }
         })
         .unwrap_or(None)
 }
@@ -446,4 +572,40 @@ fn listar_tools() {
         println!("{}", ids.join(", "));
     }
     println!("  (file_* requiere AGENTE_MODO=local + workspace accesible; web_search siempre)");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn tarea(estado: &str, proxima: Option<DateTime<Utc>>) -> TareaProgramada {
+        TareaProgramada {
+            id: Uuid::new_v4(),
+            user_id: Uuid::new_v4(),
+            nombre: "t".into(),
+            prompt: "p".into(),
+            tipo: "recurrente".into(),
+            cron_expr: Some("0 9 * * *".into()),
+            proxima_ejecucion: proxima,
+            estado: estado.into(),
+            creado_en: Utc::now(),
+        }
+    }
+
+    #[test]
+    fn vencidas_solo_pendientes_con_proxima_pasada() {
+        let ahora = Utc::now();
+        let pasado = ahora - chrono::Duration::hours(1);
+        let futuro = ahora + chrono::Duration::hours(1);
+        let tareas = vec![
+            tarea("pendiente", Some(pasado)),
+            tarea("pendiente", Some(futuro)),
+            tarea("pendiente", None),
+            tarea("cancelada", Some(pasado)),
+            tarea("completada", Some(pasado)),
+        ];
+        let vencidas = seleccionar_vencidas(&tareas, ahora);
+        assert_eq!(vencidas.len(), 1, "solo la pendiente vencida toca");
+        assert_eq!(vencidas[0].id, tareas[0].id);
+    }
 }

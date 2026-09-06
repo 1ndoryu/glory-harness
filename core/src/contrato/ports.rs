@@ -202,6 +202,17 @@ pub trait ProgramadorTareas: Send + Sync {
         user_id: Uuid,
         limite: u32,
     ) -> Result<Vec<LogTareaEjecucion>>;
+    /// [B3-F8a] Entrega durable de una ejecución (hermes `delivery_queue`):
+    /// el ejecutor del cron la llama tras `tarea_finalizar` con el resumen
+    /// del turno. Sin esta escritura no hay "cron que entrega resumen": el
+    /// consumidor la persiste en su tienda (`tarea_logs` la lee).
+    async fn tarea_registrar_log(
+        &self,
+        id: Uuid,
+        user_id: Uuid,
+        ok: bool,
+        resumen: &str,
+    ) -> Result<()>;
 }
 
 // ---------------------------------------------------------------------------
@@ -343,10 +354,7 @@ pub struct Uso {
 /// el núcleo consume el stream sin saber qué proveedor es.
 #[async_trait]
 pub trait ProviderPort: Send + Sync {
-    async fn chat_stream(
-        &self,
-        request: ChatRequest,
-    ) -> Result<TokenStream>;
+    async fn chat_stream(&self, request: ChatRequest) -> Result<TokenStream>;
 }
 
 /// Eventos que puede emitir un proveedor durante el streaming.

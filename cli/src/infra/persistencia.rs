@@ -50,7 +50,10 @@ impl PersistenciaMemoria {
     /// Carga un conjunto de skills estáticas (para dar contexto útil en el
     /// CLI/daemon sin BD). Sustituye a la tabla `agente_skills` de task.
     pub fn con_skills_base(&self, user_id: Uuid) -> &Self {
-        let mut estado = self.estado.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut estado = self
+            .estado
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         estado.skills.entry(user_id).or_insert_with(|| {
             vec![SkillEntrada {
                 id: Uuid::new_v4(),
@@ -67,7 +70,10 @@ impl PersistenciaMemoria {
 #[async_trait]
 impl AgentPersistence for PersistenciaMemoria {
     async fn guardar_turno(&self, turno: &TurnoPersistido) -> HarnessResult<()> {
-        let mut estado = self.estado.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut estado = self
+            .estado
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         estado.turnos.insert(turno.id, turno.clone());
         Ok(())
     }
@@ -78,7 +84,10 @@ impl AgentPersistence for PersistenciaMemoria {
         estado_final: &str,
         resumen: Option<&str>,
     ) -> HarnessResult<()> {
-        let mut estado = self.estado.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut estado = self
+            .estado
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         if let Some(turno) = estado.turnos.get_mut(&turno_id) {
             turno.estado = estado_final.to_string();
             turno.resumen = resumen.map(ToString::to_string);
@@ -87,7 +96,10 @@ impl AgentPersistence for PersistenciaMemoria {
     }
 
     async fn guardar_mensaje(&self, mensaje: &MensajePersistido) -> HarnessResult<()> {
-        let mut estado = self.estado.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut estado = self
+            .estado
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         estado
             .mensajes
             .entry(mensaje.conversacion_id)
@@ -96,27 +108,48 @@ impl AgentPersistence for PersistenciaMemoria {
         Ok(())
     }
 
-    async fn listar_mensajes(&self, conversacion_id: Uuid) -> HarnessResult<Vec<MensajePersistido>> {
-        let estado = self.estado.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        let mut mensajes = estado.mensajes.get(&conversacion_id).cloned().unwrap_or_default();
+    async fn listar_mensajes(
+        &self,
+        conversacion_id: Uuid,
+    ) -> HarnessResult<Vec<MensajePersistido>> {
+        let estado = self
+            .estado
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut mensajes = estado
+            .mensajes
+            .get(&conversacion_id)
+            .cloned()
+            .unwrap_or_default();
         mensajes.sort_by_key(|m| m.creado_en);
         Ok(mensajes)
     }
 
     async fn conversacion_tocar(&self, conversacion_id: Uuid) -> HarnessResult<()> {
-        let mut estado = self.estado.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        estado.conversacion_reciente.insert(conversacion_id, Utc::now());
+        let mut estado = self
+            .estado
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        estado
+            .conversacion_reciente
+            .insert(conversacion_id, Utc::now());
         Ok(())
     }
 
     async fn registrar_accion(&self, accion: &AccionAuditable) -> HarnessResult<()> {
-        let mut estado = self.estado.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut estado = self
+            .estado
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         estado.acciones.push(accion.clone());
         Ok(())
     }
 
     async fn memoria_listar(&self, user_id: Uuid) -> HarnessResult<Vec<MemoriaEntrada>> {
-        let estado = self.estado.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let estado = self
+            .estado
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         Ok(estado
             .memoria
             .get(&user_id)
@@ -132,7 +165,10 @@ impl AgentPersistence for PersistenciaMemoria {
     }
 
     async fn memoria_upsert(&self, user_id: Uuid, entrada: &MemoriaEntrada) -> HarnessResult<()> {
-        let mut estado = self.estado.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut estado = self
+            .estado
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         estado
             .memoria
             .entry(user_id)
@@ -142,7 +178,10 @@ impl AgentPersistence for PersistenciaMemoria {
     }
 
     async fn memoria_borrar(&self, user_id: Uuid, clave: &str) -> HarnessResult<()> {
-        let mut estado = self.estado.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut estado = self
+            .estado
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         if let Some(mapa) = estado.memoria.get_mut(&user_id) {
             mapa.remove(clave);
         }
@@ -150,19 +189,28 @@ impl AgentPersistence for PersistenciaMemoria {
     }
 
     async fn skills_listar(&self, user_id: Uuid) -> HarnessResult<Vec<SkillEntrada>> {
-        let estado = self.estado.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let estado = self
+            .estado
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         Ok(estado.skills.get(&user_id).cloned().unwrap_or_default())
     }
 
     async fn tareas_recuperar_interrumpidas(&self) -> HarnessResult<u64> {
-        let mut estado = self.estado.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut estado = self
+            .estado
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         // En memoria no hay heartbeats reales; nada que recuperar.
         estado.tareas_tomadas.clear();
         Ok(0)
     }
 
     async fn tareas_pendientes(&self, limite: u32) -> HarnessResult<Vec<TareaProgramadaPendiente>> {
-        let estado = self.estado.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let estado = self
+            .estado
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         Ok(estado
             .tareas
             .values()
@@ -173,7 +221,10 @@ impl AgentPersistence for PersistenciaMemoria {
     }
 
     async fn tarea_tomar(&self, id: Uuid) -> HarnessResult<bool> {
-        let mut estado = self.estado.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut estado = self
+            .estado
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         if estado.tareas_tomadas.contains(&id) {
             return Ok(false);
         }
@@ -181,8 +232,16 @@ impl AgentPersistence for PersistenciaMemoria {
         Ok(true)
     }
 
-    async fn tarea_finalizar(&self, id: Uuid, ok: bool, resumen: Option<&str>) -> HarnessResult<()> {
-        let mut estado = self.estado.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    async fn tarea_finalizar(
+        &self,
+        id: Uuid,
+        ok: bool,
+        resumen: Option<&str>,
+    ) -> HarnessResult<()> {
+        let mut estado = self
+            .estado
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         estado.tareas_tomadas.remove(&id);
         if !ok {
             // En memoria, una tarea fallida se reintenta (se deja pendiente).
@@ -198,7 +257,10 @@ impl AgentPersistence for PersistenciaMemoria {
         _user_id: Uuid,
         _proxima: Option<DateTime<Utc>>,
     ) -> HarnessResult<()> {
-        let mut estado = self.estado.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut estado = self
+            .estado
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         estado.tareas_tomadas.remove(&id);
         Ok(())
     }
@@ -236,7 +298,10 @@ impl ProgramadorMemoria {
 #[async_trait]
 impl ProgramadorTareas for ProgramadorMemoria {
     async fn tarea_crear(&self, nueva: &NuevaTareaProgramada) -> HarnessResult<Uuid> {
-        let mut estado = self.estado.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut estado = self
+            .estado
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let id = Uuid::new_v4();
         estado.tareas.push(TareaProgramada {
             id,
@@ -253,7 +318,10 @@ impl ProgramadorTareas for ProgramadorMemoria {
     }
 
     async fn tareas_listar(&self, user_id: Uuid) -> HarnessResult<Vec<TareaProgramada>> {
-        let estado = self.estado.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let estado = self
+            .estado
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         Ok(estado
             .tareas
             .iter()
@@ -263,7 +331,10 @@ impl ProgramadorTareas for ProgramadorMemoria {
     }
 
     async fn tarea_cancelar(&self, id: Uuid, user_id: Uuid) -> HarnessResult<bool> {
-        let mut estado = self.estado.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut estado = self
+            .estado
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let Some(pos) = estado
             .tareas
             .iter()
@@ -281,13 +352,50 @@ impl ProgramadorTareas for ProgramadorMemoria {
         user_id: Uuid,
         limite: u32,
     ) -> HarnessResult<Vec<LogTareaEjecucion>> {
-        let estado = self.estado.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        let es_suya = estado.tareas.iter().any(|t| t.id == id && t.user_id == user_id);
+        let estado = self
+            .estado
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let es_suya = estado
+            .tareas
+            .iter()
+            .any(|t| t.id == id && t.user_id == user_id);
         if !es_suya {
             return Ok(Vec::new());
         }
         let mut logs = estado.logs.get(&id).cloned().unwrap_or_default();
         logs.sort_by_key(|l| l.ejecutada_en);
-        logs.truncate(limite as usize);        Ok(logs)
+        logs.truncate(limite as usize);
+        Ok(logs)
+    }
+
+    async fn tarea_registrar_log(
+        &self,
+        id: Uuid,
+        user_id: Uuid,
+        ok: bool,
+        resumen: &str,
+    ) -> HarnessResult<()> {
+        // [B3-F8a] Entrega en RAM: misma guarda de ownership que `tarea_logs`
+        // (la ajena se ignora sin error para no abortar la pasada).
+        let mut estado = self
+            .estado
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let es_suya = estado
+            .tareas
+            .iter()
+            .any(|t| t.id == id && t.user_id == user_id);
+        if !es_suya {
+            return Ok(());
+        }
+        estado.logs.entry(id).or_default().push(LogTareaEjecucion {
+            id: Uuid::new_v4(),
+            tarea_id: id,
+            ok,
+            resumen: resumen.to_string(),
+            ejecutada_en: Utc::now(),
+        });
+        Ok(())
     }
 }

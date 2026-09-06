@@ -576,11 +576,27 @@ commit por fase). Mover a ejecución solo tras aprobación del usuario.
       (máx 10); reorganizar a subdominios es refactor aparte.
 
 ### Fase 8 — IA de Tasks: cron de agente + memoria de aprendizaje (diseño)
-- [ ] Cron que **ejecuta un turno de agente** (no solo comando) y entrega resumen
+- [x] Cron que **ejecuta un turno de agente** (no solo comando) y entrega resumen
       (extiende `schedule`). Evidencia: hermes `cron/jobs.py` + `delivery_queue.py`.
-- [ ] Diseño (solo diseño) de memoria de aprendizaje: `prefetch` antes del turno,
+      Hecho 06-09 (`318A-18 B3-F8`, commit pendiente): `core/src/nucleo/cron.rs`
+      (`MotorTurno` + `impl` para `Arc<AgentRuntime>` + `ejecutar_lista` con claim
+      fence, entrega durable y reprogramación de recurrentes; `tarea_registrar_log`
+      nuevo en el puerto `ProgramadorTareas` con impls sqlite/memoria/mock);
+      `schedule run [--limite N] [--provider P] [--modelo M]` sobre la BD durable
+      con `user_id` estable (tabla `config`); `create/list/remove/logs` migrados de
+      memoria a sqlite. Tests: 232 core + 44 cli-lib + 1 cli-bin verdes; clippy
+      `-D warnings` limpio; smoke e2e real (groq, 7s, entrega en `tarea_logs` +
+      reprogramación). Gate `318A-18` PASS 0 errores.
+      Gotcha: `join!` en línea con el `tx` prestado no termina nunca (la colecta
+      espera `None` pero el `tx` vive en el frame hasta que el `join!` completa);
+      patrón spawn+`Done`-break como daemon/run. Tope de turno 300s (el timeout
+      dropea el `rx` y el turno aborta por `tx.is_closed()`).
+- [x] Diseño (solo diseño) de memoria de aprendizaje: `prefetch` antes del turno,
       `sync` después, extracción de preferencias/decisiones a skills/memoria.
       Evidencia: hermes `memory_manager.py`, `curator.py`.
+      Hecho 06-09: `Agente/documentacion/memoria-aprendizaje-diseno-2026-09-06.md`
+      (puerto `ProveedorMemoria`, curador como tarea recurrente, reglas de
+      sanitizado, criterios de aceptación). Sin implementar, por decisión del plan.
 
 ### Quedan fuera de este bloque (con razón)
 MCP oauth remoto y marketplace de plugins (después de F2/F4), computer use,

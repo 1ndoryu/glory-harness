@@ -18,10 +18,10 @@
 use crate::error::{Error, Result};
 use crate::ports::{NuevaTareaProgramada, ProgramadorTareas, TareaProgramada};
 use crate::scheduler;
-use crate::tool::{AgentTool, AgentToolContext, AgentToolResult, AgentToolRegistry};
+use crate::tool::{AgentTool, AgentToolContext, AgentToolRegistry, AgentToolResult};
 use async_trait::async_trait;
 use chrono::Utc;
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use std::sync::Arc;
 use uuid::Uuid;
 
@@ -197,7 +197,11 @@ fn tarea_a_texto(t: &TareaProgramada) -> String {
         .unwrap_or_else(|| "—".to_string());
     format!(
         "{} [{}] cron='{}' próximo='{proxima}' estado={} — \"{}\"",
-        t.nombre, t.tipo, t.cron_expr.as_deref().unwrap_or("—"), t.estado, prompt
+        t.nombre,
+        t.tipo,
+        t.cron_expr.as_deref().unwrap_or("—"),
+        t.estado,
+        prompt
     )
 }
 
@@ -268,7 +272,11 @@ impl AgentTool for ToolProgramarTarea {
         let accion = argumentos
             .get("accion")
             .and_then(Value::as_str)
-            .ok_or_else(|| Error::Argumentos("programar_tarea: accion requerida (crear|listar|cancelar|logs)".into()))?;
+            .ok_or_else(|| {
+                Error::Argumentos(
+                    "programar_tarea: accion requerida (crear|listar|cancelar|logs)".into(),
+                )
+            })?;
         let programador: &dyn ProgramadorTareas = self.programador.as_ref();
         match accion {
             "crear" => crear(programador, ctx.user_id, &argumentos).await,
@@ -306,7 +314,11 @@ async fn crear(
         .and_then(Value::as_str)
         .map(str::trim)
         .filter(|c| !c.is_empty())
-        .ok_or_else(|| Error::Argumentos("programar_tarea: 'cuando' requerido (p. ej. 'cada lunes a las 9')".into()))?;
+        .ok_or_else(|| {
+            Error::Argumentos(
+                "programar_tarea: 'cuando' requerido (p. ej. 'cada lunes a las 9')".into(),
+            )
+        })?;
 
     let cron = frase_a_cron(cuando)?;
     let proxima = scheduler::proxima_ejecucion(&cron, Utc::now())?;
@@ -328,10 +340,7 @@ async fn crear(
     ))
 }
 
-async fn listar(
-    programador: &dyn ProgramadorTareas,
-    user_id: Uuid,
-) -> Result<AgentToolResult> {
+async fn listar(programador: &dyn ProgramadorTareas, user_id: Uuid) -> Result<AgentToolResult> {
     let tareas = programador.tareas_listar(user_id).await?;
     if tareas.is_empty() {
         return Ok(AgentToolResult::ok(
@@ -344,7 +353,11 @@ async fn listar(
         lineas.push(tarea_a_texto(t));
     }
     Ok(AgentToolResult::ok(
-        format!("Tareas programadas ({}):\n{}", tareas.len(), lineas.join("\n")),
+        format!(
+            "Tareas programadas ({}):\n{}",
+            tareas.len(),
+            lineas.join("\n")
+        ),
         format!("programar_tarea: listar ({})", tareas.len()),
     ))
 }
@@ -395,7 +408,11 @@ async fn logs(
         ));
     }
     Ok(AgentToolResult::ok(
-        format!("Ejecuciones de {id} (últimas {}):\n{}", registros.len(), lineas.join("\n")),
+        format!(
+            "Ejecuciones de {id} (últimas {}):\n{}",
+            registros.len(),
+            lineas.join("\n")
+        ),
         format!("programar_tarea: logs ({})", registros.len()),
     ))
 }
@@ -429,6 +446,7 @@ mod tests {
     struct ProgramadorMock {
         creadas: std::sync::Mutex<Vec<NuevaTareaProgramada>>,
         canceladas: std::sync::Mutex<Vec<Uuid>>,
+        entregas: std::sync::Mutex<Vec<(Uuid, bool, String)>>,
         contador: AtomicUsize,
     }
 
@@ -437,6 +455,7 @@ mod tests {
             Self {
                 creadas: std::sync::Mutex::new(Vec::new()),
                 canceladas: std::sync::Mutex::new(Vec::new()),
+                entregas: std::sync::Mutex::new(Vec::new()),
                 contador: AtomicUsize::new(0),
             }
         }
@@ -480,6 +499,19 @@ mod tests {
         ) -> Result<Vec<crate::ports::LogTareaEjecucion>> {
             Ok(Vec::new())
         }
+        async fn tarea_registrar_log(
+            &self,
+            id: Uuid,
+            _user_id: Uuid,
+            ok: bool,
+            resumen: &str,
+        ) -> Result<()> {
+            self.entregas
+                .lock()
+                .expect("lock")
+                .push((id, ok, resumen.to_string()));
+            Ok(())
+        }
     }
 
     fn ctx_con_programador(_programador: Arc<dyn ProgramadorTareas>) -> AgentToolContext<'static> {
@@ -518,10 +550,7 @@ mod tests {
 
     #[test]
     fn nl_sin_hora_usa_default_9() {
-        assert_eq!(
-            frase_a_cron("cada lunes").expect("válido"),
-            "0 9 * * 1"
-        );
+        assert_eq!(frase_a_cron("cada lunes").expect("válido"), "0 9 * * 1");
         assert_eq!(
             frase_a_cron("revisa el repo cada viernes").expect("válido"),
             "0 9 * * 5"
@@ -545,7 +574,10 @@ mod tests {
     fn nl_intervalos_v1() {
         assert_eq!(frase_a_cron("cada hora").expect("válido"), "cada1h");
         assert_eq!(frase_a_cron("cada 2 horas").expect("válido"), "cada2h");
-        assert_eq!(frase_a_cron("cada 30 minutos").expect("válido"), "cada30min");
+        assert_eq!(
+            frase_a_cron("cada 30 minutos").expect("válido"),
+            "cada30min"
+        );
         assert_eq!(frase_a_cron("cada 3 dias").expect("válido"), "cada3d");
     }
 
@@ -671,16 +703,16 @@ mod tests {
         assert!(cancelado.contenido.contains("cancelada"));
 
         let err = tool
-            .ejecutar(
-                &ctx,
-                json!({"accion": "cancelar", "id": "no-es-un-uuid"}),
-            )
+            .ejecutar(&ctx, json!({"accion": "cancelar", "id": "no-es-un-uuid"}))
             .await
             .expect_err("id inválido");
         assert!(err.to_string().contains("id inválido"));
 
         let err = tool
-            .ejecutar(&ctx, json!({"accion": "crear", "nombre": "x", "prompt": "p"}))
+            .ejecutar(
+                &ctx,
+                json!({"accion": "crear", "nombre": "x", "prompt": "p"}),
+            )
             .await
             .expect_err("falta cuando");
         assert!(err.to_string().contains("cuando"));
@@ -695,6 +727,9 @@ mod tests {
         );
         registrar_tool_programar_tarea(&mut registry, Arc::new(ProgramadorMock::nuevo()));
         assert!(registry.ids().contains(&"programar_tarea"));
-        assert!(registry.tiene_efecto("programar_tarea"), "crear/cancelar son efectos");
+        assert!(
+            registry.tiene_efecto("programar_tarea"),
+            "crear/cancelar son efectos"
+        );
     }
 }

@@ -16,7 +16,7 @@
 
 use async_trait::async_trait;
 use chrono::{DateTime, SecondsFormat, Utc};
-use rusqlite::{Connection, OptionalExtension, params};
+use rusqlite::{params, Connection, OptionalExtension};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use uuid::Uuid;
@@ -164,10 +164,9 @@ fn a_uuid(s: String) -> HarnessResult<Uuid> {
     Uuid::parse_str(&s).map_err(|e| Error::Persistencia(format!("uuid inválido en BD: {e}")))
 }
 
-fn bloquear<'a>(
-    conn: &'a Arc<Mutex<Connection>>,
-) -> std::sync::MutexGuard<'a, Connection> {
-    conn.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+fn bloquear<'a>(conn: &'a Arc<Mutex<Connection>>) -> std::sync::MutexGuard<'a, Connection> {
+    conn.lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 impl PersistenciaSqlite {
@@ -360,15 +359,21 @@ impl PersistenciaSqlite {
             .transaction()
             .map_err(|e| Error::Persistencia(e.to_string()))?;
         let id_s = id.as_hyphenated().to_string();
-        tx.execute("DELETE FROM mensajes WHERE conversacion_id = ?1", params![id_s])
-            .map_err(|e| Error::Persistencia(e.to_string()))?;
+        tx.execute(
+            "DELETE FROM mensajes WHERE conversacion_id = ?1",
+            params![id_s],
+        )
+        .map_err(|e| Error::Persistencia(e.to_string()))?;
         tx.execute(
             "DELETE FROM acciones WHERE turno_id IN (SELECT id FROM turnos WHERE conversacion_id = ?1)",
             params![id_s],
         )
         .map_err(|e| Error::Persistencia(e.to_string()))?;
-        tx.execute("DELETE FROM turnos WHERE conversacion_id = ?1", params![id_s])
-            .map_err(|e| Error::Persistencia(e.to_string()))?;
+        tx.execute(
+            "DELETE FROM turnos WHERE conversacion_id = ?1",
+            params![id_s],
+        )
+        .map_err(|e| Error::Persistencia(e.to_string()))?;
         let n = tx
             .execute(
                 "DELETE FROM conversaciones WHERE id = ?1 AND user_id = ?2",
@@ -580,9 +585,7 @@ impl PersistenciaSqlite {
          * vault usará para localizar los respaldos de este tramo. */
         let turnos_tramo: Vec<Uuid> = {
             let mut stmt = tx
-                .prepare(
-                    "SELECT id FROM turnos WHERE conversacion_id = ?1 AND creado_en >= ?2",
-                )
+                .prepare("SELECT id FROM turnos WHERE conversacion_id = ?1 AND creado_en >= ?2")
                 .map_err(|e| Error::Persistencia(e.to_string()))?;
             let filas = stmt
                 .query_map(params![conv_s, creado_punto], |f| f.get::<_, String>(0))
@@ -614,7 +617,8 @@ impl PersistenciaSqlite {
         .map_err(|e| Error::Persistencia(e.to_string()))?;
         // Mensajes del tramo (rowid estricto; `>=` borra el objetivo al editar).
         let operador = if editar { ">=" } else { ">" };
-        let sql = format!("DELETE FROM mensajes WHERE conversacion_id = ?1 AND rowid {operador} ?2");
+        let sql =
+            format!("DELETE FROM mensajes WHERE conversacion_id = ?1 AND rowid {operador} ?2");
         tx.execute(&sql, params![conv_s, rowid_punto])
             .map_err(|e| Error::Persistencia(e.to_string()))?;
 
@@ -684,7 +688,10 @@ impl AgentPersistence for PersistenciaSqlite {
         Ok(())
     }
 
-    async fn listar_mensajes(&self, conversacion_id: Uuid) -> HarnessResult<Vec<MensajePersistido>> {
+    async fn listar_mensajes(
+        &self,
+        conversacion_id: Uuid,
+    ) -> HarnessResult<Vec<MensajePersistido>> {
         let conn = bloquear(&self.conn);
         let mut stmt = conn
             .prepare(
@@ -721,10 +728,7 @@ impl AgentPersistence for PersistenciaSqlite {
         bloquear(&self.conn)
             .execute(
                 "UPDATE conversaciones SET actualizada_en = ?1 WHERE id = ?2",
-                params![
-                    ahora_rfc3339(),
-                    conversacion_id.as_hyphenated().to_string()
-                ],
+                params![ahora_rfc3339(), conversacion_id.as_hyphenated().to_string()],
             )
             .map_err(|e| Error::Persistencia(e.to_string()))?;
         Ok(())
@@ -881,7 +885,12 @@ impl AgentPersistence for PersistenciaSqlite {
         Ok(n == 1)
     }
 
-    async fn tarea_finalizar(&self, id: Uuid, ok: bool, _resumen: Option<&str>) -> HarnessResult<()> {
+    async fn tarea_finalizar(
+        &self,
+        id: Uuid,
+        ok: bool,
+        _resumen: Option<&str>,
+    ) -> HarnessResult<()> {
         bloquear(&self.conn)
             .execute(
                 "UPDATE tareas SET estado = ?1 WHERE id = ?2",
@@ -1049,6 +1058,47 @@ impl ProgramadorTareas for PersistenciaSqlite {
         out.reverse();
         Ok(out)
     }
+
+    async fn tarea_registrar_log(
+        &self,
+        id: Uuid,
+        user_id: Uuid,
+        ok: bool,
+        resumen: &str,
+    ) -> HarnessResult<()> {
+        // [B3-F8a] Entrega durable del cron: solo la tarea propia recibe log
+        // (misma guarda que `tarea_logs`; la ajena se ignora sin error para
+        // no abortar la pasada del ejecutor por una carrera de ownership).
+        let conn = bloquear(&self.conn);
+        let es_suya: bool = conn
+            .query_row(
+                "SELECT 1 FROM tareas WHERE id = ?1 AND user_id = ?2",
+                params![
+                    id.as_hyphenated().to_string(),
+                    user_id.as_hyphenated().to_string()
+                ],
+                |_| Ok(true),
+            )
+            .optional()
+            .map_err(|e| Error::Persistencia(e.to_string()))?
+            .unwrap_or(false);
+        if !es_suya {
+            return Ok(());
+        }
+        conn.execute(
+            "INSERT INTO tarea_logs (id, tarea_id, ok, resumen, ejecutada_en)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![
+                Uuid::new_v4().as_hyphenated().to_string(),
+                id.as_hyphenated().to_string(),
+                if ok { 1 } else { 0 },
+                resumen,
+                Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true),
+            ],
+        )
+        .map_err(|e| Error::Persistencia(e.to_string()))?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -1107,9 +1157,7 @@ mod tests {
         assert!(!p
             .conversacion_renombrar(id, Uuid::new_v4(), "ajena")
             .expect("renombrar ajena"));
-        assert!(p
-            .conversacion_archivar(id, user, true)
-            .expect("archivar"));
+        assert!(p.conversacion_archivar(id, user, true).expect("archivar"));
         let lista = p.conversaciones_listar(user).expect("listar");
         assert_eq!(lista.len(), 1);
         assert_eq!(lista[0].titulo, "una-dos");
@@ -1142,7 +1190,44 @@ mod tests {
         assert!(p.tarea_tomar(id).await.expect("tomar"));
         assert!(!p.tarea_tomar(id).await.expect("retomar"));
         p.tarea_finalizar(id, true, None).await.expect("finalizar");
-        assert!(p.tareas_pendientes(10).await.expect("pendientes").is_empty());
+        assert!(p
+            .tareas_pendientes(10)
+            .await
+            .expect("pendientes")
+            .is_empty());
+    }
+
+    #[tokio::test]
+    async fn tarea_log_durable_solo_dueno() {
+        let p = PersistenciaSqlite::en_memoria().expect("BD en memoria");
+        let user = Uuid::new_v4();
+        let id = p
+            .tarea_crear(&NuevaTareaProgramada {
+                user_id: user,
+                nombre: "t".into(),
+                prompt: "p".into(),
+                tipo: "una_vez".into(),
+                cron_expr: "@once".into(),
+                proxima_ejecucion: Utc::now(),
+            })
+            .await
+            .expect("crear tarea");
+        p.tarea_registrar_log(id, user, true, "resumen uno")
+            .await
+            .expect("registrar");
+        // La ajena se ignora sin error (no aborta la pasada del ejecutor).
+        p.tarea_registrar_log(id, Uuid::new_v4(), true, "ajeno")
+            .await
+            .expect("ajena no falla");
+        let logs = p.tarea_logs(id, user, 10).await.expect("leer logs");
+        assert_eq!(logs.len(), 1);
+        assert!(logs[0].ok);
+        assert_eq!(logs[0].resumen, "resumen uno");
+        assert!(p
+            .tarea_logs(id, Uuid::new_v4(), 10)
+            .await
+            .expect("leer ajeno")
+            .is_empty());
     }
 
     #[tokio::test]
@@ -1347,8 +1432,7 @@ mod tests {
         })
         .await
         .expect("user 3");
-        p.rewind_conversacion(conv, u3, user, true)
-            .expect("editar");
+        p.rewind_conversacion(conv, u3, user, true).expect("editar");
         let mensajes2 = p.listar_mensajes(conv).await.expect("listar 2");
         assert_eq!(mensajes2.len(), 1);
         assert_eq!(mensajes2[0].id, u1, "editar conserva lo anterior al punto");
@@ -1377,9 +1461,7 @@ mod tests {
             .rewind_conversacion(conv, Uuid::new_v4(), user, false)
             .is_err());
         // Conversación de otro usuario.
-        assert!(p
-            .rewind_conversacion(conv, u1, otro, false)
-            .is_err());
+        assert!(p.rewind_conversacion(conv, u1, otro, false).is_err());
         // Mensaje objetivo que no es de rol user: se inserta un assistant.
         let asis = Uuid::new_v4();
         p.guardar_mensaje(&MensajePersistido {
@@ -1391,9 +1473,7 @@ mod tests {
         })
         .await
         .expect("assistant");
-        assert!(p
-            .rewind_conversacion(conv, asis, user, false)
-            .is_err());
+        assert!(p.rewind_conversacion(conv, asis, user, false).is_err());
         // Nada se borró en ningún caso (transacciones fallidas).
         let mensajes = p.listar_mensajes(conv).await.expect("listar");
         assert_eq!(mensajes.len(), 2);
