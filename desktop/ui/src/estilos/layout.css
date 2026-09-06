@@ -248,6 +248,12 @@
    `hidden` por defecto; se fuerza oculto cuando el botón de "mostrar lista"
    no aplica (lista visible). */
 .cabecera-chat .cab-boton[hidden] { display: none; }
+/* [039A-3 P6b retoque] Cuando el botón "mostrar lista" está oculto (lista
+   visible), el grupo IZQUIERDO que lo contiene no debe dejar hueco (gap del
+   .cabecera-chat + padding). En el principal ese grupo solo contiene ese
+   botón, así que se colapsa entero; el grupo del lateral (con el ×) nunca
+   tiene hijos con [hidden] y no le aplica esta regla. */
+.cabecera-chat .acciones-cabecera:has(.cab-boton[hidden]) { display: none; }
 /* [039A-3 P5] Botón de cierre del chat lateral (×). Misma mecánica que el
    resto de botones de cabecera; solo se monta en el panel lateral. */
 .cabecera-chat .cab-cerrar { margin-left: var(--sp-xs); }

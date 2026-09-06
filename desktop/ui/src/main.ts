@@ -544,12 +544,22 @@ let sidebarAbierta = true;
 const CLAVE_ANCHO = 'sidebar_ancho';
 const CLAVE_COLAPSADA = 'sidebar_colapsada';
 {
+  // [039A-3 P4] La sidebar se redimensiona entre MIN y MAX arrastrando el grip.
+  // [039A-3 P6b retoque] Si se arrastra hasta dejar el ancho por debajo de
+  // UMBRAL_COLAPSO, al soltar la lista se COLAPSA del todo (desaparece) en vez
+  // de quedarse clavada en MIN. No hay botón manual de ocultar: este gesto de
+  // arrastre hasta el borde es la forma de cerrarla, y el botón "mostrar
+  // lista" de la cabecera la vuelve a abrir (a ANCHO_REABRIR).
   const MIN = 180;
   const MAX = 420;
+  const UMBRAL_COLAPSO = 100;
+  const ANCHO_REABRIR = 260;
   let arrastrando = false;
-  function anchoDesdeCursor(clientX: number): number {
+  function anchoArrastre(clientX: number): number {
     const izquierda = cuerpo.getBoundingClientRect().left;
-    return Math.min(MAX, Math.max(MIN, Math.round(clientX - izquierda)));
+    // En vivo se permite encoger hasta el umbral; el colapso total se decide
+    // al soltar (si colapsase en vivo perderíamos el grip a mitad de gesto).
+    return Math.min(MAX, Math.max(UMBRAL_COLAPSO, Math.round(clientX - izquierda)));
   }
   grip.addEventListener('mousedown', (e) => {
     e.preventDefault();
@@ -558,8 +568,7 @@ const CLAVE_COLAPSADA = 'sidebar_colapsada';
   });
   window.addEventListener('mousemove', (e) => {
     if (!arrastrando) return;
-    const ancho = anchoDesdeCursor(e.clientX);
-    cuerpo.style.setProperty('--sidebar-ancho', `${ancho}px`);
+    cuerpo.style.setProperty('--sidebar-ancho', `${anchoArrastre(e.clientX)}px`);
   });
   window.addEventListener('mouseup', () => {
     if (!arrastrando) return;
@@ -568,7 +577,19 @@ const CLAVE_COLAPSADA = 'sidebar_colapsada';
     const ancho = Math.round(
       parseFloat(getComputedStyle(cuerpo).getPropertyValue('--sidebar-ancho')) || 260,
     );
-    guardarSidebar(CLAVE_ANCHO, String(ancho));
+    if (ancho <= UMBRAL_COLAPSO) {
+      // Arrastrado hasta el borde → colapsar la lista: oculta sidebar y grip,
+      // deja el chat a ancho completo y muestra el botón "mostrar lista".
+      sidebarAbierta = false;
+      aplicarSidebar();
+      cuerpo.style.setProperty('--sidebar-ancho', `${ANCHO_REABRIR}px`);
+      guardarSidebar(CLAVE_ANCHO, String(ANCHO_REABRIR));
+      guardarSidebar(CLAVE_COLAPSADA, '1');
+    } else {
+      cuerpo.style.setProperty('--sidebar-ancho', `${Math.max(MIN, ancho)}px`);
+      guardarSidebar(CLAVE_ANCHO, String(Math.max(MIN, ancho)));
+      guardarSidebar(CLAVE_COLAPSADA, '0');
+    }
   });
 }
 
