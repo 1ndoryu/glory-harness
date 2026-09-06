@@ -32,6 +32,9 @@ mod conversaciones;
 mod memoria;
 mod puerto;
 mod tareas;
+mod workspaces;
+
+pub use workspaces::Workspace;
 
 /// Esquema inicial (idempotente: `IF NOT EXISTS`).
 const ESQUEMA: &str = "
@@ -43,6 +46,17 @@ CREATE TABLE IF NOT EXISTS conversaciones (
     creada_en TEXT NOT NULL,
     actualizada_en TEXT NOT NULL
 );
+/* [069A-Proyectos] Áreas de trabajo (workspaces): nombre visible asignado
+ * por el usuario + carpeta raíz única (ruta absoluta, UNIQUE). Una
+ * conversación pertenece a UNA área vía `workspace_id` (NULL = sin área). */
+CREATE TABLE IF NOT EXISTS workspaces (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    nombre TEXT NOT NULL,
+    ruta TEXT NOT NULL UNIQUE,
+    creada_en TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_workspaces_user ON workspaces (user_id);
 CREATE TABLE IF NOT EXISTS mensajes (
     id TEXT PRIMARY KEY,
     conversacion_id TEXT NOT NULL,
@@ -137,6 +151,11 @@ const MIGRACIONES: &[&str] = &[
     "ALTER TABLE memoria ADD COLUMN origen TEXT",
     "ALTER TABLE memoria ADD COLUMN usos INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE memoria ADD COLUMN ultimo_uso TEXT",
+    /* [069A-Proyectos] Áreas de trabajo: columna `workspace_id` en
+     * `conversaciones` (NULL = conversación sin área, comportamiento previo).
+     * FK lógica, no física: las áreas se borran sin arrastrar historial. */
+    "ALTER TABLE conversaciones ADD COLUMN workspace_id TEXT",
+    "CREATE INDEX IF NOT EXISTS idx_conversaciones_ws ON conversaciones (user_id, workspace_id)",
 ];
 /// Vista de conversación para la sidebar (Tauri la serializa tal cual).
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

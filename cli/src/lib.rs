@@ -32,7 +32,9 @@ pub use comandos::run::{
 pub use infra::ejecutor::EjecutorCliente;
 pub use infra::persistencia::{PersistenciaMemoria, ProgramadorMemoria};
 pub use infra::reglas::cargar_reglas;
-pub use persistencia_sqlite::{AccionRecuperada, InfoConversacion, PersistenciaSqlite};
+pub use persistencia_sqlite::{
+    AccionRecuperada, InfoConversacion, PersistenciaSqlite, Workspace,
+};
 pub use ui::turno::{historial_desde_persistencia, procesar_turno, TurnoResultado};
 
 /// Carga `~/.glory-harness.env` si existe (formato `CLAVE=valor`,
