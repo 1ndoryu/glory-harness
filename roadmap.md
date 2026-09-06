@@ -24,9 +24,11 @@ Orden propuesto (dependencias de abajo arriba):
 4. **Cablear la UI** (`main.ts`/`sidebar.ts`/`modal.ts`). ✔ (04-09, F5) + panel meta real ✔ (`5dcefe4`)
 5. **Primer `tauri dev` en debug** (build en `C:\tmp`): verificar ciclo real completo. ◐ hecho —
    el arranque real señaló 7 hallazgos (H1–H7), ya corregidos. 
-6. **Cierre del bloque (pendiente):** E2E en la ventana real (enviar → streaming tokens → tools →
-   aprobación → `turno-fin`, todo visible) + `tsc --noEmit` + build UI + `cargo test --workspace` +
-   gate + commit.
+6. **Cierre del bloque:** HECHO 06-09 — E2E en la ventana real Todo OK (enviar →
+   streaming en vivo, tools → aprobación → `turno-fin`, P3 rewind+restaurar, P5 2
+   paneles, P6 150k tras reiniciar) + `tsc --noEmit` + build UI + `cargo test
+   --workspace` (284 verdes) + gate 039A-3 PASS + commit. Evidencia en
+   `Agente/completados/tareas-2026-09-06.md`.
 
 > Confirmado con el usuario: **revisar/ajustar el plan primero** (hecho, anexo §10) y **debug
 > primero** (no release). El panel «modo meta» real (anexo §10.5.2) entró en este Bloque A y ya
@@ -163,9 +165,9 @@ Orden propuesto (dependencias de abajo arriba):
    intacto; tests 269 verdes + gate 039A-3 PASS 0 errores; evidencia en
    `Agente/completados/tareas-2026-09-06.md`). Fix colateral en alcance: 2 `expect` de `vault.rs` →
    `let-else` total (+ `es_vacio` huérfano eliminado).
-   Pendiente: E2E `tauri dev` en ventana real (P3 rewind+restaurar, P5 2 paneles, P6 150k tras
-   reiniciar) — DESBLOQUEADA 06-09 (318A-17 mergeado en `main`, árbol limpio; hay claves LLM);
-   requiere ventana interactiva + proveedor real.
+   E2E `tauri dev` en ventana real HECHO 06-09 (Todo OK: streaming en vivo, tools →
+   aprobación → turno-fin, P3 rewind+restaurar, P5 2 paneles, P6 150k tras reiniciar;
+   evidencia en `Agente/completados/tareas-2026-09-06.md`).
 
 ## Notas
 
