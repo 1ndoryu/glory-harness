@@ -2,6 +2,9 @@
 //! axum loopback con SSE, health, sesión con cookie, turnos reales,
 //! cancelación y aprobaciones.
 //!
+//! [069A-2 F6] Límites: cuerpo HTTP 256 KiB, mensaje 32k chars
+//! (`web_turnos.rs`), 16 sesiones vivas con TTL 24 h (igual que la cookie).
+//!
 //! # Contrato
 //!
 //! | Método y ruta                                   | Propósito              |
@@ -23,7 +26,7 @@ use std::collections::HashMap;
 use std::convert::Infallible;
 use std::net::SocketAddr;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use axum::{
     extract::{Path, State},
@@ -38,6 +41,7 @@ use tokio::sync::{broadcast, Mutex};
 use tokio::task::JoinHandle;
 use tokio_stream::wrappers::BroadcastStream;
 use tokio_stream::StreamExt;
+use tower_http::limit::RequestBodyLimitLayer;
 use uuid::Uuid;
 
 use crate::servicio::{OpcionesSesion, SesionComun};
@@ -64,6 +68,14 @@ fn token_desde_env() -> String {
 /// Nombre de la cookie de sesión (`HttpOnly`, `SameSite=Lax`).
 pub(crate) const COOKIE_SESION: &str = "gh_sesion";
 
+/// [069A-2 F6] Límites del modo web local (single-user, loopback).
+/// Cuerpo HTTP máximo por petición (mensajes, config, workspace).
+pub(crate) const BODY_MAX_BYTES: usize = 256 * 1024;
+/// Sesiones vivas máximas (cada una retiene runtime + broadcast).
+pub(crate) const MAX_SESIONES: usize = 16;
+/// TTL de sesión en segundos (24 h, igual que `Max-Age` de la cookie).
+pub(crate) const SESION_TTL_SECS: u64 = 86_400;
+
 /// Turno en curso: id + tarea para abortar al cancelar/cerrar.
 pub(crate) struct TurnoActivo {
     pub(crate) id: Uuid,
@@ -78,6 +90,9 @@ pub(crate) struct SesionWeb {
     /// Canal broadcast con el JSON de cable `{"event":..,"data":..}` compacto.
     pub(crate) tx: broadcast::Sender<String>,
     pub(crate) turno: Mutex<Option<TurnoActivo>>,
+    /// [069A-2 F6] Creación para TTL (las sesiones no son eternas aunque el
+    /// proceso viva días; el cierre explícito sigue siendo `DELETE`).
+    pub(crate) creada: Instant,
 }
 
 pub(crate) struct AppState {
@@ -102,6 +117,9 @@ impl IntoResponse for ApiError {
             "origen" => StatusCode::FORBIDDEN,
             "no_encontrado" | "sin_turno" => StatusCode::NOT_FOUND,
             "turno_activo" => StatusCode::CONFLICT,
+            "mensaje_largo" => StatusCode::PAYLOAD_TOO_LARGE,
+            "demasiadas_sesiones" => StatusCode::TOO_MANY_REQUESTS,
+            "sesion_expirada" => StatusCode::GONE,
             _ => StatusCode::BAD_REQUEST,
         };
         (status, Json(self)).into_response()
@@ -229,12 +247,24 @@ pub(crate) async fn autorizar_sesion(
     if !origen_valido(headers, por_cookie, metodo) {
         return Err(error("origen", "origen no permitido para esta mutación"));
     }
-    let sesiones = state.sesiones.lock().await;
-    sesiones
+    let mut sesiones = state.sesiones.lock().await;
+    let sesion = sesiones
         .get(&sid)
         .cloned()
-        .map(|s| (s, por_cookie))
-        .ok_or_else(|| error("no_encontrado", "sesión no encontrada"))
+        .ok_or_else(|| error("no_encontrado", "sesión no encontrada"))?;
+    // [069A-2 F6] TTL: la sesión expira aunque el proceso siga vivo (el
+    // cliente debe crear otra; el turno activo se aborta para no dejar un
+    // turno eternamente "ejecutando" sin dueño).
+    if sesion.creada.elapsed().as_secs() > SESION_TTL_SECS {
+        sesiones.remove(&sid);
+        drop(sesiones);
+        super::web_turnos::abortar_turno_activo(&sesion, "sesión expirada").await;
+        return Err(error(
+            "sesion_expirada",
+            "sesión expirada (24 h): crea otra",
+        ));
+    }
+    Ok((sesion, por_cookie))
 }
 
 /// Cable SSE: JSON compacto (sin `\n` literales → axum 0.8 no hace panic
@@ -272,12 +302,21 @@ async fn crear_sesion(
         conversacion_id: Mutex::new(conversacion_id),
         tx,
         turno: Mutex::new(None),
+        creada: Instant::now(),
     });
-    state
-        .sesiones
-        .lock()
-        .await
-        .insert(session_id.clone(), Arc::clone(&sesion));
+    {
+        let mut sesiones = state.sesiones.lock().await;
+        // [069A-2 F6] Purga perezosa de expiradas + tope de vivas: el modo
+        // web es single-user loopback, no un multitenant.
+        sesiones.retain(|_, s| s.creada.elapsed().as_secs() <= SESION_TTL_SECS);
+        if sesiones.len() >= MAX_SESIONES {
+            return Err(error(
+                "demasiadas_sesiones",
+                "demasiadas sesiones abiertas: cierra alguna con DELETE",
+            ));
+        }
+        sesiones.insert(session_id.clone(), Arc::clone(&sesion));
+    }
 
     let cuerpo = Json(serde_json::json!({
         "ok": true,
@@ -413,6 +452,9 @@ pub(crate) fn router(state: Arc<AppState>) -> Router {
             "/api/v1/session/{id}/workspace",
             get(super::web_datos::leer_workspace).post(super::web_datos::cambiar_workspace_ep),
         )
+        // [069A-2 F6] Tope de cuerpo por petición (axum trae 2 MiB por
+        // defecto; 256 KiB cubre mensaje/config/workspace de sobra).
+        .layer(RequestBodyLimitLayer::new(BODY_MAX_BYTES))
         .with_state(state)
 }
 
@@ -493,6 +535,7 @@ pub(crate) mod tests {
             comun: Mutex::new(comun),
             tx,
             turno: Mutex::new(None),
+            creada: Instant::now(),
         });
         state
             .sesiones
@@ -573,7 +616,6 @@ pub(crate) mod tests {
             .unwrap();
         assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
     }
-
     #[tokio::test]
     async fn sesion_malformada_devuelve_400() {
         let app = router(state_test());
@@ -588,5 +630,67 @@ pub(crate) mod tests {
             .await
             .unwrap();
         assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+    }
+
+    /// [069A-2 F6] Sesión con `creada` más vieja que el TTL → 410 y purga.
+    #[tokio::test]
+    async fn sesion_expirada_devuelve_410_y_purga() {
+        let state = state_test();
+        let persist = crate::PersistenciaSqlite::en_memoria().expect("bd memoria");
+        let (comun, apertura) = crate::servicio::SesionComun::abrir_con_persistencia(
+            crate::servicio::OpcionesSesion::default(),
+            persist,
+            None,
+        )
+        .expect("abrir sesión memoria");
+        let (tx, _rx) = broadcast::channel(256);
+        let sid = Uuid::new_v4().to_string();
+        let vieja = Instant::now() - Duration::from_secs(SESION_TTL_SECS + 60);
+        state.sesiones.lock().await.insert(
+            sid.clone(),
+            Arc::new(SesionWeb {
+                conversacion_id: Mutex::new(apertura.conversacion.id),
+                comun: Mutex::new(comun),
+                tx,
+                turno: Mutex::new(None),
+                creada: vieja,
+            }),
+        );
+        let app = router(Arc::clone(&state));
+        let res = app
+            .oneshot(
+                Request::builder()
+                    .uri(format!("/api/v1/session/{sid}/events"))
+                    .header(header::COOKIE, format!("{COOKIE_SESION}={sid}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::GONE);
+        assert!(!state.sesiones.lock().await.contains_key(&sid));
+    }
+
+    /// [069A-2 F6] Con el tope de sesiones vivas, crear otra → 429.
+    #[tokio::test]
+    async fn crear_sesion_con_tope_devuelve_429() {
+        let state = state_test();
+        for _ in 0..MAX_SESIONES {
+            sesion_memoria(&state).await;
+        }
+        let app = router(state);
+        let res = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/session")
+                    .header(header::AUTHORIZATION, bearer_master())
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::TOO_MANY_REQUESTS);
     }
 }

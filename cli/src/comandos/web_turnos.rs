@@ -67,7 +67,10 @@ pub(crate) async fn iniciar_turno(
         return Err(error("peticion_invalida", "mensaje vacío"));
     }
     if mensaje.chars().count() > MAX_MENSAJE_CHARS {
-        return Err(error("peticion_invalida", "mensaje demasiado largo"));
+        return Err(error(
+            "mensaje_largo",
+            "mensaje demasiado largo (máx. 32000 caracteres)",
+        ));
     }
 
     // Conversación: la indicada (con ownership) o la actual de la sesión.
