@@ -1611,6 +1611,7 @@ dependencies = [
 name = "glory-harness-desktop"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
  "chrono",
  "glory-harness",
  "glory-harness-core",
@@ -1622,6 +1623,8 @@ dependencies = [
  "tauri-build",
  "tokio",
  "uuid",
+ "webview2-com",
+ "windows",
 ]
 
 [[package]]
