@@ -73,13 +73,20 @@ Orden propuesto (dependencias de abajo arriba):
       BLOQUEADO: `main.rs` en refactor ajeno activo (069A-2-web, no compila,
       28 errores ajenos) — quedan 2 warnings (enviar_turno 134, limite 963).
       Gate incremental 069A-5: 0 errores, 2 warnings (desktop).
-- [ ] **069A-2 — Modo web local unificado con Tauri**: arquitectura HTTP + SSE como API única.
-      Tanto Tauri como el navegador usan el mismo backend Rust y el mismo adaptador HTTP/SSE
-      en TypeScript. Tauri embebe el servidor HTTP en loopback y la webview carga localhost.
-      `glory-harness web` arranca el mismo servidor para modo navegador local (usuario
-      avanzado). Acceso completo al workspace local mediante el backend
-      (`POST /api/v1/workspace` con ruta absoluta validada). Sin multiusuario, exposición
-      remota ni dos adaptadores de transporte. Plan v2:
+- [x] **069A-2 — Modo web local unificado con Tauri** (v3, HECHO 06/07-09):
+      HTTP+SSE como API única; `SesionComun` compartida; adaptador TS único
+      (`Transporte` + `transporteTauri()` en `real.ts`, `crearAdaptadorApi()`
+      en `adaptadores/api.ts`); factoría en `main.ts` (Tauri→IPC,
+      `?api=`/`gh_api`/mismo origen→HTTP/SSE, ni-ni→aviso). Commits `e731c74`
+      (F2 turnos SSE+cookie), `40e47d0` (F3 datos+workspace), `8b597e7` (F4
+      adaptador), `c28e653` (F6-backend: body 256K, 16 sesiones, TTL 24h,
+      413/429/410). E2E curl 07-09: session+cookie, config, turns fixture,
+      SSE `ready`/`turn.started`/`agent.event`/`turn.finished`. F5b embebida
+      NO justificada (evaluada con datos: sin ganancia, colisión con refactor
+      ajeno). Gate 069A-2 FAIL solo por regla desactualizada
+      (`axum-ruta-sintaxis` exige `:id` con matchit 0.8.4: falso positivo
+      probado en vivo) + deuda ajena. Doc:
+      `Agente/documentacion/modo-web-2026-09-07.md`. Plan v3:
       `Agente/planes/plan-web-real-069A-2.md`.
 - [x] **069A-4 — Memoria de aprendizaje fases 1–5** (B3-F8b): HECHO 06-09
       (ver `Agente/completados/tareas-2026-09-06.md`).
