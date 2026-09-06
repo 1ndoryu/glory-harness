@@ -2,7 +2,8 @@
 //! `lib.rs`.
 
 pub mod chat;
-pub mod turno;
+pub mod chat_comandos;
 pub mod exportar;
 pub mod plan;
 pub mod tui;
+pub mod turno;
