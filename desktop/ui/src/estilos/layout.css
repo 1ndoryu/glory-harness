@@ -191,7 +191,10 @@
     padding: var(--sp-sm) var(--sp-md);
     display: flex;
     align-items: center;
-    gap: var(--sp-md);
+    /* [039A-3 P6b retoque 6] El gap era --sp-md (16px): demasiada separación
+       entre el primer botón (mostrar lista / ×) y el título. Se baja a
+       --sp-sm (10px). El ⋯ del extremo no se ve afectado (margin-left:auto). */
+    gap: var(--sp-sm);
     font-size: var(--xs);
 }
 .cabecera-chat .titulo {
