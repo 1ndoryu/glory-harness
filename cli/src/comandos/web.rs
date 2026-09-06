@@ -30,7 +30,7 @@ use axum::{
     http::{header, HeaderMap, Method, StatusCode},
     response::sse::{Event, KeepAlive, Sse},
     response::{IntoResponse, Response},
-    routing::{delete, get, post},
+    routing::{delete, get, patch, post},
     Json, Router,
 };
 use serde_json::Value;
@@ -71,8 +71,10 @@ pub(crate) struct TurnoActivo {
 }
 
 pub(crate) struct SesionWeb {
-    pub(crate) comun: SesionComun,
-    pub(crate) conversacion_id: Uuid,
+    /// Mutex: `PATCH config` y `POST workspace` reconstruyen el runtime.
+    pub(crate) comun: Mutex<SesionComun>,
+    /// Conversación actual de la sesión (sin paneles en web).
+    pub(crate) conversacion_id: Mutex<Uuid>,
     /// Canal broadcast con el JSON de cable `{"event":..,"data":..}` compacto.
     pub(crate) tx: broadcast::Sender<String>,
     pub(crate) turno: Mutex<Option<TurnoActivo>>,
@@ -210,8 +212,7 @@ pub(crate) async fn autorizar_sesion(
     state: &AppState,
     id_ruta: &str,
 ) -> Result<(Arc<SesionWeb>, bool), ApiError> {
-    Uuid::parse_str(id_ruta)
-        .map_err(|_| error("peticion_invalida", "id de sesión malformado"))?;
+    Uuid::parse_str(id_ruta).map_err(|_| error("peticion_invalida", "id de sesión malformado"))?;
     let cred = credencial(headers, state)
         .await
         .ok_or_else(|| error("no_autorizado", "token inválido o ausente"))?;
@@ -265,9 +266,10 @@ async fn crear_sesion(
 
     let (tx, _rx) = broadcast::channel(256);
     let session_id = Uuid::new_v4().to_string();
+    let conversacion_id = apertura.conversacion.id;
     let sesion = Arc::new(SesionWeb {
-        conversacion_id: apertura.conversacion.id,
-        comun,
+        comun: Mutex::new(comun),
+        conversacion_id: Mutex::new(conversacion_id),
         tx,
         turno: Mutex::new(None),
     });
@@ -285,15 +287,9 @@ async fn crear_sesion(
         "proveedores": apertura.proveedores,
         "conversacion": apertura.conversacion,
     }));
-    let cookie = format!(
-        "{COOKIE_SESION}={session_id}; HttpOnly; SameSite=Lax; Path=/; Max-Age=86400"
-    );
-    Ok((
-        StatusCode::OK,
-        [(header::SET_COOKIE, cookie)],
-        cuerpo,
-    )
-        .into_response())
+    let cookie =
+        format!("{COOKIE_SESION}={session_id}; HttpOnly; SameSite=Lax; Path=/; Max-Age=86400");
+    Ok((StatusCode::OK, [(header::SET_COOKIE, cookie)], cuerpo).into_response())
 }
 
 /// `DELETE /api/v1/session/:id` — cancela el turno activo y cierra.
@@ -313,18 +309,21 @@ async fn eventos_sse(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
     Path(id): Path<String>,
-) -> Result<Sse<impl tokio_stream::Stream<Item = Result<Event, Infallible>> + Send + 'static>, ApiError>
-{
+) -> Result<
+    Sse<impl tokio_stream::Stream<Item = Result<Event, Infallible>> + Send + 'static>,
+    ApiError,
+> {
     let (sesion, _) = autorizar_sesion(&headers, &Method::GET, &state, &id).await?;
 
     // Snapshot mínimo al suscribir (el `ready` de F1 se perdía si el SSE
     // llegaba tarde: reconexión recibe estado actual, sin replay completo).
     let turno_activo = sesion.turno.lock().await.as_ref().map(|t| t.id);
+    let conversacion_id = *sesion.conversacion_id.lock().await;
     let ready = cable(
         "ready",
         serde_json::json!({
             "session_id": id,
-            "conversacion_id": sesion.conversacion_id,
+            "conversacion_id": conversacion_id,
             "turno_activo": turno_activo,
         }),
     );
@@ -376,10 +375,7 @@ pub(crate) fn router(state: Arc<AppState>) -> Router {
         .route("/healthz", get(healthz))
         .route("/api/v1/session", post(crear_sesion))
         .route("/api/v1/session/{id}", delete(cerrar_sesion))
-        .route(
-            "/api/v1/session/{id}/events",
-            get(eventos_sse),
-        )
+        .route("/api/v1/session/{id}/events", get(eventos_sse))
         .route(
             "/api/v1/session/{id}/turns",
             post(super::web_turnos::iniciar_turno),
@@ -392,17 +388,38 @@ pub(crate) fn router(state: Arc<AppState>) -> Router {
             "/api/v1/session/{id}/approvals/{approval_id}",
             post(super::web_turnos::responder_aprobacion),
         )
+        .route(
+            "/api/v1/session/{id}/conversations",
+            get(super::web_datos::listar_conversaciones).post(super::web_datos::crear_conversacion),
+        )
+        .route(
+            "/api/v1/session/{id}/conversations/{cid}/messages",
+            get(super::web_datos::cargar_conversacion),
+        )
+        .route(
+            "/api/v1/session/{id}/conversations/{cid}",
+            patch(super::web_datos::parchear_conversacion)
+                .delete(super::web_datos::eliminar_conversacion),
+        )
+        .route(
+            "/api/v1/session/{id}/providers",
+            get(super::web_datos::leer_proveedores),
+        )
+        .route(
+            "/api/v1/session/{id}/config",
+            get(super::web_datos::leer_config).patch(super::web_datos::guardar_config),
+        )
+        .route(
+            "/api/v1/session/{id}/workspace",
+            get(super::web_datos::leer_workspace).post(super::web_datos::cambiar_workspace_ep),
+        )
         .with_state(state)
 }
 
 /// Punto de entrada del subcomando `web`: `--puerto <N>` (default 8799),
 /// `--dir-ui <ruta>` (default `../desktop/ui/dist` relativo al binario),
 /// `--fixture` (turnos sintéticos sin proveedor).
-pub async fn run(
-    puerto: u16,
-    ui_dir: Option<String>,
-    fixture: bool,
-) -> std::process::ExitCode {
+pub async fn run(puerto: u16, ui_dir: Option<String>, fixture: bool) -> std::process::ExitCode {
     let token = token_desde_env();
 
     let state = Arc::new(AppState {
@@ -415,8 +432,8 @@ pub async fn run(
 
     // Servir la UI compilada si se proporciona el directorio
     if let Some(static_dir) = ui_dir {
-        let serve_dir = tower_http::services::ServeDir::new(&static_dir)
-            .append_index_html_on_directories(true);
+        let serve_dir =
+            tower_http::services::ServeDir::new(&static_dir).append_index_html_on_directories(true);
         app = app.fallback_service(serve_dir);
     }
 
@@ -444,10 +461,7 @@ pub async fn run(
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
-    use axum::{
-        body::Body,
-        http::Request,
-    };
+    use axum::{body::Body, http::Request};
     use tower::ServiceExt;
 
     /// Estado de prueba con token maestro conocido (sin fixture).
@@ -463,6 +477,31 @@ pub(crate) mod tests {
         "Bearer test-token".into()
     }
 
+    /// Sesión en BD memoria (sin tocar la SQLite real del usuario).
+    pub(crate) async fn sesion_memoria(state: &Arc<AppState>) -> (String, Arc<SesionWeb>) {
+        let persist = crate::PersistenciaSqlite::en_memoria().expect("bd memoria");
+        let (comun, apertura) = crate::servicio::SesionComun::abrir_con_persistencia(
+            crate::servicio::OpcionesSesion::default(),
+            persist,
+            None,
+        )
+        .expect("abrir sesión memoria");
+        let (tx, _rx) = broadcast::channel(256);
+        let sid = Uuid::new_v4().to_string();
+        let sesion = Arc::new(SesionWeb {
+            conversacion_id: Mutex::new(apertura.conversacion.id),
+            comun: Mutex::new(comun),
+            tx,
+            turno: Mutex::new(None),
+        });
+        state
+            .sesiones
+            .lock()
+            .await
+            .insert(sid.clone(), Arc::clone(&sesion));
+        (sid, sesion)
+    }
+
     #[tokio::test]
     async fn healthz_devuelve_ok() {
         let app = router(state_test());
@@ -476,10 +515,9 @@ pub(crate) mod tests {
             .await
             .unwrap();
         assert_eq!(res.status(), StatusCode::OK);
-        let body: Value = serde_json::from_slice(
-            &axum::body::to_bytes(res.into_body(), 1024).await.unwrap(),
-        )
-        .unwrap();
+        let body: Value =
+            serde_json::from_slice(&axum::body::to_bytes(res.into_body(), 1024).await.unwrap())
+                .unwrap();
         assert_eq!(body["ok"], true);
     }
 

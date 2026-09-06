@@ -45,11 +45,8 @@ pub(crate) async fn abortar_turno_activo(sesion: &Arc<SesionWeb>, motivo: &str) 
     let activo = sesion.turno.lock().await.take();
     if let Some(t) = activo {
         t.handle.abort();
-        let _ = sesion
-            .comun
-            .cancelar_turno(t.id)
-            .await
-            .map_err(|e| e.to_string());
+        let comun = sesion.comun.lock().await.clone();
+        let _ = comun.cancelar_turno(t.id).await;
         let _ = sesion.tx.send(cable(
             "turn.finished",
             serde_json::json!({ "turn_id": t.id, "ok": false, "error": motivo }),
@@ -67,50 +64,38 @@ pub(crate) async fn iniciar_turno(
     let (sesion, _) = autorizar_sesion(&headers, &Method::POST, &state, &id).await?;
     let mensaje = peticion.message.trim().to_string();
     if mensaje.is_empty() {
-        return Err(error(
-            "peticion_invalida",
-            "mensaje vacío",
-        ));
+        return Err(error("peticion_invalida", "mensaje vacío"));
     }
     if mensaje.chars().count() > MAX_MENSAJE_CHARS {
-        return Err(error(
-            "peticion_invalida",
-            "mensaje demasiado largo",
-        ));
+        return Err(error("peticion_invalida", "mensaje demasiado largo"));
     }
 
-    // Conversación: la indicada (con ownership) o la inicial de la sesión.
+    // Conversación: la indicada (con ownership) o la actual de la sesión.
+    // `SesionComun` es `Clone`: se clona bajo el lock y se usa sin retenerlo.
+    let comun = sesion.comun.lock().await.clone();
     let conv_id = match peticion.conversacion_id {
         Some(c) => {
-            let propias = sesion
-                .comun
+            let propias = comun
                 .persistencia
-                .conversaciones_listar(sesion.comun.user_id)
+                .conversaciones_listar(comun.user_id)
                 .map_err(|e| error("sesion", e.to_string()))?;
             if propias.iter().any(|c0| c0.id == c) {
                 c
             } else {
-                return Err(error(
-                    "no_encontrado",
-                    "conversación no encontrada",
-                ));
+                return Err(error("no_encontrado", "conversación no encontrada"));
             }
         }
-        None => sesion.conversacion_id,
+        None => *sesion.conversacion_id.lock().await,
     };
 
     {
         let turno = sesion.turno.lock().await;
         if turno.is_some() {
-            return Err(error(
-                "turno_activo",
-                "ya hay un turno en curso",
-            ));
+            return Err(error("turno_activo", "ya hay un turno en curso"));
         }
     }
 
-    let preparacion = sesion
-        .comun
+    let preparacion = comun
         .preparar_turno(conv_id, mensaje.clone(), None)
         .await
         .map_err(|e| error("turno", e.to_string()))?;
@@ -123,11 +108,13 @@ pub(crate) async fn iniciar_turno(
     ));
 
     let sesion2 = Arc::clone(&sesion);
+    let user_id = comun.user_id;
+    let persistencia = Arc::clone(&comun.persistencia);
     let handle = tokio::spawn(async move {
         if fixture {
             turno_fixture(&sesion2, turno_id, &mensaje).await;
         } else {
-            turno_real(&sesion2, preparacion).await;
+            turno_real(&sesion2, preparacion, user_id, persistencia).await;
         }
         // Liberar el guard solo si seguimos siendo el turno activo
         // (un cancel/cierre posterior ya lo limpió y emitió su finished).
@@ -152,8 +139,8 @@ pub(crate) async fn cancelar_turno(
     Path((id, turn_id)): Path<(String, String)>,
 ) -> Result<Json<Value>, ApiError> {
     let (sesion, _) = autorizar_sesion(&headers, &Method::POST, &state, &id).await?;
-    let tid = Uuid::parse_str(&turn_id)
-        .map_err(|_| error("peticion_invalida", "turn_id malformado"))?;
+    let tid =
+        Uuid::parse_str(&turn_id).map_err(|_| error("peticion_invalida", "turn_id malformado"))?;
 
     let activo = sesion.turno.lock().await.as_ref().map(|t| t.id);
     match activo {
@@ -180,9 +167,8 @@ pub(crate) async fn responder_aprobacion(
 ) -> Result<Json<Value>, ApiError> {
     let (sesion, _) = autorizar_sesion(&headers, &Method::POST, &state, &id).await?;
 
-    let pendiente = sesion
-        .comun
-        .runtime
+    let runtime = sesion.comun.lock().await.runtime.clone();
+    let pendiente = runtime
         .peticiones_aprobacion_pendientes()
         .iter()
         .any(|p| p.id == approval_id);
@@ -195,9 +181,7 @@ pub(crate) async fn responder_aprobacion(
         (true, _) => RespuestaAprobacion::Aprobar,
         (false, _) => RespuestaAprobacion::Rechazar,
     };
-    sesion
-        .comun
-        .runtime
+    runtime
         .responder_aprobacion(&approval_id, respuesta)
         .map_err(|e| error("turno", e))?;
     Ok(Json(serde_json::json!({ "ok": true })))
@@ -240,6 +224,8 @@ async fn turno_fixture(sesion: &Arc<SesionWeb>, turno_id: Uuid, mensaje: &str) {
 async fn turno_real(
     sesion: &Arc<SesionWeb>,
     preparacion: crate::servicio::PreparacionTurno,
+    user_id: Uuid,
+    persistencia: Arc<crate::PersistenciaSqlite>,
 ) {
     let turno_id = preparacion.turno_id;
     let (tx_ev, mut rx_ev) = mpsc::channel::<AgenteEvento>(64);
@@ -283,7 +269,7 @@ async fn turno_real(
     let resultado = preparacion
         .runtime
         .ejecutar_turno(
-            sesion.comun.user_id,
+            user_id,
             turno_id,
             preparacion.conversacion_id,
             preparacion.historial,
@@ -298,7 +284,7 @@ async fn turno_real(
         Ok(()) => {
             // Persistir el uso REAL (best-effort, como Tauri).
             if uso_p > 0 || uso_c > 0 || prov.is_some() {
-                let _ = sesion.comun.persistencia.turno_actualizar_uso(
+                let _ = persistencia.turno_actualizar_uso(
                     turno_id,
                     uso_p,
                     uso_c,
@@ -330,41 +316,15 @@ async fn turno_real(
 
 #[cfg(test)]
 mod tests {
+    use super::super::web::tests::{sesion_memoria, state_test};
     use super::super::web::COOKIE_SESION;
-    use super::super::web::tests::state_test;
     use super::*;
     use axum::{
         body::Body,
         http::{header, Request},
     };
-    use tokio::sync::Mutex;
     use tokio::time::{timeout, Duration};
     use tower::ServiceExt;
-
-    /// Sesión en BD memoria (sin tocar la SQLite real del usuario).
-    async fn sesion_memoria(state: &Arc<AppState>) -> (String, Arc<SesionWeb>) {
-        let persist = crate::PersistenciaSqlite::en_memoria().expect("bd memoria");
-        let (comun, apertura) = crate::servicio::SesionComun::abrir_con_persistencia(
-            crate::servicio::OpcionesSesion::default(),
-            persist,
-            None,
-        )
-        .expect("abrir sesión memoria");
-        let (tx, _rx) = tokio::sync::broadcast::channel(256);
-        let sid = Uuid::new_v4().to_string();
-        let sesion = Arc::new(SesionWeb {
-            conversacion_id: apertura.conversacion.id,
-            comun,
-            tx,
-            turno: Mutex::new(None),
-        });
-        state
-            .sesiones
-            .lock()
-            .await
-            .insert(sid.clone(), Arc::clone(&sesion));
-        (sid, sesion)
-    }
 
     fn post_turno(sid: &str, cookie: bool, cuerpo: &str) -> Request<Body> {
         let mut b = Request::builder()
@@ -372,10 +332,7 @@ mod tests {
             .uri(format!("/api/v1/session/{sid}/turns"))
             .header(header::CONTENT_TYPE, "application/json");
         if cookie {
-            b = b.header(
-                header::COOKIE,
-                format!("{}={sid}", COOKIE_SESION),
-            );
+            b = b.header(header::COOKIE, format!("{}={sid}", COOKIE_SESION));
         } else {
             b = b.header(header::AUTHORIZATION, format!("Bearer {sid}"));
         }
@@ -409,10 +366,9 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(res.status(), axum::http::StatusCode::OK);
-        let body: Value = serde_json::from_slice(
-            &axum::body::to_bytes(res.into_body(), 4096).await.unwrap(),
-        )
-        .unwrap();
+        let body: Value =
+            serde_json::from_slice(&axum::body::to_bytes(res.into_body(), 4096).await.unwrap())
+                .unwrap();
         assert_eq!(body["ok"], true);
 
         let fin = esperar_finished(&mut rx).await;
@@ -482,10 +438,9 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(res.status(), axum::http::StatusCode::OK);
-        let body: Value = serde_json::from_slice(
-            &axum::body::to_bytes(res.into_body(), 1024).await.unwrap(),
-        )
-        .unwrap();
+        let body: Value =
+            serde_json::from_slice(&axum::body::to_bytes(res.into_body(), 1024).await.unwrap())
+                .unwrap();
         assert_eq!(body, serde_json::json!({ "ok": true, "cancelado": false }));
     }
 
@@ -507,10 +462,9 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(res.status(), axum::http::StatusCode::OK);
-        let body: Value = serde_json::from_slice(
-            &axum::body::to_bytes(res.into_body(), 1024).await.unwrap(),
-        )
-        .unwrap();
+        let body: Value =
+            serde_json::from_slice(&axum::body::to_bytes(res.into_body(), 1024).await.unwrap())
+                .unwrap();
         assert_eq!(body, serde_json::json!({ "ok": true, "duplicada": true }));
     }
 
