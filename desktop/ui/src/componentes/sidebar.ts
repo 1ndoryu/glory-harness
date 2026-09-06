@@ -73,7 +73,7 @@ export function montarSidebar(opts: SidebarOpciones): Sidebar {
   function botonNav(
     tooltip: string,
     etiqueta: string,
-    iconoNombre: 'nueva' | 'agente' | 'flujo' | 'complementos',
+    iconoNombre: 'nueva' | 'agente' | 'flujo' | 'complementos' | 'navegador',
     onClick?: () => void,
   ): HTMLButtonElement {
     const b = el('button', 'nav-boton') as HTMLButtonElement;

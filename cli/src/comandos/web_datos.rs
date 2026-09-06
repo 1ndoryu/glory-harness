@@ -135,7 +135,7 @@ pub(crate) async fn crear_conversacion(
         .persistencia
         .conversacion_crear(comun.user_id, &titulo)
         .map_err(|e| error("sesion", e.to_string()))?;
-    *sesion.conversacion_id.lock().await = nuevo_id;
+    *sesion.conversacion_id.lock().await = Some(nuevo_id);
     Ok(Json(serde_json::json!({
         "ok": true,
         "conversacion": comun
@@ -182,7 +182,7 @@ pub(crate) async fn cargar_conversacion(
                 "tokens_complecion": tokens_complecion,
             })
         });
-    *sesion.conversacion_id.lock().await = conv.id;
+    *sesion.conversacion_id.lock().await = Some(conv.id);
     Ok(Json(serde_json::json!({
         "ok": true,
         "id": conv.id,
@@ -224,8 +224,10 @@ pub(crate) async fn parchear_conversacion(
     ))
 }
 
-/// `DELETE /api/v1/conversations/:cid` — elimina; si era la actual, crea
-/// una vacía (409 con turno). Sin vault en web (solo desktop).
+/// `DELETE /api/v1/conversations/:cid` — elimina; si era la actual de la
+/// sesión, ancla la más reciente restante o deja `None` si no queda ninguna
+/// (borrador, sin fila fantasma). [069A-7] Create-on-write: NO se auto-crea
+/// una vacía al borrar (409 con turno). Sin vault en web (solo desktop).
 pub(crate) async fn eliminar_conversacion(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
@@ -240,26 +242,36 @@ pub(crate) async fn eliminar_conversacion(
         .persistencia
         .conversacion_eliminar(conv.id, comun.user_id)
         .map_err(|e| error("sesion", e.to_string()))?;
+    /* [069A-7] Si borramos la conversación que la sesión tenía como actual:
+     * anclar la más reciente no-archivada restante (ORDER BY actualizada_en
+     * DESC) o dejar `None` (borrador) si ya no queda ninguna. Nunca se crea
+     * una fila vacía de reemplazo. */
     let actual = *sesion.conversacion_id.lock().await;
-    if actual == conv.id {
-        let titulo = "Nueva conversación".to_string();
-        let nuevo_id = comun
+    if actual == Some(conv.id) {
+        let restante = comun
             .persistencia
-            .conversacion_crear(comun.user_id, &titulo)
-            .map_err(|e| error("sesion", e.to_string()))?;
-        *sesion.conversacion_id.lock().await = nuevo_id;
+            .conversaciones_listar(comun.user_id)
+            .map_err(|e| error("sesion", e.to_string()))?
+            .into_iter()
+            .find(|c| !c.archivada);
+        *sesion.conversacion_id.lock().await = restante.as_ref().map(|c| c.id);
     }
+    /* [069A-7] `actual` puede ser `null` = sin conversación (borrador): el
+     * contrato de respuesta lo permite; el front limpia el panel a borrador. */
     let actual_id = *sesion.conversacion_id.lock().await;
-    let actual_conv = comun
-        .persistencia
-        .conversaciones_listar(comun.user_id)
-        .map_err(|e| error("sesion", e.to_string()))?
-        .into_iter()
-        .find(|c| c.id == actual_id)
-        .ok_or_else(|| error("sesion", "conversación actual no encontrada"))?;
-    Ok(Json(
-        serde_json::json!({ "ok": true, "actual": actual_conv }),
-    ))
+    let actual_conv: Option<crate::InfoConversacion> = match actual_id {
+        Some(aid) => Some(
+            comun
+                .persistencia
+                .conversaciones_listar(comun.user_id)
+                .map_err(|e| error("sesion", e.to_string()))?
+                .into_iter()
+                .find(|c| c.id == aid)
+                .ok_or_else(|| error("sesion", "conversación actual no encontrada"))?,
+        ),
+        None => None,
+    };
+    Ok(Json(serde_json::json!({ "ok": true, "actual": actual_conv })))
 }
 
 // ── Proveedores y configuración ──────────────────────────────────────────

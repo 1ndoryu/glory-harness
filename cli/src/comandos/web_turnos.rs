@@ -88,7 +88,19 @@ pub(crate) async fn iniciar_turno(
                 return Err(error("no_encontrado", "conversación no encontrada"));
             }
         }
-        None => *sesion.conversacion_id.lock().await,
+        /* [069A-7] Create-on-write: el front SIEMPRE crea la conversación
+         * (POST /conversations) antes de enviar el primer mensaje. Si no hay
+         * conversación anclada en la sesión y no se indica una, es un error
+         * de contrato claro, no una auto-creación implícita. */
+        None => match *sesion.conversacion_id.lock().await {
+            Some(actual) => actual,
+            None => {
+                return Err(error(
+                    "sin_conversacion",
+                    "no hay conversación: crea una antes de enviar",
+                ))
+            }
+        },
     };
 
     {

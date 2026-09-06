@@ -97,6 +97,25 @@ Orden propuesto (dependencias de abajo arriba):
       Commit `5f67e82`. Plan archivado en `Agente/planes/completados/`.
       Excepcion conocida: desktop compilation bloqueada por errores pre-existentes en
       navegador.rs (Tauri 2 IPC macros).
+- [ ] **069A-6 — Navegador web: páginas que bloquean iframes (X-Frame-Options)**: pendiente
+      de decisión del usuario (registrado 06-09 tras probar el Navegador en modo web). Causa:
+      en el navegador el panel usa un `<iframe>` y muchos sitios (Google, YouTube, etc.)
+      envían `X-Frame-Options: sameorigin`/CSP → se niegan a mostrarse dentro del panel
+      (`Refused to display ... in a frame`). No hay forma técnica de saltárselo desde un
+      iframe normal. Opciones a evaluar con el usuario: (a) botón "abrir en pestaña" junto
+      al iframe para sitios bloqueados; (b) abrir siempre en pestaña nueva en modo web;
+      (c) solo avisar en el log cuando un sitio bloquea la vista. Estado actual del fix de
+      modo web (commiteado aparte): panel navegador dual — Tauri=WebView2 nativa intacta,
+      web=`<iframe>` real con URL/navegación/recargar/cerrar funcionando (solo falla la
+      captura, que es WebView2). El código en sí no tiene bug; es una limitación del iframe.
+- [x] **069A-7 — Conversaciones: crear la fila SOLO al escribir (web + app)** (06-09):
+      HECHO. Semántica create-on-write: no se crea fila al abrir/recargar/"Nueva conversación";
+      la fila se crea al enviar el primer mensaje (auto-nombre H5). `Option<Uuid>` en estado de
+      conversación (web `SesionWeb` + desktop `PanelDatos`), DELETE sin fila fantasma, borrador
+      local en el front. Verificado: API + navegador end-to-end (5 escenarios); 80 tests cli +
+      7 tests desktop; UI build OK. Gate bloqueado por `tool-release-unpublished` preexistente
+      (repin `6baf87c2`, ajeno). Plan movido a `Agente/planes/completados/`; evidencia en
+      `Agente/completados/tareas-2026-09-06.md`. BD quedó en 0 conversaciones (limpia).
 
 > **Hecho (04-09, correcciones del primer `tauri dev`):** los 7 hallazgos del primer arranque
 > real quedaron corregidos (H1–H7, bloque 039A-1). Detalle en

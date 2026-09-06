@@ -31,6 +31,8 @@ export interface PanelNavegador {
   limpiarLog(): void;
   /** Establece la URL actual en la barra (tras navegar). */
   fijarURL(url: string): void;
+  /** [069A-2 fix] Navega a una URL: IPC en Tauri, iframe en modo web. */
+  irA(url: string): void;
   /** [069A-1 F6] Muestra una captura base64 del navegador. */
   actualizarCaptura(base64: string): void;
 }
@@ -40,17 +42,30 @@ export interface PanelNavegadorOpciones {
   idPrefijo?: string;
   /** Ancho inicial del panel (px). Default 480. */
   ancho?: number;
+  /** [069A-2 fix] Se invoca al cerrar desde el botón interno para que el
+   * orquestador sincronice estado y grip. Opcional: sin él el panel se cierra
+   * igualmente (y en Tauri cierra la webview él mismo). */
+  onCerrar?: () => void;
 }
 
 // ---------- Constantes ----------
-const ANCHO_DEFAULT = 480;
 const MAX_LOG = 200;
 
 // ---------- Fábrica ----------
 
 export function montarPanelNavegador(opts: PanelNavegadorOpciones = {}): PanelNavegador {
   const idP = opts.idPrefijo ?? 'navegador';
-  const ancho = opts.ancho ?? ANCHO_DEFAULT;
+  // El ancho lo controla el CSS (panel-navegador, redimensionable por grip);
+  // la opción se conserva en la interfaz por contrato, hoy es inerte.
+  void opts.ancho;
+
+  // [069A-2 fix] La webview nativa (WebView2 child + IPC de Tauri) solo existe
+  // en la app de escritorio. En modo web el panel pilota un <iframe> del propio
+  // navegador: es una vista MANUAL del usuario (las tools de navegador del
+  // agente son de Tauri y no aplican aquí). `esTauri` decide la rama de cada
+  // control.
+  const esTauri =
+    typeof (window as unknown as { __TAURI__?: unknown }).__TAURI__ !== 'undefined';
 
   // ---- Raíz del panel ----
   const raiz = el('section');
@@ -103,10 +118,14 @@ export function montarPanelNavegador(opts: PanelNavegadorOpciones = {}): PanelNa
   botones.appendChild(btnRecargar);
   botones.appendChild(btnCapturar);
 
-  // ---- Contenedor de la webview (HWND child) ----
+  // ---- Contenedor de la vista del navegador ----
+  // Tauri: aloja la webview child (HWND). Web: aloja un iframe a pantalla
+  // completa, creado una sola vez y reutilizado entre aperturas.
   const contenedor = el('div', 'nav-webview');
   contenedor.id = `${idP}-webview-contenedor`;
-  contenedor.title = 'Área del navegador (webview nativa)';
+  contenedor.title = esTauri
+    ? 'Área del navegador (webview nativa)'
+    : 'Área del navegador (iframe)';
 
   // ---- Captura (imagen previsualizada) ----
   const capturaArea = el('div', 'nav-captura');
@@ -124,6 +143,18 @@ export function montarPanelNavegador(opts: PanelNavegadorOpciones = {}): PanelNa
 
   capturaArea.appendChild(imgCaptura);
   capturaArea.appendChild(cerrarCaptura);
+
+  // [069A-2 fix] En modo web no hay HWND que incrustar: se monta un iframe
+  // dentro del contenedor. Nace en blanco; la URL la pone el usuario.
+  let iframe: HTMLIFrameElement | null = null;
+  if (!esTauri) {
+    iframe = document.createElement('iframe');
+    iframe.className = 'nav-iframe';
+    iframe.src = 'about:blank';
+    // Sin sandbox: muchos sitios (buscadores, youtube...) rompen con
+    // restricciones; es una vista de confianza del propio usuario.
+    contenedor.appendChild(iframe);
+  }
 
   // ---- Log de acciones del agente ----
   const logArea = el('div', 'nav-log');
@@ -191,14 +222,13 @@ export function montarPanelNavegador(opts: PanelNavegadorOpciones = {}): PanelNa
       return;
     }
     try {
-      const resultado = await invoke(comando, args);
+      await invoke(comando, args);
       anadirAlLog({
         herramienta: comando,
         descripcion: args.url ? `navegar a ${(args.url as string).slice(0, 80)}` : comando,
         ok: true,
         tiempo: Date.now(),
       });
-      return resultado;
     } catch (error) {
       anadirAlLog({
         herramienta: comando,
@@ -211,11 +241,40 @@ export function montarPanelNavegador(opts: PanelNavegadorOpciones = {}): PanelNa
   }
 
   // ---- Eventos de UI ----
+
+  /** [069A-2 fix] Completa el esquema si la URL no lo trae (modo web). */
+  function urlConEsquema(texto: string): string {
+    const t = texto.trim();
+    if (!t) return '';
+    if (/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(t)) return t;
+    return `https://${t}`;
+  }
+
+  /** [069A-2 fix] Navega el iframe (solo modo web). */
+  function navegarWeb(url: string): void {
+    if (!iframe) return;
+    const destino = urlConEsquema(url);
+    if (!destino) return;
+    urlActual = destino;
+    inputURL.value = destino;
+    iframe.src = destino;
+    anadirAlLog({
+      herramienta: 'navegar',
+      descripcion: `navegar a ${destino.slice(0, 80)}`,
+      ok: true,
+      tiempo: Date.now(),
+    });
+  }
+
   function navegarURL(): void {
     const url = inputURL.value.trim();
     if (!url) return;
     urlActual = url;
-    void invocarNavegadorComando('navegador_navegar', { url }).catch(() => {});
+    if (esTauri) {
+      void invocarNavegadorComando('navegador_navegar', { url }).catch(() => {});
+    } else {
+      navegarWeb(url);
+    }
   }
 
   btnIr.addEventListener('click', navegarURL);
@@ -226,6 +285,15 @@ export function montarPanelNavegador(opts: PanelNavegadorOpciones = {}): PanelNa
   btnCapturar.addEventListener('click', () => {
     void (async () => {
       try {
+        if (!esTauri) {
+          anadirAlLog({
+            herramienta: 'capturar',
+            descripcion: 'captura solo en la app de escritorio (sin WebView2)',
+            ok: false,
+            tiempo: Date.now(),
+          });
+          return;
+        }
         const base64 = await invoke<string>('navegador_capturar');
         actualizarCaptura(base64);
         anadirAlLog({
@@ -246,14 +314,42 @@ export function montarPanelNavegador(opts: PanelNavegadorOpciones = {}): PanelNa
   });
 
   btnRecargar.addEventListener('click', () => {
-    if (urlActual) void invocarNavegadorComando('navegador_navegar', { url: urlActual }).catch(() => {});
+    if (!urlActual) return;
+    if (esTauri) {
+      void invocarNavegadorComando('navegador_navegar', { url: urlActual }).catch(() => {});
+    } else if (iframe) {
+      // [069A-2 fix] Recargar el iframe: location.reload() desde el padre está
+      // permitido (navegación); sin ventana se reasigna el src.
+      const destino = urlActual;
+      const w = iframe.contentWindow;
+      if (w) {
+        try {
+          w.location.reload();
+        } catch {
+          iframe.src = destino;
+        }
+      } else {
+        iframe.src = destino;
+      }
+      anadirAlLog({
+        herramienta: 'recargar',
+        descripcion: `recargar ${destino.slice(0, 80)}`,
+        ok: true,
+        tiempo: Date.now(),
+      });
+    }
   });
 
   btnAtras.addEventListener('click', () => {
     void (async () => {
       try {
-        // CDP: Runtime.evaluate con history.back()
-        await invoke('navegador_js', { codigo: 'window.history.back()' });
+        if (esTauri) {
+          // CDP: Runtime.evaluate con history.back()
+          await invoke('navegador_js', { codigo: 'window.history.back()' });
+        } else {
+          // [069A-2 fix] El historial del iframe se controla desde el padre.
+          iframe?.contentWindow?.history.back();
+        }
         anadirAlLog({ herramienta: 'atras', descripcion: 'navegar atrás', ok: true, tiempo: Date.now() });
       } catch (error) {
         anadirAlLog({ herramienta: 'atras', descripcion: `error: ${String(error).slice(0, 120)}`, ok: false, tiempo: Date.now() });
@@ -264,7 +360,12 @@ export function montarPanelNavegador(opts: PanelNavegadorOpciones = {}): PanelNa
   btnAdelante.addEventListener('click', () => {
     void (async () => {
       try {
-        await invoke('navegador_js', { codigo: 'window.history.forward()' });
+        if (esTauri) {
+          await invoke('navegador_js', { codigo: 'window.history.forward()' });
+        } else {
+          // [069A-2 fix] El historial del iframe se controla desde el padre.
+          iframe?.contentWindow?.history.forward();
+        }
         anadirAlLog({ herramienta: 'adelante', descripcion: 'navegar adelante', ok: true, tiempo: Date.now() });
       } catch (error) {
         anadirAlLog({ herramienta: 'adelante', descripcion: `error: ${String(error).slice(0, 120)}`, ok: false, tiempo: Date.now() });
@@ -274,14 +375,24 @@ export function montarPanelNavegador(opts: PanelNavegadorOpciones = {}): PanelNa
 
   btnCerrar.addEventListener('click', () => {
     void (async () => {
-      try {
-        await invoke('navegador_cerrar');
-      } catch { /* ignorar */ }
       ventanaAbierta = false;
       raiz.style.display = 'none';
-      // Limpia el contenedor (la webview se cierra aparte)
-      contenedor.replaceChildren();
+      if (esTauri) {
+        // Sin orquestador, esta fábrica cierra la webview ella misma; con
+        // onCerrar lo hace el orquestador (estado + IPC) para no duplicar.
+        if (!opts.onCerrar) {
+          try {
+            await invoke('navegador_cerrar');
+          } catch { /* ignorar */ }
+        }
+        // Limpia el contenedor (la webview se cierra aparte)
+        contenedor.replaceChildren();
+      } else if (iframe) {
+        // [069A-2 fix] En web se conserva el iframe (reutilizable); se vacía.
+        iframe.src = 'about:blank';
+      }
       anadirAlLog({ herramienta: 'cerrar', descripcion: 'navegador cerrado', ok: true, tiempo: Date.now() });
+      opts.onCerrar?.();
     })();
   });
 
@@ -317,6 +428,15 @@ export function montarPanelNavegador(opts: PanelNavegadorOpciones = {}): PanelNa
     fijarURL(url: string) {
       urlActual = url;
       inputURL.value = url;
+    },
+    irA(url: string) {
+      if (esTauri) {
+        urlActual = url;
+        inputURL.value = url;
+        void invocarNavegadorComando('navegador_navegar', { url }).catch(() => {});
+      } else {
+        navegarWeb(url);
+      }
     },
     actualizarCaptura(base64: string) {
       actualizarCaptura(base64);

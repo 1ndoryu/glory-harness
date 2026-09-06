@@ -88,7 +88,9 @@ export interface InfoSesion {
   modelo: string;
   workspace: string;
   proveedores: Array<{ nombre: string; claves: number }>;
-  conversacion: InfoConversacion;
+  /** [069A-7] `null` = sin conversación (borrador create-on-write): la sesión
+   * no tiene fila anclada hasta el primer mensaje. */
+  conversacion: InfoConversacion | null;
   aviso?: string | null;
 }
 
@@ -206,7 +208,8 @@ export interface Transporte {
   convCargar(id: string, panelId: string | null): Promise<CargaConversacion>;
   convRenombrar(id: string, titulo: string): Promise<boolean>;
   convArchivar(id: string, archivada: boolean): Promise<boolean>;
-  convEliminar(id: string, panelId: string | null): Promise<InfoConversacion>;
+  /** [069A-7] `null` = no quedó ninguna conversación en el panel (borrador). */
+  convEliminar(id: string, panelId: string | null): Promise<InfoConversacion | null>;
   convRewind(hastaMensajeId: string, editar: boolean, panelId: string | null): Promise<CargaConversacion>;
   tramoRestaurar(panelId: string | null): Promise<ResultadoRestauracionTramo>;
   leerProveedores(): Promise<ProveedorInfo[]>;
@@ -601,9 +604,10 @@ export function crearAdaptadorReal(hooks: HooksAdaptador = {}, transporte: Trans
       async archivar(id: string, archivada: boolean): Promise<boolean> {
         return transporte.convArchivar(id, archivada);
       },
-      /** [039A-3 P5] Si era la actual del panel, el backend crea una nueva en
-       * ese panel y la devuelve. */
-      async eliminar(id: string, panelId?: string): Promise<InfoConversacion> {
+      /** [039A-3 P5] Si era la actual del panel, el backend ancla la más
+       * reciente restante y la devuelve; si no queda ninguna, `null`
+       * (borrador create-on-write, sin fila fantasma). [069A-7] */
+      async eliminar(id: string, panelId?: string): Promise<InfoConversacion | null> {
         return transporte.convEliminar(id, panelId ?? null);
       },
       /** [039A-3 P2] Borra el hilo posterior a un mensaje de usuario y

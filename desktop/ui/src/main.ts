@@ -190,6 +190,7 @@ function activarPanel(panel: PanelChat | null): void {
   });
   panel.activar();
   const id = panel.conversaId;
+  // [069A-7] `null` = borrador (sin conversación): deselecciona la sidebar.
   if (id) sidebar.seleccionar(id);
   else sidebar.seleccionar('');
 }
@@ -440,9 +441,14 @@ const sidebar = montarSidebar({
       try {
         const actual = await adaptador.sesion.eliminar(id, panelActivo()?.tipo);
         await resincronizarSidebar();
-        // Si algún panel mostraba el id eliminado, lo sustituye por `actual`.
+        // [069A-7] Si algún panel mostraba el id eliminado: si el backend
+        // devolvió una conversación (quedaba otra), se carga; si `null`
+        // (no quedó ninguna), el panel pasa a BORRADOR sin fila fantasma.
         panelesRegistrados.forEach((p) => {
-          if (p.conversaId === id) void p.cargarConversacion(actual.id);
+          if (p.conversaId === id) {
+            if (actual) void p.cargarConversacion(actual.id);
+            else p.ponerBorrador();
+          }
         });
       } catch (e: unknown) {
         avisoGlobal(`no se pudo eliminar: ${String(e)}`, '', '');
@@ -452,11 +458,18 @@ const sidebar = montarSidebar({
   },
   onAccionNav(accion) {
     if (accion === 'nueva') {
-      void (async () => {
-        if (USA_REAL) {
-          await panelActivo()?.nuevaConversacion();
-          return;
+      // [069A-7] "Nueva conversación" = borrador local (sin fila): la fila
+      // se crea al escribir el primer mensaje (create-on-write). En mock se
+      // mantiene la semántica histórica (crea una conversación local).
+      if (USA_REAL) {
+        const panel = panelActivo();
+        if (panel) {
+          panel.ponerBorrador();
+          activarPanel(panel);
         }
+        return;
+      }
+      void (async () => {
         const n = conversaciones.length + 1;
         const nueva: Conversacion = {
           id: `local-${Date.now()}`,
@@ -535,7 +548,11 @@ function crearPanel(
       resincronizarSidebar,
       onConversacionCambio(id) {
         // Al cambiar la conversación del panel ENFOCADO, la sidebar lo marca.
-        if (panelActivo() === panel && id) sidebar.seleccionar(id);
+        // [069A-7] `null` (borrador) → deselecciona la lista.
+        if (panelActivo() === panel) {
+          if (id) sidebar.seleccionar(id);
+          else sidebar.seleccionar('');
+        }
       },
     },
     onAcciones(rect) {
@@ -827,9 +844,79 @@ const modal = montarModalConfiguracion({
 // ---------- Panel principal ----------
 const principal = crearPanel('principal', 'principal');
 
-// ---------- Navegador interno (069A-1 F3) ----------
-const navegador = montarPanelNavegador();
+// ---------- Navegador interno (069A-1 F3 / 069A-2 fix web) ----------
+// [069A-2 fix] En Tauri el panel pilota la webview child (IPC); en modo web,
+// un iframe del propio navegador. `onCerrar` sincroniza el estado del
+// orquestador (navegadorAbierto, grip, RO) cuando se cierra desde el botón
+// interno del panel, para no duplicar la lógica de cierre en dos sitios.
+const navegador = montarPanelNavegador({
+  onCerrar() {
+    cerrarNavegador();
+  },
+});
 let navegadorAbierto = false;
+
+// [069A-2 fix] Grip de redimensionado del panel navegador: divisor vertical
+// arrastrable en el borde IZQUIERDO del panel (que está anclado a la derecha
+// de #cuerpo). Cambia `--navegador-ancho` dentro de [320, 70% del ancho de
+// #cuerpo] y persiste el resultado (CLAVE_NAVEGADOR_ANCHO).
+const CLAVE_NAVEGADOR_ANCHO = 'navegador_ancho';
+let gripNavegador: HTMLElement | null = null;
+let navegadorAnchoFijado: number | null = null;
+function aplicarNavegadorAncho(px: number): void {
+  navegadorAnchoFijado = px;
+  cuerpo.style.setProperty('--navegador-ancho', `${Math.round(px)}px`);
+}
+function medirCuerpoAncho(): number {
+  return cuerpo.getBoundingClientRect().width;
+}
+/** Clampea al rango válido según el ancho actual de #cuerpo. */
+function clampearNavegadorAncho(px: number): number {
+  const MIN = 320;
+  const MAX = Math.max(MIN, Math.round(medirCuerpoAncho() * 0.7));
+  return Math.min(MAX, Math.max(MIN, Math.round(px)));
+}
+function crearGripNavegador(): HTMLElement {
+  const g = el('div', 'navegador-grip');
+  g.setAttribute('aria-hidden', 'true');
+  let arrastrando = false;
+  g.addEventListener('mousedown', (e) => {
+    e.preventDefault();
+    arrastrando = true;
+    document.body.classList.add('redimensionando-navegador');
+  });
+  window.addEventListener('mousemove', (e) => {
+    if (!arrastrando) return;
+    // El panel está anclado al borde derecho de #cuerpo: su ancho es la
+    // distancia del cursor al borde derecho (igual que el grip lateral).
+    const rect = cuerpo.getBoundingClientRect();
+    aplicarNavegadorAncho(clampearNavegadorAncho(rect.right - e.clientX));
+  });
+  window.addEventListener('mouseup', () => {
+    if (!arrastrando) return;
+    arrastrando = false;
+    document.body.classList.remove('redimensionando-navegador');
+    if (navegadorAnchoFijado !== null) {
+      guardarSidebar(CLAVE_NAVEGADOR_ANCHO, String(navegadorAnchoFijado));
+    }
+  });
+  return g;
+}
+/** Restaura el ancho persistido del navegador (si cabe en la ventana). */
+async function restaurarAnchoNavegador(): Promise<void> {
+  let base: string | null = null;
+  if (USA_REAL) {
+    try {
+      base = await adaptador.sesion.configLeer(CLAVE_NAVEGADOR_ANCHO);
+    } catch {
+      base = null;
+    }
+  } else {
+    base = leerSidebar(CLAVE_NAVEGADOR_ANCHO);
+  }
+  const px = base ? clampearNavegadorAncho(Number(base) || 480) : 480;
+  aplicarNavegadorAncho(px);
+}
 
 function abrirNavegador(): void {
   if (navegadorAbierto) return;
@@ -839,8 +926,25 @@ function abrirNavegador(): void {
   }
   navegadorAbierto = true;
   navegador.mostrar(true);
+  // Inserta el grip redimensionable y restaura su ancho persistido.
+  gripNavegador = crearGripNavegador();
+  cuerpo.appendChild(gripNavegador);
+  void restaurarAnchoNavegador();
 
-  // Calcular la posición del contenedor webview dentro de la ventana
+  if (!USA_TAURI) {
+    // [069A-2 fix] Modo web: el iframe se autogestiona; solo se fija la URL
+    // inicial para que el área no quede en blanco.
+    navegador.irA('https://example.com');
+    navegador.registrarAccion({
+      herramienta: 'abrir',
+      descripcion: 'navegador iniciado en https://example.com',
+      ok: true,
+      tiempo: Date.now(),
+    });
+    return;
+  }
+
+  // Modo Tauri: calcular la posición del contenedor y abrir la webview child.
   void (async () => {
     try {
       const contenedor = document.getElementById('navegador-webview-contenedor');
@@ -890,8 +994,15 @@ function cerrarNavegador(): void {
   if (!navegadorAbierto) return;
   navegadorAbierto = false;
   navegador.mostrar(false);
-  void invoke('navegador_cerrar').catch(() => {});
-  // Limpiar ResizeObserver
+  // Quita el grip de redimensionado del navegador.
+  gripNavegador?.remove();
+  gripNavegador = null;
+  // Solo en Tauri existe la webview child que cerrar; en web el iframe se
+  // vacía dentro del propio panel (btnCerrar) y aquí solo se oculta.
+  if (USA_TAURI) {
+    void invoke('navegador_cerrar').catch(() => {});
+  }
+  // Limpiar ResizeObserver (solo se crea en Tauri)
   const ro = (navegador as unknown as Record<string, unknown>).__resizeObserver as ResizeObserver | undefined;
   if (ro) {
     ro.disconnect();
@@ -1010,10 +1121,15 @@ if (USA_REAL) {
       }
       sincronizarPanelMeta();
       await resincronizarSidebar();
+      // [069A-7] Recargar con historial → carga la última conversación real
+      // (decisión A). Con 0 conversaciones → el principal queda en BORRADOR
+      // (create-on-write): NO se crea fila, NO se llama al backend.
       const candidatas = conversaciones.filter((c) => !c.archivada);
       const primera = candidatas[0];
       if (primera) {
         await principal.cargarConversacion(primera.id);
+      } else {
+        principal.ponerBorrador();
       }
       activarPanel(principal);
     } catch (e: unknown) {

@@ -45,6 +45,13 @@ pub struct Apertura {
     pub workspace: String,
     pub proveedores: Vec<ProveedorConteo>,
     pub conversacion: InfoConversacion,
+    /// [069A-7] `true` si esta apertura auto-creó una conversación vacía
+    /// "Nueva conversación" porque no existía ninguna disponible (el servicio
+    /// conserva su invariante "siempre hay conversación actual" para
+    /// CLI/TUI/daemon). Los transportes create-on-write (web y desktop) usan
+    /// este flag para DESCARTAR esa fila y arrancar en borrador; `info()`
+    /// (p. ej. reconfigurar) siempre reporta `false`.
+    pub conv_autocreada: bool,
     pub aviso: Option<String>,
 }
 
@@ -155,21 +162,30 @@ impl SesionComun {
         let user_id = usuario_estable(&persistencia)?;
         persistencia.con_skills_base(user_id);
 
-        let conv_id = if !opciones.nueva_conversacion {
+        let conv_id = match if !opciones.nueva_conversacion {
             persistencia
                 .conversaciones_listar(user_id)
                 .map_err(|e| Error::Persistencia(e.to_string()))?
                 .into_iter()
                 .find(|c| !c.archivada)
-                .map(|c| c.id)
+                .map(|c| (c.id, false))
         } else {
             None
-        }
-        .unwrap_or(
-            persistencia
-                .conversacion_crear(user_id, "Nueva conversación")
-                .map_err(|e| Error::Persistencia(e.to_string()))?,
-        );
+        } {
+            Some(par) => par,
+            None => {
+                /* [069A-7] Auto-creación del servicio: se conserva
+                 * (invariante de sesión) pero se REPORTa en `conv_autocreada`
+                 * para que los transportes create-on-write (web/desktop)
+                 * puedan descartar la fila vacía y arrancar en borrador sin
+                 * fila persistida. */
+                let id = persistencia
+                    .conversacion_crear(user_id, "Nueva conversación")
+                    .map_err(|e| Error::Persistencia(e.to_string()))?;
+                (id, true)
+            }
+        };
+        let (conv_id, conv_autocreada) = conv_id;
 
         let persistencia = Arc::new(persistencia);
         let harness = construir_harness_con(
@@ -211,7 +227,10 @@ impl SesionComun {
             modo: harness.config.modo,
             workspace,
         };
-        let apertura = sesion.info(conv_id, aviso)?;
+        /* [069A-7] `info()` reporta `conv_autocreada:false`; la apertura real
+         * propaga si el servicio auto-creó la fila vacía (ver struct). */
+        let mut apertura = sesion.info(conv_id, aviso)?;
+        apertura.conv_autocreada = conv_autocreada;
         Ok((sesion, apertura))
     }
 
@@ -228,6 +247,9 @@ impl SesionComun {
             workspace: self.workspace.clone(),
             proveedores: conteos(&LlavesProveedor::from_env()),
             conversacion,
+            /* [069A-7] `info()` es un reporte de una conversación EXISTENTE
+             * (p. ej. tras reconfigurar): nunca es una auto-creación. */
+            conv_autocreada: false,
             aviso,
         })
     }

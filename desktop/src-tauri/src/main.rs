@@ -53,7 +53,10 @@ struct TramoRewind {
 /// campos son planos (sin Mutex interno) y se copian los escalares antes de
 /// cualquier `.await`.
 struct PanelDatos {
-    conversacion_id: Uuid,
+    /// [069A-7] Conversación que muestra el panel. `None` = borrador: aún no
+    /// hay conversación creada (create-on-write); se crea al enviar el primer
+    /// mensaje, al pulsar "Nueva conversación" tras escribir, o al cargar una.
+    conversacion_id: Option<Uuid>,
     turno_id: Option<Uuid>,
     tramo_rewind: Option<TramoRewind>,
 }
@@ -136,7 +139,10 @@ struct InfoSesion {
     modelo: String,
     workspace: String,
     proveedores: Vec<ProveedorConteo>,
-    conversacion: InfoConversacion,
+    /// [069A-7] `None` = sin conversación (borrador, create-on-write). Antes
+    /// era siempre alguna; ahora la apertura con lista vacía o tras borrar la
+    /// última deja el panel sin conversación hasta el primer mensaje.
+    conversacion: Option<InfoConversacion>,
     #[serde(skip_serializing_if = "Option::is_none")]
     aviso: Option<String>,
 }
@@ -194,8 +200,9 @@ fn normalizar_panel(panel_id: Option<String>) -> String {
     }
 }
 
-/// [039A-3 P5] Conversación actual de un panel (error claro si no existe).
-fn conv_id_de_panel(sesion: &Sesion, panel_id: &str) -> Result<Uuid, String> {
+/// [069A-7] Conversación actual de un panel. `Ok(None)` = el panel está en
+/// borrador (sin conversación creada todavía); `Err` = panel inexistente.
+fn conv_id_de_panel(sesion: &Sesion, panel_id: &str) -> Result<Option<Uuid>, String> {
     sesion
         .paneles
         .lock()
@@ -207,11 +214,25 @@ fn conv_id_de_panel(sesion: &Sesion, panel_id: &str) -> Result<Uuid, String> {
         .map_err(|_| "sesión bloqueada por otro turno".to_string())?
 }
 
+/// [069A-7] Id de conversación de un panel que DEBE tener una (los turnos
+/// requieren conversación: el front crea antes de enviar). Devuelve error
+/// claro si el panel está en borrador.
+fn conv_id_de_panel_obligatoria(sesion: &Sesion, panel_id: &str) -> Result<Uuid, String> {
+    conv_id_de_panel(sesion, panel_id)?.ok_or_else(|| {
+        "no hay conversación en este panel: escribe el primer mensaje para crearla".to_string()
+    })
+}
+
 /// [039A-3 P5] Abre un panel con una conversación dada (la deja como la que
 /// muestra ese panel). No crea duplicados: si el panel ya existe, solo cambia
 /// su conversación. El tramo pendiente se limpia (pertenece a la conversación
 /// anterior del panel).
-fn panel_poner_conversacion(sesion: &Sesion, panel_id: &str, conv_id: Uuid) -> Result<(), String> {
+/// [069A-7] `Option<Uuid>`: `None` deja el panel en borrador (sin fila).
+fn panel_poner_conversacion(
+    sesion: &Sesion,
+    panel_id: &str,
+    conv_id: Option<Uuid>,
+) -> Result<(), String> {
     sesion
         .paneles
         .lock()
@@ -264,14 +285,19 @@ fn crear_y_cablear_vault(
 /// que ese panel muestra (no "la actual" global, que ya no existe). Lo usa
 /// `abrir_sesion`/`elegir_workspace` (panel principal) y los comandos que
 /// devuelven la sesión tras actuar sobre un panel.
+/// [069A-7] El panel puede estar en borrador (`None`), p. ej. tras abrir con
+/// lista vacía o eliminar la última conversación.
 fn info_de_panel(sesion: &Sesion, panel_id: &str) -> Result<InfoSesion, String> {
     let conv_id = conv_id_de_panel(sesion, panel_id)?;
-    info_de_conversacion(sesion, conv_id)
+    match conv_id {
+        Some(cid) => info_de_conversacion(sesion, cid),
+        None => info_sin_conversacion(sesion),
+    }
 }
 
-/// Info de sesión para una conversación concreta (no por panel): útil cuando
-/// la acción ya sabe la conversación (p. ej. `eliminar_conversacion` sobre la
-/// conversación de un panel) o cuando solo hay un panel.
+/// [069A-7] Base de `InfoSesion` con la conversación de un panel: carga la
+/// fila si existe (error si no), o devuelve sin conversación si el panel está
+/// en borrador (`None`).
 fn info_de_conversacion(sesion: &Sesion, conv_id: Uuid) -> Result<InfoSesion, String> {
     let (modelo, workspace) = {
         let comun = sesion
@@ -291,7 +317,25 @@ fn info_de_conversacion(sesion: &Sesion, conv_id: Uuid) -> Result<InfoSesion, St
         modelo,
         workspace,
         proveedores: conteos(&LlavesProveedor::from_env()),
-        conversacion,
+        conversacion: Some(conversacion),
+        aviso: None,
+    })
+}
+
+/// [069A-7] `InfoSesion` para un panel sin conversación (borrador).
+fn info_sin_conversacion(sesion: &Sesion) -> Result<InfoSesion, String> {
+    let (modelo, workspace) = {
+        let comun = sesion
+            .comun
+            .lock()
+            .map_err(|_| "sesión bloqueada".to_string())?;
+        (comun.modelo.clone(), comun.workspace.clone())
+    };
+    Ok(InfoSesion {
+        modelo,
+        workspace,
+        proveedores: conteos(&LlavesProveedor::from_env()),
+        conversacion: None,
         aviso: None,
     })
 }
@@ -326,7 +370,14 @@ fn apertura_a_info(apertura: Apertura) -> InfoSesion {
                 claves: p.claves,
             })
             .collect(),
-        conversacion: apertura.conversacion,
+        /* [069A-7] Si la apertura trae una conversación auto-creada vacía
+         * (lista sin filas), el desktop la descarta y reporta borrador. La
+         * conversación anclada a una existente sí se reporta. */
+        conversacion: if apertura.conv_autocreada {
+            None
+        } else {
+            Some(apertura.conversacion)
+        },
         aviso: apertura.aviso,
     }
 }
@@ -357,7 +408,18 @@ fn abrir_sesion_interna(
         navegador,
     })
     .map_err(|e| e.to_string())?;
-    let conv_id = apertura.conversacion.id;
+    /* [069A-7] Create-on-write: si el servicio auto-creó una "Nueva
+     * conversación" vacía (no había ninguna), se DESCARTA la fila y el panel
+     * arranca en borrador. Si se ancló una existente, el panel la muestra. Se
+     * capturan los ids ANTES de mover `apertura` a `apertura_a_info`. */
+    let conv_inicial = apertura.conversacion.id;
+    let autocreada = apertura.conv_autocreada;
+    if autocreada {
+        comun
+            .persistencia
+            .conversacion_eliminar(conv_inicial, comun.user_id)
+            .map_err(|e| e.to_string())?;
+    }
     let info = apertura_a_info(apertura);
     /* [039A-3 P3] Vault del workspace: se crea y se cablea al sandbox del
      * runtime. */
@@ -369,7 +431,9 @@ fn abrir_sesion_interna(
     paneles.insert(
         PANEL_PRINCIPAL.to_string(),
         PanelDatos {
-            conversacion_id: conv_id,
+            /* [069A-7] `None` si se descartó la auto-creada (borrador); si la
+             * apertura ancló una existente, es su id. */
+            conversacion_id: if autocreada { None } else { Some(conv_inicial) },
             turno_id: None,
             tramo_rewind: None,
         },
@@ -429,7 +493,10 @@ async fn enviar_turno(
             return Err("ya hay un turno en curso".into());
         }
     }
-    let conv_id = conv_id_de_panel(&sesion, &panel_id)?;
+    /* [069A-7] El turno exige conversación: el front la crea (create-on-write)
+     * antes de enviar el primer mensaje. Un panel en borrador no puede enviar
+     * (error claro en vez de fallar después en preparar_turno). */
+    let conv_id = conv_id_de_panel_obligatoria(&sesion, &panel_id)?;
     let meta = sesion
         .meta
         .lock()
@@ -727,7 +794,7 @@ fn conversacion_nueva(
     /* [039A-3 P5] La nueva conversación queda como actual SOLO de este panel.
      * [039A-3 P3] Conversación nueva = contexto nuevo: no hay tramo previo
      * que restaurar desde aquí (se limpia el del panel). */
-    panel_poner_conversacion(&sesion, &panel_id, id)?;
+    panel_poner_conversacion(&sesion, &panel_id, Some(id))?;
     Ok(InfoConversacion {
         id,
         titulo,
@@ -826,7 +893,7 @@ async fn cargar_conversacion(
      * [039A-3 P3] Al cambiar de conversación se limpia el tramo pendiente de
      * restaurar (pertenece a la conversación anterior): su restauración ya no
      * es accesible desde aquí. */
-    panel_poner_conversacion(&sesion, &panel_id, id)?;
+    panel_poner_conversacion(&sesion, &panel_id, Some(id))?;
     Ok(CargaConversacion {
         id,
         titulo,
@@ -871,14 +938,16 @@ fn archivar_conversacion(
         .map_err(|e| e.to_string())
 }
 
-/// Elimina con mensajes y turnos; si era la actual del panel, crea una nueva
-/// vacía en ese panel. [039A-3 P5] `panel_id` opcional (default `principal`).
+/// Elimina con mensajes y turnos; si era la actual del panel, ancla la más
+/// reciente no-archivada restante o deja el panel en borrador (`None`) si no
+/// queda ninguna. [069A-7] Create-on-write: NO se crea una vacía de reemplazo.
+/// [039A-3 P5] `panel_id` opcional (default `principal`).
 #[tauri::command]
 fn eliminar_conversacion(
     estado: State<'_, Estado>,
     id: String,
     panel_id: Option<String>,
-) -> Result<InfoConversacion, String> {
+) -> Result<Option<InfoConversacion>, String> {
     let sesion = sesion_actual(&estado)?;
     if estado
         .turno
@@ -898,16 +967,25 @@ fn eliminar_conversacion(
      * se hace GC de los hashes que quedaron huérfanos. */
     sesion.vault.eliminar_conversacion(id);
     /* [039A-3 P5] "Era la actual" se decide POR PANEL: si este panel tenía esa
-     * conversación cargada, se crea una nueva vacía en su lugar. */
+     * conversación cargada, hay que re-anclar el panel. */
     let actual = conv_id_de_panel(&sesion, &panel_id)?;
-    if actual == id {
-        /* El tramo pendiente pertenecía a la conversación borrada: se limpia. */
+    if actual == Some(id) {
+        /* El tramo pendiente pertenecía a la conversación borrada: se limpia.
+         * [069A-7] Se ancla la más reciente no-archivada restante (lista en
+         * orden `actualizada_en DESC`) o se deja el panel en borrador. */
+        let restante = sesion
+            .persistencia
+            .conversaciones_listar(sesion.user_id)
+            .map_err(|e| e.to_string())?
+            .into_iter()
+            .find(|c| !c.archivada);
         if let Ok(mut g) = sesion.paneles.lock() {
             if let Some(d) = g.get_mut(&panel_id) {
+                d.conversacion_id = restante.as_ref().map(|c| c.id);
                 d.tramo_rewind = None;
             }
         }
-        return conversacion_nueva(estado, None, Some(panel_id));
+        return Ok(restante);
     }
     info_de_panel(&sesion, &panel_id).map(|i| i.conversacion)
 }
@@ -941,7 +1019,9 @@ async fn rewind_conversacion(
     let panel_id = normalizar_panel(panel_id);
     let msg_id = Uuid::parse_str(hasta_mensaje_id.trim())
         .map_err(|_| "id de mensaje inválido".to_string())?;
-    let conv_id = conv_id_de_panel(&sesion, &panel_id)?;
+    /* [069A-7] Rebobinar exige conversación real (mensajes que podar); un
+     * panel en borrador no tiene nada que rebobinar. */
+    let conv_id = conv_id_de_panel_obligatoria(&sesion, &panel_id)?;
     /* [039A-3 P3] El rewind devuelve los ids de los turnos borrados: con ellos
      * el vault localiza las rutas que tocó el tramo. En "volver a punto"
      * (editar=false) el tramo queda pendiente de una restauración EXPLÍCITA;

@@ -116,6 +116,10 @@ export interface PanelChat {
   ponerTitulo(texto: string): void;
   /** Vacía los mensajes y cancela una edición pendiente. */
   limpiar(): void;
+  /** [069A-7] Pone el panel en BORRADOR local: `conversaId=null`, chat vacío
+   * y título "Nueva conversación", SIN tocar el backend (create-on-write: la
+   * fila solo se crea al enviar el primer mensaje). */
+  ponerBorrador(): void;
   /** Recalcula la altura del textarea (llamar tras montar al DOM). */
   medir(): void;
   /** Entra en modo renombrar inline en la cabecera de ESTE panel. */
@@ -606,6 +610,25 @@ export function montarPanelChat(opts: PanelChatOpciones): PanelChat {
       }
     }
 
+    // [069A-7] Create-on-write: si el panel está en BORRADOR (sin conversación),
+    // el primer mensaje crea la fila AHORA (la ancla el backend como actual del
+    // panel/sesión y la auto-nombra desde el texto en `preparar_turno` [H5]).
+    // Abrir, recargar o pulsar "Nueva conversación" NUNCA crean la fila.
+    if (d.usaReal && conversaId === null) {
+      try {
+        const conv = await d.adaptador.sesion.nueva(undefined, tipo);
+        conversaId = conv.id;
+        cabecera.ponerTitulo(conv.titulo);
+        d.onConversacionCambio(conv.id);
+      } catch (e: unknown) {
+        avisoChat(`no se pudo crear la conversación: ${String(e)}`, '', '');
+        inicioTurno = null;
+        d.notificarTurnoFin();
+        if (d.usaReal) d.panelMeta.setEstado('inactivo');
+        return;
+      }
+    }
+
     if (d.usaReal) {
       void (async () => {
         if (d.getModo() === 'meta') await empujarMeta();
@@ -640,6 +663,18 @@ export function montarPanelChat(opts: PanelChatOpciones): PanelChat {
     entrada.setCorriendo(v);
   }
 
+  /** [069A-7] Borrador local: limpia el panel y lo deja "sin conversación".
+   * NO llama al backend (create-on-write): la fila se creará al enviar el
+   * primer mensaje, no al abrir/recargar/pulsar "Nueva conversación". */
+  function ponerBorrador(): void {
+    conversaId = null;
+    limpiarChat();
+    cabecera.ponerTitulo('Nueva conversación');
+    d.onConversacionCambio(null);
+  }
+
+  /** [069A-7] "Nueva conversación" = borrador local (sin fila persistida).
+   * La creación real ocurre en `enviar()` al escribir el primer mensaje. */
   async function nuevaConversacion(): Promise<void> {
     if (d.hayTurnoGlobal()) {
       avisoChat('termina el turno antes de abrir otra conversación', '', '');
@@ -649,16 +684,7 @@ export function montarPanelChat(opts: PanelChatOpciones): PanelChat {
       avisoChat('nueva conversación requiere backend (Tauri o modo web)', '', '');
       return;
     }
-    try {
-      const conv = await d.adaptador.sesion.nueva(undefined, tipo);
-      conversaId = conv.id;
-      await d.resincronizarSidebar();
-      limpiarChat();
-      cabecera.ponerTitulo(conv.titulo);
-      d.onConversacionCambio(conv.id);
-    } catch (e: unknown) {
-      avisoChat(`no se pudo crear la conversación: ${String(e)}`, '', '');
-    }
+    ponerBorrador();
   }
 
   /** Carga una conversación en ESTE panel. En mock solo cambia el título. */
@@ -736,6 +762,9 @@ export function montarPanelChat(opts: PanelChatOpciones): PanelChat {
     },
     limpiar() {
       limpiarChat();
+    },
+    ponerBorrador() {
+      ponerBorrador();
     },
     medir() {
       entrada.medir();

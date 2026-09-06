@@ -85,8 +85,11 @@ pub(crate) struct TurnoActivo {
 pub(crate) struct SesionWeb {
     /// Mutex: `PATCH config` y `POST workspace` reconstruyen el runtime.
     pub(crate) comun: Mutex<SesionComun>,
-    /// Conversación actual de la sesión (sin paneles en web).
-    pub(crate) conversacion_id: Mutex<Uuid>,
+    /// [069A-7] Conversación actual de la sesión (sin paneles en web).
+    /// `Option`: `None` = sin conversación todavía (borrador). La fila se crea
+    /// SOLO al escribir el primer mensaje (create-on-write); `None` es el
+    /// estado legítimo tras abrir con lista vacía o borrar la última.
+    pub(crate) conversacion_id: Mutex<Option<Uuid>>,
     /// Canal broadcast con el JSON de cable `{"event":..,"data":..}` compacto.
     pub(crate) tx: broadcast::Sender<String>,
     pub(crate) turno: Mutex<Option<TurnoActivo>>,
@@ -294,12 +297,27 @@ async fn crear_sesion(
     let (comun, apertura) = SesionComun::abrir(OpcionesSesion::default())
         .map_err(|e| error("sesion", e.to_string()))?;
 
+    /* [069A-7] Create-on-write: si el servicio auto-creó una "Nueva
+     * conversación" vacía porque no había ninguna, se DESCARTA aquí (se
+     * elimina la fila) y la sesión arranca en borrador (`conversacion:
+     * null`). La primera escritura del usuario creará la fila real. Si había
+     * una conversación previa, se conserva como la actual (decisión A). */
+    let conv_autocreada = apertura.conv_autocreada;
+    let conversacion = if conv_autocreada {
+        comun
+            .persistencia
+            .conversacion_eliminar(apertura.conversacion.id, comun.user_id)
+            .map_err(|e| error("sesion", e.to_string()))?;
+        None
+    } else {
+        Some(apertura.conversacion)
+    };
+
     let (tx, _rx) = broadcast::channel(256);
     let session_id = Uuid::new_v4().to_string();
-    let conversacion_id = apertura.conversacion.id;
     let sesion = Arc::new(SesionWeb {
         comun: Mutex::new(comun),
-        conversacion_id: Mutex::new(conversacion_id),
+        conversacion_id: Mutex::new(conversacion.as_ref().map(|c| c.id)),
         tx,
         turno: Mutex::new(None),
         creada: Instant::now(),
@@ -324,7 +342,9 @@ async fn crear_sesion(
         "modelo": apertura.modelo,
         "workspace": apertura.workspace,
         "proveedores": apertura.proveedores,
-        "conversacion": apertura.conversacion,
+        /* [069A-7] `null` cuando no hay conversación (borrador); objeto cuando
+         * la apertura ancló una existente. */
+        "conversacion": conversacion,
     }));
     let cookie =
         format!("{COOKIE_SESION}={session_id}; HttpOnly; SameSite=Lax; Path=/; Max-Age=86400");
@@ -520,6 +540,11 @@ pub(crate) mod tests {
     }
 
     /// Sesión en BD memoria (sin tocar la SQLite real del usuario).
+    /// [069A-7] Representa una sesión que YA tiene una conversación anclada
+    /// (la que el servicio auto-creó al abrir, conservada como actual):
+    /// los tests de turnos/CRUD existentes envían sin `conversacion_id` y
+    /// dependen de que la sesión tenga una. Para el estado "borrador sin
+    /// conversación" (create-on-write) usar `sesion_memoria_borrador`.
     pub(crate) async fn sesion_memoria(state: &Arc<AppState>) -> (String, Arc<SesionWeb>) {
         let persist = crate::PersistenciaSqlite::en_memoria().expect("bd memoria");
         let (comun, apertura) = crate::servicio::SesionComun::abrir_con_persistencia(
@@ -531,7 +556,47 @@ pub(crate) mod tests {
         let (tx, _rx) = broadcast::channel(256);
         let sid = Uuid::new_v4().to_string();
         let sesion = Arc::new(SesionWeb {
-            conversacion_id: Mutex::new(apertura.conversacion.id),
+            conversacion_id: Mutex::new(Some(apertura.conversacion.id)),
+            comun: Mutex::new(comun),
+            tx,
+            turno: Mutex::new(None),
+            creada: Instant::now(),
+        });
+        state
+            .sesiones
+            .lock()
+            .await
+            .insert(sid.clone(), Arc::clone(&sesion));
+        (sid, sesion)
+    }
+
+    /// [069A-7] Sesión en BD memoria en estado BORRADOR (create-on-write): si
+    /// el servicio auto-creó una "Nueva conversación" vacía (BD sin filas),
+    /// se descarta (mismo patrón que `crear_sesion`) y la sesión queda sin
+    /// conversación actual (`None`). Replica el arranque real con lista vacía.
+    pub(crate) async fn sesion_memoria_borrador(
+        state: &Arc<AppState>,
+    ) -> (String, Arc<SesionWeb>) {
+        let persist = crate::PersistenciaSqlite::en_memoria().expect("bd memoria");
+        let (comun, apertura) = crate::servicio::SesionComun::abrir_con_persistencia(
+            crate::servicio::OpcionesSesion::default(),
+            persist,
+            None,
+        )
+        .expect("abrir sesión memoria");
+        let conversacion_id = if apertura.conv_autocreada {
+            comun
+                .persistencia
+                .conversacion_eliminar(apertura.conversacion.id, comun.user_id)
+                .expect("descartar fantasma");
+            None
+        } else {
+            Some(apertura.conversacion.id)
+        };
+        let (tx, _rx) = broadcast::channel(256);
+        let sid = Uuid::new_v4().to_string();
+        let sesion = Arc::new(SesionWeb {
+            conversacion_id: Mutex::new(conversacion_id),
             comun: Mutex::new(comun),
             tx,
             turno: Mutex::new(None),
@@ -649,7 +714,7 @@ pub(crate) mod tests {
         state.sesiones.lock().await.insert(
             sid.clone(),
             Arc::new(SesionWeb {
-                conversacion_id: Mutex::new(apertura.conversacion.id),
+                conversacion_id: Mutex::new(Some(apertura.conversacion.id)),
                 comun: Mutex::new(comun),
                 tx,
                 turno: Mutex::new(None),

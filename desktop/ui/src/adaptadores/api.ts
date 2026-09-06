@@ -109,12 +109,9 @@ export function crearTransporteApi(base: string, hooks: HooksAdaptador = {}): Tr
       modelo: `${String(c['provider'] ?? '')}/${String(c['modelo'] ?? '')}`,
       workspace: String(c['workspace'] ?? ultimoInfo?.workspace ?? ''),
       proveedores: provs.proveedores.map((p) => ({ nombre: p.nombre, claves: p.disponible ? 1 : 0 })),
-      conversacion: ultimoInfo?.conversacion ?? {
-        id: '',
-        titulo: '',
-        archivada: false,
-        actualizada_en: '',
-      },
+      // [069A-7] Se conserva `null` si la sesión no tiene conversación
+      // (borrador create-on-write); nunca se fabrica una fila fantasma.
+      conversacion: ultimoInfo?.conversacion ?? null,
       aviso: ultimoAviso,
     };
     return recordar(info);
@@ -238,7 +235,7 @@ export function crearTransporteApi(base: string, hooks: HooksAdaptador = {}): Tr
       return r.ok;
     },
     convEliminar: async (id) => {
-      const r = await http<{ actual: InfoConversacion }>(
+      const r = await http<{ actual: InfoConversacion | null }>(
         'DELETE',
         `/api/v1/session/${sid}/conversations/${id}`,
       );
@@ -320,7 +317,7 @@ export function crearTransporteApi(base: string, hooks: HooksAdaptador = {}): Tr
         modelo: '/',
         workspace: r.workspace,
         proveedores: [],
-        conversacion: { id: '', titulo: '', archivada: false, actualizada_en: '' },
+        conversacion: null,
       };
       return recordar({ ...base_info, workspace: r.workspace });
     },
