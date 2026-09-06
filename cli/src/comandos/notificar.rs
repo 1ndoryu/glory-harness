@@ -62,8 +62,7 @@ pub const TIMEOUT_AVISO: Duration = Duration::from_secs(20);
 /// solo porque el build es offline y ninguna dependencia del CLI lo expone;
 /// se usa para el `-EncodedCommand` de PowerShell (que exige UTF-16LE).
 fn base64_encode(datos: &[u8]) -> String {
-    const TABLA: &[u8; 64] =
-        b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    const TABLA: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut salida = String::with_capacity(datos.len().div_ceil(3) * 4);
     for trozo in datos.chunks(3) {
         let mut n: u32 = 0;
@@ -93,8 +92,8 @@ fn script_codificado() -> String {
     base64_encode(&utf16)
 }
 
-/// [069A-3] Dispatcher con los dos avisos (fin de turno + permiso
-/// pendiente) vía `powershell.exe`. El runner por defecto
+/// [069A-3] Dispatcher con los dos avisos (fin de turno + solicitud de
+/// permiso) vía `powershell.exe`. El runner por defecto
 /// (`RunnerComandoHttp`) ejecuta el comando con el payload en stdin.
 #[must_use]
 pub fn dispatcher_notificacion() -> DispatcherHooks {

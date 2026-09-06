@@ -65,6 +65,10 @@ Orden propuesto (dependencias de abajo arriba):
       (`tauri icon`, array `icon` en config). RAM arranque release: WS 40 MB (objetivo
       ≤140 MB ✓). `install-release.bat` (copia el release a `%LOCALAPPDATA%\GloryHarness`).
       Gate `039A-1` **PASS** (0 errores, warnings preexistentes).
+- [ ] **069A-5 — Deuda cero Sentinel** (full 0/0/0): 18 warnings + 4 info
+      (directorio-abarrotado, funcion-larga ×11, limite-lineas ×5+nivel-2 ×2,
+      todo-pendiente ×4). Plan:
+      `Agente/planes/plan-deuda-cero-sentinel-2026-09-06.md`. En curso 06-09.
 - [ ] **069A-2 — Modo web local unificado con Tauri**: arquitectura HTTP + SSE como API única.
       Tanto Tauri como el navegador usan el mismo backend Rust y el mismo adaptador HTTP/SSE
       en TypeScript. Tauri embebe el servidor HTTP en loopback y la webview carga localhost.

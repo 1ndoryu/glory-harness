@@ -50,7 +50,7 @@ struct TramoRewind {
 /// [039A-3 P5] Estado por panel (hasta 2, M1: 1 runtime compartido, turnos NO
 /// simultáneos). Cada panel conoce la conversación que muestra, el turno que
 /// está ejecutando (para marcarlo `cancelado`) y su tramo rebobinado
-/// pendiente de restaurar. M1 no tiene concurrencia real: el guard de turno
+/// por restaurar. M1 no tiene concurrencia real: el guard de turno
 /// es global y un único `Mutex` por mapa serializa el acceso, así que los
 /// campos son planos (sin Mutex interno) y se copian los escalares antes de
 /// cualquier `.await`.
@@ -1274,9 +1274,9 @@ async fn rewind_conversacion(
 /// punto"): acción EXPLÍCITA, nunca automática. Comprueba la fuente de cada
 /// ruta contra su último respaldo GLOBAL (si alguien editó fuera del harness,
 /// NO toca y avisa). Nunca borra archivos. Tras restaurar se limpia el tramo
-/// pendiente (las escrituras deshechas se podan del índice y se hace GC).
+/// por restaurar (las escrituras deshechas se podan del índice y se hace GC).
 /// [039A-3 P5] `panel_id` opcional (default `principal`): opera sobre el tramo
-/// pendiente de la conversación de ESE panel.
+/// por restaurar de la conversación de ESE panel.
 #[tauri::command]
 fn restaurar_archivos_tramo(
     estado: State<'_, Estado>,
