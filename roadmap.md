@@ -83,12 +83,12 @@ Orden propuesto (dependencias de abajo arriba):
       `Agente/planes/plan-web-real-069A-2.md`.
 - [x] **069A-4 — Memoria de aprendizaje fases 1–5** (B3-F8b): HECHO 06-09
       (ver `Agente/completados/tareas-2026-09-06.md`).
-- [x] **069A-1 — Navegador interno visible (F1 + F2):** spike validado de WebView2 child con
-      Tauri 2 (child, navegación, redimensionado, captura, CDP, JS, ciclo cerrar→reabrir).
-      Causa raíz de callbacks COM corregida. F3 (panel UI), F4 (overlay anotaciones), F5
-      (tool del núcleo) y F6 (pipeline multimodal) quedan diferidos como tareas separadas.
-      Plan archivado en `Agente/planes/completados/plan-navegador-interno-069A-1.md`.
-      Evidencia en `Agente/completados/tareas-2026-09-06.md`.
+- [x] **069A-1 — Navegador interno visible completo**: F1+F2 (WebView2 child, comandos IPC,
+      ciclo COM) + F3 (panel UI) + F4 (anotaciones+ToolBrowser) + F5 (tool núcleo) + F6
+      (pipeline multimodal: captura base64 + evento + runtime relay + frontend display).
+      Commit `5f67e82`. Plan archivado en `Agente/planes/completados/`.
+      Excepcion conocida: desktop compilation bloqueada por errores pre-existentes en
+      navegador.rs (Tauri 2 IPC macros).
 
 > **Hecho (04-09, correcciones del primer `tauri dev`):** los 7 hallazgos del primer arranque
 > real quedaron corregidos (H1–H7, bloque 039A-1). Detalle en
