@@ -53,13 +53,13 @@ pub(crate) use uuid::Uuid;
 pub(crate) use glory_harness_core::evento::AgenteEvento;
 pub(crate) use glory_harness_core::runtime::AgentRuntime;
 
-pub(crate) use crate::turno::{historial_desde_persistencia, procesar_turno};
 pub(crate) use crate::run::{construir_harness_durable, OpcionesRun};
+pub(crate) use crate::turno::{historial_desde_persistencia, procesar_turno};
 
-mod texto;
-mod render;
-mod gate;
 mod bucle;
+mod gate;
+mod render;
+mod texto;
 pub use bucle::tui;
 use texto::byte_index;
 
@@ -274,7 +274,11 @@ impl UiEstado {
             .rev()
             .find(|t| t.tool == tool && t.estado == ToolEstado::EnCurso)
         {
-            t.estado = if ok { ToolEstado::Ok } else { ToolEstado::Error };
+            t.estado = if ok {
+                ToolEstado::Ok
+            } else {
+                ToolEstado::Error
+            };
             t.resumen = resumen;
         } else if !ok {
             // Error sin ToolStart previo: se muestra igualmente.
@@ -506,7 +510,11 @@ mod tests {
                 ));
             }
             ui.tool_inicio("file_read".into());
-            ui.tool_fin("file_read", true, Some("120 l\u{00ed}neas le\u{00ed}das".into()));
+            ui.tool_fin(
+                "file_read",
+                true,
+                Some("120 l\u{00ed}neas le\u{00ed}das".into()),
+            );
         }
         // (1) Total coherente y ventana acotada.
         let (v0, total) = filas_visibles(&mut ui, 80, 25);
@@ -525,7 +533,8 @@ mod tests {
         }
         let despues = a_lineas(&mut ui, 80);
         assert_eq!(
-            &despues[..5], &prefijo[..],
+            &despues[..5],
+            &prefijo[..],
             "el streaming corrompi\u{00f3} el prefijo cacheado"
         );
         // (3) Resize: otro ancho re-envuelve sin romper el invariante.
@@ -539,4 +548,3 @@ mod tests {
         assert_eq!(v3.len(), 25, "scroll manual: ventana incompleta");
     }
 }
-

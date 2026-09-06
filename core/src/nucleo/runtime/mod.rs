@@ -30,7 +30,7 @@ use crate::llm::{AiChatOptions, AiMessage, AiToolCall, LlmProviderService};
 use crate::memoria::registrar_tools_memoria;
 use crate::ports::EjecutorComando;
 use crate::ports::{
-    AccionAuditable, AgentPersistence, MensajePersistido, ProgramadorTareas, TurnoPersistido,
+    AccionAuditable, AgentPersistence, MensajePersistido, NavegadorPort, ProgramadorTareas, TurnoPersistido,
     WebFetchProvider, WebSearchProvider,
 };
 use crate::pregunta::{procesar_pregunta, registrar_tool_ask_user};
@@ -152,6 +152,9 @@ pub struct PuertosHarness {
     /// desde la conversación si el consumidor no gestiona tareas; PT tiene su
     /// CRUD propio y lo cableará aquí en una fase posterior).
     pub programador_tareas: Option<Arc<dyn ProgramadorTareas>>,
+    /// [069A-1 F5] Puerto del navegador interno (webview child). `None` →
+    /// la tool `navegador_reflejo` NO se registra (fail-closed).
+    pub navegador: Option<Arc<dyn NavegadorPort>>,
 }
 
 pub struct AgentRuntime {
@@ -227,6 +230,11 @@ impl AgentRuntime {
          * Solo el agente principal: los perfiles de subagente no la incluyen. */
         if let Some(programador) = puertos.programador_tareas.clone() {
             crate::tareas::registrar_tool_programar_tarea(&mut registry, programador);
+        }
+        /* [069A-1 F5] Tool `navegador_reflejo` SOLO con puerto inyectado.
+         * Fail-closed: sin NavegadorPort el modelo no ve la tool. */
+        if puertos.navegador.is_some() {
+            registry.registrar(Box::new(crate::navegador::ToolNavegadorReflejo));
         }
         /* [29-08-2026] Fase 2: tools de archivo SOLO en AGENTE_MODO=local.
          * Fail-closed: si el sandbox no se puede construir (raíz inválida o

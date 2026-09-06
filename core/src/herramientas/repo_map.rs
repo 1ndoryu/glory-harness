@@ -11,9 +11,9 @@
  * trait `AgentTool`: la tool `repo_map` es de solo lectura (`efecto: false`).
  */
 
+use crate::error::{Error, Result};
 use crate::sandbox::SandboxArchivos;
 use crate::tool::{AgentTool, AgentToolContext, AgentToolResult};
-use crate::error::{Error, Result};
 use async_trait::async_trait;
 use serde_json::{json, Value};
 
@@ -378,7 +378,10 @@ fn puntuar(simbolo: &Simbolo, tokens: &[String]) -> u32 {
     }
     let nombre = simbolo.nombre.to_lowercase();
     let ruta = simbolo.ruta.to_lowercase();
-    let aciertos_nombre = tokens.iter().filter(|t| nombre.contains(t.as_str())).count() as u32;
+    let aciertos_nombre = tokens
+        .iter()
+        .filter(|t| nombre.contains(t.as_str()))
+        .count() as u32;
     let aciertos_ruta = tokens.iter().filter(|t| ruta.contains(t.as_str())).count() as u32;
     10 * aciertos_nombre + 5 * aciertos_ruta + peso_tipo(&simbolo.tipo)
 }
@@ -449,11 +452,15 @@ impl AgentTool for ToolRepoMap {
         ctx: &AgentToolContext<'_>,
         argumentos: Value,
     ) -> Result<AgentToolResult> {
-        let sandbox = ctx.sandbox_archivos.as_ref().map(|s| s.as_ref()).ok_or_else(|| {
-            Error::Validacion(
-                "repo_map solo está disponible en modo local (AGENTE_MODO=local)".into(),
-            )
-        })?;
+        let sandbox = ctx
+            .sandbox_archivos
+            .as_ref()
+            .map(|s| s.as_ref())
+            .ok_or_else(|| {
+                Error::Validacion(
+                    "repo_map solo está disponible en modo local (AGENTE_MODO=local)".into(),
+                )
+            })?;
         let consulta = argumentos
             .get("consulta")
             .and_then(Value::as_str)
@@ -462,7 +469,10 @@ impl AgentTool for ToolRepoMap {
             .get("ruta")
             .and_then(Value::as_str)
             .unwrap_or(".");
-        let limite = argumentos.get("limite").and_then(Value::as_u64).map(|l| l as usize);
+        let limite = argumentos
+            .get("limite")
+            .and_then(Value::as_u64)
+            .map(|l| l as usize);
         let mapa = construir_mapa(sandbox, alcance, consulta, limite)?;
         if mapa.total_simbolos == 0 {
             return Ok(AgentToolResult::ok(
@@ -533,12 +543,30 @@ mod tests {
             .iter()
             .map(|p| format!("{}:{} {}", p.simbolo.ruta, p.simbolo.tipo, p.simbolo.nombre))
             .collect();
-        assert!(lineas.contains(&"main.rs:fn main".to_string()), "{lineas:?}");
-        assert!(lineas.contains(&"main.rs:struct App".to_string()), "{lineas:?}");
-        assert!(lineas.contains(&"app.ts:class Tienda".to_string()), "{lineas:?}");
-        assert!(lineas.contains(&"app.ts:function comprar".to_string()), "{lineas:?}");
-        assert!(!lineas.iter().any(|l| l.contains("notas.md")), "md no se indexa");
-        assert!(!lineas.iter().any(|l| l.contains("node_modules")), "deps no se indexan");
+        assert!(
+            lineas.contains(&"main.rs:fn main".to_string()),
+            "{lineas:?}"
+        );
+        assert!(
+            lineas.contains(&"main.rs:struct App".to_string()),
+            "{lineas:?}"
+        );
+        assert!(
+            lineas.contains(&"app.ts:class Tienda".to_string()),
+            "{lineas:?}"
+        );
+        assert!(
+            lineas.contains(&"app.ts:function comprar".to_string()),
+            "{lineas:?}"
+        );
+        assert!(
+            !lineas.iter().any(|l| l.contains("notas.md")),
+            "md no se indexa"
+        );
+        assert!(
+            !lineas.iter().any(|l| l.contains("node_modules")),
+            "deps no se indexan"
+        );
         std::fs::remove_dir_all(&dir).ok();
     }
 
@@ -547,12 +575,29 @@ mod tests {
         let (sandbox, dir) = sandbox_con_fixture();
         /* `otra` solo coincide por ruta (tiendax/); `Tienda` por nombre. */
         std::fs::create_dir_all(dir.join("tiendax")).expect("seed");
-        std::fs::write(dir.join("tiendax").join("otro.py"), "def otra():\n    pass\n").expect("seed");
+        std::fs::write(
+            dir.join("tiendax").join("otro.py"),
+            "def otra():\n    pass\n",
+        )
+        .expect("seed");
         let mapa = construir_mapa(&sandbox, ".", "tienda", None).expect("mapa");
-        let nombres: Vec<&str> = mapa.simbolos.iter().map(|p| p.simbolo.nombre.as_str()).collect();
-        let pos_tienda = nombres.iter().position(|n| *n == "Tienda").expect("Tienda indexada");
-        let pos_otra = nombres.iter().position(|n| *n == "otra").expect("otra indexada");
-        assert!(pos_tienda < pos_otra, "el nombre gana a la sola ruta: {nombres:?}");
+        let nombres: Vec<&str> = mapa
+            .simbolos
+            .iter()
+            .map(|p| p.simbolo.nombre.as_str())
+            .collect();
+        let pos_tienda = nombres
+            .iter()
+            .position(|n| *n == "Tienda")
+            .expect("Tienda indexada");
+        let pos_otra = nombres
+            .iter()
+            .position(|n| *n == "otra")
+            .expect("otra indexada");
+        assert!(
+            pos_tienda < pos_otra,
+            "el nombre gana a la sola ruta: {nombres:?}"
+        );
         std::fs::remove_dir_all(&dir).ok();
     }
 

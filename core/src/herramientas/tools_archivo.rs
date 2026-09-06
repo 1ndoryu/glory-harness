@@ -342,10 +342,20 @@ fn buscar_recursivo(
         let nombre = entry.file_name().to_string_lossy().to_lowercase();
         if ruta.is_dir() {
             /* Saltar carpetas que son claramente no-código y enormes. */
-            if matches!(nombre.as_str(), "node_modules" | "target" | ".git" | ".next" | "dist") {
+            if matches!(
+                nombre.as_str(),
+                "node_modules" | "target" | ".git" | ".next" | "dist"
+            ) {
                 continue;
             }
-            buscar_recursivo(raiz, &ruta, patron, profundidad + 1, resultados, tamano_agregado);
+            buscar_recursivo(
+                raiz,
+                &ruta,
+                patron,
+                profundidad + 1,
+                resultados,
+                tamano_agregado,
+            );
         } else if nombre.contains(patron) || glob_simple(patron, &nombre) {
             if let Ok(metadata) = entry.metadata() {
                 *tamano_agregado += metadata.len();
@@ -377,12 +387,15 @@ fn glob_simple(patron: &str, nombre: &str) -> bool {
 /// Obtiene el sandbox del contexto. El runtime lo inyecta en el contexto de
 /// las tools cuando AGENTE_MODO=local; si no hay sandbox (prod), error claro.
 fn obtener_sandbox<'a>(ctx: &'a AgentToolContext<'a>) -> Result<&'a SandboxArchivos> {
-    ctx.sandbox_archivos.as_ref().map(|s| s.as_ref()).ok_or_else(|| {
-        Error::Validacion(
-            "Las tools de archivo solo están disponibles en modo local (AGENTE_MODO=local)"
-                .into(),
-        )
-    })
+    ctx.sandbox_archivos
+        .as_ref()
+        .map(|s| s.as_ref())
+        .ok_or_else(|| {
+            Error::Validacion(
+                "Las tools de archivo solo están disponibles en modo local (AGENTE_MODO=local)"
+                    .into(),
+            )
+        })
 }
 
 /// Registra las tools de archivo SOLO si hay sandbox (local). Devuelve false
@@ -498,9 +511,7 @@ mod tests {
         std::fs::write(dir.join("doc.txt"), "linea1\n").expect("seed");
         let sandbox = Arc::new(SandboxArchivos::nuevo(&dir).expect("sandbox"));
         let persistencia = crate::contrato_tests::PersistenciaMock::default();
-        let plan = Arc::new(std::sync::RwLock::new(
-            crate::plan::PlanPropuesto::default(),
-        ));
+        let plan = Arc::new(std::sync::RwLock::new(crate::plan::PlanPropuesto::default()));
         let ctx = ctx_con_plan(sandbox.clone(), &persistencia, plan.clone());
 
         let resultado = ToolFileWrite
@@ -535,13 +546,14 @@ mod tests {
         std::fs::write(dir.join("doc.txt"), "hola\n").expect("seed");
         let sandbox = Arc::new(SandboxArchivos::nuevo(&dir).expect("sandbox"));
         let persistencia = crate::contrato_tests::PersistenciaMock::default();
-        let plan = Arc::new(std::sync::RwLock::new(
-            crate::plan::PlanPropuesto::default(),
-        ));
+        let plan = Arc::new(std::sync::RwLock::new(crate::plan::PlanPropuesto::default()));
         let ctx = ctx_con_plan(sandbox.clone(), &persistencia, plan.clone());
 
         let resultado = ToolFilePatch
-            .ejecutar(&ctx, json!({"ruta": "doc.txt", "buscar": "hola", "reemplazar": "adiós"}))
+            .ejecutar(
+                &ctx,
+                json!({"ruta": "doc.txt", "buscar": "hola", "reemplazar": "adiós"}),
+            )
             .await
             .expect("tool responde");
         assert!(resultado.contenido.contains("PROPUESTA (modo plan)"));
@@ -565,7 +577,10 @@ mod tests {
         let ctx = ctx_con_sandbox(Arc::new(sandbox), &persistencia);
 
         let error = ToolFilePatch
-            .ejecutar(&ctx, json!({"ruta": "a.txt", "buscar": "x", "reemplazar": "z"}))
+            .ejecutar(
+                &ctx,
+                json!({"ruta": "a.txt", "buscar": "x", "reemplazar": "z"}),
+            )
             .await
             .expect_err("'x' aparece 2 veces → debe fallar");
         let mensaje = error.to_string();
@@ -587,7 +602,10 @@ mod tests {
         let ctx = ctx_con_sandbox(Arc::new(sandbox), &persistencia);
 
         let error = ToolFilePatch
-            .ejecutar(&ctx, json!({"ruta": "a.txt", "buscar": "fantasma", "reemplazar": "z"}))
+            .ejecutar(
+                &ctx,
+                json!({"ruta": "a.txt", "buscar": "fantasma", "reemplazar": "z"}),
+            )
             .await
             .expect_err("sin ocurrencias → debe fallar");
         let mensaje = error.to_string();
@@ -608,7 +626,10 @@ mod tests {
         std::fs::write(dir.join("app.txt"), "hola mundo\n").expect("seed");
         let sandbox = Arc::new(SandboxArchivos::nuevo(&dir).expect("sandbox"));
         let mut registry = crate::tool::AgentToolRegistry::new();
-        assert!(registrar_tools_archivo(&mut registry, Some(sandbox.clone())));
+        assert!(registrar_tools_archivo(
+            &mut registry,
+            Some(sandbox.clone())
+        ));
         crate::todo::registrar_tool_todo(&mut registry);
         assert!(registry.ids().contains(&"file_patch"));
         assert!(registry.ids().contains(&"todo"));
@@ -627,7 +648,11 @@ mod tests {
         };
 
         let plan = registry
-            .ejecutar("todo", &ctx, json!({"accion": "crear", "texto": "Editar el saludo"}))
+            .ejecutar(
+                "todo",
+                &ctx,
+                json!({"accion": "crear", "texto": "Editar el saludo"}),
+            )
             .await
             .expect("todo crear");
         assert!(plan.ok && plan.contenido.contains("[ ] Editar el saludo"));
@@ -640,7 +665,10 @@ mod tests {
             )
             .await
             .expect("file_patch");
-        assert!(parche.ok && parche.diff.is_some(), "el patch devuelve su diff");
+        assert!(
+            parche.ok && parche.diff.is_some(),
+            "el patch devuelve su diff"
+        );
 
         let cierre = registry
             .ejecutar("todo", &ctx, json!({"accion": "completar", "id": 1}))
@@ -667,7 +695,9 @@ mod tests {
             .map(|k| format!("línea {k}"))
             .collect::<Vec<_>>()
             .join("\n");
-        sandbox.escribir(nombre, &contenido).expect("escribir fixture");
+        sandbox
+            .escribir(nombre, &contenido)
+            .expect("escribir fixture");
     }
 
     #[tokio::test]
@@ -741,10 +771,7 @@ mod tests {
 
         // Un solo parámetro sin el otro: también fail-closed.
         let error2 = ToolFileRead
-            .ejecutar(
-                &ctx,
-                json!({"ruta": "corto.txt", "offset_linea": 2}),
-            )
+            .ejecutar(&ctx, json!({"ruta": "corto.txt", "offset_linea": 2}))
             .await
             .expect_err("offset sin límite → error");
         assert!(error2.to_string().contains("juntos"));
@@ -765,7 +792,10 @@ mod tests {
             .expect("lectura completa");
         assert!(resultado.contenido.contains("línea 1"));
         assert!(resultado.contenido.contains("línea 3"));
-        assert!(!resultado.contenido.contains("[lectura de líneas"), "sin cabecera de rango");
+        assert!(
+            !resultado.contenido.contains("[lectura de líneas"),
+            "sin cabecera de rango"
+        );
         std::fs::remove_dir_all(&dir).ok();
     }
 }

@@ -39,7 +39,7 @@ export interface Sidebar {
 }
 
 /** Acciones de los botones superiores del nav. */
-export type AccionNav = 'nueva' | 'agente' | 'flujo' | 'complementos';
+export type AccionNav = 'nueva' | 'agente' | 'flujo' | 'complementos' | 'navegador';
 
 export interface SidebarOpciones {
   conversaciones: Conversacion[];
@@ -101,6 +101,11 @@ export function montarSidebar(opts: SidebarOpciones): Sidebar {
   nav.appendChild(
     botonNav('complementos', 'Complementos', 'complementos', () =>
       opts.onAccionNav?.('complementos'),
+    ),
+  );
+  nav.appendChild(
+    botonNav('navegador interno', 'Navegador', 'navegador', () =>
+      opts.onAccionNav?.('navegador'),
     ),
   );
 

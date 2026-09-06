@@ -162,7 +162,10 @@ mod tests {
     fn reintento_vacio_una_sola_vez_y_respeta_config() {
         let g = GuardasTurno::default();
         assert!(decidir_reintento_vacio(&g, false));
-        assert!(!decidir_reintento_vacio(&g, true), "solo un reintento por turno");
+        assert!(
+            !decidir_reintento_vacio(&g, true),
+            "solo un reintento por turno"
+        );
         let desactivado = GuardasTurno {
             habilitadas: false,
             ..GuardasTurno::default()

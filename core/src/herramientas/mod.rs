@@ -6,6 +6,7 @@
 
 pub mod comando;
 pub mod mcp;
+pub mod navegador;
 pub mod repo_map;
 pub mod skill;
 pub mod tareas;

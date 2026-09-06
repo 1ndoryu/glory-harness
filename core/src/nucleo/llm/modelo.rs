@@ -120,9 +120,8 @@ const CHAT_FALLBACK_CHAIN: &[(&str, &str)] = &[
  * código. */
 pub(crate) fn url_proveedor(proveedor: &str) -> String {
     if proveedor == "glory" {
-        return std::env::var("GLORY_API_URL").unwrap_or_else(|_| {
-            "http://127.0.0.1:3101/v1/chat/completions".to_string()
-        });
+        return std::env::var("GLORY_API_URL")
+            .unwrap_or_else(|_| "http://127.0.0.1:3101/v1/chat/completions".to_string());
     }
     PROVIDERS
         .iter()
@@ -145,9 +144,7 @@ pub(crate) fn url_proveedor(proveedor: &str) -> String {
 pub(crate) fn modelo_proveedor(proveedor: &str, modelo: &str) -> String {
     if proveedor == "glory" {
         match modelo {
-            "commandcode" | "glm-5.3-flash" | "auto" => {
-                "deepseek/deepseek-v4-flash".to_string()
-            }
+            "commandcode" | "glm-5.3-flash" | "auto" => "deepseek/deepseek-v4-flash".to_string(),
             otro => otro.to_string(),
         }
     } else {
@@ -356,10 +353,7 @@ pub(crate) fn validar_mensajes(mensajes: Vec<AiMessage>) -> Result<Vec<AiMessage
              * (commandcode/deepseek) respondía 400 "Messages with role 'tool'
              * must be a response to a preceding message with 'tool_calls'". */
             if mensaje.role == "assistant"
-                && mensaje
-                    .tool_calls
-                    .as_ref()
-                    .is_some_and(|tc| !tc.is_empty())
+                && mensaje.tool_calls.as_ref().is_some_and(|tc| !tc.is_empty())
             {
                 return true;
             }
@@ -408,10 +402,7 @@ pub(crate) fn validar_mensajes(mensajes: Vec<AiMessage>) -> Result<Vec<AiMessage
             }
         }
         precedido_por_tool_calls = mensaje.role == "assistant"
-            && mensaje
-                .tool_calls
-                .as_ref()
-                .is_some_and(|tc| !tc.is_empty());
+            && mensaje.tool_calls.as_ref().is_some_and(|tc| !tc.is_empty());
         if precedido_por_tool_calls {
             id_tool_call_previo = mensaje
                 .tool_calls
@@ -433,7 +424,10 @@ pub(crate) fn validar_mensajes(mensajes: Vec<AiMessage>) -> Result<Vec<AiMessage
 
 /// Candidatos a probar: el solicitado (si el modelo es válido para el
 /// proveedor) primero, luego la cadena de fallback, sin duplicados.
-pub(crate) fn resolver_candidatos(provider: &str, modelo: &str) -> Vec<(&'static str, &'static str)> {
+pub(crate) fn resolver_candidatos(
+    provider: &str,
+    modelo: &str,
+) -> Vec<(&'static str, &'static str)> {
     let mut candidatos: Vec<(&'static str, &'static str)> = Vec::new();
     if let Some((proveedor, modelo)) = candidato_valido(provider, modelo) {
         candidatos.push((proveedor, modelo));
@@ -512,7 +506,6 @@ pub(crate) fn es_error_transitorio(error: &Error) -> bool {
     status == 429 || (500..=599).contains(&status)
 }
 
-
 /* Convierte las tool_calls crudas del SSE a la estructura tipada del dominio.
  * Función pura extraída del método stream para acortarlo (funcion-larga-rs).
  * [318A-10 02-09-2026] Sanidad defensiva: Laguna S 2.1 free (commandcode)
@@ -546,7 +539,11 @@ pub(crate) fn parsear_tool_calls(tool_calls: Vec<serde_json::Value>) -> Vec<AiTo
                 .and_then(serde_json::Value::as_str)
                 .and_then(|args| serde_json::from_str(args).ok())
                 .unwrap_or_else(|| serde_json::json!({}));
-            Some(AiToolCall { id, nombre, argumentos })
+            Some(AiToolCall {
+                id,
+                nombre,
+                argumentos,
+            })
         })
         .collect()
 }

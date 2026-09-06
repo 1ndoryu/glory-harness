@@ -112,7 +112,9 @@ impl ContextoConfig {
     /// Ventana efectiva = ventana − reserva de salida (nunca por debajo de 1K).
     #[must_use]
     pub fn ventana_efectiva(&self) -> u32 {
-        self.max_ventana.saturating_sub(self.reserva_salida).max(1_000)
+        self.max_ventana
+            .saturating_sub(self.reserva_salida)
+            .max(1_000)
     }
 
     /// Umbral efectivo: si la ventana < 512K se usa el piso (compactar antes),
@@ -198,11 +200,7 @@ impl AgentContextManager {
     /// anteriores a `indice_primer_turno_importante` son los candidatos a resumir.
     /// Equivale a `preparar_con(..., None, false)`: fallback determinista y sin
     /// ventana de seguridad (comportamiento histórico, todos los tests previos).
-    pub fn preparar(
-        &mut self,
-        mensajes: &[AiMessage],
-        indice_system: usize,
-    ) -> CompactarResultado {
+    pub fn preparar(&mut self, mensajes: &[AiMessage], indice_system: usize) -> CompactarResultado {
         self.preparar_con(mensajes, indice_system, None, false)
     }
 
@@ -233,7 +231,8 @@ impl AgentContextManager {
         let (nuevos, cola_tokens, resumen_texto) =
             self.compactar(mensajes, indice_system, resumen_llm);
         let tokens_after: u32 = nuevos.iter().map(tokens_de_mensaje).sum();
-        let ahorro = (tokens_total.saturating_sub(tokens_after)) as f32 / tokens_total.max(1) as f32;
+        let ahorro =
+            (tokens_total.saturating_sub(tokens_after)) as f32 / tokens_total.max(1) as f32;
         self.ahorros_recientes.push(ahorro);
         if self.ahorros_recientes.len() > 2 {
             self.ahorros_recientes.remove(0);
@@ -318,8 +317,8 @@ impl AgentContextManager {
     ) -> (Vec<AiMessage>, u32, String) {
         let ventana_efectiva = self.config.ventana_efectiva();
         // Cola verbatim: 2.5% de la ventana, clamp [10K, 25K].
-        let presupuesto_cola = ((ventana_efectiva as f32 * self.config.cola_verbatim) as u32)
-            .clamp(10_000, 25_000);
+        let presupuesto_cola =
+            ((ventana_efectiva as f32 * self.config.cola_verbatim) as u32).clamp(10_000, 25_000);
 
         // Separar: head (system + siguientes) / medio (a resumir) / cola.
         let mut head: Vec<AiMessage> = Vec::new();
@@ -392,16 +391,14 @@ fn umbral_degenerado(config: &ContextoConfig) -> f32 {
 pub fn tokens_de_mensaje(mensaje: &AiMessage) -> u32 {
     match &mensaje.content {
         serde_json::Value::String(texto) => estimar_tokens(texto),
-        serde_json::Value::Array(items) => {
-            items
-                .iter()
-                .map(|item| {
-                    item.get("text")
-                        .and_then(serde_json::Value::as_str)
-                        .map_or(0, estimar_tokens)
-                })
-                .sum()
-        }
+        serde_json::Value::Array(items) => items
+            .iter()
+            .map(|item| {
+                item.get("text")
+                    .and_then(serde_json::Value::as_str)
+                    .map_or(0, estimar_tokens)
+            })
+            .sum(),
         _ => 0,
     }
 }
@@ -427,7 +424,11 @@ pub fn plantilla_resumen_dirigido() -> String {
 /// - `None` o vacío (el LLM falló) → fallback B determinista: instrucciones y
 ///   preferencias verbatim + último intercambio verbatim.
 #[must_use]
-pub fn resumen_dirigido(mensajes: &[AiMessage], fecha: &str, resumen_llm: Option<String>) -> String {
+pub fn resumen_dirigido(
+    mensajes: &[AiMessage],
+    fecha: &str,
+    resumen_llm: Option<String>,
+) -> String {
     if let Some(llm) = resumen_llm {
         let llm = llm.trim();
         if !llm.is_empty() {
@@ -518,9 +519,7 @@ pub fn resumen_de_mensajes(mensajes: &[AiMessage]) -> String {
     } else {
         partes.join("\n")
     };
-    format!(
-        "## RESUMEN DE LA CONVERSACIÓN ANTERIOR\n{cuerpo}\n--- END OF CONTEXT SUMMARY ---"
-    )
+    format!("## RESUMEN DE LA CONVERSACIÓN ANTERIOR\n{cuerpo}\n--- END OF CONTEXT SUMMARY ---")
 }
 
 #[cfg(test)]
@@ -534,8 +533,14 @@ mod tests {
     fn historial_largo(n_turnos: usize) -> Vec<AiMessage> {
         let mut msgs = vec![mensaje("system", "Eres un asistente.")];
         for i in 0..n_turnos {
-            msgs.push(mensaje("user", &format!("Pregunta {i}: {}", "x".repeat(400))));
-            msgs.push(mensaje("assistant", &format!("Respuesta {i}: {}", "y".repeat(400))));
+            msgs.push(mensaje(
+                "user",
+                &format!("Pregunta {i}: {}", "x".repeat(400)),
+            ));
+            msgs.push(mensaje(
+                "assistant",
+                &format!("Respuesta {i}: {}", "y".repeat(400)),
+            ));
         }
         msgs
     }
@@ -580,7 +585,11 @@ mod tests {
             ..ContextoConfig::default()
         });
         // Mensajes que no ahorran nada (ya compactados).
-        let msgs = vec![mensaje("system", "s"), mensaje("user", "u"), mensaje("assistant", "a")];
+        let msgs = vec![
+            mensaje("system", "s"),
+            mensaje("user", "u"),
+            mensaje("assistant", "a"),
+        ];
         let _ = cm.preparar(&msgs, 0);
         let _ = cm.preparar(&msgs, 0);
         // Tercera: el ahorro es 0 (<10%) → anti-thrash activo; como msgs es
@@ -626,12 +635,20 @@ mod tests {
         /* Suficientes turnos para superar el piso 75% de la ventana efectiva
          * (18K de 18K en ventanas < 512K, ver umbral_efectivo). */
         for i in 0..200 {
-            msgs.push(mensaje("user", &format!("Pregunta {i}: {}", "x".repeat(400))));
-            msgs.push(mensaje("assistant", &format!("Respuesta {i}: {}", "y".repeat(400))));
+            msgs.push(mensaje(
+                "user",
+                &format!("Pregunta {i}: {}", "x".repeat(400)),
+            ));
+            msgs.push(mensaje(
+                "assistant",
+                &format!("Respuesta {i}: {}", "y".repeat(400)),
+            ));
         }
         /* Un system con entorno (como el que el runtime ensambla cada turno)
          * colocado después de los turnos, con marca y contenido único. */
-        let entorno = format!("{MARCA_ENTORNO}\nFecha: 2026-09-03\nWorkspace: C:/ruta/única\n{CIERRE_ENTORNO}");
+        let entorno = format!(
+            "{MARCA_ENTORNO}\nFecha: 2026-09-03\nWorkspace: C:/ruta/única\n{CIERRE_ENTORNO}"
+        );
         msgs.push(mensaje("system", &entorno));
         msgs.push(mensaje("user", "Pregunta final"));
 
@@ -654,7 +671,10 @@ mod tests {
                 _ => String::new(),
             });
         if let Some(resumen) = resumen {
-            assert!(!resumen.contains(MARCA_ENTORNO), "el resumen no duplica el entorno");
+            assert!(
+                !resumen.contains(MARCA_ENTORNO),
+                "el resumen no duplica el entorno"
+            );
         }
     }
 
@@ -699,7 +719,10 @@ mod tests {
         let mut cm = AgentContextManager::new(config);
         let msgs = historial_largo(70);
         let en_tool = cm.preparar_con(&msgs, 0, None, true);
-        assert!(!en_tool.compactado, "ventana de seguridad: no compactar en tool_call");
+        assert!(
+            !en_tool.compactado,
+            "ventana de seguridad: no compactar en tool_call"
+        );
         let sin_tool = cm.preparar_con(&msgs, 0, None, false);
         assert!(sin_tool.compactado, "sin tool en curso sí compacta");
     }
@@ -726,7 +749,10 @@ mod tests {
             serde_json::Value::String(s) => s.clone(),
             _ => String::new(),
         };
-        assert!(texto.contains(&crate::runtime::fecha_hoy()), "tramo fechado");
+        assert!(
+            texto.contains(&crate::runtime::fecha_hoy()),
+            "tramo fechado"
+        );
         assert!(texto.contains("fallback determinista"));
         assert_eq!(r1.metricas.as_ref().expect("métricas").tramos, 1);
         assert!(r1.metricas.as_ref().expect("métricas").resumen_tokens > 0);
@@ -753,8 +779,14 @@ mod tests {
         let con_vacio = resumen_dirigido(&msgs, "2026-09-03", Some(String::new()));
         let sin_llm = resumen_dirigido(&msgs, "2026-09-03", None);
         assert_eq!(con_vacio, sin_llm, "resumen LLM vacío cae al fallback B");
-        assert!(sin_llm.contains("Decisión: usar PostgreSQL"), "instrucción verbatim");
-        assert!(sin_llm.contains("Último intercambio"), "último intercambio verbatim");
+        assert!(
+            sin_llm.contains("Decisión: usar PostgreSQL"),
+            "instrucción verbatim"
+        );
+        assert!(
+            sin_llm.contains("Último intercambio"),
+            "último intercambio verbatim"
+        );
         assert!(sin_llm.contains("2026-09-03"), "tramo fechado");
     }
 
@@ -766,12 +798,23 @@ mod tests {
             "2026-09-03",
             Some("[DECISIONES]\n- usar MySQL".to_string()),
         );
-        for seccion in ["[DECISIONES]", "[PENDIENTES]", "[PREFERENCIAS]", "[RESTRICCIONES]"] {
+        for seccion in [
+            "[DECISIONES]",
+            "[PENDIENTES]",
+            "[PREFERENCIAS]",
+            "[RESTRICCIONES]",
+        ] {
             assert!(v.contains(seccion), "plantilla con {seccion}");
         }
-        assert!(v.contains("no esté en la conversación"), "consigna anti-alucinación");
+        assert!(
+            v.contains("no esté en la conversación"),
+            "consigna anti-alucinación"
+        );
         assert!(v.contains("usar MySQL"), "el resumen LLM viaja");
-        assert!(!v.contains("Instrucción:"), "el cuerpo verbatim no se cuela");
+        assert!(
+            !v.contains("Instrucción:"),
+            "el cuerpo verbatim no se cuela"
+        );
     }
 
     #[test]
@@ -788,14 +831,26 @@ mod tests {
         let mut cm = AgentContextManager::new(config);
         let mut msgs = vec![mensaje("system", "Eres un asistente.")];
         for i in 0..150 {
-            msgs.push(mensaje("user", &format!("Pregunta {i}: {}", "x".repeat(400))));
-            msgs.push(mensaje("assistant", &format!("Respuesta {i}: {}", "y".repeat(400))));
+            msgs.push(mensaje(
+                "user",
+                &format!("Pregunta {i}: {}", "x".repeat(400)),
+            ));
+            msgs.push(mensaje(
+                "assistant",
+                &format!("Respuesta {i}: {}", "y".repeat(400)),
+            ));
         }
         msgs.push(mensaje("user", "Decisión: usar PostgreSQL en el proyecto"));
         msgs.push(mensaje("assistant", "Perfecto, quedará registrado."));
         for i in 151..200 {
-            msgs.push(mensaje("user", &format!("Pregunta {i}: {}", "x".repeat(400))));
-            msgs.push(mensaje("assistant", &format!("Respuesta {i}: {}", "y".repeat(400))));
+            msgs.push(mensaje(
+                "user",
+                &format!("Pregunta {i}: {}", "x".repeat(400)),
+            ));
+            msgs.push(mensaje(
+                "assistant",
+                &format!("Respuesta {i}: {}", "y".repeat(400)),
+            ));
         }
 
         let r = cm.preparar_con(&msgs, 0, None, false);
@@ -810,7 +865,10 @@ mod tests {
             })
             .collect::<Vec<_>>()
             .join("\n");
-        assert!(todo.contains("usar PostgreSQL"), "la decisión sobrevive en el resumen");
+        assert!(
+            todo.contains("usar PostgreSQL"),
+            "la decisión sobrevive en el resumen"
+        );
         assert!(
             r.mensajes.last().is_some_and(|m| m.role == "assistant"),
             "la cola termina en un par completo"

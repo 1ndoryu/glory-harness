@@ -57,14 +57,9 @@ mod tests {
 
     /// Crea un árbol temporal `raiz/sub/deep` con AGENTS.md opcionales en
     /// `raiz` y `raiz/sub`; devuelve (raiz, workspace) para limpiar luego.
-    fn arbol_temporal(
-        agents_raiz: Option<&str>,
-        agents_sub: Option<&str>,
-    ) -> (PathBuf, PathBuf) {
-        let base = std::env::temp_dir().join(format!(
-            "gh-reglas-test-{}",
-            uuid::Uuid::new_v4().simple()
-        ));
+    fn arbol_temporal(agents_raiz: Option<&str>, agents_sub: Option<&str>) -> (PathBuf, PathBuf) {
+        let base =
+            std::env::temp_dir().join(format!("gh-reglas-test-{}", uuid::Uuid::new_v4().simple()));
         let raiz = base.join("raiz");
         let sub = raiz.join("sub");
         let deep = sub.join("deep");
@@ -109,7 +104,15 @@ mod tests {
         // llamada debe devolver la entrada cacheada (no re-leer del disco).
         let primera = cargar_reglas(&workspace);
         // El AGENTS.md vive en la raíz (base/raiz), no en el padre directo.
-        fs::remove_file(workspace.parent().unwrap().parent().unwrap().join("AGENTS.md")).unwrap();
+        fs::remove_file(
+            workspace
+                .parent()
+                .unwrap()
+                .parent()
+                .unwrap()
+                .join("AGENTS.md"),
+        )
+        .unwrap();
         let segunda = cargar_reglas(&workspace);
         fs::remove_dir_all(&base).unwrap();
         assert_eq!(primera, segunda);
@@ -120,8 +123,7 @@ mod tests {
     fn f2_e2e_reglas_llegan_a_la_ranura() {
         // E2E determinista: AGENTS.md falso → loader → prompt ensamblado,
         // verificado dentro de [REGLAS] con fecha fija (sin modelo real).
-        let (base, workspace) =
-            arbol_temporal(Some("Regla 1: no borres archivos ajenos."), None);
+        let (base, workspace) = arbol_temporal(Some("Regla 1: no borres archivos ajenos."), None);
         let reglas = cargar_reglas_sin_cache(&workspace).unwrap();
         let config = crate::run::turno_config_default(Some(workspace.clone()));
         let prompt =

@@ -1,12 +1,11 @@
 //! [059A-N S2] Split mecánico de `llm.rs`: red/HTTP: reintentos con backoff, streaming, hojear_stream y parseo de tool_calls. Movimiento puro — sin
 //! cambios de lógica; el contenido se cortó por rangos del archivo original.
 //!
-use super::*;
 use super::modelo::{es_error_transitorio, parsear_tool_calls};
+use super::*;
 
 const REINTENTOS_TRANSITORIOS: u32 = 2;
 const BACKOFF_BASE_MS: u64 = 500;
-
 
 /// Espera de backoff exponencial entre reintentos (0.5s, 1.5s). Devuelve
 /// inmediatamente si el intento es el primero (sin espera previa).
@@ -118,11 +117,9 @@ async fn resultado_no_stream(
     modelo: &str,
     on_token: &mut (dyn FnMut(&str) -> bool + Send),
 ) -> Result<AiStreamResult, Error> {
-    let datos: serde_json::Value = respuesta.json().await.map_err(|error| {
-        Error::Proveedor {
-            detalle: format!("Respuesta no JSON del proveedor: {error}"),
-            causa: None,
-        }
+    let datos: serde_json::Value = respuesta.json().await.map_err(|error| Error::Proveedor {
+        detalle: format!("Respuesta no JSON del proveedor: {error}"),
+        causa: None,
     })?;
     let contenido = datos
         .pointer("/choices/0/message/content")
@@ -333,16 +330,11 @@ impl LlmProviderService {
         on_token: &mut (dyn FnMut(&str) -> bool + Send),
     ) -> Result<AiStreamResult, Error> {
         let SolicitudStream {
-            proveedor,
-            modelo,
-            ..
+            proveedor, modelo, ..
         } = solicitud;
         let mut ultimo_error: Option<Error> = None;
         for intento in 0..=REINTENTOS_TRANSITORIOS {
-            match self
-                .ejecutar_request_stream(solicitud, on_token)
-                .await
-            {
+            match self.ejecutar_request_stream(solicitud, on_token).await {
                 Ok(resultado) => return Ok(resultado),
                 Err(Error::Cancelado) => return Err(Error::Cancelado),
                 Err(error) if es_error_transitorio(&error) && intento < REINTENTOS_TRANSITORIOS => {
@@ -364,7 +356,6 @@ impl LlmProviderService {
             causa: None,
         }))
     }
-
 }
 
 impl LlmProviderService {
@@ -426,12 +417,11 @@ impl LlmProviderService {
             })?;
 
         let status = respuesta.status();
-        let datos: serde_json::Value = respuesta.json().await.map_err(|error| {
-            Error::Proveedor {
+        let datos: serde_json::Value =
+            respuesta.json().await.map_err(|error| Error::Proveedor {
                 detalle: format!("Respuesta no JSON del proveedor: {error}"),
                 causa: None,
-            }
-        })?;
+            })?;
 
         if !status.is_success() {
             let mensaje = datos
@@ -514,11 +504,18 @@ async fn hojear_stream(
                 continue;
             };
             if let Some(usage) = evento.get("usage") {
-                tokens_prompt = usage.get("prompt_tokens").and_then(serde_json::Value::as_u64).unwrap_or(0) as u32;
-                tokens_complecion = usage.get("completion_tokens").and_then(serde_json::Value::as_u64).unwrap_or(0) as u32;
+                tokens_prompt = usage
+                    .get("prompt_tokens")
+                    .and_then(serde_json::Value::as_u64)
+                    .unwrap_or(0) as u32;
+                tokens_complecion = usage
+                    .get("completion_tokens")
+                    .and_then(serde_json::Value::as_u64)
+                    .unwrap_or(0) as u32;
             }
             if let Some(delta) = evento.pointer("/choices/0/delta") {
-                if let Some(texto_delta) = delta.get("content").and_then(serde_json::Value::as_str) {
+                if let Some(texto_delta) = delta.get("content").and_then(serde_json::Value::as_str)
+                {
                     contenido.push_str(texto_delta);
                     /* Fase 4: cancelación real — si el cliente cortó el SSE,
                      * dejar de consumir el stream del proveedor de inmediato. */
@@ -526,17 +523,36 @@ async fn hojear_stream(
                         return Err(Error::Cancelado);
                     }
                 }
-                if let Some(calls) = delta.get("tool_calls").and_then(serde_json::Value::as_array) {
+                if let Some(calls) = delta
+                    .get("tool_calls")
+                    .and_then(serde_json::Value::as_array)
+                {
                     for call in calls {
-                        let index = call.get("index").and_then(serde_json::Value::as_u64).unwrap_or(0) as usize;
+                        let index = call
+                            .get("index")
+                            .and_then(serde_json::Value::as_u64)
+                            .unwrap_or(0) as usize;
                         if tool_calls.len() <= index {
-                            tool_calls.resize(index + 1, serde_json::json!({ "function": { "name": "", "arguments": "" } }));
+                            tool_calls.resize(
+                                index + 1,
+                                serde_json::json!({ "function": { "name": "", "arguments": "" } }),
+                            );
                         }
-                        if let Some(nombre) = call.pointer("/function/name").and_then(serde_json::Value::as_str) {
-                            tool_calls[index]["function"]["name"] = serde_json::Value::String(nombre.to_string());
+                        if let Some(nombre) = call
+                            .pointer("/function/name")
+                            .and_then(serde_json::Value::as_str)
+                        {
+                            tool_calls[index]["function"]["name"] =
+                                serde_json::Value::String(nombre.to_string());
                         }
-                        if let Some(args) = call.pointer("/function/arguments").and_then(serde_json::Value::as_str) {
-                            let actual = tool_calls[index]["function"]["arguments"].as_str().unwrap_or("").to_string();
+                        if let Some(args) = call
+                            .pointer("/function/arguments")
+                            .and_then(serde_json::Value::as_str)
+                        {
+                            let actual = tool_calls[index]["function"]["arguments"]
+                                .as_str()
+                                .unwrap_or("")
+                                .to_string();
                             tool_calls[index]["function"]["arguments"] =
                                 serde_json::Value::String(format!("{actual}{args}"));
                         }
@@ -546,7 +562,10 @@ async fn hojear_stream(
                     }
                 }
             }
-            if let Some(fr) = evento.pointer("/choices/0/finish_reason").and_then(serde_json::Value::as_str) {
+            if let Some(fr) = evento
+                .pointer("/choices/0/finish_reason")
+                .and_then(serde_json::Value::as_str)
+            {
                 if !fr.is_empty() && fr != "null" {
                     finish_reason = fr.to_string();
                 }
@@ -554,5 +573,11 @@ async fn hojear_stream(
         }
     }
 
-    Ok((contenido, tool_calls, tokens_prompt, tokens_complecion, finish_reason))
+    Ok((
+        contenido,
+        tool_calls,
+        tokens_prompt,
+        tokens_complecion,
+        finish_reason,
+    ))
 }

@@ -12,7 +12,10 @@ pub enum Error {
     ToolDesconocida(String),
     /// Error de proveedor LLM (red, auth, upstream). Lleva un detalle
     /// presentable y una causa interna opcional que **no** se expone al LLM.
-    Proveedor { detalle: String, causa: Option<String> },
+    Proveedor {
+        detalle: String,
+        causa: Option<String>,
+    },
     /// Entrada inválida (payload mal formado, parámetros fuera de rango).
     Validacion(String),
     /// La operación de persistencia declarada por el puerto falló.
@@ -34,10 +37,16 @@ impl fmt::Display for Error {
         match self {
             Error::Argumentos(msg) => write!(f, "argumentos de tool inválidos: {msg}"),
             Error::ToolDesconocida(id) => write!(f, "tool desconocida: {id}"),
-            Error::Proveedor { detalle, causa: Some(causa) } => {
+            Error::Proveedor {
+                detalle,
+                causa: Some(causa),
+            } => {
                 write!(f, "{detalle} ({causa})")
             }
-            Error::Proveedor { detalle, causa: None } => write!(f, "{detalle}"),
+            Error::Proveedor {
+                detalle,
+                causa: None,
+            } => write!(f, "{detalle}"),
             Error::Validacion(msg) => write!(f, "entrada inválida: {msg}"),
             Error::Persistencia(msg) => write!(f, "error de persistencia: {msg}"),
             Error::Sandbox(msg) => write!(f, "ruta bloqueada por el sandbox: {msg}"),

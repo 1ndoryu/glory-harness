@@ -25,7 +25,9 @@ pub async fn mostrar_plan_si_aplica(
     rx_lineas: &mut tokio::sync::mpsc::Receiver<Option<String>>,
 ) -> Result<(), String> {
     if runtime.turno_config.modo == "plan"
-        && runtime.plan_actual().is_some_and(|p| glory_harness_core::plan::tiene_cambios(&p))
+        && runtime
+            .plan_actual()
+            .is_some_and(|p| glory_harness_core::plan::tiene_cambios(&p))
     {
         gestionar_plan(runtime, workspace, historial, rx_lineas, false).await?;
     }
@@ -44,7 +46,10 @@ pub async fn gestionar_plan(
     auto_preguntar: bool,
 ) -> Result<(), String> {
     let Some(plan) = runtime.plan_actual() else {
-        println!("[plan] no hay propuesta (modo actual: {})", runtime.turno_config.modo);
+        println!(
+            "[plan] no hay propuesta (modo actual: {})",
+            runtime.turno_config.modo
+        );
         return Ok(());
     };
     println!("───────────────── propuesta en modo plan ─────────────────");
@@ -56,11 +61,7 @@ pub async fn gestionar_plan(
     if !glory_harness_core::plan::tiene_cambios(&plan) {
         return Ok(());
     }
-    let sandbox = match workspace
-        .as_deref()
-        .map(SandboxArchivos::nuevo)
-        .transpose()
-    {
+    let sandbox = match workspace.as_deref().map(SandboxArchivos::nuevo).transpose() {
         Ok(Some(sandbox)) => sandbox,
         Ok(None) => {
             eprintln!("[plan] sin workspace: no se puede aplicar");
@@ -74,11 +75,17 @@ pub async fn gestionar_plan(
     print!("¿Aprobar y aplicar? (s=aprobar · n=dejar pendiente · d=descartar) ");
     let _ = std::io::stdout().flush();
     match leer_linea(rx_lineas).await {
-        Some(linea) if matches!(linea.trim().to_lowercase().as_str(), "s" | "si" | "y" | "yes" | "aprobar") => {
+        Some(linea)
+            if matches!(
+                linea.trim().to_lowercase().as_str(),
+                "s" | "si" | "y" | "yes" | "aprobar"
+            ) =>
+        {
             /* [318A-17 B3-F6] Aprobar deja checkpoint recuperable: la imagen
              * previa se captura ANTES de escribir (fail-closed) y `/undo`
              * restaura. */
-            match glory_harness_core::plan::aplicar_plan_con_checkpoint(&plan, &sandbox, historial) {
+            match glory_harness_core::plan::aplicar_plan_con_checkpoint(&plan, &sandbox, historial)
+            {
                 Ok(msg) => println!("[plan] {msg}"),
                 Err(e) => eprintln!("[plan] no se pudo aplicar: {e}"),
             }
@@ -111,7 +118,8 @@ pub fn ejecutar_undo(
     match glory_harness_core::historial::revertir_ultimo(historial, &sandbox) {
         Ok(Some(msg)) => Ok(msg),
         Ok(None) => Ok(
-            "[chat] no hay checkpoint que deshacer (esta sesión no ha aprobado un plan)".to_string(),
+            "[chat] no hay checkpoint que deshacer (esta sesión no ha aprobado un plan)"
+                .to_string(),
         ),
         Err(e) => Err(format!("no se pudo revertir: {e}")),
     }

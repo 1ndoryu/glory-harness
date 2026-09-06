@@ -232,10 +232,7 @@ mod tests {
     }
 
     fn leer(sandbox: &SandboxArchivos, relativa: &str) -> String {
-        sandbox
-            .leer(relativa, usize::MAX)
-            .expect("leer")
-            .0
+        sandbox.leer(relativa, usize::MAX).expect("leer").0
     }
 
     #[test]
@@ -244,8 +241,8 @@ mod tests {
         escribir(&sandbox, "a.txt", "v1\n");
         let historial = historial();
         /* El checkpoint se toma ANTES del cambio (con el estado v1). */
-        let id = tomar_checkpoint(&historial, &sandbox, "plan", &["a.txt".into()])
-            .expect("checkpoint");
+        let id =
+            tomar_checkpoint(&historial, &sandbox, "plan", &["a.txt".into()]).expect("checkpoint");
         assert_eq!(id, 1);
         escribir(&sandbox, "a.txt", "v2\n");
         assert_eq!(leer(&sandbox, "a.txt"), "v2\n");
@@ -274,8 +271,13 @@ mod tests {
             .expect("undo")
             .expect("hay checkpoint");
         assert!(msg.contains("eliminado"));
-        let err = sandbox.leer("nuevo.txt", usize::MAX).expect_err("ya no existe");
-        assert!(matches!(err, Error::NoEncontrado(_)), "error de no encontrado: {err}");
+        let err = sandbox
+            .leer("nuevo.txt", usize::MAX)
+            .expect_err("ya no existe");
+        assert!(
+            matches!(err, Error::NoEncontrado(_)),
+            "error de no encontrado: {err}"
+        );
         assert_eq!(leer(&sandbox, "base.txt"), "x\n", "el resto queda intacto");
     }
 
@@ -288,21 +290,26 @@ mod tests {
         escribir(&sandbox, "a.txt", "v1\n");
         tomar_checkpoint(&historial, &sandbox, "c2", &["a.txt".into()]).expect("ckpt 2");
         escribir(&sandbox, "a.txt", "v2\n");
-        revertir_ultimo(&historial, &sandbox).expect("undo 2").expect("ckpt 2");
+        revertir_ultimo(&historial, &sandbox)
+            .expect("undo 2")
+            .expect("ckpt 2");
         assert_eq!(leer(&sandbox, "a.txt"), "v1\n", "undo 2 → estado tras c1");
-        revertir_ultimo(&historial, &sandbox).expect("undo 1").expect("ckpt 1");
+        revertir_ultimo(&historial, &sandbox)
+            .expect("undo 1")
+            .expect("ckpt 1");
         assert_eq!(leer(&sandbox, "a.txt"), "v0\n", "undo 1 → estado original");
-        assert!(revertir_ultimo(&historial, &sandbox)
-            .expect("undo vacío")
-            .is_none(), "sin más checkpoints no hay nada que deshacer");
+        assert!(
+            revertir_ultimo(&historial, &sandbox)
+                .expect("undo vacío")
+                .is_none(),
+            "sin más checkpoints no hay nada que deshacer"
+        );
     }
 
     #[test]
     fn limite_acotado_descarta_los_mas_viejos() {
         let sandbox = sandbox_tmp();
-        let historial = Arc::new(RwLock::new(
-            HistorialCambios::nuevo().con_limite(2),
-        ));
+        let historial = Arc::new(RwLock::new(HistorialCambios::nuevo().con_limite(2)));
         for i in 0..3 {
             let relativa = format!("a{i}.txt");
             tomar_checkpoint(
@@ -314,16 +321,20 @@ mod tests {
             .expect("ckpt");
             escribir(&sandbox, &relativa, "contenido\n");
         }
-        let ids = historial
-            .read()
-            .unwrap_or_else(|p| p.into_inner())
-            .ids();
+        let ids = historial.read().unwrap_or_else(|p| p.into_inner()).ids();
         assert_eq!(ids, vec![3, 2], "el checkpoint 1 se descartó por el límite");
-        revertir_ultimo(&historial, &sandbox).expect("undo").expect("ckpt 3");
-        revertir_ultimo(&historial, &sandbox).expect("undo").expect("ckpt 2");
-        assert!(revertir_ultimo(&historial, &sandbox)
+        revertir_ultimo(&historial, &sandbox)
             .expect("undo")
-            .is_none(), "el checkpoint descartado ya no es recuperable");
+            .expect("ckpt 3");
+        revertir_ultimo(&historial, &sandbox)
+            .expect("undo")
+            .expect("ckpt 2");
+        assert!(
+            revertir_ultimo(&historial, &sandbox)
+                .expect("undo")
+                .is_none(),
+            "el checkpoint descartado ya no es recuperable"
+        );
     }
 
     #[test]
@@ -339,8 +350,10 @@ mod tests {
             &[ruta_fuera.to_string_lossy().into_owned()],
         )
         .expect_err("la ruta con '..' debe fallar");
-        assert!(err.to_string().contains("..") || err.to_string().contains("no se permiten"),
-            "error claro de contención: {err}");
+        assert!(
+            err.to_string().contains("..") || err.to_string().contains("no se permiten"),
+            "error claro de contención: {err}"
+        );
         /* Fail-closed: nada quedó registrado. */
         assert!(historial
             .read()
@@ -361,6 +374,10 @@ mod tests {
             .expect("undo")
             .expect("hay checkpoint");
         assert!(msg.contains("restaurado") && !msg.contains("eliminado"));
-        assert_eq!(leer(&sandbox, "vacio.txt"), "", "se restauró el archivo vacío, no se borró");
+        assert_eq!(
+            leer(&sandbox, "vacio.txt"),
+            "",
+            "se restauró el archivo vacío, no se borró"
+        );
     }
 }

@@ -32,8 +32,7 @@ pub fn diff_lineas(antes: &str, despues: &str) -> Option<String> {
     /* Fases 1-3: LCS, camino emparejado y ops de emisión (helpers puros
      * extraídos en [059A S3]; el flujo es idéntico al original). */
     let len = lcs_longitudes(&antes, &despues);
-    let (emparejadas_antes, emparejadas_despues) =
-        lineas_emparejadas(&antes, &despues, &len);
+    let (emparejadas_antes, emparejadas_despues) = lineas_emparejadas(&antes, &despues, &len);
     let ops = ops_emision(&antes, &despues, &emparejadas_antes, &emparejadas_despues);
     /* Intervalos de ops visibles: cada cambio ± CONTEXTO, fusionados si se
      * solapan. Sin cambios no hay hunks (pero antes != despues garantiza
@@ -148,10 +147,7 @@ fn intervalos_cambio(ops: &[Op]) -> Vec<(usize, usize)> {
 
 /// Añade el placeholder de líneas iguales elididas entre hunks.
 fn escribir_elididas(salida: &mut String, ops: &[Op]) {
-    let elididas = ops
-        .iter()
-        .filter(|op| matches!(op, Op::Igual(..)))
-        .count();
+    let elididas = ops.iter().filter(|op| matches!(op, Op::Igual(..))).count();
     if elididas > 0 {
         salida.push_str(&format!("… {elididas} líneas sin cambios …\n"));
     }
@@ -281,7 +277,10 @@ mod tests {
 
     #[test]
     fn cambios_separados_generan_dos_hunks() {
-        let antes = (1..=20).map(|k| format!("l{k}")).collect::<Vec<_>>().join("\n");
+        let antes = (1..=20)
+            .map(|k| format!("l{k}"))
+            .collect::<Vec<_>>()
+            .join("\n");
         let mut v: Vec<String> = (1..=20).map(|k| format!("l{k}")).collect();
         v[1] = "X".to_string();
         v[17] = "Y".to_string();

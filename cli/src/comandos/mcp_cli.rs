@@ -47,12 +47,13 @@ pub async fn registrar_desde_env(registry: &mut AgentToolRegistry) -> Result<(),
         }
         let proveedor = tokio::time::timeout(
             Duration::from_secs(10),
-            glory_harness_core::mcp::McpProveedorStdio::nuevo(&servidor.comando, servidor.argumentos),
+            glory_harness_core::mcp::McpProveedorStdio::nuevo(
+                &servidor.comando,
+                servidor.argumentos,
+            ),
         )
         .await
-        .map_err(|_| {
-            format!("servidor MCP `{nombre}`: timeout (10 s) en arranque/initialize")
-        })?
+        .map_err(|_| format!("servidor MCP `{nombre}`: timeout (10 s) en arranque/initialize"))?
         .map_err(|e| format!("servidor MCP `{nombre}`: {e}"))?;
         registry
             .registrar_mcp(&nombre, Arc::new(proveedor))

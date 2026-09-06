@@ -30,7 +30,7 @@ use tokio::sync::Mutex;
 use uuid::Uuid;
 
 use glory_harness_core::evento::AgenteEvento;
-use glory_harness_core::llm::{LlmProviderService, LlavesProveedor};
+use glory_harness_core::llm::{LlavesProveedor, LlmProviderService};
 use glory_harness_core::runtime::{AgentRuntime, PuertosHarness, TurnoConfig};
 use glory_harness_core::tool::AgentToolRegistry;
 use glory_harness_core::AgentPersistence;
@@ -119,11 +119,11 @@ impl Daemon {
             web_fetch: None,
             dominio: None,
             ejecutor_comando: Some(Arc::new(crate::ejecutor::EjecutorCliente::nuevo())),
-            programador_tareas: Some(Arc::new(
-                crate::persistencia::ProgramadorMemoria::nuevo(),
-            )),
+            programador_tareas: Some(Arc::new(crate::persistencia::ProgramadorMemoria::nuevo())),
+            navegador: None,
         };
-        let runtime = AgentRuntime::nuevo(AgentToolRegistry::new(), puertos, TurnoConfig::default());
+        let runtime =
+            AgentRuntime::nuevo(AgentToolRegistry::new(), puertos, TurnoConfig::default());
         let sesion = Arc::new(Sesion::nueva(runtime));
 
         let session_id = Uuid::new_v4();
@@ -146,9 +146,10 @@ impl Daemon {
     ) -> Result<(), String> {
         let sesion = {
             let sesiones = self.sesiones.lock().await;
-            sesiones.get(session_id).cloned().ok_or_else(|| {
-                "sesión no encontrada (abre sesion_abrir primero)".to_string()
-            })?
+            sesiones
+                .get(session_id)
+                .cloned()
+                .ok_or_else(|| "sesión no encontrada (abre sesion_abrir primero)".to_string())?
         };
         let _guard = sesion._lock.lock().await;
 
@@ -197,7 +198,9 @@ impl Daemon {
 
 /// Escribe una línea NDJSON (con salto de línea y flush) a la mitad de escritura.
 async fn escribir_linea(w: &mut WriteHalf<TcpStream>, linea: &str) -> Result<(), String> {
-    w.write_all(linea.as_bytes()).await.map_err(|e| e.to_string())?;
+    w.write_all(linea.as_bytes())
+        .await
+        .map_err(|e| e.to_string())?;
     w.write_all(b"\n").await.map_err(|e| e.to_string())?;
     w.flush().await.map_err(|e| e.to_string())?;
     Ok(())
@@ -221,11 +224,9 @@ async fn atender(daemon: Daemon, stream: TcpStream) {
                     let r = Respuesta::Error {
                         mensaje: "petición inválida (JSON NDJSON esperado)".into(),
                     };
-                    let _ = escribir_linea(
-                        &mut writer,
-                        &serde_json::to_string(&r).unwrap_or_default(),
-                    )
-                    .await;
+                    let _ =
+                        escribir_linea(&mut writer, &serde_json::to_string(&r).unwrap_or_default())
+                            .await;
                     continue;
                 };
                 respond(daemon.clone(), peticion, &mut writer).await;
@@ -255,7 +256,10 @@ async fn respond(daemon: Daemon, peticion: Peticion, writer: &mut WriteHalf<TcpS
                 })
             }
         }
-        Peticion::Turno { session_id, mensaje } => {
+        Peticion::Turno {
+            session_id,
+            mensaje,
+        } => {
             let res = daemon.ejecutar_turno(&session_id, mensaje, writer).await;
             if let Err(err) = res {
                 Some(Respuesta::Error { mensaje: err })
@@ -287,7 +291,9 @@ pub async fn run(puerto: u16, mostrar_token: bool) -> std::process::ExitCode {
             return std::process::ExitCode::from(1);
         }
     };
-    eprintln!("[glory-harness] daemon escuchando en 127.0.0.1:{puerto} (NDJSON, token obligatorio)");
+    eprintln!(
+        "[glory-harness] daemon escuchando en 127.0.0.1:{puerto} (NDJSON, token obligatorio)"
+    );
 
     let daemon = Daemon::nuevo(token);
     loop {

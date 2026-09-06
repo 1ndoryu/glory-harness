@@ -5,7 +5,6 @@ use super::*;
 
 use super::texto::*;
 
-
 /// Render de una línea del asistente con markdown MUY ligero y seguro:
 /// `**negrita**` → negrita, `` `código` `` → amarillo, líneas de bloque de
 /// código (```) → cyan. No parsea HTML ni ejecuta nada.
@@ -117,8 +116,7 @@ pub(crate) fn filas_abiertas(ui: &UiEstado, ancho: usize) -> Vec<Line<'static>> 
 #[cfg(test)]
 pub(crate) fn a_lineas(ui: &mut UiEstado, ancho: usize) -> Vec<Line<'static>> {
     let _cerrados = sincronizar_cache(ui, ancho);
-    let mut salida: Vec<Line<'static>> =
-        Vec::with_capacity(ui.cache_filas.filas.len() + 8);
+    let mut salida: Vec<Line<'static>> = Vec::with_capacity(ui.cache_filas.filas.len() + 8);
     salida.extend(ui.cache_filas.filas.iter().cloned());
     salida.extend(filas_abiertas(ui, ancho));
     if salida.is_empty() {
@@ -198,18 +196,13 @@ fn filas_de_bloque(msg: &Bloque, ancho: usize, cursor: bool) -> Vec<Line<'static
                 } else {
                     t.tool.clone()
                 };
-                for (j, fila) in
-                    envolver_con_prefijo(&texto, ancho, "  ").iter().enumerate()
-                {
+                for (j, fila) in envolver_con_prefijo(&texto, ancho, "  ").iter().enumerate() {
                     if j == 0 {
                         filas.push(Line::from(vec![
                             Span::raw("  "),
                             icono.clone(),
                             Span::raw(" "),
-                            Span::styled(
-                                fila.trim_start().to_string(),
-                                Style::default().fg(color),
-                            ),
+                            Span::styled(fila.trim_start().to_string(), Style::default().fg(color)),
                         ]));
                     } else {
                         filas.push(Line::from(Span::styled(
@@ -223,7 +216,6 @@ fn filas_de_bloque(msg: &Bloque, ancho: usize, cursor: bool) -> Vec<Line<'static
     }
     filas
 }
-
 
 /// Pinta el layout completo estilo opencode-ligero: cabecera, mensajes con
 /// scroll (manual o al final), prompt inferior con borde y barra de estado.
@@ -372,7 +364,10 @@ fn pintar_prompt(f: &mut Frame, area: Rect, ui: &UiEstado) {
     );
     // Cursor: prefijo (2) + (posición del cursor − desplazamiento horizontal).
     let col_cursor = area_entrada.x + 2 + (cursor_col as u16).saturating_sub(hscroll);
-    f.set_cursor_position((col_cursor.min(area_entrada.x + area_entrada.width), area_prompt.y));
+    f.set_cursor_position((
+        col_cursor.min(area_entrada.x + area_entrada.width),
+        area_prompt.y,
+    ));
 }
 
 /// [059A-S3] Barra inferior: ayuda por defecto o el estado actual (errores en
@@ -418,4 +413,3 @@ pub(crate) fn dibujar(f: &mut Frame, ui: &mut UiEstado, cabecera: &str, estado: 
     pintar_prompt(f, chunks[2], ui);
     pintar_barra_estado(f, chunks[3], estado);
 }
-

@@ -28,7 +28,10 @@ pub struct HerramientaEjecutada {
 /// recibió/produjo, con fecha). El REPL y la TUI la alimentan igual.
 #[derive(Debug, Clone)]
 pub enum ItemExport {
-    Usuario { texto: String, fecha: DateTime<Utc> },
+    Usuario {
+        texto: String,
+        fecha: DateTime<Utc>,
+    },
     Asistente {
         texto: String,
         fecha: DateTime<Utc>,
@@ -57,7 +60,11 @@ impl ItemExport {
 
 /// Rendering puro: conversación → Markdown. Determinista (recibe la fecha de
 /// export como parámetro) para que los tests no dependan del reloj.
-pub fn render_markdown(conversacion_id: Uuid, items: &[ItemExport], exportado: DateTime<Utc>) -> String {
+pub fn render_markdown(
+    conversacion_id: Uuid,
+    items: &[ItemExport],
+    exportado: DateTime<Utc>,
+) -> String {
     let mut salida = String::new();
     let _ = writeln!(salida, "# Export de conversación — glory-harness");
     let _ = writeln!(salida);
@@ -98,11 +105,8 @@ pub fn render_markdown(conversacion_id: Uuid, items: &[ItemExport], exportado: D
                                 continue;
                             }
                         }
-                        let _ = writeln!(
-                            salida,
-                            "- `{tool}` → {estado} · {resumen}",
-                            tool = h.tool
-                        );
+                        let _ =
+                            writeln!(salida, "- `{tool}` → {estado} · {resumen}", tool = h.tool);
                     }
                 }
             }

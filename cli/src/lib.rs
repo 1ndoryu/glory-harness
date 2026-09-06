@@ -14,21 +14,26 @@
  * de `main.rs` y del escritorio sigan resolviendo sin cambios. `persistencia_sqlite`
  * queda en la raíz hasta el cierre del ajeno 039A-3. */
 mod comandos;
-mod ui;
 mod infra;
+mod ui;
 
 pub use comandos::*;
-pub use ui::*;
 pub use infra::*;
+pub use ui::*;
 
 pub mod persistencia_sqlite;
 
-pub use ui::turno::{TurnoResultado, historial_desde_persistencia, procesar_turno};
+pub mod servicio;
+
+pub use comandos::run::{
+    construir_harness, construir_harness_con, quitar_prefijo_verbatim, turno_config_default,
+    OpcionesRun, SalidaTurno, VENTANA_MINIMA,
+};
 pub use infra::ejecutor::EjecutorCliente;
 pub use infra::persistencia::{PersistenciaMemoria, ProgramadorMemoria};
-pub use persistencia_sqlite::{AccionRecuperada, InfoConversacion, PersistenciaSqlite};
 pub use infra::reglas::cargar_reglas;
-pub use comandos::run::{OpcionesRun, SalidaTurno, VENTANA_MINIMA, construir_harness, construir_harness_con, quitar_prefijo_verbatim, turno_config_default};
+pub use persistencia_sqlite::{AccionRecuperada, InfoConversacion, PersistenciaSqlite};
+pub use ui::turno::{historial_desde_persistencia, procesar_turno, TurnoResultado};
 
 /// Carga `~/.glory-harness.env` si existe (formato `CLAVE=valor`,
 /// `#` = comentario). Solo define variables aún ausentes, así el entorno real

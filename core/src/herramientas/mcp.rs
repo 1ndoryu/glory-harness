@@ -61,12 +61,13 @@ impl SesionStdio {
         }))
         .map_err(|e| Error::Interno(format!("serializar JSON-RPC: {e}")))?;
         linea.push('\n');
-        self.stdin.write_all(linea.as_bytes()).await.map_err(|e| {
-            Error::Proveedor {
+        self.stdin
+            .write_all(linea.as_bytes())
+            .await
+            .map_err(|e| Error::Proveedor {
                 detalle: format!("escribir al servidor MCP ({metodo}): {e}"),
                 causa: None,
-            }
-        })?;
+            })?;
         self.stdin.flush().await.map_err(|e| Error::Proveedor {
             detalle: format!("flush al servidor MCP ({metodo}): {e}"),
             causa: None,
@@ -196,7 +197,10 @@ impl McpProveedor for McpProveedorStdio {
                 detalle: format!(
                     "tools/list del servidor MCP `{}`: {}",
                     self.comando,
-                    error.get("message").and_then(Value::as_str).unwrap_or("error")
+                    error
+                        .get("message")
+                        .and_then(Value::as_str)
+                        .unwrap_or("error")
                 ),
                 causa: None,
             });
@@ -237,7 +241,10 @@ impl McpProveedor for McpProveedorStdio {
                 detalle: format!(
                     "tools/call `{herramienta}` (MCP `{}`): {}",
                     self.comando,
-                    error.get("message").and_then(Value::as_str).unwrap_or("error")
+                    error
+                        .get("message")
+                        .and_then(Value::as_str)
+                        .unwrap_or("error")
                 ),
                 causa: None,
             });
@@ -245,7 +252,11 @@ impl McpProveedor for McpProveedorStdio {
         let resultado = r.get("result").cloned().unwrap_or_else(|| json!({}));
         if resultado.get("isError").and_then(Value::as_bool) == Some(true) {
             return Err(Error::Proveedor {
-                detalle: format!("el servidor MCP `{}` falló en `{herramienta}`: {}", self.comando, extraer_texto(&resultado)),
+                detalle: format!(
+                    "el servidor MCP `{}` falló en `{herramienta}`: {}",
+                    self.comando,
+                    extraer_texto(&resultado)
+                ),
                 causa: None,
             });
         }
@@ -302,7 +313,10 @@ impl AgentTool for ToolMcpAdapter {
         _ctx: &AgentToolContext<'_>,
         argumentos: Value,
     ) -> Result<AgentToolResult> {
-        let resultado = self.proveedor.llamar(&self.herramienta.nombre, argumentos).await?;
+        let resultado = self
+            .proveedor
+            .llamar(&self.herramienta.nombre, argumentos)
+            .await?;
         let contenido = extraer_texto(&resultado);
         let resumen = contenido
             .chars()
@@ -371,15 +385,17 @@ mod tests {
             .iter()
             .filter_map(|s| s["function"]["name"].as_str().map(str::to_string))
             .collect();
-        assert!(nombres.contains(&"mcp_mi_servidor_leer".into()), "{nombres:?}");
+        assert!(
+            nombres.contains(&"mcp_mi_servidor_leer".into()),
+            "{nombres:?}"
+        );
         let leer = schemas
             .iter()
             .find(|s| s["function"]["name"] == "mcp_mi_servidor_leer")
             .expect("schema de leer");
         assert_eq!(leer["function"]["description"], "Lee un archivo remoto");
         assert_eq!(
-            leer["function"]["parameters"]["required"][0],
-            "ruta",
+            leer["function"]["parameters"]["required"][0], "ruta",
             "el schema del servidor viaja al modelo"
         );
     }

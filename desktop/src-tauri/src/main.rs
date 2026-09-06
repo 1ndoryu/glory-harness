@@ -19,21 +19,19 @@
 
 use std::sync::{Arc, Mutex};
 
-use glory_harness::{
-    InfoConversacion, OpcionesRun, PersistenciaSqlite, VENTANA_MINIMA, construir_harness_con,
-    historial_desde_persistencia,
-};
+use glory_harness::{InfoConversacion, PersistenciaSqlite, VENTANA_MINIMA};
+use glory_harness::servicio::{Apertura, OpcionesSesion, SesionComun};
 use glory_harness_core::aprobacion::{PeticionAprobacion, RespuestaAprobacion};
 use glory_harness_core::evento::AgenteEvento;
+use glory_harness_core::AgentPersistence;
 use glory_harness_core::llm::{LlavesProveedor, catalogo_proveedores};
 use glory_harness_core::ports::MensajePersistido;
 use glory_harness_core::runtime::AgentRuntime;
 use glory_harness_core::sandbox::RespaldoArchivos;
-use glory_harness_core::AgentPersistence;
-use glory_harness_core::ProgramadorTareas;
 use tauri::{AppHandle, Emitter, Manager, State};
 use uuid::Uuid;
 
+mod navegador;
 mod vault;
 
 /// [039A-3 P3] Tramo rebobinado pendiente de restaurar archivos (acción
@@ -67,7 +65,11 @@ struct PanelDatos {
 /// vault/meta/modo/modelo/workspace); lo específico de cada conversación
 /// (cuál muestra, turno en curso, tramo a restaurar) vive en `paneles`.
 struct Sesion {
-    runtime: Mutex<Arc<AgentRuntime>>,
+    /// Servicio común; Tauri conserva fuera de él solo su ciclo de vida.
+    /// runtime/modelo/modo/workspace viven aquí (única fuente de verdad).
+    comun: Mutex<SesionComun>,
+    /// Datos INMUTABLES de la sesión (se fijan al abrir y nunca cambian), que
+    /// se copian de `comun` para que los comandos CRUD no bloqueen el Mutex.
     persistencia: Arc<PersistenciaSqlite>,
     user_id: Uuid,
     /// [039A-3 P5] Panel principal (`"principal"`) y, si se abre, el lateral
@@ -79,12 +81,8 @@ struct Sesion {
     /// que el core ya tiene cableado): el árbol/índice viven aquí, y el hook
     /// (que no conoce el turno) se fija con `fijar_contexto` en cada turno.
     vault: Arc<vault::VaultArchivos>,
-    /// Meta del modo `meta` (prefijo `[META: …]` en cada turno).
+    /// Objetivo del modo `meta` (el modo activo vive en `SesionComun`).
     meta: Mutex<Option<String>>,
-    /// Modo con el que se construyó el runtime (`meta` activa el prefijo).
-    modo: Mutex<String>,
-    modelo: Mutex<String>,
-    workspace: String,
 }
 
 /// Estado global: sesión opcional + turno en curso (para cancelar).
@@ -172,45 +170,6 @@ fn conteos(llaves: &LlavesProveedor) -> Vec<ProveedorConteo> {
             claves: llaves.commandcode.len(),
         },
     ]
-}
-
-/// [039A-1 04-09 H5] Nombre breve de conversación desde el primer mensaje del
-/// usuario: primeras ~4 palabras (o ~42 caracteres), una sola línea, sin
-/// prefijos de modo (`[META: …]`). Si no hay palabras, "Conversación".
-fn titulo_auto_desde_mensaje(mensaje: &str) -> String {
-    let limpio = mensaje
-        .trim()
-        .lines()
-        .next()
-        .unwrap_or("")
-        .trim();
-    let sin_meta = limpio
-        .strip_prefix("[META:")
-        .and_then(|resto| resto.find(']').map(|i| &resto[i + 1..]))
-        .unwrap_or(limpio)
-        .trim();
-    if sin_meta.is_empty() {
-        return "Conversación".into();
-    }
-    let palabras: Vec<&str> = sin_meta.split_whitespace().collect();
-    let mut out = String::new();
-    for (i, p) in palabras.iter().enumerate() {
-        if i == 4 {
-            break;
-        }
-        if !out.is_empty() {
-            out.push(' ');
-        }
-        out.push_str(p);
-        if out.chars().count() >= 42 {
-            break;
-        }
-    }
-    if out.is_empty() {
-        "Conversación".into()
-    } else {
-        out
-    }
 }
 
 fn sesion_actual(estado: &State<'_, Estado>) -> Result<Arc<Sesion>, String> {
@@ -314,11 +273,13 @@ fn info_de_panel(sesion: &Sesion, panel_id: &str) -> Result<InfoSesion, String> 
 /// la acción ya sabe la conversación (p. ej. `eliminar_conversacion` sobre la
 /// conversación de un panel) o cuando solo hay un panel.
 fn info_de_conversacion(sesion: &Sesion, conv_id: Uuid) -> Result<InfoSesion, String> {
-    let modelo = sesion
-        .modelo
-        .lock()
-        .map(|g| g.clone())
-        .map_err(|_| "sesión bloqueada".to_string())?;
+    let (modelo, workspace) = {
+        let comun = sesion
+            .comun
+            .lock()
+            .map_err(|_| "sesión bloqueada".to_string())?;
+        (comun.modelo.clone(), comun.workspace.clone())
+    };
     let conversacion = sesion
         .persistencia
         .conversaciones_listar(sesion.user_id)
@@ -328,7 +289,7 @@ fn info_de_conversacion(sesion: &Sesion, conv_id: Uuid) -> Result<InfoSesion, St
         .ok_or_else(|| "conversación actual no encontrada".to_string())?;
     Ok(InfoSesion {
         modelo,
-        workspace: sesion.workspace.clone(),
+        workspace,
         proveedores: conteos(&LlavesProveedor::from_env()),
         conversacion,
         aviso: None,
@@ -353,59 +314,26 @@ fn leer_max_ventana(persistencia: &PersistenciaSqlite) -> Result<Option<u32>, St
     }
 }
 
-/// Resuelve las `OpcionesRun` de apertura desde la config persistida
-/// (workspace, razonamiento, ventana): el front no hace roundtrips y el
-/// runtime se construye con la ventana ya inyectada. Extraída de
-/// `abrir_sesion_interna` (límite de función del gate).
-fn resolver_opciones_apertura(
-    persistencia: &PersistenciaSqlite,
-    provider: Option<String>,
-    modelo: Option<String>,
-    dir: Option<String>,
-    modo: Option<String>,
-    razonamiento: Option<String>,
-) -> Result<OpcionesRun, String> {
-    /* [039A-1 04-09 H3] Workspace real: si el llamador no aporta `dir`, se
-     * usa el guardado en config (si existe); sin config, `None` → cwd del
-     * proceso (último recurso). */
-    let dir = match dir {
-        Some(d) => Some(d),
-        None => match persistencia
-            .config_leer("workspace")
-            .map_err(|e| e.to_string())?
-        {
-            Some(guardado) if !guardado.trim().is_empty() => Some(guardado),
-            _ => None,
-        },
-    };
-    /* [039A-1 04-09 H7] Nivel de razonamiento: lo resuelve el backend desde
-     * config cuando el llamador no lo aporta (el front no hace roundtrip). */
-    let razonamiento = match razonamiento {
-        Some(r) => Some(r),
-        None => persistencia
-            .config_leer("nivelRazonamiento")
-            .map_err(|e| e.to_string())?,
-    };
-    /* [039A-3 P6-backend] La ventana configurada se inyecta ANTES de
-     * construir el runtime (el manager de contexto la clona al construir). */
-    let max_ventana = leer_max_ventana(persistencia)?;
-    Ok(OpcionesRun {
-        provider,
-        modelo,
-        dir: dir.map(std::path::PathBuf::from),
-        modo,
-        razonamiento,
-        max_ventana,
-        /* [069A-3] Los avisos son solo del CLI interactivo (`--notificar`):
-         * el desktop tiene su propia UI y no registra hooks. */
-        notificar: false,
-    })
+fn apertura_a_info(apertura: Apertura) -> InfoSesion {
+    InfoSesion {
+        modelo: apertura.modelo,
+        workspace: apertura.workspace,
+        proveedores: apertura
+            .proveedores
+            .into_iter()
+            .map(|p| ProveedorConteo {
+                nombre: p.nombre,
+                claves: p.claves,
+            })
+            .collect(),
+        conversacion: apertura.conversacion,
+        aviso: apertura.aviso,
+    }
 }
 
-/// Núcleo de apertura compartido por `abrir_sesion` y `elegir_workspace`:
-/// SQLite (o memoria con aviso) + `user_id` estable + conversación inicial.
 fn abrir_sesion_interna(
     estado: &State<'_, Estado>,
+    app: &AppHandle,
     provider: Option<String>,
     modelo: Option<String>,
     dir: Option<String>,
@@ -413,124 +341,33 @@ fn abrir_sesion_interna(
     razonamiento: Option<String>,
     nueva_conversacion: bool,
 ) -> Result<InfoSesion, String> {
-    glory_harness::cargar_env_usuario();
-    /* F3: la BD vive en el perfil del usuario; si no abre (permisos, disco),
-     * la sesión sigue en memoria y la UI muestra el aviso (fail-open: nunca
-     * se deja al usuario sin agente por un fallo de disco). */
-    let (persistencia, aviso) = match PersistenciaSqlite::ruta_bd_app() {
-        Some(ruta) => match PersistenciaSqlite::abrir(&ruta) {
-            Ok(p) => (p, None),
-            Err(e) => (
-                PersistenciaSqlite::en_memoria().map_err(|e| e.to_string())?,
-                Some(format!("BD no disponible ({}): sesión en memoria", e)),
-            ),
-        },
-        None => (
-            PersistenciaSqlite::en_memoria().map_err(|e| e.to_string())?,
-            Some("sin ruta de datos: sesión en memoria".to_string()),
-        ),
-    };
-    /* Opciones resueltas desde la config persistida (helper: la función debe
-     * quedar bajo el límite del gate). */
-    let opciones = resolver_opciones_apertura(
-        &persistencia,
+    /* [069A-1 F5] Si el escritorio tiene soporte de navegador, crea el puerto
+     * real y lo inyecta al runtime. Sin navegador → None (fail-closed). */
+    let navegador: Option<Arc<dyn glory_harness_core::ports::NavegadorPort>> = app
+        .try_state::<std::sync::Mutex<navegador::EstadoNavegador>>()
+        .map(|_| Arc::new(navegador::NavegadorTauri::nuevo(app)) as Arc<_>);
+
+    let (comun, apertura) = SesionComun::abrir(OpcionesSesion {
         provider,
         modelo,
         dir,
         modo,
         razonamiento,
-    )?;
-    /* `user_id` estable entre reinicios: las conversaciones pertenecen a un
-     * usuario y sobreviven al cierre (tabla `config`, clave `user_id`). */
-    let user_id = match persistencia
-        .config_leer("user_id")
-        .map_err(|e| e.to_string())?
-    {
-        Some(guardado) => Uuid::parse_str(guardado.trim())
-            .map_err(|_| "user_id guardado corrupto".to_string())?,
-        None => {
-            let nuevo = Uuid::new_v4();
-            persistencia
-                .config_guardar("user_id", &nuevo.as_hyphenated().to_string())
-                .map_err(|e| e.to_string())?;
-            nuevo
-        }
-    };
-    persistencia.con_skills_base(user_id);
-    /* [039A-1 04-09 H4] No crear conversación nueva en cada apertura: si el
-     * llamador no pide una nueva explícitamente y ya existe alguna NO
-     * archivada, se reutiliza la más reciente (la lista viene ordenada por
-     * `actualizada_en` DESC). Solo se crea si no hay ninguna. */
-    let conv_id = if !nueva_conversacion {
-        persistencia
-            .conversaciones_listar(user_id)
-            .map_err(|e| e.to_string())?
-            .into_iter()
-            .find(|c| !c.archivada)
-            .map(|c| c.id)
-    } else {
-        None
-    };
-    let conv_id = match conv_id {
-        Some(id) => id,
-        None => persistencia
-            .conversacion_crear(user_id, "Nueva conversación")
-            .map_err(|e| e.to_string())?,
-    };
-    let persistencia = Arc::new(persistencia);
-    let programador = Arc::clone(&persistencia);
-    let harness = construir_harness_con(
-        &opciones,
-        Arc::clone(&persistencia) as Arc<dyn AgentPersistence>,
-        programador,
-        user_id,
-    );
-    /* El título real de la conversación reutilizada/creada (no asumir que es
-     * "Nueva conversación": H4 puede reutilizar una con nombre propio). */
-    let conversacion = persistencia
-        .conversaciones_listar(user_id)
-        .map_err(|e| e.to_string())?
-        .into_iter()
-        .find(|c| c.id == conv_id)
-        .ok_or_else(|| "conversación inicial no encontrada".to_string())?;
-    /* [039A-1 04-09 H3] Primer arranque sin workspace guardado: persistir el
-     * que el constructor resolvió (cwd del proceso o `--dir`) para que el
-     * modal muestre la ruta real y el próximo arranque la reutilice. */
-    if persistencia
-        .config_leer("workspace")
-        .map_err(|e| e.to_string())?
-        .is_none()
-    {
-        if let Some(ws) = harness.workspace.as_ref() {
-            persistencia
-                .config_guardar("workspace", &ws.to_string_lossy())
-                .map_err(|e| e.to_string())?;
-        }
-    }
-    let info = InfoSesion {
-        modelo: format!("{}/{}", harness.config.provider, harness.config.modelo),
-        workspace: harness
-            .workspace
-            .as_ref()
-            .map(|p| p.to_string_lossy().into_owned())
-            .unwrap_or_else(|| "<desconocido>".into()),
-        proveedores: conteos(&LlavesProveedor::from_env()),
-        conversacion,
-        aviso,
-    };
+        nueva_conversacion,
+        navegador,
+    })
+    .map_err(|e| e.to_string())?;
+    let conv_id = apertura.conversacion.id;
+    let info = apertura_a_info(apertura);
     /* [039A-3 P3] Vault del workspace: se crea y se cablea al sandbox del
-     * runtime ANTES de guardar la sesión. La raíz real la da el sandbox del
-     * runtime (la misma que valida); si el harness no trae workspace ni
-     * sandbox, la carpeta queda en el cwd del proceso (el vault se crea
-     * igualmente, sin cablear: no hay escrituras que respaldar). */
-    let vault = crear_y_cablear_vault(&harness.runtime, harness.workspace.as_deref());
-    /* [039A-3 P5] La sesión arranca con UN panel (`principal`) apuntando a la
-     * conversación inicial; el resto de paneles se abren bajo demanda desde la
-     * UI (máx 2). Cada panel conserva su `tramo_rewind` para no mezclar
-     * "volver a punto" entre conversaciones. */
+     * runtime. */
+    let vault = crear_y_cablear_vault(
+        &comun.runtime,
+        (!comun.workspace.is_empty()).then(|| std::path::Path::new(&comun.workspace)),
+    );
     let mut paneles = std::collections::HashMap::new();
     paneles.insert(
-        "principal".to_string(),
+        PANEL_PRINCIPAL.to_string(),
         PanelDatos {
             conversacion_id: conv_id,
             turno_id: None,
@@ -538,15 +375,12 @@ fn abrir_sesion_interna(
         },
     );
     let sesion = Arc::new(Sesion {
-        runtime: Mutex::new(harness.runtime),
-        persistencia,
-        user_id,
+        persistencia: Arc::clone(&comun.persistencia),
+        user_id: comun.user_id,
+        comun: Mutex::new(comun.clone()),
         paneles: Mutex::new(paneles),
         vault,
         meta: Mutex::new(None),
-        modo: Mutex::new(harness.config.modo.clone()),
-        modelo: Mutex::new(info.modelo.clone()),
-        workspace: info.workspace.clone(),
     });
     match estado.sesion.lock() {
         Ok(mut g) => {
@@ -561,14 +395,14 @@ fn abrir_sesion_interna(
 #[tauri::command]
 fn abrir_sesion(
     estado: State<'_, Estado>,
-    _app: AppHandle,
+    app: AppHandle,
     provider: Option<String>,
     modelo: Option<String>,
     dir: Option<String>,
     modo: Option<String>,
     razonamiento: Option<String>,
 ) -> Result<InfoSesion, String> {
-    abrir_sesion_interna(&estado, provider, modelo, dir, modo, razonamiento, false)
+    abrir_sesion_interna(&estado, &app, provider, modelo, dir, modo, razonamiento, false)
 }
 
 /// Ejecuta un turno real y reemite cada `AgenteEvento` a la UI.
@@ -595,85 +429,29 @@ async fn enviar_turno(
             return Err("ya hay un turno en curso".into());
         }
     }
-    if mensaje.trim().is_empty() {
-        return Err("mensaje vacío".into());
-    }
     let conv_id = conv_id_de_panel(&sesion, &panel_id)?;
     let meta = sesion
         .meta
         .lock()
         .map(|g| g.clone())
         .map_err(|_| "sesión bloqueada".to_string())?;
-    /* Modo meta: el objetivo viaja como prefijo del turno (el historial
-     * guarda el mensaje original, sin prefijo, para que se pueda releer).
-     * La puerta es el modo del runtime: al salir de `meta` no hay que
-     * limpiar nada, el prefijo deja de aplicarse solo. */
-    let modo = sesion
-        .modo
-        .lock()
-        .map(|g| g.clone())
-        .map_err(|_| "sesión bloqueada".to_string())?;
-    let mensaje_efectivo = match (modo.as_str(), meta) {
-        ("meta", Some(m)) if !m.trim().is_empty() => format!("[META: {}]\n{}", m.trim(), mensaje),
-        _ => mensaje.clone(),
-    };
-    /* El historial se lee ANTES de guardar el mensaje nuevo: si no, el turno
-     * vería el mensaje del usuario duplicado (una vez en historial y otra
-     * como `mensaje_usuario`). */
-    let historial_previo = match sesion.persistencia.listar_mensajes(conv_id).await {
-        Ok(mensajes) => historial_desde_persistencia(mensajes),
-        Err(e) => return Err(e.to_string()),
-    };
-    /* El mensaje del usuario lo persiste el consumidor antes de llamar
-     * (contrato del runtime): así el historial sobrevive al cierre aunque el
-     * turno falle o se cancele antes de responder. */
-    sesion
-        .persistencia
-        .guardar_mensaje(&MensajePersistido {
-            id: Uuid::new_v4(),
-            conversacion_id: conv_id,
-            rol: "user".into(),
-            contenido: mensaje.clone(),
-            creado_en: chrono::Utc::now(),
-        })
-        .await
-        .map_err(|e| e.to_string())?;
-    sesion
-        .persistencia
-        .conversacion_tocar(conv_id)
-        .await
-        .map_err(|e| e.to_string())?;
-    /* [039A-1 04-09 H5] Auto-nombre tras el primer mensaje: solo cuando el
-     * título sigue siendo el default "Nueva conversación" y no había historial
-     * previo (evita pisar renombres manuales y no re-nombra una conversación
-     * ya autonombrada). El nombre sale del primer mensaje del usuario. */
-    if historial_previo.is_empty() {
-        let es_default = sesion
-            .persistencia
-            .conversaciones_listar(sesion.user_id)
+    let preparacion = {
+        let comun = sesion
+            .comun
+            .lock()
+            .map_err(|_| "sesión bloqueada".to_string())?
+            .clone();
+        comun
+            .preparar_turno(conv_id, mensaje, meta)
+            .await
             .map_err(|e| e.to_string())?
-            .into_iter()
-            .find(|c| c.id == conv_id)
-            .map(|c| c.titulo == "Nueva conversación")
-            .unwrap_or(false);
-        if es_default {
-            let nuevo = titulo_auto_desde_mensaje(&mensaje);
-            sesion
-                .persistencia
-                .conversacion_renombrar(conv_id, sesion.user_id, &nuevo)
-                .map_err(|e| e.to_string())?;
-        }
-    }
+    };
+    let turno_id = preparacion.turno_id;
+    let historial_previo = preparacion.historial;
+    let mensaje_efectivo = preparacion.mensaje_efectivo;
+    let runtime = preparacion.runtime;
     let (tx_ev, mut rx_ev) = tokio::sync::mpsc::channel::<AgenteEvento>(64);
     let w = window.clone();
-    let turno_id = Uuid::new_v4();
-    /* El Arc se clona fuera del spawn: dentro no vale `?` y no se retiene el
-     * Mutex durante el turno (reconfigurar puede sustituirlo entre turnos). */
-    let runtime = sesion
-        .runtime
-        .lock()
-        .map(|g| Arc::clone(&*g))
-        .map_err(|_| "sesión bloqueada".to_string())?;
     /* [039A-3 P3] Fijar el contexto del vault para este turno (conversación +
      * turno): las escrituras del harness durante `ejecutar_turno` se
      * atribuyen a este tramo. El hook del núcleo no recibe el turno; el
@@ -823,10 +601,17 @@ fn cancelar_turno(
         .map_err(|_| "sesión bloqueada".to_string())?;
     tauri::async_runtime::spawn(async move {
         if let Some(id) = turno_id {
-            let _ = sesion
-                .persistencia
-                .finalizar_turno(id, "cancelado", Some("abortado por el usuario"))
-                .await;
+            let comun = match sesion.comun.lock() {
+                Ok(guard) => guard.clone(),
+                Err(_) => {
+                    let _ = window.emit(
+                        "turno-fin",
+                        serde_json::json!({"ok": false, "error": "sesión bloqueada al cancelar"}),
+                    );
+                    return;
+                }
+            };
+            let _ = comun.cancelar_turno(id).await;
         }
         let _ = window.emit(
             "turno-fin",
@@ -856,60 +641,18 @@ fn reconfigurar_sesion(
     {
         return Err("hay un turno en curso".into());
     }
-    glory_harness::cargar_env_usuario();
-    /* `dir` = workspace actual: con `None` el constructor resolvería el cwd
-     * del proceso y el agente cambiaría de carpeta sin avisar. */
-    /* [039A-3 P6-backend] La ventana persistida (`contexto_max_ventana`) se
-     * aplica en cada reconfiguración (cambio de modelo/modo o reinicio). */
-    let max_ventana = leer_max_ventana(&sesion.persistencia)?;
-    let opciones = OpcionesRun {
-        provider,
-        modelo,
-        dir: Some(std::path::PathBuf::from(sesion.workspace.clone())),
-        modo,
-        max_ventana,
-        razonamiento: match razonamiento {
-            Some(r) => Some(r),
-            /* [039A-1 04-09 H7] Al reconfigurar por modelo/modo sin pasar
-             * razonamiento, se conserva el del runtime actual (no se pierde
-             * el nivel ya aplicado con un `None` que resetea a default). */
-            None => sesion
-                .runtime
-                .lock()
-                .map(|g| g.turno_config.nivel_razonamiento.clone())
-                .map_err(|_| "sesión bloqueada".to_string())?,
-        },
-        /* [069A-3] Como en `abrir_sesion`: sin avisos en desktop. */
-        notificar: false,
-    };
-    let harness = construir_harness_con(
-        &opciones,
-        Arc::clone(&sesion.persistencia) as Arc<dyn AgentPersistence>,
-        Arc::clone(&sesion.persistencia) as Arc<dyn ProgramadorTareas>,
-        sesion.user_id,
-    );
-    let modelo_nuevo = format!("{}/{}", harness.config.provider, harness.config.modelo);
-    /* [039A-3 P3] El nuevo runtime trae un sandbox fresco SIN el hook: se
-     * re-cablea el vault de la sesión (misma raíz de workspace). */
-    cablear_vault_a(&harness.runtime, &sesion.vault);
-    sesion
-        .runtime
+    /* Reconfigurar mueve el provider/modelo/modo; el objeto comun cambia
+     * in-situ y su runtime se recablea al vault del desktop. */
+    let mut comun = sesion
+        .comun
         .lock()
-        .map(|mut g| *g = harness.runtime)
         .map_err(|_| "sesión bloqueada".to_string())?;
-    sesion
-        .modelo
-        .lock()
-        .map(|mut g| *g = modelo_nuevo)
-        .map_err(|_| "sesión bloqueada".to_string())?;
-    sesion
-        .modo
-        .lock()
-        .map(|mut g| *g = harness.config.modo.clone())
-        .map_err(|_| "sesión bloqueada".to_string())?;
-    /* [039A-3 P5] El runtime es compartido (M1): reconfigurar no depende del
-     * panel. La info devuelta describe la conversación del panel principal
-     * (el front solo usa modelo/workspace/proveedores de este retorno). */
+    comun
+        .reconfigurar(provider, modelo, modo, razonamiento)
+        .map_err(|e| e.to_string())?;
+    /* El nuevo runtime trae un sandbox fresco SIN el hook: se re-cablea. */
+    cablear_vault_a(&comun.runtime, &sesion.vault);
+    drop(comun);
     info_de_panel(&sesion, PANEL_PRINCIPAL)
 }
 
@@ -922,9 +665,9 @@ fn responder_aprobacion(
 ) -> Result<(), String> {
     let sesion = sesion_actual(&estado)?;
     let runtime = sesion
-        .runtime
+        .comun
         .lock()
-        .map(|g| Arc::clone(&*g))
+        .map(|g| Arc::clone(&g.runtime))
         .map_err(|_| "sesión bloqueada".to_string())?;
     let r = match respuesta.as_str() {
         "aprobar" => RespuestaAprobacion::Aprobar,
@@ -943,9 +686,9 @@ fn pendientes_aprobacion(
         Ok(g) => Ok(g
             .as_ref()
             .map(|s| {
-                s.runtime
+                s.comun
                     .lock()
-                    .map(|r| r.peticiones_aprobacion_pendientes())
+                    .map(|c| c.runtime.peticiones_aprobacion_pendientes())
                     .unwrap_or_default()
             })
             .unwrap_or_default()),
@@ -1388,7 +1131,7 @@ fn config_guardar(
 /// [039A-1 04-09 H3] La ruta elegida se persiste en config (`workspace`) para
 /// que el próximo arranque la use y el modal muestre la real.
 #[tauri::command]
-fn elegir_workspace(estado: State<'_, Estado>) -> Result<InfoSesion, String> {
+fn elegir_workspace(estado: State<'_, Estado>, app: AppHandle) -> Result<InfoSesion, String> {
     let actual = sesion_actual(&estado)?;
     let carpeta = rfd::FileDialog::new()
         .set_title("Elegir carpeta de trabajo del agente")
@@ -1402,7 +1145,7 @@ fn elegir_workspace(estado: State<'_, Estado>) -> Result<InfoSesion, String> {
                 .persistencia
                 .config_guardar("workspace", &ruta)
                 .map_err(|e| e.to_string())?;
-            abrir_sesion_interna(&estado, None, None, Some(ruta), None, None, true)
+            abrir_sesion_interna(&estado, &app, None, None, Some(ruta), None, None, true)
         }
         None => info_de_panel(&actual, PANEL_PRINCIPAL),
     }
@@ -1429,6 +1172,7 @@ fn actualizar_meta(
 fn main() {
     tauri::Builder::default()
         .manage(Estado::default())
+        .manage(std::sync::Mutex::new(navegador::EstadoNavegador::new()))
         .invoke_handler(tauri::generate_handler![
             abrir_sesion,
             reconfigurar_sesion,
@@ -1449,6 +1193,16 @@ fn main() {
             config_guardar,
             elegir_workspace,
             actualizar_meta,
+            navegador::navegador_abrir,
+            navegador::navegador_navegar,
+            navegador::navegador_cerrar,
+            navegador::navegador_posicionar,
+            navegador::navegador_capturar,
+            navegador::navegador_js,
+            navegador::navegador_cdp,
+            navegador::navegador_click,
+            navegador::navegador_rellenar,
+            navegador::navegador_snapshot,
         ])
         .run(tauri::generate_context!())
         .unwrap_or_else(|e| {

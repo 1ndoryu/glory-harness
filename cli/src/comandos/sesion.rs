@@ -20,9 +20,10 @@ pub enum SalidaSesion {
 
 /// `glory-harness session <list|ver|resume|borrar> [args]`.
 pub async fn sesion(args: &[String], opciones: OpcionesRun) -> Result<SalidaSesion, String> {
-    let accion = args.first().map(String::as_str).ok_or_else(|| {
-        "uso: glory-harness session <list|ver|resume|borrar> [id]".to_string()
-    })?;
+    let accion = args
+        .first()
+        .map(String::as_str)
+        .ok_or_else(|| "uso: glory-harness session <list|ver|resume|borrar> [id]".to_string())?;
     // `resume` necesita las opciones de provider/modelo para el REPL; el
     // resto solo toca la BD (las ignora).
     match accion {

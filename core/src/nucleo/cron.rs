@@ -600,6 +600,7 @@ mod tests {
                 dominio: None,
                 ejecutor_comando: None,
                 programador_tareas: None,
+                navegador: None,
             },
             TurnoConfig::default(),
         ));

@@ -152,12 +152,30 @@ mod tests {
 
     #[test]
     fn veredicto_ask_deny_no_se_reintentan_en_el_mismo_turno() {
-        assert_eq!(decidir_permiso(Permiso::Allow, false), VerdictoPermiso::Ejecutar);
-        assert_eq!(decidir_permiso(Permiso::Allow, true), VerdictoPermiso::Ejecutar);
-        assert_eq!(decidir_permiso(Permiso::Ask, false), VerdictoPermiso::Preguntar);
-        assert_eq!(decidir_permiso(Permiso::Ask, true), VerdictoPermiso::RepetidoPregunta);
-        assert_eq!(decidir_permiso(Permiso::Deny, false), VerdictoPermiso::Denegar);
-        assert_eq!(decidir_permiso(Permiso::Deny, true), VerdictoPermiso::RepetidoDenegado);
+        assert_eq!(
+            decidir_permiso(Permiso::Allow, false),
+            VerdictoPermiso::Ejecutar
+        );
+        assert_eq!(
+            decidir_permiso(Permiso::Allow, true),
+            VerdictoPermiso::Ejecutar
+        );
+        assert_eq!(
+            decidir_permiso(Permiso::Ask, false),
+            VerdictoPermiso::Preguntar
+        );
+        assert_eq!(
+            decidir_permiso(Permiso::Ask, true),
+            VerdictoPermiso::RepetidoPregunta
+        );
+        assert_eq!(
+            decidir_permiso(Permiso::Deny, false),
+            VerdictoPermiso::Denegar
+        );
+        assert_eq!(
+            decidir_permiso(Permiso::Deny, true),
+            VerdictoPermiso::RepetidoDenegado
+        );
     }
 
     #[test]
@@ -227,7 +245,11 @@ mod tests {
     fn f1_regla_deny_mas_especifica_gana_al_override_allow() {
         /* El plan: la regla gana al override explícito solo si es más
          * específica (categoría derivada + patrón > tool entera). */
-        let reglas = vec![ReglaPermiso::nueva("escritura_fuera_repo", "*", Permiso::Deny)];
+        let reglas = vec![ReglaPermiso::nueva(
+            "escritura_fuera_repo",
+            "*",
+            Permiso::Deny,
+        )];
         assert_eq!(
             resolver_permiso(Permiso::Ask, Some(Permiso::Allow), &reglas),
             Permiso::Deny

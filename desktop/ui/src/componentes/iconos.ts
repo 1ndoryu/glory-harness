@@ -46,6 +46,8 @@ const TRAZOS: Record<IconoNombre, string> = {
   'chevron-abajo': '<path d="m6 9 6 6 6-6"></path>',
   'chevron-derecha': '<path d="m9 18 6-6-6-6"></path>',
   spin: '<path d="M21 12a9 9 0 1 1-6.219-8.56"></path>',
+  navegador:
+    '<circle cx="12" cy="12" r="10"></circle><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"></polygon>',
 };
 
 /** Crea un SVG de icono. `pequeno` añade .ic-xs (11px). */

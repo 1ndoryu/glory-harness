@@ -62,9 +62,8 @@ impl AgentPersistence for PersistenciaMock {
         Ok(self
             .memoria
             .iter()
-            .map(|(_, clave, contenido)| MemoriaEntrada {
-                clave: clave.clone(),
-                contenido: contenido.clone(),
+            .map(|(_, clave, contenido)| {
+                MemoriaEntrada::nueva(clave.clone(), contenido.clone(), "mock".into())
             })
             .collect())
     }
@@ -118,11 +117,16 @@ struct ProveedorMock;
 impl ProviderPort for ProveedorMock {
     async fn chat_stream(&self, request: ChatRequest) -> crate::error::Result<TokenStream> {
         let (tx, rx) = mpsc::unbounded_channel();
-        assert!(!request.mensajes.is_empty(), "el request debe llevar mensajes");
+        assert!(
+            !request.mensajes.is_empty(),
+            "el request debe llevar mensajes"
+        );
         let _ = tx.send(EventoTurno::Token {
             texto: "hola".into(),
         });
-        let _ = tx.send(EventoTurno::Fin { motivo: "stop".into() });
+        let _ = tx.send(EventoTurno::Fin {
+            motivo: "stop".into(),
+        });
         Ok(rx)
     }
 }

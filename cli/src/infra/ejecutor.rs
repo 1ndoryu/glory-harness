@@ -63,7 +63,6 @@ impl EjecutorCliente {
             (cortado, true)
         }
     }
-
 }
 
 impl EjecutorCliente {
@@ -270,8 +269,16 @@ mod tests {
         let e = EjecutorCliente::nuevo();
         let r = e.ejecutar(&comando_mucho_eco(), false).await.unwrap();
         assert_eq!(r.codigo_salida, Some(0));
-        assert!(r.truncada, "salida inesperadamente corta: {} bytes", r.salida.len());
-        assert!(r.salida.len() <= LIMITE_SALIDA + 64, "longitud: {}", r.salida.len());
+        assert!(
+            r.truncada,
+            "salida inesperadamente corta: {} bytes",
+            r.salida.len()
+        );
+        assert!(
+            r.salida.len() <= LIMITE_SALIDA + 64,
+            "longitud: {}",
+            r.salida.len()
+        );
         assert!(r.salida.contains("truncada"));
     }
 
@@ -304,7 +311,11 @@ mod tests {
         let id = r.id_fondo.expect("fondo debe devolver id");
         // Estado inmediato: debe seguir en ejecución (el comando dura ~60 s).
         let s = e.estado(&id).await.unwrap();
-        assert!(s.codigo_salida.is_none(), "aún corriendo, salida: {}", s.salida);
+        assert!(
+            s.codigo_salida.is_none(),
+            "aún corriendo, salida: {}",
+            s.salida
+        );
         e.matar(&id).await.unwrap();
         // Tras matar, la tarea deja de estar "en ejecución" en ≤ 5 s.
         for _ in 0..10 {

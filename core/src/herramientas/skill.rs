@@ -147,9 +147,15 @@ pub fn indice(skills: &[Skill]) -> String {
     if skills.is_empty() {
         return String::new();
     }
-    let mut lineas = vec!["Skills disponibles (usa la tool `skill` con el nombre para cargar la instrucción):".to_string()];
+    let mut lineas = vec![
+        "Skills disponibles (usa la tool `skill` con el nombre para cargar la instrucción):"
+            .to_string(),
+    ];
     for skill in skills {
-        lineas.push(format!("- {} — {} (scope: {})", skill.nombre, skill.descripcion, skill.scope));
+        lineas.push(format!(
+            "- {} — {} (scope: {})",
+            skill.nombre, skill.descripcion, skill.scope
+        ));
     }
     lineas.join("\n")
 }
@@ -177,14 +183,12 @@ fn expandir_plantilla(plantilla: &str, argumentos: &str, workspace: Option<&Path
             .map(|ws| ws.join(referencia))
             .filter(|p| p.is_file())
             .and_then(|p| std::fs::read_to_string(p).ok())
-            .map(|t| {
-                t.chars()
-                    .take(4_000)
-                    .collect::<String>()
-            });
+            .map(|t| t.chars().take(4_000).collect::<String>());
         match contenido {
             Some(texto) => {
-                con_archivos.push_str(&format!("\n[contenido de {referencia}]\n{texto}\n[/fin {referencia}]\n"));
+                con_archivos.push_str(&format!(
+                    "\n[contenido de {referencia}]\n{texto}\n[/fin {referencia}]\n"
+                ));
             }
             None => con_archivos.push_str(&format!("@{}", referencia)),
         }

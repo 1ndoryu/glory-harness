@@ -64,16 +64,18 @@ impl WebFetchProvider for FetchCli {
         let mut cuerpo: Vec<u8> = Vec::with_capacity(limite_bytes.min(64 * 1024));
         let mut cortado = false;
         while let Some(chunk) = stream.next().await {
-            let chunk = chunk
-                .map_err(|e| HarnessError::Interno(format!("web_fetch {url}: {e}")))?;
+            let chunk =
+                chunk.map_err(|e| HarnessError::Interno(format!("web_fetch {url}: {e}")))?;
             if cuerpo.len() + chunk.len() > limite_bytes {
                 let resto = limite_bytes.saturating_sub(cuerpo.len());
-                cuerpo.write_all(&chunk[..resto])
+                cuerpo
+                    .write_all(&chunk[..resto])
                     .map_err(|e| HarnessError::Interno(format!("web_fetch: {e}")))?;
                 cortado = true;
                 break;
             }
-            cuerpo.write_all(&chunk)
+            cuerpo
+                .write_all(&chunk)
                 .map_err(|e| HarnessError::Interno(format!("web_fetch: {e}")))?;
         }
         let html = String::from_utf8_lossy(&cuerpo);
@@ -135,9 +137,8 @@ fn extraer_texto(html: &str) -> (Option<String>, String) {
             };
             out.push_str(&resto[..ini]);
             let resto_restante = &resto[ini..];
-            let fin = buscar_ci(resto_restante, &format!("</{bloque}"), 0).map(|f| {
-                buscar_ci(&resto_restante[f..], ">", 0).map(|g| f + g + 1)
-            });
+            let fin = buscar_ci(resto_restante, &format!("</{bloque}"), 0)
+                .map(|f| buscar_ci(&resto_restante[f..], ">", 0).map(|g| f + g + 1));
             match fin {
                 Some(Some(fin)) => {
                     resto = &resto_restante[fin..];
@@ -205,6 +206,9 @@ mod tests {
 
     #[test]
     fn desescapa_entidades() {
-        assert_eq!(desescapar("a &amp; b &lt;c&gt; &quot;d&quot;"), "a & b <c> \"d\"");
+        assert_eq!(
+            desescapar("a &amp; b &lt;c&gt; &quot;d&quot;"),
+            "a & b <c> \"d\""
+        );
     }
 }

@@ -75,11 +75,7 @@ impl TelemetriaTurno {
                 duracion_ms_total: c.duracion_ms_total,
             })
             .collect();
-        v.sort_by(|a, b| {
-            b.usos
-                .cmp(&a.usos)
-                .then_with(|| a.tool.cmp(&b.tool))
-        });
+        v.sort_by(|a, b| b.usos.cmp(&a.usos).then_with(|| a.tool.cmp(&b.tool)));
         v
     }
 }

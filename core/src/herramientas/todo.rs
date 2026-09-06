@@ -11,7 +11,7 @@
  * runtime/conversación, no se escribe en BD en v1). */
 
 use crate::error::{Error, Result};
-use crate::tool::{AgentTool, AgentToolContext, AgentToolResult, AgentToolRegistry};
+use crate::tool::{AgentTool, AgentToolContext, AgentToolRegistry, AgentToolResult};
 use async_trait::async_trait;
 use serde_json::{json, Value};
 use std::sync::Arc;
@@ -108,7 +108,9 @@ fn aplicar_todo(lista: &mut ListaTodo, argumentos: &Value) -> Result<String> {
     let accion = argumentos
         .get("accion")
         .and_then(Value::as_str)
-        .ok_or_else(|| Error::Argumentos("todo: accion requerida (crear|actualizar|completar)".into()))?;
+        .ok_or_else(|| {
+            Error::Argumentos("todo: accion requerida (crear|actualizar|completar)".into())
+        })?;
     match accion {
         "crear" => {
             let texto = argumentos
@@ -116,7 +118,9 @@ fn aplicar_todo(lista: &mut ListaTodo, argumentos: &Value) -> Result<String> {
                 .and_then(Value::as_str)
                 .ok_or_else(|| Error::Argumentos("todo: texto requerido para crear".into()))?;
             if texto.trim().is_empty() {
-                return Err(Error::Argumentos("todo: el texto no puede estar vacío".into()));
+                return Err(Error::Argumentos(
+                    "todo: el texto no puede estar vacío".into(),
+                ));
             }
             lista.crear(texto);
         }
@@ -124,7 +128,8 @@ fn aplicar_todo(lista: &mut ListaTodo, argumentos: &Value) -> Result<String> {
             let id = argumentos
                 .get("id")
                 .and_then(Value::as_u64)
-                .ok_or_else(|| Error::Argumentos("todo: id requerido para actualizar".into()))? as usize;
+                .ok_or_else(|| Error::Argumentos("todo: id requerido para actualizar".into()))?
+                as usize;
             let texto = argumentos
                 .get("texto")
                 .and_then(Value::as_str)
@@ -135,7 +140,8 @@ fn aplicar_todo(lista: &mut ListaTodo, argumentos: &Value) -> Result<String> {
             let id = argumentos
                 .get("id")
                 .and_then(Value::as_u64)
-                .ok_or_else(|| Error::Argumentos("todo: id requerido para completar".into()))? as usize;
+                .ok_or_else(|| Error::Argumentos("todo: id requerido para completar".into()))?
+                as usize;
             lista.completar(id)?;
         }
         otra => {
@@ -190,9 +196,10 @@ si el paso cambia. Para tareas de un solo paso no hace falta.\
         ctx: &AgentToolContext<'_>,
         argumentos: Value,
     ) -> Result<AgentToolResult> {
-        let store = ctx.todo.clone().ok_or_else(|| {
-            Error::Validacion("todo no está disponible en este runtime".into())
-        })?;
+        let store = ctx
+            .todo
+            .clone()
+            .ok_or_else(|| Error::Validacion("todo no está disponible en este runtime".into()))?;
         let mut lista = store.lock().await;
         let contenido = aplicar_todo(&mut lista, &argumentos)?;
         let resumen = argumentos
@@ -242,7 +249,9 @@ mod tests {
         let id = lista.crear("Arreglar el botón");
         assert_eq!(id, 1);
         assert_eq!(lista.crear("Probar en el preview"), 2);
-        lista.actualizar(1, "Arreglar el botón de guardar").expect("actualiza");
+        lista
+            .actualizar(1, "Arreglar el botón de guardar")
+            .expect("actualiza");
         assert!(lista.actualizar(99, "x").is_err(), "id inexistente falla");
         lista.completar(2).expect("completa");
         assert!(lista.completar(99).is_err());
@@ -260,7 +269,11 @@ mod tests {
             .await
             .expect("crear");
         assert!(r1.ok);
-        assert!(r1.contenido.contains("[ ] Paso uno"), "el plan se refleja en el resultado: {}", r1.contenido);
+        assert!(
+            r1.contenido.contains("[ ] Paso uno"),
+            "el plan se refleja en el resultado: {}",
+            r1.contenido
+        );
         let r2 = ToolTodo
             .ejecutar(&ctx, json!({"accion": "completar", "id": 1}))
             .await
@@ -291,7 +304,10 @@ mod tests {
         let mut registry = AgentToolRegistry::new();
         registrar_tool_todo(&mut registry);
         assert!(registry.ids().contains(&"todo"));
-        assert!(!registry.tiene_efecto("todo"), "todo no requiere aprobación");
+        assert!(
+            !registry.tiene_efecto("todo"),
+            "todo no requiere aprobación"
+        );
         assert!(registry.todo().is_some(), "la store queda registrada");
         let schemas = registry.schemas_openai(None, "predeterminado");
         assert!(schemas.iter().any(|s| s["function"]["name"] == "todo"));

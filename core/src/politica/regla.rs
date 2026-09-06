@@ -51,11 +51,7 @@ pub struct ReglaPermiso {
 
 impl ReglaPermiso {
     #[must_use]
-    pub fn nueva(
-        categoria: impl Into<String>,
-        patron: impl Into<String>,
-        accion: Permiso,
-    ) -> Self {
+    pub fn nueva(categoria: impl Into<String>, patron: impl Into<String>, accion: Permiso) -> Self {
         Self {
             categoria: categoria.into(),
             patron: patron.into(),
@@ -80,7 +76,10 @@ pub fn evaluar_reglas<'a>(
     valor: &str,
     reglas: &'a [ReglaPermiso],
 ) -> Option<&'a ReglaPermiso> {
-    reglas.iter().rev().find(|r| coincide_regla(r, categoria, valor))
+    reglas
+        .iter()
+        .rev()
+        .find(|r| coincide_regla(r, categoria, valor))
 }
 
 /// Todas las reglas que coinciden, en orden de inserción (para resolver con
@@ -137,7 +136,8 @@ fn es_ruta_fuera(ruta: &str) -> bool {
         .first()
         .map(|c| c.is_ascii_alphabetic())
         .unwrap_or(false);
-    ruta.starts_with("../") || ruta.starts_with('/')
+    ruta.starts_with("../")
+        || ruta.starts_with('/')
         || (drive && ruta.len() >= 2 && ruta.as_bytes()[1] == b':')
 }
 
@@ -187,10 +187,7 @@ pub fn clasificar_red(args: &Value) -> Option<(String, String)> {
 /// Clasificador de la tool `task` (subagente): patrón = perfil delegado.
 #[must_use]
 pub fn clasificar_subagente(args: &Value) -> Option<(String, String)> {
-    let perfil = args
-        .get("agente")
-        .and_then(Value::as_str)
-        .unwrap_or("*");
+    let perfil = args.get("agente").and_then(Value::as_str).unwrap_or("*");
     Some((CAT_SUBAGENTE.to_string(), perfil.to_string()))
 }
 
@@ -312,12 +309,18 @@ mod tests {
         );
         assert_eq!(
             clasificar_ruta_archivo(false, "../secrets.env"),
-            ("lectura_fuera_repo".to_string(), "../secrets.env".to_string())
+            (
+                "lectura_fuera_repo".to_string(),
+                "../secrets.env".to_string()
+            )
         );
         /* Windows: drive absoluto es fuera. */
         assert_eq!(
             clasificar_ruta_archivo(true, "C:\\Windows\\x.txt"),
-            ("escritura_fuera_repo".to_string(), "C:/Windows/x.txt".to_string())
+            (
+                "escritura_fuera_repo".to_string(),
+                "C:/Windows/x.txt".to_string()
+            )
         );
         assert_eq!(
             clasificar_ruta_archivo(false, "notas.md"),

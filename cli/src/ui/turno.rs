@@ -136,10 +136,19 @@ mod tests {
         let historial = historial_desde_persistencia(mensajes);
         assert_eq!(historial.len(), 3);
         assert_eq!(historial[0].role, "user");
-        assert_eq!(historial[0].content, serde_json::Value::String("primero".into()));
+        assert_eq!(
+            historial[0].content,
+            serde_json::Value::String("primero".into())
+        );
         assert_eq!(historial[1].role, "assistant");
-        assert_eq!(historial[1].content, serde_json::Value::String("respuesta".into()));
-        assert_eq!(historial[2].content, serde_json::Value::String("segundo".into()));
+        assert_eq!(
+            historial[1].content,
+            serde_json::Value::String("respuesta".into())
+        );
+        assert_eq!(
+            historial[2].content,
+            serde_json::Value::String("segundo".into())
+        );
     }
 
     #[test]

@@ -40,7 +40,18 @@
 //! `EstadoNavegador.core`. Las operaciones COM posteriores usan
 //! `run_on_main_thread` (que despacha `Message::Task`, sin pasar por el
 //! registro de webviews) y toman `ICoreWebView2` directamente del estado.
+//!
+//! ## F5: NavegadorPort (069A-1, 2026-09-08)
+//!
+//! `NavegadorTauri` implementa el trait del núcleo y se inyecta al runtime
+//! como puerto. Cada método usa `AppHandle` para despachar al hilo principal
+//! via `run_on_main_thread` (COM) o acceder a `EstadoNavegador` (Tauri API).
 
+use async_trait::async_trait;
+use glory_harness_core::error::Error as HarnessError;
+use glory_harness_core::error::Result as CoreResult;
+use glory_harness_core::ports::NavegadorPort;
+use std::sync::Arc;
 use tauri::{AppHandle, Manager, Url, Window};
 
 const MAX_CDP_METHOD: usize = 128;
@@ -110,6 +121,8 @@ pub async fn crear_webview_hija(
     url: &str,
     ancho: u32,
     alto: u32,
+    pos_x: i32,
+    pos_y: i32,
 ) -> Result<tauri::Webview, String> {
     esquema_permitido(url)?;
 
@@ -128,8 +141,8 @@ pub async fn crear_webview_hija(
     let webview = window
         .add_child(
             builder,
-            tauri::LogicalPosition::new(0, 0),
-            tauri::LogicalSize::new(ancho, alto),
+            tauri::LogicalPosition::new(f64::from(pos_x), f64::from(pos_y)),
+            tauri::LogicalSize::new(ancho as f64, alto as f64),
         )
         .map_err(|e| format!("add_child falló: {e}"))?;
 
@@ -176,20 +189,6 @@ fn validar_tamano(nombre: &str, valor: &str, maximo: usize) -> Result<(), String
     Ok(())
 }
 
-/// Redimensiona la webview hija.
-pub fn redimensionar_webview(
-    webview: &tauri::Webview,
-    ancho: u32,
-    alto: u32,
-) -> Result<(), String> {
-    webview
-        .set_size(tauri::Size::Logical(tauri::LogicalSize::new(
-            f64::from(ancho),
-            f64::from(alto),
-        )))
-        .map_err(|e| format!("redimensionar falló: {e}"))
-}
-
 // --- IPC commands ---
 
 /// Abre el navegador interno: crea una webview hija y navega a la URL dada.
@@ -198,12 +197,16 @@ pub fn redimensionar_webview(
 /// - `url`: URL a navegar (solo https/http).
 /// - `ancho` (opcional): ancho en px. Default 800.
 /// - `alto` (opcional): alto en px. Default 600.
+/// - `pos_x` (opcional): posición X en px. Default 0.
+/// - `pos_y` (opcional): posición Y en px. Default 0.
 #[tauri::command]
 pub async fn navegador_abrir(
     app: AppHandle,
     url: String,
     ancho: Option<u32>,
     alto: Option<u32>,
+    pos_x: Option<i32>,
+    pos_y: Option<i32>,
 ) -> Result<(), String> {
     let window = app
         .get_window("main")
@@ -229,6 +232,8 @@ pub async fn navegador_abrir(
         &url,
         ancho.unwrap_or(800),
         alto.unwrap_or(600),
+        pos_x.unwrap_or(0),
+        pos_y.unwrap_or(0),
     )
     .await?;
 
@@ -276,9 +281,15 @@ pub async fn navegador_cerrar(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-/// Redimensiona la webview hija.
+/// Reposiciona la webview hija dentro de la ventana.
 #[tauri::command]
-pub async fn navegador_redimensionar(app: AppHandle, ancho: u32, alto: u32) -> Result<(), String> {
+pub async fn navegador_posicionar(
+    app: AppHandle,
+    x: i32,
+    y: i32,
+    ancho: u32,
+    alto: u32,
+) -> Result<(), String> {
     let estado_lock = app
         .try_state::<std::sync::Mutex<EstadoNavegador>>()
         .ok_or_else(|| "navegador no disponible".to_string())?;
@@ -290,8 +301,17 @@ pub async fn navegador_redimensionar(app: AppHandle, ancho: u32, alto: u32) -> R
         .as_ref()
         .ok_or_else(|| "navegador no abierto".to_string())?;
 
-    redimensionar_webview(wv, ancho, alto)?;
-    Ok(())
+    wv.set_position(tauri::Position::Logical(tauri::LogicalPosition::new(
+        f64::from(x),
+        f64::from(y),
+    )))
+    .map_err(|e| format!("posicionar falló: {e}"))?;
+
+    wv.set_size(tauri::Size::Logical(tauri::LogicalSize::new(
+        f64::from(ancho),
+        f64::from(alto),
+    )))
+    .map_err(|e| format!("redimensionar falló: {e}"))
 }
 
 #[cfg(windows)]
@@ -308,7 +328,7 @@ mod webview2 {
     //! módulo (extraído una vez al crear la child), no desde el
     //! `PlatformWebview` de `with_webview`.
 
-    use super::{
+use super::{
         EstadoNavegador, CORE_WEBVIEW, MAX_CAPTURE_BYTES, WEBVIEW_OPERATION_TIMEOUT,
     };
     use base64::Engine;
@@ -633,4 +653,104 @@ pub async fn navegador_snapshot(app: AppHandle) -> Result<String, String> {
         "(()=>{const t=document.body?.innerText??'';return t.slice(0,262144);})()".to_string(),
     )
     .await
+}
+
+// ---------------------------------------------------------------------------
+// NavegadorPort (F5): implementación del trait del núcleo
+// ---------------------------------------------------------------------------
+
+/// Adaptador Tauri del puerto `NavegadorPort`.
+///
+/// Cada método delega al `AppHandle` para despachar al hilo principal y
+/// consulta el estado global del navegador (webview + COM). Como Tauri exige
+/// que todo acceso a la webview viva en el hilo de UI, los métodos COM usan
+/// `run_on_main_thread` vía las funciones del submódulo `webview2`.
+///
+/// ## Afinidad de hilo
+///
+/// `Abir` y `cerrar` usan `crear_webview_hija` / `EstadoNavegador.webview`
+/// directamente (async Tauri). Las operaciones COM delegadas
+/// (`capturar`, `js`, `cdp`) se resuelven internamente en `webview2::*`,
+/// que ya toman `AppHandle`. `click`, `rellenar`, `snapshot` y `navegar`
+/// se implementan sobre `navegador_js` / `wv.navigate`, ambos seguros para
+/// cross-thread porque usan `AppHandle` + `run_on_main_thread` o el comando
+/// async directo.
+///
+/// El `AppHandle` se clona al crear el struct (es un Arc interno) y todas
+/// las operaciones reciben `&self`: el handle se conserva inmutablemente.
+#[derive(Clone)]
+pub struct NavegadorTauri {
+    app: AppHandle,
+}
+
+impl NavegadorTauri {
+    pub fn nuevo(app: &AppHandle) -> Self {
+        Self { app: app.clone() }
+    }
+}
+
+#[async_trait]
+impl NavegadorPort for NavegadorTauri {
+    async fn abrir(&self, url: &str) -> CoreResult<()> {
+        navegador_abrir(self.app.clone(), url.to_string(), None, None, None, None)
+            .await
+            .map_err(|e| HarnessError::Interno(format!("navegador_abrir: {e}")))
+    }
+
+    async fn navegar(&self, url: &str) -> CoreResult<()> {
+        navegador_navegar(self.app.clone(), url.to_string())
+            .await
+            .map_err(|e| HarnessError::Interno(format!("navegador_navegar: {e}")))
+    }
+
+    async fn capturar(&self) -> CoreResult<String> {
+        navegador_capturar(self.app.clone())
+            .await
+            .map_err(|e| HarnessError::Interno(format!("navegador_capturar: {e}")))
+    }
+
+    async fn js(&self, codigo: &str) -> CoreResult<String> {
+        navegador_js(self.app.clone(), codigo.to_string())
+            .await
+            .map_err(|e| HarnessError::Interno(format!("navegador_js: {e}")))
+    }
+
+    async fn cdp(&self, metodo: &str, parametros: &str) -> CoreResult<String> {
+        navegador_cdp(
+            self.app.clone(),
+            metodo.to_string(),
+            parametros.to_string(),
+        )
+        .await
+        .map_err(|e| HarnessError::Interno(format!("navegador_cdp: {e}")))
+    }
+
+    async fn click(&self, selector: &str) -> CoreResult<()> {
+        navegador_click(self.app.clone(), selector.to_string())
+            .await
+            .map_err(|e| HarnessError::Interno(format!("navegador_click: {e}")))?;
+        Ok(())
+    }
+
+    async fn rellenar(&self, selector: &str, valor: &str) -> CoreResult<()> {
+        navegador_rellenar(self.app.clone(), selector.to_string(), valor.to_string())
+            .await
+            .map_err(|e| HarnessError::Interno(format!("navegador_rellenar: {e}")))?;
+        Ok(())
+    }
+
+    async fn snapshot(&self, _selector: &str) -> CoreResult<String> {
+        /* [069A-1 F5] navegador_snapshot captura texto visible de toda la
+         * página. El parámetro `selector` se ignora en esta implementación
+         * de escritorio. */
+        navegador_snapshot(self.app.clone())
+            .await
+            .map_err(|e| HarnessError::Interno(format!("navegador_snapshot: {e}")))
+    }
+
+    async fn cerrar(&self) -> CoreResult<()> {
+        navegador_cerrar(self.app.clone())
+            .await
+            .map_err(|e| HarnessError::Interno(format!("navegador_cerrar: {e}")))
+    }
 }

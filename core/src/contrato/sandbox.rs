@@ -31,8 +31,12 @@ pub trait RespaldoArchivos: Send + Sync {
     /// `nuevo_contenido` es el texto que se va a escribir (para el hash
     /// posterior). El implementador decide la política (dedup, retención,
     /// índice por conversación).
-    fn respaldar(&self, relativa: &str, previo_bytes: &[u8], nuevo_contenido: &str)
-        -> Result<(), Error>;
+    fn respaldar(
+        &self,
+        relativa: &str,
+        previo_bytes: &[u8],
+        nuevo_contenido: &str,
+    ) -> Result<(), Error>;
 }
 
 /// Nombres de archivo/segmento que el agente NUNCA puede leer (secretos).
@@ -69,9 +73,8 @@ impl SandboxArchivos {
         std::fs::create_dir_all(&raiz).map_err(|error| {
             Error::Validacion(format!("No se pudo crear el workspace: {error}"))
         })?;
-        let canonica = std::fs::canonicalize(&raiz).map_err(|error| {
-            Error::Validacion(format!("Workspace no accesible: {error}"))
-        })?;
+        let canonica = std::fs::canonicalize(&raiz)
+            .map_err(|error| Error::Validacion(format!("Workspace no accesible: {error}")))?;
         Ok(Self {
             raiz: canonica,
             respaldo: Mutex::new(None),
@@ -96,22 +99,17 @@ impl SandboxArchivos {
         }
         let ruta = Path::new(relativa);
         if ruta.is_absolute() {
-            return Err(Error::Sandbox(
-                "Solo rutas relativas al workspace".into(),
-            ));
+            return Err(Error::Sandbox("Solo rutas relativas al workspace".into()));
         }
         /* Prohibir `..` explícitamente (defensa en profundidad). */
         for componente in ruta.components() {
             if matches!(componente, Component::ParentDir) {
-                return Err(Error::Sandbox(
-                    "No se permiten rutas con '..'".into(),
-                ));
+                return Err(Error::Sandbox("No se permiten rutas con '..'".into()));
             }
         }
         let candidata = self.raiz.join(ruta);
-        let canonica = std::fs::canonicalize(&candidata).map_err(|_| {
-            Error::NoEncontrado("La ruta no existe dentro del workspace".into())
-        })?;
+        let canonica = std::fs::canonicalize(&candidata)
+            .map_err(|_| Error::NoEncontrado("La ruta no existe dentro del workspace".into()))?;
         /* Verificación case-insensitive (Windows) del prefijo + separador. */
         let raiz_lower = self
             .raiz
@@ -151,7 +149,10 @@ impl SandboxArchivos {
 
     /// ¿La ruta (relativa) es un secreto que el agente no puede leer?
     pub fn es_secreto(&self, relativa: &str) -> bool {
-        let normalizada = relativa.replace('\\', "/").trim_start_matches("./").to_string();
+        let normalizada = relativa
+            .replace('\\', "/")
+            .trim_start_matches("./")
+            .to_string();
         let segmentos: Vec<&str> = normalizada.split('/').collect();
         /* [039A-3 P3 §6.4] `.glory-harness/` (vault de respaldos del harness)
          * es zona interna BLOQUEADA: si el agente pudiera escribir ahí podría
@@ -182,7 +183,10 @@ impl SandboxArchivos {
             }) {
                 return true;
             }
-            if SECRET_PREFIJOS.iter().any(|p| nombre.ends_with(&p.trim_start_matches('*'))) {
+            if SECRET_PREFIJOS
+                .iter()
+                .any(|p| nombre.ends_with(&p.trim_start_matches('*')))
+            {
                 return true;
             }
         }
@@ -316,8 +320,9 @@ impl SandboxArchivos {
             }
         }
         if let Some(parent) = ruta.parent() {
-            std::fs::create_dir_all(parent)
-                .map_err(|error| Error::Validacion(format!("No se pudo crear directorios: {error}")))?;
+            std::fs::create_dir_all(parent).map_err(|error| {
+                Error::Validacion(format!("No se pudo crear directorios: {error}"))
+            })?;
         }
         std::fs::write(&ruta, contenido)
             .map_err(|error| Error::Validacion(format!("No se pudo escribir: {error}")))?;
@@ -330,23 +335,20 @@ impl SandboxArchivos {
     fn resolver_para_escribir(&self, relativa: &str) -> Result<PathBuf, Error> {
         let ruta = Path::new(relativa);
         if ruta.is_absolute() {
-            return Err(Error::Sandbox(
-                "Solo rutas relativas al workspace".into(),
-            ));
+            return Err(Error::Sandbox("Solo rutas relativas al workspace".into()));
         }
         for componente in ruta.components() {
             if matches!(componente, Component::ParentDir) {
-                return Err(Error::Sandbox(
-                    "No se permiten rutas con '..'".into(),
-                ));
+                return Err(Error::Sandbox("No se permiten rutas con '..'".into()));
             }
         }
         /* El padre debe quedar dentro (o ser el propio workspace). */
-        let padre = self.raiz.join(ruta.parent().unwrap_or_else(|| Path::new("")));
+        let padre = self
+            .raiz
+            .join(ruta.parent().unwrap_or_else(|| Path::new("")));
         let padre_canonico = if padre.exists() {
-            std::fs::canonicalize(&padre).map_err(|error| {
-                Error::Validacion(format!("Directorio no accesible: {error}"))
-            })?
+            std::fs::canonicalize(&padre)
+                .map_err(|error| Error::Validacion(format!("Directorio no accesible: {error}")))?
         } else {
             /* El padre no existe: validar lexicográficamente sobre la raíz
              * canónica (sin resolver, no hay junction posible en un dir nuevo). */
@@ -358,9 +360,10 @@ impl SandboxArchivos {
                 "La ruta de escritura escapa del workspace".into(),
             ));
         }
-        Ok(padre_canonico.join(ruta.file_name().ok_or_else(|| {
-            Error::Validacion("La ruta no tiene nombre de archivo".into())
-        })?))
+        Ok(padre_canonico.join(
+            ruta.file_name()
+                .ok_or_else(|| Error::Validacion("La ruta no tiene nombre de archivo".into()))?,
+        ))
     }
 }
 
@@ -382,7 +385,8 @@ mod tests {
     use std::fs;
 
     fn sandbox_tmp(nombre: &str) -> SandboxArchivos {
-        let dir = std::env::temp_dir().join(format!("agente-sandbox-{nombre}-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("agente-sandbox-{nombre}-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).expect("crear tmp");
         SandboxArchivos::nuevo(&dir).expect("sandbox")
@@ -428,7 +432,8 @@ mod tests {
     #[test]
     fn trunca_con_aviso() {
         let sb = sandbox_tmp("trunc");
-        sb.escribir("grande.txt", &"x".repeat(5000)).expect("escribir");
+        sb.escribir("grande.txt", &"x".repeat(5000))
+            .expect("escribir");
         let (contenido, truncado) = sb.leer("grande.txt", 100).expect("leer");
         assert_eq!(contenido.len(), 100);
         assert!(truncado);
@@ -465,10 +470,11 @@ mod tests {
             if self.fallar {
                 return Err(crate::error::Error::Persistencia("fallo simulado".into()));
             }
-            self.llamadas
-                .lock()
-                .unwrap()
-                .push((relativa.to_string(), previo_bytes.to_vec(), nuevo_contenido.to_string()));
+            self.llamadas.lock().unwrap().push((
+                relativa.to_string(),
+                previo_bytes.to_vec(),
+                nuevo_contenido.to_string(),
+            ));
             Ok(())
         }
     }
@@ -495,12 +501,14 @@ mod tests {
     #[test]
     fn vault_respalda_previo_completo_y_relativa_normalizada() {
         let sb = sandbox_tmp("vault-hook");
-        sb.escribir("sub/nota.txt", "original").expect("escribir primera");
+        sb.escribir("sub/nota.txt", "original")
+            .expect("escribir primera");
         let r = respaldo_llamadas(&sb);
 
         // Sobrescritura con ruta que usa "./" y "\" → la relativa debe quedar
         // normalizada ("sub/nota.txt", sin "./" ni backslashes).
-        sb.escribir(r".\sub\nota.txt", "cambiada").expect("escribir segunda");
+        sb.escribir(r".\sub\nota.txt", "cambiada")
+            .expect("escribir segunda");
         let llamadas = r.llamadas.lock().unwrap();
         assert_eq!(llamadas.len(), 1);
         let (relativa, previo, nuevo) = &llamadas[0];
@@ -532,7 +540,8 @@ mod tests {
             fallar: true,
         });
         sb.con_respaldo(Some(r.clone()));
-        sb.escribir("nota.txt", "después").expect("escribir pese al fallo del hook");
+        sb.escribir("nota.txt", "después")
+            .expect("escribir pese al fallo del hook");
         let (contenido, _) = sb.leer("nota.txt", 1024).expect("leer");
         assert_eq!(contenido, "después");
     }
@@ -558,7 +567,9 @@ mod tests {
         assert!(sb.es_secreto(".glory-harness/backups/abc/nota.txt"));
         assert!(sb.es_secreto(".glory-harness"));
         assert!(sb.es_secreto(r".glory-harness\backups\x"));
-        let err = sb.escribir(".glory-harness/backups/abc/nota.txt", "x").unwrap_err();
+        let err = sb
+            .escribir(".glory-harness/backups/abc/nota.txt", "x")
+            .unwrap_err();
         assert!(err.to_string().contains("lista negra"));
         // Archivo normal NO es secreto.
         assert!(!sb.es_secreto("notas.txt"));

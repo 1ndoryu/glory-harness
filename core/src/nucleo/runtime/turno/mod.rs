@@ -98,11 +98,8 @@ impl AgentRuntime {
         tx: &Sender<AgenteEvento>,
     ) -> Result<()> {
         let inicio = std::time::Instant::now();
-        let mut estado = EstadoTurno::nuevo(
-            self.prompt_sistema(),
-            historial,
-            mensaje_usuario.clone(),
-        );
+        let mut estado =
+            EstadoTurno::nuevo(self.prompt_sistema(), historial, mensaje_usuario.clone());
         /* [318A-16 F5] Modo plan: propuesta fresca por turno. El turno
          * anterior dejó su propuesta legible (`plan_actual`); al empezar uno
          * nuevo en modo plan se sustituye (la UI decidió aplicar o descartar
@@ -331,7 +328,8 @@ impl AgentRuntime {
             cm.requiere_compactacion(
                 &mensajes,
                 0,
-                self.tool_en_curso.load(std::sync::atomic::Ordering::Relaxed),
+                self.tool_en_curso
+                    .load(std::sync::atomic::Ordering::Relaxed),
             )
         };
         if requiere {
@@ -348,12 +346,15 @@ impl AgentRuntime {
                 &mensajes,
                 0,
                 None,
-                self.tool_en_curso.load(std::sync::atomic::Ordering::Relaxed),
+                self.tool_en_curso
+                    .load(std::sync::atomic::Ordering::Relaxed),
             );
             (resultado.mensajes, resultado.metricas)
         };
         if metricas.is_some() {
-            let _ = self.disparar_hook(EventoHook::PostCompact, serde_json::json!({})).await;
+            let _ = self
+                .disparar_hook(EventoHook::PostCompact, serde_json::json!({}))
+                .await;
         }
         if let Some(m) = &metricas {
             let _ = tx
@@ -384,7 +385,8 @@ impl AgentRuntime {
         tx: &Sender<AgenteEvento>,
     ) -> Result<PasoIteracion> {
         let guardas = *self.guardas.lock().unwrap_or_else(|p| p.into_inner());
-        if texto_vacio(&ultimo_contenido) && decidir_reintento_vacio(&guardas, estado.ya_reintentado)
+        if texto_vacio(&ultimo_contenido)
+            && decidir_reintento_vacio(&guardas, estado.ya_reintentado)
         {
             estado.ya_reintentado = true;
             estado

@@ -103,6 +103,8 @@ mod tests {
 
     #[test]
     fn respuesta_aprobacion_aprobar_no_crea_regla() {
-        assert!(RespuestaAprobacion::Aprobar.regla_para("escritura", "**").is_none());
+        assert!(RespuestaAprobacion::Aprobar
+            .regla_para("escritura", "**")
+            .is_none());
     }
 }

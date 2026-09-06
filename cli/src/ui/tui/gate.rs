@@ -43,27 +43,28 @@ pub(crate) async fn resolver_gate_aprobaciones(
             };
             let decision = linea.trim().to_lowercase();
             let aplicada = match decision.as_str() {
-                "n" | "no" | "rechazar" | "denegar" => {
-                    runtime
-                        .responder_aprobacion(&peticion.id, glory_harness_core::aprobacion::RespuestaAprobacion::Rechazar)
-                        .map(|_| {
-                            let _ = tx_eventos.send(EventoTui::Estado(format!(
-                                "✗ clase '{}' denegada en esta conversación",
-                                peticion.clasificacion
-                            )));
-                        })
-                        .is_ok()
-                }
-                "p" | "permitir" | "si" | "aprobar" | "ok" => {
-                    runtime
-                        .responder_aprobacion(&peticion.id, glory_harness_core::aprobacion::RespuestaAprobacion::Aprobar)
-                        .map(|_| {
-                            let _ = tx_eventos.send(EventoTui::Estado(
-                                "✓ permitida (solo esta vez)".into(),
-                            ));
-                        })
-                        .is_ok()
-                }
+                "n" | "no" | "rechazar" | "denegar" => runtime
+                    .responder_aprobacion(
+                        &peticion.id,
+                        glory_harness_core::aprobacion::RespuestaAprobacion::Rechazar,
+                    )
+                    .map(|_| {
+                        let _ = tx_eventos.send(EventoTui::Estado(format!(
+                            "✗ clase '{}' denegada en esta conversación",
+                            peticion.clasificacion
+                        )));
+                    })
+                    .is_ok(),
+                "p" | "permitir" | "si" | "aprobar" | "ok" => runtime
+                    .responder_aprobacion(
+                        &peticion.id,
+                        glory_harness_core::aprobacion::RespuestaAprobacion::Aprobar,
+                    )
+                    .map(|_| {
+                        let _ = tx_eventos
+                            .send(EventoTui::Estado("✓ permitida (solo esta vez)".into()));
+                    })
+                    .is_ok(),
                 "s" | "siempre" | "always" | "allow" => {
                     /* Confirmación previa (opencode exige Confirm/Cancel
                      * antes de persistir "always"). */
@@ -80,7 +81,10 @@ pub(crate) async fn resolver_gate_aprobaciones(
                         "s" | "si" | "siempre" | "y" | "yes" | "confirmar"
                     ) {
                         runtime
-                            .responder_aprobacion(&peticion.id, glory_harness_core::aprobacion::RespuestaAprobacion::Siempre)
+                            .responder_aprobacion(
+                                &peticion.id,
+                                glory_harness_core::aprobacion::RespuestaAprobacion::Siempre,
+                            )
                             .map(|_| {
                                 let _ = tx_eventos.send(EventoTui::Estado(format!(
                                     "✓ permitida siempre: la clase '{}' ya no preguntará",
@@ -112,4 +116,3 @@ pub(crate) async fn resolver_gate_aprobaciones(
 
     Some(todo_resuelto)
 }
-

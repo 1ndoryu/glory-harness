@@ -1,5 +1,5 @@
 //! Binario `glory-harness` (Fases 3-5): subcomandos `run`, `chat`, `daemon`,
-//! `schedule`, `tools`, `doctor` y `--version`.
+//! `web`, `schedule`, `session`, `tools`, `doctor` y `--version`.
 //!
 //! - `run [--prompt "..." | --stdin] [--provider P] [--modelo M] [--dir R]`
 //!   → un turno one-shot. Trabaja en la carpeta actual (o `--dir`); usa por
@@ -11,6 +11,8 @@
 //!   Con `--tui`: pantalla completa ratatui (paneles mensajes/estado/entrada).
 //! - `daemon [--puerto N] [--mostrar-token]` → proceso de fondo NDJSON en
 //!   `127.0.0.1`, multi-sesión, token obligatorio.
+//! - `web [--puerto N] [--dir-ui R] [--fixture]` → servidor HTTP loopback
+//!   con SSE para el modo web local (`http://127.0.0.1:8799`).
 //! - `session <list|ver|resume|borrar> [id]` → gestiona las conversaciones
 //!   durables del CLI (misma BD y usuario que `chat`); `resume` reabre el REPL
 //!   sobre una conversación anterior ([069A-2]).
@@ -19,7 +21,7 @@
 //! - `--version`/`-V` → versión del binario + contrato core.
 
 use glory_harness::cargar_env_usuario;
-use glory_harness::{chat, daemon, ejecutor, persistencia, run, sesion, tui};
+use glory_harness::{chat, daemon, ejecutor, persistencia, run, sesion, tui, web};
 use std::process::ExitCode;
 
 mod schedule_cmd;
@@ -68,6 +70,7 @@ fn despachar(args: Vec<String>) -> ExitCode {
                 /* [069A-3] Toast de Windows al terminar el turno o pedir un
                  * permiso (solo CLI interactivo, tras flag explícito). */
                 notificar: args.iter().any(|a| a == "--notificar"),
+                navegador: None,
             };
             let prompt = if let Some(p) = prompt {
                 Some(p)
@@ -94,6 +97,7 @@ fn despachar(args: Vec<String>) -> ExitCode {
                 /* [069A-3] Como en `run` (vale también para `session resume`,
                  * que reabre este mismo REPL). */
                 notificar: args.iter().any(|a| a == "--notificar"),
+                navegador: None,
             };
             let usa_tui = args.iter().any(|a| a == "--tui");
             con_runtime("chat", |rt| {
@@ -117,6 +121,26 @@ fn despachar(args: Vec<String>) -> ExitCode {
                 .unwrap_or(8798);
             let mostrar = args.iter().any(|a| a == "--mostrar-token");
             con_runtime("daemon", |rt| rt.block_on(daemon::run(puerto, mostrar)))
+        }
+        /* [069A-2 F1] Modo web local: servidor HTTP loopback con SSE. */
+        Some("web") => {
+            let puerto = extraer_opcion(&args, &["--puerto", "--port"])
+                .and_then(|p| p.parse::<u16>().ok())
+                .unwrap_or(8799);
+            let dir_ui = args.iter()
+                .position(|a| a == "--dir-ui")
+                .and_then(|i| args.get(i + 1).cloned())
+                .or_else(|| {
+                    /* Default: ../desktop/ui/dist relativo al binario */
+                    std::env::current_exe().ok().and_then(|p| {
+                        p.parent()
+                            .map(|p| p.join("../desktop/ui/dist"))
+                            .filter(|p| p.exists())
+                            .map(|p| p.to_string_lossy().into_owned())
+                    })
+                });
+            let fixture = args.iter().any(|a| a == "--fixture");
+            con_runtime("web", |rt| rt.block_on(web::run(puerto, dir_ui, fixture)))
         }
         Some("schedule") => schedule_cmd::cmd_schedule(&args[1..]),
         Some("session") => cmd_session(&args[1..]),
@@ -197,6 +221,7 @@ fn cmd_session(args: &[String]) -> ExitCode {
         max_ventana: None,
         /* [069A-3] `session resume` reabre el REPL: admite el mismo flag. */
         notificar: args.iter().any(|a| a == "--notificar"),
+        navegador: None,
     };
     let resultado = match tokio::runtime::Runtime::new() {
         Ok(rt) => rt.block_on(sesion::sesion(args, opciones)),
@@ -333,6 +358,7 @@ fn listar_tools() {
         dominio: None,
         ejecutor_comando: Some(Arc::new(ejecutor::EjecutorCliente::nuevo())),
         programador_tareas: Some(Arc::new(persistencia::ProgramadorMemoria::nuevo())),
+        navegador: None,
     };
     let runtime = AgentRuntime::nuevo(
         AgentToolRegistry::new(),

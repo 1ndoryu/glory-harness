@@ -128,4 +128,5 @@ export type IconoNombre =
   | 'detener'
   | 'chevron-abajo'
   | 'chevron-derecha'
+  | 'navegador';
   | 'spin';

@@ -93,7 +93,11 @@ pub fn tiene_cambios(plan: &PlanCompartida) -> bool {
 #[must_use]
 pub fn rutas_plan(plan: &PlanCompartida) -> Vec<String> {
     let guardia = plan.read().unwrap_or_else(|p| p.into_inner());
-    guardia.cambios.iter().map(|cambio| cambio.ruta.clone()).collect()
+    guardia
+        .cambios
+        .iter()
+        .map(|cambio| cambio.ruta.clone())
+        .collect()
 }
 
 /// Número de cambios pendientes.
@@ -144,7 +148,11 @@ pub fn aplicar_plan(plan: &PlanCompartida, sandbox: &SandboxArchivos) -> Result<
     let mut aplicados = Vec::with_capacity(guardia.cambios.len());
     for cambio in &guardia.cambios {
         sandbox.escribir(&cambio.ruta, &cambio.despues)?;
-        aplicados.push(format!("- {} ({} líneas cambiadas)", cambio.ruta, cambio.diff.lines().count()));
+        aplicados.push(format!(
+            "- {} ({} líneas cambiadas)",
+            cambio.ruta,
+            cambio.diff.lines().count()
+        ));
     }
     guardia.aplicado = true;
     Ok(format!(
@@ -217,9 +225,15 @@ mod tests {
         registrar_cambio(&plan, "a.txt", "v2\n", "v3\n");
         assert_eq!(cuenta_cambios(&plan), 1);
         let resumen = resumen_plan(&plan);
-        assert!(resumen.contains("-v2"), "el diff es contra el disco (antes real)");
+        assert!(
+            resumen.contains("-v2"),
+            "el diff es contra el disco (antes real)"
+        );
         assert!(resumen.contains("+v3"));
-        assert!(!resumen.contains("-v1"), "sin propuestas intermedias: v1 no aparece");
+        assert!(
+            !resumen.contains("-v1"),
+            "sin propuestas intermedias: v1 no aparece"
+        );
     }
 
     #[test]
@@ -269,7 +283,12 @@ mod tests {
         /* El agente "propone" dos cambios (como harían file_write/file_patch
          * en modo plan). */
         let (antes, _) = sandbox.leer("doc.txt", 1024).expect("leer");
-        registrar_cambio(&plan, "doc.txt", &antes, "linea1\nlinea2 CAMBIADA\nlinea3\n");
+        registrar_cambio(
+            &plan,
+            "doc.txt",
+            &antes,
+            "linea1\nlinea2 CAMBIADA\nlinea3\n",
+        );
         registrar_cambio(&plan, "nota.txt", "", "nota nueva\n");
 
         /* El humano ve el diff acumulado... */
@@ -299,9 +318,7 @@ mod tests {
 
         let plan = plan_nuevo();
         let sandbox = sandbox_tmp();
-        sandbox
-            .escribir("doc.txt", "v1\n")
-            .expect("fixture");
+        sandbox.escribir("doc.txt", "v1\n").expect("fixture");
         let (antes, _) = sandbox.leer("doc.txt", 1024).expect("leer");
         registrar_cambio(&plan, "doc.txt", &antes, "v2\n");
         registrar_cambio(&plan, "nuevo.txt", "", "creado\n");
@@ -323,7 +340,10 @@ mod tests {
         assert!(undo.contains("#1") && undo.contains("plan aprobado"));
         assert!(undo.contains("restaurado") && undo.contains("eliminado"));
         assert_eq!(sandbox.leer("doc.txt", 1024).expect("leer").0, "v1\n");
-        assert!(sandbox.leer("nuevo.txt", 1024).is_err(), "el archivo creado se eliminó");
+        assert!(
+            sandbox.leer("nuevo.txt", 1024).is_err(),
+            "el archivo creado se eliminó"
+        );
         assert!(
             revertir_ultimo(&historial, &sandbox)
                 .expect("undo vacío")

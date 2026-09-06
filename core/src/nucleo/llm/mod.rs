@@ -12,9 +12,15 @@ use serde::{Deserialize, Serialize};
 mod modelo;
 mod red;
 
-pub use modelo::{AiChatOptions, AiChatResult, AiMessage, AiNutritionResult, AiStreamResult, AiToolCall, LlavesProveedor, candidatos_para, catalogo_proveedores};
+pub use modelo::{
+    candidatos_para, catalogo_proveedores, AiChatOptions, AiChatResult, AiMessage,
+    AiNutritionResult, AiStreamResult, AiToolCall, LlavesProveedor,
+};
 
-use modelo::{PROMPT_NUTRICION, es_error_transitorio, mayuscula_primera, modelo_proveedor, resolver_candidatos, url_proveedor, validar_mensajes};
+use modelo::{
+    es_error_transitorio, mayuscula_primera, modelo_proveedor, resolver_candidatos, url_proveedor,
+    validar_mensajes, PROMPT_NUTRICION,
+};
 
 /// Estado del circuit breaker por proveedor (R7 del plan agente).
 #[derive(Debug, Clone)]
@@ -43,7 +49,8 @@ const CIRCUITO_COOLDOWN: std::time::Duration = std::time::Duration::from_secs(60
 pub struct LlmProviderService {
     llaves: LlavesProveedor,
     client: reqwest::Client,
-    circuito: std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String, CircuitoProveedor>>>,
+    circuito:
+        std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String, CircuitoProveedor>>>,
 }
 
 /// Parámetros agrupados de un request de streaming (evita la firma larga;
@@ -57,7 +64,6 @@ struct SolicitudStream<'a> {
     opciones: &'a AiChatOptions,
     tools: &'a [serde_json::Value],
 }
-
 
 impl LlmProviderService {
     pub fn new(llaves: LlavesProveedor) -> Self {
@@ -104,14 +110,21 @@ impl LlmProviderService {
             .circuito
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        let entrada = estado.entry(proveedor.to_string()).or_insert(CircuitoProveedor {
-            fallos_consecutivos: 0,
-            hasta: None,
-        });
+        let entrada = estado
+            .entry(proveedor.to_string())
+            .or_insert(CircuitoProveedor {
+                fallos_consecutivos: 0,
+                hasta: None,
+            });
         entrada.fallos_consecutivos += 1;
         if entrada.fallos_consecutivos >= CIRCUITO_UMBRAL {
             entrada.hasta = Some(std::time::Instant::now() + CIRCUITO_COOLDOWN);
-            tracing::warn!(proveedor, fallos = entrada.fallos_consecutivos, cooldown_s = 60, "circuit breaker abierto");
+            tracing::warn!(
+                proveedor,
+                fallos = entrada.fallos_consecutivos,
+                cooldown_s = 60,
+                "circuit breaker abierto"
+            );
         }
     }
 
@@ -132,7 +145,10 @@ impl LlmProviderService {
      * (cerebras) entraran en cooldown injustificadamente y bloquearan la vía
      * durante 60s aunque el problema fuera de la cuenta, no del servicio. */
     fn registrar_fallo_permanente(&self, proveedor: &str) {
-        tracing::debug!(proveedor, "fallo permanente del proveedor (no abre circuito)");
+        tracing::debug!(
+            proveedor,
+            "fallo permanente del proveedor (no abre circuito)"
+        );
     }
 
     pub async fn enviar_chat(
@@ -163,7 +179,13 @@ impl LlmProviderService {
             if keys.is_empty() {
                 if proveedor == "glory" {
                     match self
-                        .ejecutar_request_con_reintentos(proveedor, "", modelo, &mensajes_validos, &opciones)
+                        .ejecutar_request_con_reintentos(
+                            proveedor,
+                            "",
+                            modelo,
+                            &mensajes_validos,
+                            &opciones,
+                        )
                         .await
                     {
                         Ok(resultado) => {
@@ -189,7 +211,13 @@ impl LlmProviderService {
             }
             for key in keys {
                 match self
-                    .ejecutar_request_con_reintentos(proveedor, key, modelo, &mensajes_validos, &opciones)
+                    .ejecutar_request_con_reintentos(
+                        proveedor,
+                        key,
+                        modelo,
+                        &mensajes_validos,
+                        &opciones,
+                    )
                     .await
                 {
                     Ok(resultado) => {
@@ -236,9 +264,7 @@ impl LlmProviderService {
     ) -> Result<AiNutritionResult, Error> {
         let descripcion = descripcion.trim().to_string();
         if descripcion.is_empty() || descripcion.chars().count() > 1200 {
-            return Err(Error::Validacion(
-                "Descripción de comida inválida".into(),
-            ));
+            return Err(Error::Validacion("Descripción de comida inválida".into()));
         }
 
         let mensajes = vec![
@@ -326,7 +352,6 @@ impl LlmProviderService {
             modelo: respuesta.modelo,
         })
     }
-
 }
 
 impl LlmProviderService {
@@ -340,7 +365,6 @@ impl LlmProviderService {
             _ => &[],
         }
     }
-
 }
 
 #[cfg(test)]
@@ -407,25 +431,52 @@ mod tests {
     #[test]
     fn es_error_transitorio_distingue_5xx_y_429_de_permanentes() {
         // "503 Service Unavailable" (Display de reqwest incluye la razón).
-        let t503 = Error::Proveedor { detalle: "commandcode 503 Service Unavailable: overloaded".into(), causa: None };
+        let t503 = Error::Proveedor {
+            detalle: "commandcode 503 Service Unavailable: overloaded".into(),
+            causa: None,
+        };
         assert!(es_error_transitorio(&t503));
-        let t500 = Error::Proveedor { detalle: "groq 500 Internal Server Error: x".into(), causa: None };
+        let t500 = Error::Proveedor {
+            detalle: "groq 500 Internal Server Error: x".into(),
+            causa: None,
+        };
         assert!(es_error_transitorio(&t500));
-        let t429 = Error::Proveedor { detalle: "groq 429 Too Many Requests: limit".into(), causa: None };
+        let t429 = Error::Proveedor {
+            detalle: "groq 429 Too Many Requests: limit".into(),
+            causa: None,
+        };
         assert!(es_error_transitorio(&t429));
         // Red / stream.
-        let red = Error::Proveedor { detalle: "Error de red: timeout".into(), causa: None };
+        let red = Error::Proveedor {
+            detalle: "Error de red: timeout".into(),
+            causa: None,
+        };
         assert!(es_error_transitorio(&red));
-        let stream = Error::Proveedor { detalle: "Error leyendo el stream del proveedor: eof".into(), causa: None };
+        let stream = Error::Proveedor {
+            detalle: "Error leyendo el stream del proveedor: eof".into(),
+            causa: None,
+        };
         assert!(es_error_transitorio(&stream));
         // Permanentes: 4xx de auth/billing/schema y errores sin status.
-        let p400 = Error::Proveedor { detalle: "commandcode 400 Bad Request: tool_call_id".into(), causa: None };
+        let p400 = Error::Proveedor {
+            detalle: "commandcode 400 Bad Request: tool_call_id".into(),
+            causa: None,
+        };
         assert!(!es_error_transitorio(&p400));
-        let p403 = Error::Proveedor { detalle: "groq 403 Forbidden: Forbidden".into(), causa: None };
+        let p403 = Error::Proveedor {
+            detalle: "groq 403 Forbidden: Forbidden".into(),
+            causa: None,
+        };
         assert!(!es_error_transitorio(&p403));
-        let p402 = Error::Proveedor { detalle: "cerebras 402 Payment Required: x".into(), causa: None };
+        let p402 = Error::Proveedor {
+            detalle: "cerebras 402 Payment Required: x".into(),
+            causa: None,
+        };
         assert!(!es_error_transitorio(&p402));
-        let sin_status = Error::Proveedor { detalle: "No se pudo contactar un modelo IA disponible".into(), causa: None };
+        let sin_status = Error::Proveedor {
+            detalle: "No se pudo contactar un modelo IA disponible".into(),
+            causa: None,
+        };
         assert!(!es_error_transitorio(&sin_status));
     }
 
@@ -538,11 +589,12 @@ mod tests {
         let candidatos = resolver_candidatos("glory", "commandcode");
         assert_eq!(candidatos[0], ("glory", "commandcode"));
         // La cadena no duplica el candidato solicitado.
-        let pares_glory: Vec<_> = candidatos
-            .iter()
-            .filter(|(p, _)| *p == "glory")
-            .collect();
-        assert_eq!(pares_glory.len(), 2, "glory/commandcode + glory/glm-5.3-flash");
+        let pares_glory: Vec<_> = candidatos.iter().filter(|(p, _)| *p == "glory").collect();
+        assert_eq!(
+            pares_glory.len(),
+            2,
+            "glory/commandcode + glory/glm-5.3-flash"
+        );
     }
 
     #[test]

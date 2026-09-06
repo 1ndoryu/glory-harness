@@ -7,9 +7,7 @@
 
 use serde_json::Value;
 
-use crate::context::{
-    ContextoConfig, CIERRE_ENTORNO, CIERRE_REGLAS, MARCA_ENTORNO, MARCA_REGLAS,
-};
+use crate::context::{ContextoConfig, CIERRE_ENTORNO, CIERRE_REGLAS, MARCA_ENTORNO, MARCA_REGLAS};
 use crate::llm::AiMessage;
 use crate::runtime::TurnoConfig;
 
@@ -45,11 +43,7 @@ impl DesgloseContexto {
     /// y los schemas de tools. La reserva de salida y la ventana máxima vienen
     /// de la config del turno (el front muestra "Reservado para respuesta").
     #[must_use]
-    pub fn calcular(
-        mensajes: &[AiMessage],
-        schemas: &[Value],
-        config: &ContextoConfig,
-    ) -> Self {
+    pub fn calcular(mensajes: &[AiMessage], schemas: &[Value], config: &ContextoConfig) -> Self {
         let mut system_instrucciones = 0u32;
         let mut mensajes_usuario = 0u32;
         let mut resultados_tools = 0u32;
@@ -64,7 +58,8 @@ impl DesgloseContexto {
             .iter()
             .map(|s| crate::context::estimar_tokens(&s.to_string()))
             .sum();
-        let total_entrada = system_instrucciones + definiciones_tools + mensajes_usuario + resultados_tools;
+        let total_entrada =
+            system_instrucciones + definiciones_tools + mensajes_usuario + resultados_tools;
         let ventana_efectiva = config.ventana_efectiva();
         let ocupacion_pct = (total_entrada as f32 / ventana_efectiva.max(1) as f32) * 100.0;
         Self {
@@ -194,4 +189,3 @@ pub(crate) fn info_git(raiz: &str) -> Option<String> {
         Some("(detached)".into())
     }
 }
-

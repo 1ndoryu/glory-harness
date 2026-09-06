@@ -20,6 +20,7 @@ use uuid::Uuid;
 
 use glory_harness_core::evento::AgenteEvento;
 use glory_harness_core::llm::{LlavesProveedor, LlmProviderService};
+use glory_harness_core::ports::NavegadorPort;
 use glory_harness_core::runtime::{AgentRuntime, PuertosHarness, TurnoConfig};
 use glory_harness_core::tool::AgentToolRegistry;
 use glory_harness_core::{AgentPersistence, ProgramadorTareas};
@@ -28,7 +29,7 @@ use crate::persistencia::PersistenciaMemoria;
 use crate::persistencia_sqlite::PersistenciaSqlite;
 
 /// Opciones del subcomando `run`.
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Default)]
 pub struct OpcionesRun {
     /// Proveedor LLM. `None` → `commandcode` (Laguna S 2.1 free).
     pub provider: Option<String>,
@@ -54,6 +55,30 @@ pub struct OpcionesRun {
     /// (`--notificar`). Solo CLI interactivo; sin flag no se registra ningún
     /// hook (emisión no-op como antes).
     pub notificar: bool,
+    /// [069A-1 F5] Puerto del navegador interno. `None` → la tool no se
+    /// registra (fail-closed). Solo el escritorio inyecta un valor real.
+    pub navegador: Option<Arc<dyn NavegadorPort>>,
+}
+
+impl std::fmt::Debug for OpcionesRun {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("OpcionesRun")
+            .field("provider", &self.provider)
+            .field("modelo", &self.modelo)
+            .field("dir", &self.dir)
+            .field("modo", &self.modo)
+            .field("razonamiento", &self.razonamiento)
+            .field("max_ventana", &self.max_ventana)
+            .field("notificar", &self.notificar)
+            .field(
+                "navegador",
+                &self
+                    .navegador
+                    .as_ref()
+                    .map(|_| "Some(Arc<dyn NavegadorPort>)"),
+            )
+            .finish()
+    }
 }
 
 /// [039A-3 P6-backend] Piso de sanidad para ventanas inyectadas por el
@@ -282,6 +307,10 @@ pub fn construir_harness_con_impl(
             dominio: None,
             ejecutor_comando: Some(Arc::new(crate::ejecutor::EjecutorCliente::nuevo())),
             programador_tareas: Some(programador),
+            /* [069A-1 F5] Navegador interno: solo el desktop inyecta un
+             * puerto real; el CLI y schedule lo dejan en None, la tool no
+             * se registra (fail-closed). */
+            navegador: opciones.navegador.clone(),
         },
         config.clone(),
     ));

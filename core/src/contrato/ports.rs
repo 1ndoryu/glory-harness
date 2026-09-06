@@ -436,6 +436,36 @@ pub trait ProviderPort: Send + Sync {
     async fn chat_stream(&self, request: ChatRequest) -> Result<TokenStream>;
 }
 
+// ---------------------------------------------------------------------------
+// Navegador interno (puerto de la tool `navegador_reflejo`, 069A-1 F5)
+// ---------------------------------------------------------------------------
+
+/// Puerto de navegador interno WebView2 child. El consumidor (desktop Tauri)
+/// implementa este trait para que la tool del agente pueda navegar, capturar
+/// y manipular la webview hija. `None` en el runtime → la tool no se registra
+/// (fail-closed: el modelo ni la ve si no hay navegador disponible).
+#[async_trait]
+pub trait NavegadorPort: Send + Sync {
+    /// Abre el navegador en una URL.
+    async fn abrir(&self, url: &str) -> Result<()>;
+    /// Navega a una URL.
+    async fn navegar(&self, url: &str) -> Result<()>;
+    /// Captura la webview y devuelve PNG en Base64.
+    async fn capturar(&self) -> Result<String>;
+    /// Ejecuta JavaScript en la webview.
+    async fn js(&self, codigo: &str) -> Result<String>;
+    /// Invoca un método CDP.
+    async fn cdp(&self, metodo: &str, parametros: &str) -> Result<String>;
+    /// Hace click en el primer elemento que coincida con el selector CSS.
+    async fn click(&self, selector: &str) -> Result<()>;
+    /// Rellena un campo de formulario.
+    async fn rellenar(&self, selector: &str, valor: &str) -> Result<()>;
+    /// Toma un snapshot parcial (método específico CDP).
+    async fn snapshot(&self, selector: &str) -> Result<String>;
+    /// Cierra el navegador.
+    async fn cerrar(&self) -> Result<()>;
+}
+
 /// Eventos que puede emitir un proveedor durante el streaming.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "tipo", rename_all = "snake_case")]

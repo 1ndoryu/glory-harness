@@ -110,7 +110,12 @@ pub struct Hook {
 impl Hook {
     /// Hook de tipo `command`: proceso local que recibe el payload por stdin.
     #[must_use]
-    pub fn comando(nombre: impl Into<String>, evento: EventoHook, comando: impl Into<String>, args: Vec<String>) -> Self {
+    pub fn comando(
+        nombre: impl Into<String>,
+        evento: EventoHook,
+        comando: impl Into<String>,
+        args: Vec<String>,
+    ) -> Self {
         Self {
             nombre: nombre.into(),
             evento,
@@ -170,7 +175,8 @@ impl SalidaHook {
 pub trait RunnerHook: Send + Sync {
     /// Ejecuta el hook con el payload ya serializable. `Err` = fallo del
     /// runner (se registra y el turno continúa; jamás aborta).
-    async fn correr(&self, hook: &Hook, payload: &Value) -> std::result::Result<SalidaHook, String>;
+    async fn correr(&self, hook: &Hook, payload: &Value)
+        -> std::result::Result<SalidaHook, String>;
 }
 
 /// Runner de producción: `command` → proceso local con el JSON en stdin y
@@ -191,7 +197,11 @@ impl Default for RunnerComandoHttp {
 
 #[async_trait]
 impl RunnerHook for RunnerComandoHttp {
-    async fn correr(&self, hook: &Hook, payload: &Value) -> std::result::Result<SalidaHook, String> {
+    async fn correr(
+        &self,
+        hook: &Hook,
+        payload: &Value,
+    ) -> std::result::Result<SalidaHook, String> {
         let timeout = if hook.timeout.is_zero() {
             self.timeout
         } else {
@@ -225,7 +235,10 @@ impl RunnerHook for RunnerComandoHttp {
                     Ok(Err(e)) => Err(format!("'{comando}' falló: {e}")),
                     Err(_) => {
                         let _ = child.kill().await;
-                        Err(format!("'{comando}' excedió el timeout de {}s", timeout.as_secs()))
+                        Err(format!(
+                            "'{comando}' excedió el timeout de {}s",
+                            timeout.as_secs()
+                        ))
                     }
                 }
             }
@@ -240,7 +253,10 @@ impl RunnerHook for RunnerComandoHttp {
                         Ok(SalidaHook::CONTINUAR)
                     }
                     Ok(Err(e)) => Err(format!("POST {url} falló: {e}")),
-                    Err(_) => Err(format!("POST {url} excedió el timeout de {}s", timeout.as_secs())),
+                    Err(_) => Err(format!(
+                        "POST {url} excedió el timeout de {}s",
+                        timeout.as_secs()
+                    )),
                 }
             }
         }
@@ -477,7 +493,12 @@ mod tests {
     async fn solo_dispara_hooks_del_evento_correcto() {
         let runner = RunnerGrabador::nuevo();
         let mut d = DispatcherHooks::con_runner(runner.clone());
-        d.registrar(Hook::comando("post", EventoHook::PostToolUse, "echo", vec![]));
+        d.registrar(Hook::comando(
+            "post",
+            EventoHook::PostToolUse,
+            "echo",
+            vec![],
+        ));
         d.registrar(Hook::comando("stop", EventoHook::Stop, "echo", vec![]));
 
         d.disparar(EventoHook::Stop, serde_json::json!({})).await;
@@ -505,7 +526,12 @@ mod tests {
     async fn bloqueo_pre_tool_use_se_propaga() {
         let runner = RunnerGrabador::con_salida(Ok(SalidaHook::BLOQUEAR));
         let mut d = DispatcherHooks::con_runner(runner.clone());
-        d.registrar(Hook::comando("veto", EventoHook::PreToolUse, "false", vec![]));
+        d.registrar(Hook::comando(
+            "veto",
+            EventoHook::PreToolUse,
+            "false",
+            vec![],
+        ));
 
         assert!(
             d.disparar(EventoHook::PreToolUse, payload_tool("comando"))
@@ -518,7 +544,12 @@ mod tests {
     async fn bloqueo_se_ignora_en_eventos_informativos() {
         let runner = RunnerGrabador::con_salida(Ok(SalidaHook::BLOQUEAR));
         let mut d = DispatcherHooks::con_runner(runner.clone());
-        d.registrar(Hook::comando("post", EventoHook::PostToolUse, "false", vec![]));
+        d.registrar(Hook::comando(
+            "post",
+            EventoHook::PostToolUse,
+            "false",
+            vec![],
+        ));
         d.registrar(Hook::comando("stop", EventoHook::Stop, "false", vec![]));
 
         assert!(
@@ -533,10 +564,16 @@ mod tests {
     async fn fallo_del_runner_no_aborta_y_no_bloquea() {
         let runner = RunnerGrabador::con_salida(Err("proceso ausente".into()));
         let mut d = DispatcherHooks::con_runner(runner.clone());
-        d.registrar(Hook::comando("roto", EventoHook::PreToolUse, "no_existe", vec![]));
+        d.registrar(Hook::comando(
+            "roto",
+            EventoHook::PreToolUse,
+            "no_existe",
+            vec![],
+        ));
 
         assert!(
-            !d.disparar(EventoHook::PreToolUse, payload_tool("comando")).await,
+            !d.disparar(EventoHook::PreToolUse, payload_tool("comando"))
+                .await,
             "un hook que falla se ignora (fail-open del observador, no del permiso)"
         );
     }
@@ -552,18 +589,30 @@ mod tests {
 
         d.disparar(EventoHook::PreToolUse, payload_tool("web_fetch"))
             .await;
-        assert!(runner.registros().is_empty(), "web_fetch no coincide con file_*");
+        assert!(
+            runner.registros().is_empty(),
+            "web_fetch no coincide con file_*"
+        );
 
         d.disparar(EventoHook::PreToolUse, payload_tool("file_write"))
             .await;
-        assert_eq!(runner.registros().len(), 1, "file_write coincide con file_*");
+        assert_eq!(
+            runner.registros().len(),
+            1,
+            "file_write coincide con file_*"
+        );
     }
 
     #[tokio::test]
     async fn hook_sin_patron_corre_para_toda_tool() {
         let runner = RunnerGrabador::nuevo();
         let mut d = DispatcherHooks::con_runner(runner.clone());
-        d.registrar(Hook::comando("todas", EventoHook::PreToolUse, "echo", vec![]));
+        d.registrar(Hook::comando(
+            "todas",
+            EventoHook::PreToolUse,
+            "echo",
+            vec![],
+        ));
 
         d.disparar(EventoHook::PreToolUse, payload_tool("cualquiera"))
             .await;
@@ -598,7 +647,11 @@ mod tests {
             serde_json::json!({ "tool": "comando_write" }),
         )
         .await;
-        assert_eq!(runner.registros().len(), 1, "comando_write coincide con *_write");
+        assert_eq!(
+            runner.registros().len(),
+            1,
+            "comando_write coincide con *_write"
+        );
     }
 
     #[test]
