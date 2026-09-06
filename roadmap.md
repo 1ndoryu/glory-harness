@@ -131,6 +131,12 @@ Orden propuesto (dependencias de abajo arriba):
   "mostrar lista" la reabre; el grupo izquierdo de la cabecera colapsa cuando su botón está
   oculto (sin hueco fantasma). Verificado con navegador mock. Evidencia en
   `Agente/completados/tareas-2026-09-05.md`.
+  P6b retoque 2 HECHO (05-09, commit `3a53771`): el divisor del panel lateral funcionaba
+  INVERTIDO (el lateral está anclado al borde derecho de `#paneles`, pero el ancho se calculaba
+  desde el borde izquierdo). Ahora `ancho = paneles.right - clientX`: arrastrar a la izquierda
+  ENGRANDE el lateral y a la derecha lo ENCOGE (clamp 260 / 70%). Verificado con navegador mock
+  (crece 342→465→725 máx, encoge →328→260 mín, persistencia `lateral_ancho`). Evidencia en
+  `Agente/completados/tareas-2026-09-05.md`.
   En curso: P3 vault de respaldos. Pendiente P6-backend (inyectar `contexto.max_ventana` 150k en
   `construir_harness_con`/`reconfigurar_sesion` de `cli/run.rs`) — BLOQUEADO por el agente
   paralelo que toca `cli/`/`core/` (sin tocar el default del core 128k).

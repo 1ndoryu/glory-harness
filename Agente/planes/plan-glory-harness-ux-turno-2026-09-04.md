@@ -510,6 +510,16 @@ ocultar la lista no, solo para mostrar, se oculta automáticamente si se reduce 
       colapsa (`display:none` vía `:has`) cuando su botón "mostrar lista" está oculto: sin hueco
       fantasma entre el borde y el título. Verificado en navegador mock (colapso por arrastre,
       reapertura, arrastre medio sin colapso, lateral intacto).
+- [x] Retoque 2 (05-09, commit `3a53771`): el divisor del panel lateral funcionaba INVERTIDO. El
+      lateral está anclado al borde derecho de `#paneles` (`flex: principal 1 + grip 5px +
+      lateral 0 0 var(--lateral-ancho)`), pero el handler calculaba `ancho = clientX -
+      paneles.left` (desde el borde izquierdo), así que arrastrar a la izquierda ENCOGÍA y a la
+      derecha CRECÍA. Ahora el mousemove usa `ancho = rect.right - e.clientX` (distancia del
+      cursor al borde derecho): arrastrar a la izquierda ENGRANDE el lateral y a la derecha lo
+      ENCOGE, con clamp `[260, 70% de #paneles]`. `medirPanelesAncho()` sigue viva para
+      `restaurarLateralAncho()`. Verificado en navegador mock: arrastre a la izquierda
+      342→465→725 (máx 70%), a la derecha 465→328→260 (mín), persistencia `lateral_ancho` en
+      cada soltura. Captura `C:/tmp/p6b-ret2-divisor-corregido.png`.
 - [ ] E2E `tauri dev` (bloqueado por el agente paralelo en `cli/`/`core/`).
 
 ---
