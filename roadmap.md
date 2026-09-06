@@ -68,7 +68,11 @@ Orden propuesto (dependencias de abajo arriba):
 - [ ] **069A-5 — Deuda cero Sentinel** (full 0/0/0): 18 warnings + 4 info
       (directorio-abarrotado, funcion-larga ×11, limite-lineas ×5+nivel-2 ×2,
       todo-pendiente ×4). Plan:
-      `Agente/planes/plan-deuda-cero-sentinel-2026-09-06.md`. En curso 06-09.
+      `Agente/planes/plan-deuda-cero-sentinel-2026-09-06.md`. F1-F5
+      commiteados 06-09 (core+CLI 0/0/0 verificado por fichero). F6 desktop
+      BLOQUEADO: `main.rs` en refactor ajeno activo (069A-2-web, no compila,
+      28 errores ajenos) — quedan 2 warnings (enviar_turno 134, limite 963).
+      Gate incremental 069A-5: 0 errores, 2 warnings (desktop).
 - [ ] **069A-2 — Modo web local unificado con Tauri**: arquitectura HTTP + SSE como API única.
       Tanto Tauri como el navegador usan el mismo backend Rust y el mismo adaptador HTTP/SSE
       en TypeScript. Tauri embebe el servidor HTTP en loopback y la webview carga localhost.
