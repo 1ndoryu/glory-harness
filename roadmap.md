@@ -118,6 +118,14 @@ Orden propuesto (dependencias de abajo arriba):
   Se elimina el `title` nativo; `EstadoContexto` propaga el detalle completo desde el backend.
   Verificado con navegador mock (principal y lateral). Evidencia en
   `Agente/completados/tareas-2026-09-05.md`.
+  P6b (mejoras UX de paneles) HECHO (05-09, commit `67729b5`): requisito del usuario — el panel
+  lateral se redimensiona con un divisor arrastrable (min 260 / max 70%, ancho persistido); el
+  lateral usa la entrada completa (modelo/razonamiento/modo compartidos M1, cambiar en uno
+  actualiza el otro); el ⋯ de la cabecera va al extremo derecho; la lista de conversaciones ya no
+  se oculta manualmente (sin botón de ocultar): se auto-oculta por ancho mínimo (720px) y el
+  botón solo aparece cuando está oculta para MOSTRARLA. Verificado con navegador mock (arrastre,
+  clamp 260, persistencia, 650px/1200px, M1 compartido). Evidencia en
+  `Agente/completados/tareas-2026-09-05.md`.
   En curso: P3 vault de respaldos. Pendiente P6-backend (inyectar `contexto.max_ventana` 150k en
   `construir_harness_con`/`reconfigurar_sesion` de `cli/run.rs`) — BLOQUEADO por el agente
   paralelo que toca `cli/`/`core/` (sin tocar el default del core 128k).

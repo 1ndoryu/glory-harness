@@ -9,7 +9,9 @@ conversacional transaccional por `rowid` + menú por mensaje; commit `039A-3 (P2
 (⋯ cabecera + sidebar colapsable/redimensionable; commit `039A-3 (P4)`).
 P3 CORE+DESKTOP HECHO (commits `039A-3 (P3 core)` 3505812 y `039A-3 (P3 desktop WIP)` f6ca9fb);
 P3 FRONTEND HECHO (05-09, sin commit: aviso con acción "Restaurar archivos" tras volverA).
-P5-P6 en curso.
+P5-P6 en curso. P6b (mejoras UX de paneles, requisito del usuario 05-09) HECHO (commit `67729b5`):
+lateral redimensionable con divisor, entrada completa compartida M1, ⋯ a la derecha y lista
+auto-ocultable por ancho mínimo (sin botón manual de ocultar).
 Plan base: plan-glory-harness-desktop-2026-09-03.md (039A-1, fases F1-F6 + anexo §10)
 Tipo: ampliación del desktop (UI + backend Tauri + core opcional)
 Revisión: supervisor_thinker — VEREDICTO VIABLE CON RESERVAS; decisiones cerradas en §6 (Fase 0)
@@ -475,6 +477,34 @@ para no acoplar el riesgo del vault al del multi-panel. Pendiente de confirmar c
 - [x] Evidencia front: type-check + build limpios; círculo llenándose en mock (7%/150k),
       config "Ventana de contexto" 150000 visible y editable. Falta E2E `tauri dev` (bloqueado) y
       confirmar que 150k llega como `ContextoDetalle.max_ventana` (depende del backend P6).
+
+### P6b — Mejoras UX de los paneles (requisito del usuario 05-09) — HECHO (05-09, commit `67729b5`)
+
+Requisito del usuario: "puedo cambiar el tamaño del panel lateral, debería de poder, y el panel no
+se si es porque es un ejemplo no aparece para elegir modelo, modo y escribir un mensaje, pues
+debería el icono de 3 puntos en la cabecera de chat ponlo al final al otro lado, el icono para
+ocultar la lista no, solo para mostrar, se oculta automáticamente si se reduce a un tamaño mínimo".
+
+- [x] **Lateral redimensionable**: divisor vertical `.lateral-grip` entre principal y lateral
+      (mousedown → mousemove clamp `[260, round(ancho×0.7)]` → mouseup persiste `lateral_ancho`).
+      `restaurarLateralAncho()` restaura el persistido al reabrir (default mitad de `#paneles`).
+      Solo aplica con 2 paneles; en columna (<900px) el grip se oculta.
+- [x] **Entrada completa en el lateral (M1 compartido)**: `panelChat.ts` usa `variante:'completa'`
+      para TODOS los paneles; los handlers de modelo/modo/razonamiento en `main.ts` propagan a
+      `panelesRegistrados` (cambiar en un panel actualiza el otro). Verificado en mock: cambiar
+      modelo en el lateral a "DeepSeek V4 Flash" actualiza también el principal.
+- [x] **⋯ al extremo derecho**: `cabecera.ts` monta el ⋯ en un grupo propio `acciones-mas` tras el
+      título con `margin-left:auto` (toggle/× quedan a la izquierda). Verificado: ⋯ principal
+      x=601 (de 641), lateral x=219 (de 259).
+- [x] **Lista auto-ocultable por ancho (sin ocultación manual)**: `main.ts` umbral 720px +
+      `sidebarForzada`; `aplicarSidebar()` oculta sola la lista bajo el umbral; el botón de la
+      cabecera nace `hidden`, solo aparece con la lista oculta y su única acción es MOSTRARLA
+      (`mostrarSidebar`). `CLAVE_COLAPSADA` se conserva solo para lectura inicial por
+      compatibilidad. Verificado en mock a 650px / 1200px.
+- [x] Evidencia: type-check + build limpios; verificaciones funcionales del navegador mock (8765)
+      en `Agente/completados/tareas-2026-09-05.md` (a–k); capturas `C:/tmp/p6b-2paneles.png`,
+      `C:/tmp/p6b-angosto.png`.
+- [ ] E2E `tauri dev` (bloqueado por el agente paralelo en `cli/`/`core/`).
 
 ---
 
