@@ -221,23 +221,7 @@ impl AgentContextManager {
         en_ejecucion_tool: bool,
     ) -> CompactarResultado {
         let tokens_total: u32 = mensajes.iter().map(tokens_de_mensaje).sum();
-        let ventana_efectiva = self.config.ventana_efectiva();
-        let occupancy = tokens_total as f32 / ventana_efectiva as f32;
-        let umbral = self.config.umbral_disparo();
-
-        /* [318A-15 F6] Ventana de seguridad: con una tool en curso (tool_call
-         * largo o sesión hija) no se compacta salvo ocupación degenerada. */
-        let en_tool = en_ejecucion_tool && occupancy < umbral_degenerado(&self.config);
-        /* [318A-15 F6] No compactar dos veces seguidas con el mismo material:
-         * sin mensajes nuevos desde la última compactación no hay nada que
-         * ganar y solo se pierde fidelidad. */
-        let sin_material_nuevo = mensajes.len() == self.ultima_compactacion_len;
-
-        let debe_compactar = !en_tool
-            && !sin_material_nuevo
-            && (occupancy >= umbral_degenerado(&self.config)
-                || (occupancy >= umbral && !self.anti_thrash_activo()));
-        if !debe_compactar || mensajes.len() <= indice_system + 2 {
+        if !self.requiere_compactacion(mensajes, indice_system, en_ejecucion_tool) {
             return CompactarResultado {
                 mensajes: mensajes.to_vec(),
                 compactado: false,
@@ -256,6 +240,7 @@ impl AgentContextManager {
         }
         self.compactaciones += 1;
         self.ultima_compactacion_len = mensajes.len();
+        let occupancy = tokens_total as f32 / self.config.ventana_efectiva().max(1) as f32;
 
         CompactarResultado {
             mensajes: nuevos,
@@ -273,6 +258,42 @@ impl AgentContextManager {
             }),
             tokens_estimados: tokens_after,
         }
+    }
+
+    /// [Bloque 3, F4] Decisión pública de compactación, extraída de
+    /// `preparar_con` para que el runtime pueda emitir los hooks PreCompact /
+    /// PostCompact ALREDEDOR de la compactación real (saber antes de
+    /// compactar). Misma semántica que el bloque histórico: ventana de
+    /// seguridad durante tools, no recompactar sin material nuevo, anti-thrash
+    /// y umbral degenerado como override.
+    #[must_use]
+    pub fn requiere_compactacion(
+        &self,
+        mensajes: &[AiMessage],
+        indice_system: usize,
+        en_ejecucion_tool: bool,
+    ) -> bool {
+        if mensajes.len() <= indice_system + 2 {
+            return false;
+        }
+        let ventana_efectiva = self.config.ventana_efectiva();
+        let occupancy = {
+            let tokens: u32 = mensajes.iter().map(tokens_de_mensaje).sum();
+            tokens as f32 / ventana_efectiva.max(1) as f32
+        };
+        let umbral = self.config.umbral_disparo();
+        /* [318A-15 F6] Ventana de seguridad: con una tool en curso (tool_call
+         * largo o sesión hija) no se compacta salvo ocupación degenerada. */
+        let en_tool = en_ejecucion_tool && occupancy < umbral_degenerado(&self.config);
+        /* [318A-15 F6] No compactar dos veces seguidas con el mismo material:
+         * sin mensajes nuevos desde la última compactación no hay nada que
+         * ganar y solo se pierde fidelidad. */
+        let sin_material_nuevo = mensajes.len() == self.ultima_compactacion_len;
+
+        !en_tool
+            && !sin_material_nuevo
+            && (occupancy >= umbral_degenerado(&self.config)
+                || (occupancy >= umbral && !self.anti_thrash_activo()))
     }
 
     /// Anti-thrash: si las 2 últimas compactaciones ahorraron < 10%, no

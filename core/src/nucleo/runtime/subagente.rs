@@ -128,6 +128,9 @@ impl AgentRuntime {
             .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         let _guardia = GuardiaProfundidad(&self.profundidad_subagente);
 
+        /* [Bloque 3, F4] Hook `SubagentStart` (informativo). */
+        self.hook_subagente_inicio(&perfil, &instruccion, presupuesto_pasos)
+            .await;
         let _ = tx
             .send(AgenteEvento::SubagenteInicio {
                 perfil: perfil.id.to_string(),
@@ -176,8 +179,14 @@ impl AgentRuntime {
             texto_final = self.cierre_parcial_subagente(&mut mensajes, tx).await?;
         }
 
+        /* [Bloque 3, F4] Hook `SubagentStop` (informativo): resultado acotado
+         * de la sesión hija (resumen + si cerró parcial por presupuesto). Sin
+         * hooks configurados es un no-op. */
         let resumen = crate::subagente::resumen_acotado(&texto_final);
         let ok = !resumen.is_empty();
+        /* [Bloque 3, F4] Hook `SubagentStop` (informativo). */
+        self.hook_subagente_fin(&perfil, &resumen, ok, parcial_final, pasos)
+            .await;
         let _ = tx
             .send(AgenteEvento::SubagenteFin {
                 resumen: resumen.clone(),
@@ -191,6 +200,52 @@ impl AgentRuntime {
             parcial: parcial_final,
             pasos_usados: pasos,
         })
+    }
+
+    /// [Bloque 3, F4] Hook `SubagentStart` (informativo): observa el arranque
+    /// de la sesión hija con perfil, objetivo y presupuesto. Sin hooks
+    /// configurados es un no-op.
+    async fn hook_subagente_inicio(
+        &self,
+        perfil: &PerfilSubagente,
+        instruccion: &str,
+        presupuesto_pasos: usize,
+    ) {
+        let _ = self
+            .disparar_hook(
+                EventoHook::SubagentStart,
+                serde_json::json!({
+                    "agente": perfil.id.to_string(),
+                    "objetivo": instruccion,
+                    "max_pasos": presupuesto_pasos,
+                }),
+            )
+            .await;
+    }
+
+    /// [Bloque 3, F4] Hook `SubagentStop` (informativo): resultado acotado de
+    /// la sesión hija (resumen + si cerró parcial por presupuesto). Sin hooks
+    /// configurados es un no-op.
+    async fn hook_subagente_fin(
+        &self,
+        perfil: &PerfilSubagente,
+        resumen: &str,
+        ok: bool,
+        parcial: bool,
+        pasos: usize,
+    ) {
+        let _ = self
+            .disparar_hook(
+                EventoHook::SubagentStop,
+                serde_json::json!({
+                    "agente": perfil.id.to_string(),
+                    "resumen": resumen,
+                    "ok": ok,
+                    "parcial": parcial,
+                    "pasos": pasos,
+                }),
+            )
+            .await;
     }
 
     /// [059A-S3] Un paso del bucle hijo: pide un avance al LLM y, si responde

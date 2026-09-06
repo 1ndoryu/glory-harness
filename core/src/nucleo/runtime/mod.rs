@@ -24,6 +24,7 @@ use crate::error::Result;
 use crate::guardas::{
     aviso_por_repeticion, aviso_vacio, decidir_reintento_vacio, texto_vacio, GuardasTurno,
 };
+use crate::hooks::{DispatcherHooks, EventoHook};
 use crate::ports::EjecutorComando;
 use crate::evento::AgenteEvento;
 use crate::llm::{AiChatOptions, AiMessage, AiToolCall, LlmProviderService};
@@ -182,6 +183,10 @@ pub struct AgentRuntime {
     /// repetición → aviso). Configurables por el consumidor; activas por
     /// defecto. Deterministas y sin I/O (guardas.rs).
     guardas: std::sync::Mutex<GuardasTurno>,
+    /// [Bloque 3, F4] Hooks de ciclo de vida configurados (nucleo/hooks.rs):
+    /// interior-mutable; vacíos por defecto = emisión no-op. El consumidor
+    /// los fija con [`AgentRuntime::set_hooks`] tras construir el runtime.
+    hooks: std::sync::Mutex<Arc<DispatcherHooks>>,
 }
 
 impl AgentRuntime {
@@ -236,6 +241,7 @@ impl AgentRuntime {
             tool_en_curso: std::sync::atomic::AtomicBool::new(false),
             plan_actual: std::sync::Mutex::new(None),
             guardas: std::sync::Mutex::new(GuardasTurno::default()),
+            hooks: std::sync::Mutex::new(Arc::new(DispatcherHooks::vacia())),
         }
     }
 
@@ -266,6 +272,13 @@ impl AgentRuntime {
     /// skills) que se inyectan en la ranura `[REGLAS]` del system prompt.
     pub fn establecer_reglas(&self, reglas: impl Into<String>) {
         *self.reglas.lock().unwrap_or_else(|p| p.into_inner()) = reglas.into();
+    }
+
+    /// [Bloque 3, F4] Configura los hooks de ciclo de vida (command/http).
+    /// Sin llamada el runtime queda sin hooks (emisión no-op, ningún cambio
+    /// de comportamiento); `DispatcherHooks::vacia()` los limpia.
+    pub fn set_hooks(&self, hooks: DispatcherHooks) {
+        *self.hooks.lock().unwrap_or_else(|p| p.into_inner()) = Arc::new(hooks);
     }
 
     /* [318A-16 F2] Canal de aprobación explícito: la UI responde las
@@ -309,6 +322,19 @@ impl AgentRuntime {
     fn prompt_sistema(&self) -> String {
         let reglas = self.reglas.lock().unwrap_or_else(|p| p.into_inner()).clone();
         ensamblar_prompt_sistema(&self.turno_config, &reglas, &fecha_hoy())
+    }
+
+    /// [Bloque 3, F4] Dispara los hooks configurados para un evento del ciclo
+    /// de vida con su payload JSON. Sin hooks → no-op barato (el runtime no
+    /// cambia su comportamiento). Devuelve `true` si un hook pidió bloquear la
+    /// acción en curso (solo aplica en los eventos bloqueables de hooks.rs).
+    async fn disparar_hook(&self, evento: EventoHook, payload: Value) -> bool {
+        let hooks = self
+            .hooks
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone();
+        hooks.disparar(evento, payload).await
     }
 }
 

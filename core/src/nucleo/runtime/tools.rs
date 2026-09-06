@@ -51,6 +51,31 @@ impl AgentRuntime {
         call: &AiToolCall,
         tx: &Sender<AgenteEvento>,
     ) -> Result<crate::tool::AgentToolResult> {
+        /* [Bloque 3, F4] Hook PreToolUse (bloqueable, claurst exit 2): un hook
+         * que pide bloquear veta la tool ANTES de lanzarla; el modelo recibe
+         * un resultado de tool denegada (nunca se ejecuta nada). Sin hooks
+         * configurados es un no-op que no cambia ningún comportamiento. */
+        if self
+            .disparar_hook(
+                EventoHook::PreToolUse,
+                serde_json::json!({
+                    "tool": call.nombre.clone(),
+                    "tool_input": call.argumentos,
+                }),
+            )
+            .await
+        {
+            self.telemetria().registrar_denegacion();
+            return Ok(crate::tool::AgentToolResult {
+                ok: false,
+                contenido: format!(
+                    "[{} BLOQUEADA POR HOOK] Un hook de política vetó esta tool antes de ejecutarla; NO la reintentes.",
+                    call.nombre
+                ),
+                resumen: "bloqueada_por_hook".into(),
+                diff: None,
+            });
+        }
         let ctx = AgentToolContext {
             user_id,
             persistencia: self.puertos.persistencia.as_ref(),
@@ -89,6 +114,18 @@ impl AgentRuntime {
             })
             .await?;
         let _ = tx;
+        /* [Bloque 3, F4] Hook informativo PostToolUse con el resultado real
+         * (éxito o fallo manejado; un Err del runner no llega aquí). */
+        let _ = self
+            .disparar_hook(
+                EventoHook::PostToolUse,
+                serde_json::json!({
+                    "tool": call.nombre.clone(),
+                    "ok": resultado.ok,
+                    "resumen": resultado.resumen.clone(),
+                }),
+            )
+            .await;
         Ok(resultado)
     }
 }

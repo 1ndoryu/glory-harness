@@ -4,6 +4,7 @@
 //! consumidores.
 
 pub mod context;
+pub mod hooks;
 pub mod llm;
 pub mod plan;
 pub mod prompt;

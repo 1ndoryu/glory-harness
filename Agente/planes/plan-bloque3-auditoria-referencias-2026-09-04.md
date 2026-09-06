@@ -12,7 +12,9 @@
   **Bloque 3 recomendado** (aún NO ejecutado).
 - **Progreso Bloque 3:** Fase 1 ✅ (`318A-17 B3-F1`), Fase 2 ✅ (`318A-17
   B3-F2`, cliente MCP stdio fail-closed), Fase 3 ✅ (`318A-17 B3-F3`, skills +
-  comandos slash unificados). Fases 4–8 pendientes.
+  comandos slash unificados), Fase 4 ✅ (`318A-17 B3-F4`, hooks de ciclo de
+  vida: `core/src/nucleo/hooks.rs` + emisión fina en el runtime; item 3
+  `Notification` diferido por decisión). Fases 5–8 pendientes.
 - **IDs sugeridos** para las fases del Bloque 3: `049A-N` (verificar contra
   `Agente/completados/` y `roadmap` antes de asignar).
 
@@ -476,13 +478,27 @@ commit por fase). Mover a ejecución solo tras aprobación del usuario.
       `sentinel analyze` 0 errores y 0 hallazgos en archivos F3.
 
 ### Fase 4 — Hooks de ciclo de vida
-- [ ] Eventos: `PreToolUse`, `PostToolUse`, `Stop`, `UserPromptSubmit`,
+- [x] Eventos: `PreToolUse`, `PostToolUse`, `Stop`, `UserPromptSubmit`,
       `SessionStart/End`, `SubagentStart/Stop`, `Pre/PostCompact`,
       `PermissionRequest` — emitidos por el núcleo sin acoplar a un runner.
-- [ ] Tipos de hook: `command` (proceso con timeout) y `http` (POST); `prompt`
-     /`agent` diferidos.
+      Implementado: `core/src/nucleo/hooks.rs` (`EventoHook`, `Hook`,
+      `TipoHook`, `DispatcherHooks`, `SalidaHook`), con emisión fina en los
+      satélites del runtime: turno (UserPromptSubmit/Stop/Pre-PostCompact),
+      tools (Pre/PostToolUse en el chokepoint único de ejecución), permisos
+      (PermissionRequest, bloqueable) y subagente (SubagentStart/Stop).
+      `SessionStart/End` quedan soportados en el enum/dispatcher pero sin
+      emisión cableada: la sesión es frontera del consumidor (CLI/daemon) y
+      sin runner configurado sería emisión muerta — diferido con nota.
+- [x] Tipos de hook: `command` (proceso con timeout) y `http` (POST); `prompt`
+     /`agent` diferidos. Implementado: `RunnerHook` es un trait
+     (`core/src/nucleo/hooks.rs`) para que el núcleo no acople a proceso/HTTP
+     real; el runner concreto `command`/`http` queda para el consumidor CLI
+     (mismo patrón fail-closed de MCP B3-F2).
 - [ ] `Notification`: hook + notificación OS opcional (cli) al terminar turno/
       pedir permiso. Evidencia: claurst `docs/hooks.md` + `spec/07_hooks.md`.
+      **Diferido por decisión** (necesita runner CLI + UX de notificación OS
+      en Windows); los eventos que lo alimentarían (Stop, PermissionRequest)
+      ya se emiten.
 
 ### Fase 5 — Sesiones y export
 - [ ] Subcomando `session` (list/ver/resume/borrar) sobre `persistencia_sqlite`;

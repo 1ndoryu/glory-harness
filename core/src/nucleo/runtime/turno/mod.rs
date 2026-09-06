@@ -112,6 +112,17 @@ impl AgentRuntime {
         let tokens_prompt_total = 0u32;
         let tokens_complecion_total = 0u32;
 
+        /* [Bloque 3, F4] Hook informativo del arranque del turno (nunca
+         * bloquea). Sin hooks configurados es un no-op. */
+        let _ = self
+            .disparar_hook(
+                EventoHook::UserPromptSubmit,
+                serde_json::json!({
+                    "prompt": mensajes_usuario_resumen(&mensaje_usuario),
+                }),
+            )
+            .await;
+
         'turnos: for _turno in 0..self.turno_config.max_turns {
             /* [01-09-2026] Fase 4: cancelación real — si el cliente cortó el
              * SSE (receiver dropeado), el sender está cerrado y no se sigue
@@ -168,6 +179,24 @@ impl AgentRuntime {
          * nada. */
         self.persistir_respuesta_final(&estado, conversacion_id)
             .await?;
+
+        /* [Bloque 3, F4] Hook `Stop`: el agente terminó de responder (hay
+         * respuesta final y el cliente sigue conectado). Informativo. */
+        if estado.respuesta_final.is_some() && !tx.is_closed() {
+            let _ = self
+                .disparar_hook(
+                    EventoHook::Stop,
+                    serde_json::json!({
+                        "turno_id": turno_id.to_string(),
+                        "resumen": estado
+                            .respuesta_final
+                            .as_deref()
+                            .map(mensajes_usuario_resumen)
+                            .unwrap_or_default(),
+                    }),
+                )
+                .await;
+        }
 
         /* [318A-15 F0] Telemetría del turno (no invasiva): agregados ya
          * observados durante la ejecución, emitidos justo antes de `Done` y
@@ -294,6 +323,25 @@ impl AgentRuntime {
         mensajes: Vec<AiMessage>,
         tx: &Sender<AgenteEvento>,
     ) -> Result<Vec<AiMessage>> {
+        /* [Bloque 3, F4] PreCompact se avisa ANTES de compactar (la decisión
+         * se consulta sin mutar y sin hooks es no-op); PostCompact solo si la
+         * compactación ocurrió. Ambos informativos. */
+        let requiere = {
+            let cm = self.contexto.lock().await;
+            cm.requiere_compactacion(
+                &mensajes,
+                0,
+                self.tool_en_curso.load(std::sync::atomic::Ordering::Relaxed),
+            )
+        };
+        if requiere {
+            let _ = self
+                .disparar_hook(
+                    EventoHook::PreCompact,
+                    serde_json::json!({ "mensajes": mensajes.len() }),
+                )
+                .await;
+        }
         let (mensajes_prep, metricas) = {
             let mut cm = self.contexto.lock().await;
             let resultado = cm.preparar_con(
@@ -304,6 +352,9 @@ impl AgentRuntime {
             );
             (resultado.mensajes, resultado.metricas)
         };
+        if metricas.is_some() {
+            let _ = self.disparar_hook(EventoHook::PostCompact, serde_json::json!({})).await;
+        }
         if let Some(m) = &metricas {
             let _ = tx
                 .send(AgenteEvento::Usage {

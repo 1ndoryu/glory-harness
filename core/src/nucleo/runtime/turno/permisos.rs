@@ -59,6 +59,19 @@ impl AgentRuntime {
         /* [318A-10 02-09-2026] El tool DEBE llevar el mismo tool_call_id que la
          * tool_call del assistant previo (contrato OpenAI). */
         let primera_vez = estado.denegadas_en_turno.insert(call.nombre.clone());
+        /* [Bloque 3, F4] Hook `PermissionRequest` (bloqueable, claurst exit 2):
+         * un hook que veta la petición la convierte en denegación automática —
+         * el usuario no recibe la pregunta y la tool queda denegada por
+         * política. Solo aplica a la primera petición (`Preguntar`); las
+         * repetidas ya están registradas y no vuelven a preguntar. Sin hooks
+         * configurados es un no-op que no cambia el flujo de aprobación. */
+        let vetada_por_hook = verdicto == VerdictoPermiso::Preguntar
+            && self.peticion_vetada_por_hook(call).await;
+        let verdicto = if vetada_por_hook {
+            VerdictoPermiso::Denegar
+        } else {
+            verdicto
+        };
         let (eventos, mensaje_tool, resumen) = match verdicto {
             VerdictoPermiso::Preguntar => {
                 /* [318A-16 F2] Canal explícito: cada `ask` registra una
@@ -106,9 +119,9 @@ impl AgentRuntime {
             VerdictoPermiso::Denegar | VerdictoPermiso::RepetidoDenegado => {
                 /* deny: silencioso de schema (arriba) + fail-closed si aun así
                  * se propone (override cambiado a mitad de turno, modo meta,
-                 * etc.). Motivo para la UI. */
-                let motivo = if self.registry.tiene_efecto(&call.nombre)
-                    && self.turno_config.modo == "meta"
+                 * hook que vetó la petición, etc.). Motivo para la UI. */
+                let motivo = if vetada_por_hook || (self.registry.tiene_efecto(&call.nombre)
+                    && self.turno_config.modo == "meta")
                 {
                     "denegada_por_politica".to_string()
                 } else {
@@ -154,6 +167,23 @@ impl AgentRuntime {
             .await;
         self.empujar_mensaje_tool_denegado(estado, call, &mensaje_tool);
         Ok(())
+    }
+
+    /// [Bloque 3, F4] Hook `PermissionRequest` (bloqueable, claurst exit 2):
+    /// devuelve `true` si un hook veta la petición, lo que la convierte en
+    /// denegación automática (el usuario no recibe la pregunta y la tool queda
+    /// denegada por política). Solo aplica a la primera petición (`Preguntar`);
+    /// las repetidas ya están registradas y no vuelven a preguntar. Sin hooks
+    /// configurados es un no-op que no cambia el flujo de aprobación.
+    async fn peticion_vetada_por_hook(&self, call: &AiToolCall) -> bool {
+        self.disparar_hook(
+            EventoHook::PermissionRequest,
+            serde_json::json!({
+                "tool": call.nombre.clone(),
+                "tool_input": call.argumentos.clone(),
+            }),
+        )
+        .await
     }
 
     /// [059A-S3] Assistant con la tool_call: obligatorio antes del tool
