@@ -505,16 +505,15 @@ commit por fase). Mover a ejecución solo tras aprobación del usuario.
      (mismo patrón fail-closed de MCP B3-F2).
 - [ ] `Notification`: hook + notificación OS opcional (cli) al terminar turno/
       pedir permiso. Evidencia: claurst `docs/hooks.md` + `spec/07_hooks.md`.
-      **Diferido por decisión** (necesita runner CLI + UX de notificación OS
-      en Windows); los eventos que lo alimentarían (Stop, PermissionRequest)
-      ya se emiten.
+      **Decidido 06-09 (069A-3): alcance mínimo** — toast Windows fin de turno +
+      permiso, solo CLI y tras flag; los eventos que lo alimentan (Stop,
+      PermissionRequest) ya se emiten.
 
 ### Fase 5 — Sesiones y export
 - [ ] Subcomando `session` (list/ver/resume/borrar) sobre `persistencia_sqlite`;
-      resume de conversación con contexto recompuesto. **Diferido por
-      decisión:** `cli/src/persistencia_sqlite.rs` es ajeno del hilo 039A-3
-      (WIP desktop, commits propios) — implementar encima pisaría trabajo de
-      otro hilo. La transcripción de sesión en memoria de F5 (`ui/turno.rs`,
+      resume de conversación con contexto recompuesto. **Decidido 06-09 (069A-2,
+      alcance completo):** el bloqueo desapareció (039A-3 mergeado) — implementar
+      list/ver/resume/borrar. La transcripción de sesión en memoria de F5 (`ui/turno.rs`,
       alimentada igual por REPL y TUI) deja la base lista para adoptar esa
       persistencia cuando sea estable.
 - [x] `export` (conversación/turno → markdown con decisiones y eventos).

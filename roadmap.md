@@ -65,6 +65,16 @@ Orden propuesto (dependencias de abajo arriba):
       (`tauri icon`, array `icon` en config). RAM arranque release: WS 40 MB (objetivo
       ≤140 MB ✓). `install-release.bat` (copia el release a `%LOCALAPPDATA%\GloryHarness`).
       Gate `039A-1` **PASS** (0 errores, warnings preexistentes).
+- [ ] **069A-2 — `session` completo** (B3-F5 diferido, desbloqueado: 039A-3 mergeado):
+      subcomando `session` (list/ver/resume/borrar) sobre `persistencia_sqlite` con
+      resume de contexto recompuesto. Decidido 06-09 (alcance completo).
+- [ ] **069A-3 — Notification mínima** (B3-F4 item 3): hook + toast Windows al terminar
+      turno/pedir permiso, solo CLI y tras flag (eventos Stop/PermissionRequest ya se
+      emiten). Decidido 06-09 (alcance mínimo).
+- [ ] **069A-4 — Memoria de aprendizaje fases 1–5** (B3-F8b): puerto `ProveedorMemoria` +
+      base sobre `memoria_*` + curador recurrente + `skills_registrar` + tools de memoria,
+      según `Agente/documentacion/memoria-aprendizaje-diseno-2026-09-06.md`.
+      Decidido 06-09 (alcance todo 1–5).
 
 > **Hecho (04-09, correcciones del primer `tauri dev`):** los 7 hallazgos del primer arranque
 > real quedaron corregidos (H1–H7, bloque 039A-1). Detalle en
