@@ -503,11 +503,18 @@ commit por fase). Mover a ejecución solo tras aprobación del usuario.
      (`core/src/nucleo/hooks.rs`) para que el núcleo no acople a proceso/HTTP
      real; el runner concreto `command`/`http` queda para el consumidor CLI
      (mismo patrón fail-closed de MCP B3-F2).
-- [ ] `Notification`: hook + notificación OS opcional (cli) al terminar turno/
-      pedir permiso. Evidencia: claurst `docs/hooks.md` + `spec/07_hooks.md`.
-      **Decidido 06-09 (069A-3): alcance mínimo** — toast Windows fin de turno +
-      permiso, solo CLI y tras flag; los eventos que lo alimentan (Stop,
-      PermissionRequest) ya se emiten.
+- [x] `Notification`: hook + notificación OS opcional (cli) al terminar turno/
+      pedir permiso (069A-3, hecho 06-09, alcance mínimo): `cli/src/comandos/
+      notificar.rs` (`SCRIPT_TOAST` PowerShell WinRT por stdin JSON,
+      `-EncodedCommand` con base64 propio, `dispatcher_notificacion` con hooks
+      `toast-stop`/`toast-permiso` vía `powershell.exe`, `aplicar_notificacion`
+      tras `--notificar` en `run`/`chat`/`tui`/`session resume`); `OpcionesRun.
+      notificar`, `schedule run` y desktop con `false` (desatendido / UI
+      propia). El script siempre sale 0 (jamás veta). Evidencia claurst
+      `docs/hooks.md` + `spec/07_hooks.md`; eventos Stop/PermissionRequest ya
+      emitidos por el runtime. Verificación: 293 tests, clippy limpio,
+      script embebido ejecutado con ambos payloads (exit 0), turno real
+      `run --notificar` verde, gate 069A-3 PASS.
 
 ### Fase 5 — Sesiones y export
 - [x] Subcomando `session` (list/ver/resume/borrar) sobre `persistencia_sqlite`

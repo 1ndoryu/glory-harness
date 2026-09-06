@@ -68,6 +68,9 @@ fn despachar(args: Vec<String>) -> ExitCode {
                 /* [039A-3 P6-backend] El CLI no inyecta ventana: None → default
                  * del core (128k, intacto). Solo el desktop inyecta (150k). */
                 max_ventana: None,
+                /* [069A-3] Toast de Windows al terminar el turno o pedir un
+                 * permiso (solo CLI interactivo, tras flag explícito). */
+                notificar: args.iter().any(|a| a == "--notificar"),
             };
             let prompt = if let Some(p) = prompt {
                 Some(p)
@@ -91,6 +94,9 @@ fn despachar(args: Vec<String>) -> ExitCode {
                 /* [039A-3 P6-backend] Sin inyección de ventana en CLI (None →
                  * default del core 128k). */
                 max_ventana: None,
+                /* [069A-3] Como en `run` (vale también para `session resume`,
+                 * que reabre este mismo REPL). */
+                notificar: args.iter().any(|a| a == "--notificar"),
             };
             let usa_tui = args.iter().any(|a| a == "--tui");
             con_runtime("chat", |rt| {
@@ -159,8 +165,8 @@ where
 fn imprimir_ayuda() {
     println!("uso: glory-harness <run|chat|daemon|schedule|session|tools|doctor|--version>");
     println!();
-    println!("  run       turno único (--prompt/--stdin/--dir/--provider/--modelo/--modo)");
-    println!("  chat      sesión interactiva; --tui para la interfaz enriquecida");
+    println!("  run       turno único (--prompt/--stdin/--dir/--provider/--modelo/--modo/--notificar)");
+    println!("  chat      sesión interactiva; --tui para la interfaz enriquecida; --notificar para toast de Windows");
     println!("  daemon    servicio de fondo por NDJSON (consumidor-daemon.mjs)");
     println!("  schedule  tareas programadas: <list|create|remove|logs|run>");
     println!("  session   conversaciones: <list|ver|resume|borrar> [id]");
@@ -261,6 +267,8 @@ fn cmd_session(args: &[String]) -> ExitCode {
         modo: extraer_opcion(args, &["--modo"]),
         razonamiento: None,
         max_ventana: None,
+        /* [069A-3] `session resume` reabre el REPL: admite el mismo flag. */
+        notificar: args.iter().any(|a| a == "--notificar"),
     };
     let resultado = match tokio::runtime::Runtime::new() {
         Ok(rt) => rt.block_on(sesion::sesion(args, opciones)),
@@ -342,6 +350,9 @@ async fn accion_run(
         modo: None,
         razonamiento: None,
         max_ventana: None,
+        /* [069A-3] `schedule run` es desatendido (sin usuario ante la
+         * consola): sin avisos aunque el flag exista en otro subcomando. */
+        notificar: false,
     };
     let harness = run::construir_harness_con(
         &opciones,

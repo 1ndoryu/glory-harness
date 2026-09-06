@@ -50,6 +50,10 @@ pub struct OpcionesRun {
     /// Se aplica ANTES de construir el runtime: el `AgentContextManager` y el
     /// desglose del turno clonan esta config al construir (una sola fuente).
     pub max_ventana: Option<u32>,
+    /// [069A-3] Toast de Windows al terminar el turno o al pedir un permiso
+    /// (`--notificar`). Solo CLI interactivo; sin flag no se registra ningún
+    /// hook (emisión no-op como antes).
+    pub notificar: bool,
 }
 
 /// [039A-3 P6-backend] Piso de sanidad para ventanas inyectadas por el
@@ -316,6 +320,8 @@ pub async fn ejecutar_turno_run(mensaje: String, opciones: OpcionesRun) -> Resul
     let harness = construir_harness(&opciones).await?;
     let user_id = harness.user_id;
     let runtime = harness.runtime;
+    // [069A-3] Avisos de escritorio solo si el operador los pidió.
+    crate::notificar::aplicar_notificacion(&runtime, opciones.notificar);
 
     let turno_id = Uuid::new_v4();
     let conversacion_id = Uuid::new_v4();

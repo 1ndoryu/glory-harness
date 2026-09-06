@@ -64,6 +64,8 @@ pub async fn tui(opciones: OpcionesRun) -> Result<(), String> {
      * comparten la BD (ver `session list`); la TUI no crea fila de
      * conversación (límite documentado: `session resume` abre el REPL). */
     let harness = construir_harness_durable(&opciones).await?;
+    // [069A-3] Avisos de escritorio solo si el operador los pidió.
+    crate::notificar::aplicar_notificacion(&harness.runtime, opciones.notificar);
 
     /* [Bloque 3, F3] Comandos slash personalizados del workspace: las
      * plantillas se expanden en el worker ANTES de enviar el mensaje al

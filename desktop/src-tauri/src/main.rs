@@ -396,6 +396,9 @@ fn resolver_opciones_apertura(
         modo,
         razonamiento,
         max_ventana,
+        /* [069A-3] Los avisos son solo del CLI interactivo (`--notificar`):
+         * el desktop tiene su propia UI y no registra hooks. */
+        notificar: false,
     })
 }
 
@@ -876,6 +879,8 @@ fn reconfigurar_sesion(
                 .map(|g| g.turno_config.nivel_razonamiento.clone())
                 .map_err(|_| "sesión bloqueada".to_string())?,
         },
+        /* [069A-3] Como en `abrir_sesion`: sin avisos en desktop. */
+        notificar: false,
     };
     let harness = construir_harness_con(
         &opciones,

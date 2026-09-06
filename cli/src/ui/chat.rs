@@ -34,6 +34,8 @@ use crate::ui::turno::{historial_desde_persistencia, procesar_turno};
 /// `session resume`; el título se toma del primer mensaje.
 pub async fn chat(opciones: OpcionesRun) -> Result<(), String> {
     let harness = construir_harness_durable(&opciones).await?;
+    // [069A-3] Avisos de escritorio solo si el operador los pidió.
+    crate::notificar::aplicar_notificacion(&harness.runtime, opciones.notificar);
     let sqlite = harness.sqlite.clone().ok_or_else(|| {
         "chat durable sin tienda sqlite (inconsistencia interna)".to_string()
     })?;
@@ -50,6 +52,8 @@ pub async fn chat(opciones: OpcionesRun) -> Result<(), String> {
 /// (el historial del turno se lee de la tienda en cada mensaje, como siempre).
 pub async fn chat_resume(opciones: OpcionesRun, conversacion_id: Uuid) -> Result<(), String> {
     let harness = construir_harness_durable(&opciones).await?;
+    // [069A-3] Como en `chat` (mismo REPL sobre otra conversación).
+    crate::notificar::aplicar_notificacion(&harness.runtime, opciones.notificar);
     let sqlite = harness.sqlite.clone().ok_or_else(|| {
         "chat durable sin tienda sqlite (inconsistencia interna)".to_string()
     })?;

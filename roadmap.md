@@ -65,9 +65,6 @@ Orden propuesto (dependencias de abajo arriba):
       (`tauri icon`, array `icon` en config). RAM arranque release: WS 40 MB (objetivo
       ≤140 MB ✓). `install-release.bat` (copia el release a `%LOCALAPPDATA%\GloryHarness`).
       Gate `039A-1` **PASS** (0 errores, warnings preexistentes).
-- [ ] **069A-3 — Notification mínima** (B3-F4 item 3): hook + toast Windows al terminar
-      turno/pedir permiso, solo CLI y tras flag (eventos Stop/PermissionRequest ya se
-      emiten). Decidido 06-09 (alcance mínimo).
 - [ ] **069A-4 — Memoria de aprendizaje fases 1–5** (B3-F8b): puerto `ProveedorMemoria` +
       base sobre `memoria_*` + curador recurrente + `skills_registrar` + tools de memoria,
       según `Agente/documentacion/memoria-aprendizaje-diseno-2026-09-06.md`.
