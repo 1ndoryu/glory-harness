@@ -12,6 +12,8 @@
     flex: 1;
     display: flex;
     min-height: 0;
+    /* [039A-3 retoque 3] Ancla de los grips absolutos (no ocupan layout). */
+    position: relative;
 }
 
 /* ---------- Barras ---------- */
@@ -155,6 +157,8 @@
        parte de la mitad de #paneles; el arrastre del grip lo fija en px y lo
        persiste (CLAVE_LATERAL_ANCHO) para restaurarlo al reabrir el lateral. */
     --lateral-ancho: 50%;
+    /* [039A-3 retoque 3] Ancla del grip lateral absoluto (no ocupa layout). */
+    position: relative;
 }
 
 /* ---------- Chat ---------- */
@@ -259,14 +263,20 @@
 .cabecera-chat .cab-cerrar { margin-left: var(--sp-xs); }
 
 /* ---------- Grip de redimensionado de la sidebar ---------- */
+/* [039A-3 retoque 3] El grip NO ocupa ancho de layout: es un área de captura
+   absoluta centrada sobre la línea divisoria (border-right de 1px de la
+   sidebar), invisible y solo con cursor col-resize. Antes era una franja de
+   5px en el flujo que robaba espacio y se pintaba de negro al hover/arrastrar. */
 #cuerpo .sidebar-grip {
-    flex: none;
-    width: 5px;
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: var(--sidebar-ancho);
+    width: 9px;
+    transform: translateX(-50%);
     cursor: col-resize;
-    background: #fff;
-    align-self: stretch;
+    z-index: 5;
 }
-#cuerpo .sidebar-grip:hover { background: #000; }
 
 /* [039A-3 P4] Mientras se arrastra el grip: cursor col-resize en toda la
    ventana y sin selección de texto (evita que el drag seleccione nodos). */
@@ -277,16 +287,21 @@ body.redimensionando-sidebar {
 
 /* ---------- Grip de redimensionado del panel lateral ---------- */
 /* [039A-3 P6b] Cuando hay 2 chats (principal + lateral) se inserta un grip
-   vertical entre ambos; arrastrarlo cambia `--lateral-ancho`. Misma estética
-   que el grip de la sidebar. */
+   vertical entre ambos; arrastrarlo cambia `--lateral-ancho`.
+   [039A-3 retoque 3] Igual que el de la sidebar: área de captura ABSOLUTA
+   centrada sobre la línea divisoria (border-left de 1px del lateral), sin
+   ocupar layout y sin franja negra al hover/arrastrar. Al encoger la ventana
+   <900px se sigue ocultando (media query de #paneles en columna). */
 #paneles .lateral-grip {
-    flex: none;
-    width: 5px;
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    right: var(--lateral-ancho);
+    width: 9px;
+    transform: translateX(50%);
     cursor: col-resize;
-    background: #fff;
-    align-self: stretch;
+    z-index: 5;
 }
-#paneles .lateral-grip:hover { background: #000; }
 body.redimensionando-lateral {
     cursor: col-resize;
     user-select: none;
