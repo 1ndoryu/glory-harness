@@ -552,6 +552,14 @@ ocultar la lista no, solo para mostrar, se oculta automáticamente si se reduce 
       `#sidebar .pie` (solo `layout.css`, `padding` intacto). Verificado en navegador mock:
       `getComputedStyle(#sidebar .pie).borderTop` = `0px none`. Captura
       `C:/tmp/p6b-ret5-pie-sin-borde.png`.
+- [x] Retoque 6 (05-09, commit `490e933`): el usuario pidió "hay mucha separación aquí entre el
+      primer botón y el texto, baja un poco" (cabecera del chat, entre el icono mostrar
+      lista/× y el título). Causa: el `gap` de `.cabecera-chat` era `--sp-md` (16px), que
+      separaba el grupo izquierdo de botones del título. Fix: se baja a `--sp-sm` (10px) con
+      comentario `[039A-3 P6b retoque 6]` (solo `layout.css`); el ⋯ del extremo no se ve
+      afectado porque `.acciones-mas` usa `margin-left:auto`. Verificado en navegador mock:
+      `separacionBoton1Titulo` 16→10px, `gap: 10px`. Captura
+      `C:/tmp/p6b-ret6-cabecera-gap-sm.png`.
 - [ ] E2E `tauri dev` (bloqueado por el agente paralelo en `cli/`/`core/`).
 
 ---

@@ -153,6 +153,12 @@ Orden propuesto (dependencias de abajo arriba):
   P6b retoque 5 HECHO (05-09, commit `c97bb53`): se quita el borde superior del pie de la
   sidebar (el `border-top` de `#sidebar .pie` sobre el botón "Configuración"). Verificado con
   navegador mock (`borderTop: 0px`). Evidencia en `Agente/completados/tareas-2026-09-05.md`.
+  P6b retoque 6 HECHO (05-09, commit `490e933`): el usuario pidió "hay mucha separación aquí
+  entre el primer botón y el texto, baja un poco" (cabecera del chat, entre el icono mostrar
+  lista/× y el título). El `gap` de `.cabecera-chat` era `--sp-md` (16px); se baja a `--sp-sm`
+  (10px). El ⋯ del extremo no se ve afectado (`margin-left:auto`). Verificado con navegador
+  mock (separación botón→título 16→10px). Evidencia en
+  `Agente/completados/tareas-2026-09-05.md`.
   En curso: P3 vault de respaldos. Pendiente P6-backend (inyectar `contexto.max_ventana` 150k en
   `construir_harness_con`/`reconfigurar_sesion` de `cli/run.rs`) — BLOQUEADO por el agente
   paralelo que toca `cli/`/`core/` (sin tocar el default del core 128k).
