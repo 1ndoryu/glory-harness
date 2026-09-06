@@ -151,23 +151,36 @@
     display: flex;
     min-width: 0;
     min-height: 0;
+    /* [039A-3 P6b] Ancho del chat lateral cuando hay 2 paneles. Por defecto
+       parte de la mitad de #paneles; el arrastre del grip lo fija en px y lo
+       persiste (CLAVE_LATERAL_ANCHO) para restaurarlo al reabrir el lateral. */
+    --lateral-ancho: 50%;
 }
 
 /* ---------- Chat ---------- */
 .chat { flex: 1; display: flex; flex-direction: column; min-width: 0; }
-/* [039A-3 P5] Con 2 paneles cada uno ocupa la mitad; el borde entre ambos
-   lo pone `.chat + .chat`. */
-#paneles .chat + .chat { border-left: 1px solid var(--borde); }
+/* [039A-3 P5/P6b] El borde entre principal y lateral lo pone el borde
+   izquierdo del LATERAL (con el grip divisor en medio ya no vale
+   `.chat + .chat`: lo rompe el grip). */
+#paneles .chat[data-panel='lateral'] {
+    border-left: 1px solid var(--borde);
+    flex: 0 0 var(--lateral-ancho);
+    min-width: 0;
+}
 /* [039A-3 P5] Si la ventana encoge por debajo de ~900px (p. ej. el usuario
    abrió el lateral con ventana ancha y luego la reduce), los dos .chat se
    apilan verticalmente en lugar de romper el layout. El JS además no ofrece
    "Abrir en panel lateral" por debajo de 900px (puedeAbrirLateral). */
 @media (max-width: 900px) {
     #paneles { flex-direction: column; }
-    #paneles .chat + .chat {
+    #paneles .chat[data-panel='lateral'] {
         border-left: none;
         border-top: 1px solid var(--borde);
     }
+    /* [039A-3 P6b] En columna el grip vertical no aplica (se oculta) y el
+       lateral recupera flex 1 (ancho completo apilado). */
+    #paneles .lateral-grip { display: none; }
+    #paneles .chat[data-panel='lateral'] { flex: 1 1 auto; }
 }
 
 .cabecera-chat {
@@ -197,14 +210,22 @@
     flex: 1;
     min-width: 0;
 }
-/* [039A-3 P4 retoque] Botones de cabecera (colapsar sidebar + ⋯): icono
+/* [039A-3 P4 retoque] Botones de cabecera (mostrar lista + ⋯): icono
    SIN borde (igual que el copiar del pie) y un punto mayor; hover invierte.
-   El grupo va ANTES del título. */
+   [039A-3 P6b] El grupo con el toggle/× va a la IZQUIERDA (antes del título)
+   y el grupo ⋯ (`acciones-mas`) al EXTREMO DERECHO vía margin-left:auto. */
 .cabecera-chat .acciones-cabecera {
     display: flex;
     align-items: center;
     gap: var(--sp-xs);
     flex: none;
+}
+.cabecera-chat .acciones-mas {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-xs);
+    flex: none;
+    margin-left: auto;
 }
 .cabecera-chat .cab-boton {
     display: inline-flex;
@@ -223,6 +244,10 @@
 }
 .cabecera-chat .cab-boton .ic { display: block; }
 .cabecera-chat .cab-boton:hover { background: #000; color: #fff; }
+/* [039A-3 P6b] `.cab-boton` usa `display:inline-flex`, que anula el atributo
+   `hidden` por defecto; se fuerza oculto cuando el botón de "mostrar lista"
+   no aplica (lista visible). */
+.cabecera-chat .cab-boton[hidden] { display: none; }
 /* [039A-3 P5] Botón de cierre del chat lateral (×). Misma mecánica que el
    resto de botones de cabecera; solo se monta en el panel lateral. */
 .cabecera-chat .cab-cerrar { margin-left: var(--sp-xs); }
@@ -240,6 +265,23 @@
 /* [039A-3 P4] Mientras se arrastra el grip: cursor col-resize en toda la
    ventana y sin selección de texto (evita que el drag seleccione nodos). */
 body.redimensionando-sidebar {
+    cursor: col-resize;
+    user-select: none;
+}
+
+/* ---------- Grip de redimensionado del panel lateral ---------- */
+/* [039A-3 P6b] Cuando hay 2 chats (principal + lateral) se inserta un grip
+   vertical entre ambos; arrastrarlo cambia `--lateral-ancho`. Misma estética
+   que el grip de la sidebar. */
+#paneles .lateral-grip {
+    flex: none;
+    width: 5px;
+    cursor: col-resize;
+    background: #fff;
+    align-self: stretch;
+}
+#paneles .lateral-grip:hover { background: #000; }
+body.redimensionando-lateral {
     cursor: col-resize;
     user-select: none;
 }

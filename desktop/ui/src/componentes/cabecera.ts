@@ -18,9 +18,10 @@ export interface CabeceraChat {
   raiz: HTMLElement;
   /** Cambia el título mostrado. */
   ponerTitulo(texto: string): void;
-  /** [039A-3 P4] Refleja el estado abierto/colapsado de la sidebar en el
-   * icono del botón toggle (panel-izq-cerrar ↔ panel-izq-abrir). No-op en
-   * un panel lateral (no tiene botón toggle). */
+  /** [039A-3 P4/P6b] Refleja el estado visible/oculto de la lista: con la
+   * lista visible (`abierta=true`) el botón de mostrarla se oculta (no hay
+   * ocultación manual); con la lista oculta (`abierta=false`) aparece el
+   * botón que SOLO la muestra. No-op en un panel lateral (no tiene toggle). */
   setSidebarAbierta(abierta: boolean): void;
   /** [039A-3 P4] Pone el título en edición inline (renombrar). Se usa desde
    * el ⋯ de la cabecera; al guardar llama `onGuardar(nuevo)`. */
@@ -55,25 +56,26 @@ export function montarCabeceraChat(opts: CabeceraChatOpciones): CabeceraChat {
   const lateral = opts.lateral ?? false;
 
   // ---- acciones: colapsar sidebar (principal) / × cerrar (lateral) + ⋯ ----
+  // [039A-3 P6b] El botón ⋯ va al EXTREMO DERECHO de la cabecera: se monta en
+  // un grupo propio `acciones-mas` tras el título (el toggle/× queda a la
+  // izquierda). Así el título queda alineado a la izquierda y ⋯ a la derecha.
   const acciones = el('div', 'acciones-cabecera');
   acciones.setAttribute('aria-label', 'acciones de la conversación');
 
   let btnToggle: HTMLButtonElement | null = null;
   let btnCerrar: HTMLButtonElement | null = null;
-  let sidebarAbierta = true;
 
   if (!lateral) {
+    // [039A-3 P6b] El botón de la lista SOLO sirve para MOSTRARLA cuando está
+    // oculta (auto por ancho mínimo); nunca la oculta manualmente. Por eso
+    // nace oculto (la lista arranca visible) y solo aparece si `abierta=false`.
     btnToggle = el('button', 'cab-boton') as HTMLButtonElement;
     btnToggle.id = `${opts.idPrefijo}-abrir-sidebar`;
     btnToggle.type = 'button';
-    btnToggle.title = 'ocultar lista de conversaciones';
-    btnToggle.setAttribute('aria-label', 'ocultar lista de conversaciones');
-    function pintarIconoToggle(): void {
-      btnToggle?.replaceChildren(
-        icono(sidebarAbierta ? 'panel-izq-cerrar' : 'panel-izq-abrir'),
-      );
-    }
-    pintarIconoToggle();
+    btnToggle.title = 'mostrar lista de conversaciones';
+    btnToggle.setAttribute('aria-label', 'mostrar lista de conversaciones');
+    btnToggle.hidden = true;
+    btnToggle.appendChild(icono('panel-izq-abrir'));
     btnToggle.addEventListener('click', () => opts.onToggleSidebar?.());
     acciones.appendChild(btnToggle);
   } else {
@@ -97,7 +99,9 @@ export function montarCabeceraChat(opts: CabeceraChatOpciones): CabeceraChat {
     e.stopPropagation();
     opts.onAcciones(btnMas.getBoundingClientRect());
   });
-  acciones.appendChild(btnMas);
+  const accionesMas = el('div', 'acciones-mas');
+  accionesMas.setAttribute('aria-label', 'acciones de la conversación');
+  accionesMas.appendChild(btnMas);
 
   // ---- título (editado inline al renombrar) ----
   const t = el('span', 'titulo');
@@ -153,6 +157,7 @@ export function montarCabeceraChat(opts: CabeceraChatOpciones): CabeceraChat {
 
   cab.appendChild(acciones);
   cab.appendChild(t);
+  cab.appendChild(accionesMas);
 
   return {
     raiz: cab,
@@ -160,12 +165,12 @@ export function montarCabeceraChat(opts: CabeceraChatOpciones): CabeceraChat {
       ponerTitulo(texto);
     },
     setSidebarAbierta(abierta: boolean) {
-      sidebarAbierta = abierta;
       if (btnToggle) {
-        btnToggle.replaceChildren(
-          icono(sidebarAbierta ? 'panel-izq-cerrar' : 'panel-izq-abrir'),
-        );
-        const label = abierta ? 'ocultar lista de conversaciones' : 'mostrar lista de conversaciones';
+        // [039A-3 P6b] El botón de la lista solo aparece cuando la lista está
+        // oculta (auto por ancho) y su única acción es MOSTRARLA. Con la lista
+        // visible el botón se oculta: no hay ocultación manual.
+        btnToggle.hidden = abierta;
+        const label = 'mostrar lista de conversaciones';
         btnToggle.title = label;
         btnToggle.setAttribute('aria-label', label);
       }

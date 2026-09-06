@@ -232,6 +232,11 @@ function abrirEnLateral(id: string): void {
       cerrarLateral();
     },
   });
+  // [039A-3 P6b] Divisor redimensionable entre principal y lateral: se
+  // inserta ANTES del lateral y se restaura el ancho persistido.
+  gripLateral = crearGripLateral();
+  restaurarLateralAncho();
+  paneles.appendChild(gripLateral);
   paneles.appendChild(lateral.raiz);
   // Carga la conversación elegida en el lateral y lo enfoca.
   void (async () => {
@@ -247,6 +252,8 @@ function cerrarLateral(): void {
   const lateral = panelesRegistrados[idx];
   lateral.raiz.remove();
   panelesRegistrados.splice(idx, 1);
+  gripLateral?.remove();
+  gripLateral = null;
   const principal = panelesRegistrados.find((p) => p.tipo === 'principal');
   if (principal) {
     activarPanel(principal);
@@ -437,8 +444,9 @@ const sidebar = montarSidebar({
 });
 
 /** Construcción de un panel. El principal recibe los PROVEEDORES (selector
- * de modelo) y el panelMeta global montado DENTRO de su entrada (único M1);
- * el lateral no tiene selector ni panelMeta. */
+ * de modelo) y el panelMeta global montado DENTRO de su entrada (único M1).
+ * [039A-3 P6b] El lateral también recibe PROVEEDORES (misma entrada completa,
+ * con modelo/modo/razonamiento compartidos M1); no tiene panelMeta propio. */
 function crearPanel(
   tipo: 'principal' | 'lateral',
   idPrefijo: string,
@@ -447,7 +455,7 @@ function crearPanel(
   const panel = montarPanelChat({
     tipo,
     idPrefijo,
-    proveedores: tipo === 'principal' ? PROVEEDORES : undefined,
+    proveedores: PROVEEDORES,
     deps: {
       adaptador,
       simulacion,
@@ -475,10 +483,15 @@ function crearPanel(
     },
     onCerrar: opts.onCerrar,
     onToggleSidebar() {
-      setSidebarAbierta(!sidebarAbierta);
+      // [039A-3 P6b] El botón de la lista SOLO la muestra; nunca la oculta.
+      mostrarSidebar();
     },
     onModeloCambiado(nuevo) {
       modeloActual = nuevo;
+      // [039A-3 P6b] Propaga a TODOS los paneles (ambos son completos y
+      // comparten el runtime M1): el selector del panel que cambió ya está
+      // actualizado; el resto se sincroniza aquí.
+      panelesRegistrados.forEach((p) => p.setModelo(nuevo));
       modal.setModelo(nuevo);
       if (USA_REAL) {
         void adaptador.sesion
@@ -489,6 +502,8 @@ function crearPanel(
     },
     onModoCambiado(nuevo) {
       modoActual = nuevo;
+      // [039A-3 P6b] Sincroniza el modo en ambos paneles (M1 compartido).
+      panelesRegistrados.forEach((p) => p.setModo(nuevo));
       modal.asignarValor('modo', nuevo);
       if (USA_REAL) {
         void adaptador.sesion
@@ -499,6 +514,8 @@ function crearPanel(
     },
     onRazonamientoCambiado(nuevo) {
       razonamientoActual = nuevo;
+      // [039A-3 P6b] Sincroniza el razonamiento en ambos paneles (M1).
+      panelesRegistrados.forEach((p) => p.setRazonamiento(nuevo));
       modal.asignarValor('nivelRazonamiento', nuevo);
       if (USA_REAL) {
         void adaptador.sesion
@@ -576,15 +593,103 @@ function leerSidebar(clave: string): string | null {
     return null;
   }
 }
-function pintarSidebar(): void {
-  cuerpo.classList.toggle('sidebar-colapsada', !sidebarAbierta);
-  panelesRegistrados.forEach((p) => p.setSidebarAbierta(sidebarAbierta));
+
+// [039A-3 P6b] La lista de conversaciones NO se oculta con un botón manual:
+// se oculta sola si la ventana se reduce por debajo de un ancho mínimo
+// (auto), y el botón de la cabecera solo sirve para MOSTRARLA (forzar) si
+// quedó oculta por ese auto-ocultado. `sidebarForzada` recuerda que el
+// usuario pidió verla aunque la ventana sea angosta; al ensanchar se resetea.
+const UMBRAL_AUTO_SIDEBAR = 720;
+let sidebarForzada = false;
+
+/** ¿La ventana es tan angosta que la lista no debe ocupar espacio? */
+function ventanaAngosta(): boolean {
+  // [039A-3 P6b] Auto-ocultado de la lista: por debajo de un ancho mínimo de
+  // ventana la sidebar ya no cabe junto al chat y se oculta sola.
+  return window.innerWidth < UMBRAL_AUTO_SIDEBAR;
 }
-function setSidebarAbierta(abierta: boolean): void {
-  if (sidebarAbierta === abierta) return;
-  sidebarAbierta = abierta;
-  pintarSidebar();
-  guardarSidebar(CLAVE_COLAPSADA, abierta ? '0' : '1');
+
+/** Aplica el estado efectivo (preferencia + auto-ocultado por ancho). */
+function aplicarSidebar(): void {
+  const angosta = ventanaAngosta();
+  if (!angosta) sidebarForzada = false;
+  const visible = sidebarAbierta && (!angosta || sidebarForzada);
+  cuerpo.classList.toggle('sidebar-colapsada', !visible);
+  panelesRegistrados.forEach((p) => p.setSidebarAbierta(visible));
+}
+function pintarSidebar(): void {
+  aplicarSidebar();
+}
+/** El botón de la cabecera SOLO muestra la lista (nunca la oculta). */
+function mostrarSidebar(): void {
+  sidebarAbierta = true;
+  if (ventanaAngosta()) sidebarForzada = true;
+  aplicarSidebar();
+  guardarSidebar(CLAVE_COLAPSADA, '0');
+}
+
+// Escucha resize para el auto-ocultado de la lista por ancho mínimo.
+window.addEventListener('resize', () => aplicarSidebar());
+
+// ---------- Grip de redimensionado del panel lateral (2 chats) ----------
+// [039A-3 P6b] Divisor vertical arrastrable entre el principal y el lateral.
+// Se inserta en #paneles antes del lateral al abrirlo y se quita al cerrarlo.
+// Ancho parte de la mitad (--lateral-ancho: 50%) y el arrastre lo fija en px
+// dentro de [260, 70% del ancho de #paneles]; se persiste para restaurarlo.
+const CLAVE_LATERAL_ANCHO = 'lateral_ancho';
+let gripLateral: HTMLElement | null = null;
+let lateralAnchoFijado: number | null = null;
+function medirPanelesAncho(): number {
+  return paneles.getBoundingClientRect().width;
+}
+function aplicarLateralAncho(px: number): void {
+  lateralAnchoFijado = px;
+  paneles.style.setProperty('--lateral-ancho', `${px}px`);
+}
+function crearGripLateral(): HTMLElement {
+  const g = el('div', 'lateral-grip');
+  g.setAttribute('aria-hidden', 'true');
+  let arrastrando = false;
+  g.addEventListener('mousedown', (e) => {
+    e.preventDefault();
+    arrastrando = true;
+    document.body.classList.add('redimensionando-lateral');
+  });
+  window.addEventListener('mousemove', (e) => {
+    if (!arrastrando) return;
+    const anchoPaneles = medirPanelesAncho();
+    const izquierda = paneles.getBoundingClientRect().left;
+    const cursorEnLateral = e.clientX - izquierda;
+    // El lateral va DESPUÉS del grip: ancho del lateral ≈ cursor - grip.
+    const ancho = cursorEnLateral;
+    const MIN = 260;
+    const MAX = Math.round(anchoPaneles * 0.7);
+    const clampeado = Math.min(MAX, Math.max(MIN, Math.round(ancho)));
+    aplicarLateralAncho(clampeado);
+  });
+  window.addEventListener('mouseup', () => {
+    if (!arrastrando) return;
+    arrastrando = false;
+    document.body.classList.remove('redimensionando-lateral');
+    if (lateralAnchoFijado !== null) {
+      guardarSidebar(CLAVE_LATERAL_ANCHO, String(lateralAnchoFijado));
+    }
+  });
+  return g;
+}
+
+// Al reabrir el lateral se restaura el ancho persistido (si no supera el 70%
+// disponible, p. ej. si la ventana se redujo respecto del último arrastre).
+function restaurarLateralAncho(): void {
+  const base = leerSidebar(CLAVE_LATERAL_ANCHO);
+  const anchoPaneles = medirPanelesAncho();
+  const MAX = Math.round(anchoPaneles * 0.7);
+  let px = Math.round(anchoPaneles * 0.5); // parte de la mitad
+  if (base) {
+    const n = Number(base);
+    if (Number.isFinite(n)) px = Math.round(Math.min(MAX, Math.max(260, n)));
+  }
+  aplicarLateralAncho(Math.min(MAX, Math.max(260, px)));
 }
 
 function sincronizarPanelMeta(): void {

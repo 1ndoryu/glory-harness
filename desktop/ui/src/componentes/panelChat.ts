@@ -124,11 +124,15 @@ export interface PanelChat {
     onGuardar: (nuevo: string) => void,
     onCancelar?: () => void,
   ): void;
-  /** Sincroniza los controles de la entrada (solo panel principal). */
+  /** [039A-3 P6b] Sincroniza los controles de la entrada de ESTE panel. Todos
+   * los paneles usan la variante completa y comparten el estado M1 del
+   * orquestador (modelo/modo/razonamiento), así que los tres setter existen
+   * en principal y lateral. */
   setModelo(modelo: ModeloSeleccionado): void;
   setModo(modo: ModoEjecucion): void;
   setRazonamiento(valor: string): void;
-  /** Refleja sidebar abierta/colapsada en el icono (principal). */
+  /** [039A-3 P4/P6b] Refleja lista visible/oculta en el botón de la cabecera
+   * (solo el principal lo tiene). */
   setSidebarAbierta(abierta: boolean): void;
   /** Repinta un aviso en este panel (mock/próximamente, sin backend). */
   avisoLocal(texto: string, meta: string, detalle: string): void;
@@ -140,20 +144,20 @@ export interface PanelChatOpciones {
   tipo: TipoPanel;
   /** Prefijo de ids DOM (coincide con `tipo`; p. ej. 'principal'). */
   idPrefijo: string;
-  /** Catálogo de proveedores (solo variante completa; p. ej. principal). */
+  /** Catálogo de proveedores de la entrada completa (principal y lateral). */
   proveedores?: ProveedorModelo[];
   deps: DepsPanel;
   /** Se invoca al pulsar el botón ⋯ de la cabecera de ESTE panel. */
   onAcciones(rect: DOMRect): void;
   /** Panel lateral: se invoca al pulsar el × de cierre. */
   onCerrar?: () => void;
-  /** Panel principal: se invoca al pulsar el botón de colapsar sidebar. */
+  /** Panel principal: se invoca al pulsar el botón de MOSTRAR la lista
+   * (solo aparece si la lista está oculta por ancho; no hay ocultación manual). */
   onToggleSidebar?: () => void;
-  /** El usuario cambió el modelo en la barra (solo variante completa). */
+  /** El usuario cambió el modelo/modo/razonamiento en la barra de ESTE panel
+   * (todos los paneles son completos; el orquestador propaga M1 al resto). */
   onModeloCambiado?: (modelo: ModeloSeleccionado) => void;
-  /** El usuario cambió el modo en la barra (solo variante completa). */
   onModoCambiado?: (modo: ModoEjecucion) => void;
-  /** El usuario cambió el razonamiento en la barra (solo completa). */
   onRazonamientoCambiado?: (razonamiento: string) => void;
 }
 
@@ -182,7 +186,10 @@ export function montarPanelChat(opts: PanelChatOpciones): PanelChat {
 
   const entrada: Entrada = montarEntrada({
     idPrefijo,
-    variante: tipo === 'lateral' ? 'minima' : 'completa',
+    // [039A-3 P6b] Ambos paneles usan la variante 'completa': el lateral
+    // también permite elegir modelo/razonamiento/modo (compartidos M1 con el
+    // principal; el orquestador propaga el cambio a los dos selectores).
+    variante: 'completa',
     proveedores: opts.proveedores ?? [],
     modeloActual: d.getModelo(),
     modo: d.getModo(),
