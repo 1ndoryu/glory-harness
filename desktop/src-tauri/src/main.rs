@@ -20,7 +20,7 @@
 use std::sync::{Arc, Mutex};
 
 use glory_harness::{
-    InfoConversacion, OpcionesRun, PersistenciaSqlite, construir_harness_con,
+    InfoConversacion, OpcionesRun, PersistenciaSqlite, VENTANA_MINIMA, construir_harness_con,
     historial_desde_persistencia,
 };
 use glory_harness_core::aprobacion::{PeticionAprobacion, RespuestaAprobacion};
@@ -335,6 +335,70 @@ fn info_de_conversacion(sesion: &Sesion, conv_id: Uuid) -> Result<InfoSesion, St
     })
 }
 
+/// [039A-3 P6-backend] Ventana de contexto del desktop (default 150k, sin
+/// tocar el default del core 128k): se lee de config y viaja en `OpcionesRun`
+/// para inyectarse ANTES de construir el runtime. Ausente/ilegible/bajo el
+/// piso → default del desktop; error de BD → se propaga (fail-closed).
+fn leer_max_ventana(persistencia: &PersistenciaSqlite) -> Result<Option<u32>, String> {
+    const VENTANA_DEFAULT_DESKTOP: u32 = 150_000;
+    match persistencia
+        .config_leer("contexto_max_ventana")
+        .map_err(|e| e.to_string())?
+    {
+        Some(txt) => match txt.trim().parse::<u32>() {
+            Ok(v) if v >= VENTANA_MINIMA => Ok(Some(v)),
+            _ => Ok(Some(VENTANA_DEFAULT_DESKTOP)),
+        },
+        None => Ok(Some(VENTANA_DEFAULT_DESKTOP)),
+    }
+}
+
+/// Resuelve las `OpcionesRun` de apertura desde la config persistida
+/// (workspace, razonamiento, ventana): el front no hace roundtrips y el
+/// runtime se construye con la ventana ya inyectada. Extraída de
+/// `abrir_sesion_interna` (límite de función del gate).
+fn resolver_opciones_apertura(
+    persistencia: &PersistenciaSqlite,
+    provider: Option<String>,
+    modelo: Option<String>,
+    dir: Option<String>,
+    modo: Option<String>,
+    razonamiento: Option<String>,
+) -> Result<OpcionesRun, String> {
+    /* [039A-1 04-09 H3] Workspace real: si el llamador no aporta `dir`, se
+     * usa el guardado en config (si existe); sin config, `None` → cwd del
+     * proceso (último recurso). */
+    let dir = match dir {
+        Some(d) => Some(d),
+        None => match persistencia
+            .config_leer("workspace")
+            .map_err(|e| e.to_string())?
+        {
+            Some(guardado) if !guardado.trim().is_empty() => Some(guardado),
+            _ => None,
+        },
+    };
+    /* [039A-1 04-09 H7] Nivel de razonamiento: lo resuelve el backend desde
+     * config cuando el llamador no lo aporta (el front no hace roundtrip). */
+    let razonamiento = match razonamiento {
+        Some(r) => Some(r),
+        None => persistencia
+            .config_leer("nivelRazonamiento")
+            .map_err(|e| e.to_string())?,
+    };
+    /* [039A-3 P6-backend] La ventana configurada se inyecta ANTES de
+     * construir el runtime (el manager de contexto la clona al construir). */
+    let max_ventana = leer_max_ventana(persistencia)?;
+    Ok(OpcionesRun {
+        provider,
+        modelo,
+        dir: dir.map(std::path::PathBuf::from),
+        modo,
+        razonamiento,
+        max_ventana,
+    })
+}
+
 /// Núcleo de apertura compartido por `abrir_sesion` y `elegir_workspace`:
 /// SQLite (o memoria con aviso) + `user_id` estable + conversación inicial.
 fn abrir_sesion_interna(
@@ -363,34 +427,16 @@ fn abrir_sesion_interna(
             Some("sin ruta de datos: sesión en memoria".to_string()),
         ),
     };
-    /* [039A-1 04-09 H3] Workspace real: si el llamador no aporta `dir`, se
-     * usa el guardado en config (si existe); sin config, `None` → cwd del
-     * proceso (último recurso). */
-    let dir = match dir {
-        Some(d) => Some(d),
-        None => match persistencia
-            .config_leer("workspace")
-            .map_err(|e| e.to_string())?
-        {
-            Some(guardado) if !guardado.trim().is_empty() => Some(guardado),
-            _ => None,
-        },
-    };
-    /* [039A-1 04-09 H7] Nivel de razonamiento: lo resuelve el backend desde
-     * config cuando el llamador no lo aporta (el front no hace roundtrip). */
-    let razonamiento = match razonamiento {
-        Some(r) => Some(r),
-        None => persistencia
-            .config_leer("nivelRazonamiento")
-            .map_err(|e| e.to_string())?,
-    };
-    let opciones = OpcionesRun {
+    /* Opciones resueltas desde la config persistida (helper: la función debe
+     * quedar bajo el límite del gate). */
+    let opciones = resolver_opciones_apertura(
+        &persistencia,
         provider,
         modelo,
-        dir: dir.map(std::path::PathBuf::from),
+        dir,
         modo,
         razonamiento,
-    };
+    )?;
     /* `user_id` estable entre reinicios: las conversaciones pertenecen a un
      * usuario y sobreviven al cierre (tabla `config`, clave `user_id`). */
     let user_id = match persistencia
@@ -810,11 +856,15 @@ fn reconfigurar_sesion(
     glory_harness::cargar_env_usuario();
     /* `dir` = workspace actual: con `None` el constructor resolvería el cwd
      * del proceso y el agente cambiaría de carpeta sin avisar. */
+    /* [039A-3 P6-backend] La ventana persistida (`contexto_max_ventana`) se
+     * aplica en cada reconfiguración (cambio de modelo/modo o reinicio). */
+    let max_ventana = leer_max_ventana(&sesion.persistencia)?;
     let opciones = OpcionesRun {
         provider,
         modelo,
         dir: Some(std::path::PathBuf::from(sesion.workspace.clone())),
         modo,
+        max_ventana,
         razonamiento: match razonamiento {
             Some(r) => Some(r),
             /* [039A-1 04-09 H7] Al reconfigurar por modelo/modo sin pasar
@@ -1400,4 +1450,40 @@ fn main() {
             eprintln!("[glory-harness-desktop] error fatal: {e}");
             std::process::exit(1);
         });
+}
+
+#[cfg(test)]
+mod pruebas_ventana {
+    //! [039A-3 P6-backend] La ventana del desktop defaultea a 150k y respeta
+    //! el valor persistido; basura o valores bajo el piso → default.
+    use super::*;
+
+    fn memoria() -> PersistenciaSqlite {
+        PersistenciaSqlite::en_memoria().expect("bd en memoria")
+    }
+
+    #[test]
+    fn sin_config_usa_el_default_del_desktop() {
+        let p = memoria();
+        assert_eq!(leer_max_ventana(&p).expect("lee"), Some(150_000));
+    }
+
+    #[test]
+    fn respeta_el_valor_persistido() {
+        let p = memoria();
+        p.config_guardar("contexto_max_ventana", "200000")
+            .expect("guarda");
+        assert_eq!(leer_max_ventana(&p).expect("lee"), Some(200_000));
+    }
+
+    #[test]
+    fn basura_o_bajo_el_piso_cae_al_default() {
+        let p = memoria();
+        p.config_guardar("contexto_max_ventana", "no-numero")
+            .expect("guarda");
+        assert_eq!(leer_max_ventana(&p).expect("lee"), Some(150_000));
+        p.config_guardar("contexto_max_ventana", "5")
+            .expect("guarda");
+        assert_eq!(leer_max_ventana(&p).expect("lee"), Some(150_000));
+    }
 }

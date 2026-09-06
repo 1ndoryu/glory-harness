@@ -69,17 +69,13 @@ pub struct EntradaVault {
 }
 
 /// Contexto del turno en curso que fija el desktop antes de `enviar_turno`.
+/// Sin ids fijados (escrituras de setup), `respaldar` lo omite sin error
+/// (`let-else` total en `RespaldoArchivos::respaldar`, sin `expect`).
 #[derive(Default, Clone)]
 pub struct ContextoTurnoVault {
     pub conversacion_id: Option<Uuid>,
     pub turno_id: Option<Uuid>,
     pub tool_name: Option<String>,
-}
-
-impl ContextoTurnoVault {
-    fn es_vacio(&self) -> bool {
-        self.conversacion_id.is_none() || self.turno_id.is_none()
-    }
 }
 
 /// SHA-256 hex de un contenido (dedup + comprobación de fuente).
@@ -475,14 +471,15 @@ impl RespaldoArchivos for VaultArchivos {
             Ok(g) => g.clone(),
             Err(_) => return Ok(()), // sin contexto fiable: no respaldar
         };
-        if ctx.es_vacio() {
-            // Sin conversación/turno fijados (p. ej. escrituras de setup): el
-            // respaldo no se puede atribuir a un tramo → se omite sin error.
+        // Sin conversación/turno fijados (p. ej. escrituras de setup): el
+        // respaldo no se puede atribuir a un tramo → se omite sin error.
+        // `let-else` total en vez de `expect`: nunca pánico en producción.
+        let (Some(conv), Some(turno)) = (ctx.conversacion_id, ctx.turno_id) else {
             return Ok(());
-        }
+        };
         self.registrar_escritura(
-            ctx.conversacion_id.expect("no vacío"),
-            ctx.turno_id.expect("no vacío"),
+            conv,
+            turno,
             relativa,
             previo_bytes,
             nuevo_contenido,

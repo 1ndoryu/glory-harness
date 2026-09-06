@@ -159,13 +159,13 @@ Orden propuesto (dependencias de abajo arriba):
   (10px). El ⋯ del extremo no se ve afectado (`margin-left:auto`). Verificado con navegador
   mock (separación botón→título 16→10px). Evidencia en
   `Agente/completados/tareas-2026-09-05.md`.
-  En curso: P3 vault de respaldos. Pendiente P6-backend (inyectar `contexto.max_ventana` 150k en
-  `construir_harness_con`/`reconfigurar_sesion` de `cli/run.rs`) — BLOQUEADO por el agente
-  paralelo que toca `cli/`/`core/` (sin tocar el default del core 128k).
-  Pendiente de P5: E2E `tauri dev` (2 conversaciones reales, eventos al panel correcto) —
-  bloqueada mientras el agente paralelo (318A-17) toca `cli/`/`core/`.
-  ⚠️ Core (`sandbox.rs`) se toca en P3 (hook opcional + exclusión `.glory-harness/`) — coordinar
-  con el agente paralelo (318A-17) que trabaja en core/cli y commitea en `main`.
+   P6-backend HECHO 06-09 (`OpcionesRun.max_ventana` + `VENTANA_MINIMA`, desktop 150k, core 128k
+   intacto; tests 269 verdes + gate 039A-3 PASS 0 errores; evidencia en
+   `Agente/completados/tareas-2026-09-06.md`). Fix colateral en alcance: 2 `expect` de `vault.rs` →
+   `let-else` total (+ `es_vacio` huérfano eliminado).
+   Pendiente: E2E `tauri dev` en ventana real (P3 rewind+restaurar, P5 2 paneles, P6 150k tras
+   reiniciar) — DESBLOQUEADA 06-09 (318A-17 mergeado en `main`, árbol limpio; hay claves LLM);
+   requiere ventana interactiva + proveedor real.
 
 ## Notas
 

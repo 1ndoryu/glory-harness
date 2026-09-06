@@ -8,8 +8,9 @@ sin palabras "modelo"/"contexto", opacidad 0.6). P2 HECHO (editar/volver a punto
 conversacional transaccional por `rowid` + menú por mensaje; commit `039A-3 (P2)`). P4 HECHO
 (⋯ cabecera + sidebar colapsable/redimensionable; commit `039A-3 (P4)`).
 P3 CORE+DESKTOP HECHO (commits `039A-3 (P3 core)` 3505812 y `039A-3 (P3 desktop WIP)` f6ca9fb);
-P3 FRONTEND HECHO (05-09, sin commit: aviso con acción "Restaurar archivos" tras volverA).
-P5-P6 en curso. P6b (mejoras UX de paneles, requisito del usuario 05-09) HECHO (commit `67729b5`):
+P3 FRONTEND HECHO (commit `039A-3 (P3 frontend)` 6bd4ab6: aviso con acción "Restaurar archivos" tras volverA).
+P5 front HECHO, P6 front HECHO, P6-backend HECHO 06-09 (inyección 150k + gate 039A-3 PASS 0 errores).
+P6b (mejoras UX de paneles, requisito del usuario 05-09) HECHO (commit `67729b5`):
 lateral redimensionable con divisor, entrada completa compartida M1, ⋯ a la derecha y lista
 auto-ocultable por ancho mínimo (sin botón manual de ocultar).
 Plan base: plan-glory-harness-desktop-2026-09-03.md (039A-1, fases F1-F6 + anexo §10)
@@ -471,12 +472,21 @@ para no acoplar el riesgo del vault al del multi-panel. Pendiente de confirmar c
       `main.ts`/`panelChat.ts`; CSS en `entrada.css`. Verificado mock: hover "sin datos" inicial y
       "usados 9100 de 150.000 (7%) / reserva de salida 20.000 / entrada del turno 9100" tras el
       turno; cierre al salir; panel lateral (entrada mínima) también lo muestra.
-- [ ] Backend: inyectar `contexto.max_ventana` configurado (default 150k) en `construir_harness_con`
+- [x] Backend: inyectar `contexto.max_ventana` configurado (default 150k) en `construir_harness_con`
       y en `reconfigurar_sesion` (sin tocar default del core). Fuente única = `ContextoDetalle`.
-      — **BLOQUEADO por agente paralelo** (cambios sin commitear en `cli/` y `core/`): queda pendiente.
+      — HECHO 06-09 (desbloqueado: B3-F6 mergeado, árbol limpio): `OpcionesRun.max_ventana: Option<u32>`
+      + `VENTANA_MINIMA` (10k, fail-closed al default 128k) en `cli/comandos/run.rs`, aplicado ANTES de
+      `AgentRuntime::nuevo` (el manager y el desglose clonan `config.contexto`); desktop lee
+      `contexto_max_ventana` de config (default 150k) en `abrir_sesion_interna` (vía
+      `resolver_opciones_apertura`, extraída por límite del gate) y en `reconfigurar_sesion`; CLI pasa
+      `None` (default core intacto). Tests: 3 unit cli + 3 desktop. Límite conocido: cambiar solo la
+      ventana aplica al reiniciar o al reconfigurar por modelo/modo (la clave de sesión no la incluye).
 - [x] Evidencia front: type-check + build limpios; círculo llenándose en mock (7%/150k),
-      config "Ventana de contexto" 150000 visible y editable. Falta E2E `tauri dev` (bloqueado) y
-      confirmar que 150k llega como `ContextoDetalle.max_ventana` (depende del backend P6).
+      config "Ventana de contexto" 150000 visible y editable. Evidencia backend (06-09): unit
+      (`harness_con` con 150k → `turno_config.contexto.max_ventana` 150k, que es lo que lee
+      `DesgloseContexto::calcular` para `ContextoDetalle.max_ventana`) + gate 039A-3 PASS 0 errores.
+      Falta E2E `tauri dev` en ventana real (DESBLOQUEADA 06-09: B3-F6 mergeado; hay claves en
+      `~/.glory-harness.env`): confirmar 150k visible en el círculo tras reiniciar la app.
 
 ### P6b — Mejoras UX de los paneles (requisito del usuario 05-09) — HECHO (05-09, commit `67729b5`)
 

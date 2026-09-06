@@ -28,7 +28,7 @@ pub use infra::ejecutor::EjecutorCliente;
 pub use infra::persistencia::{PersistenciaMemoria, ProgramadorMemoria};
 pub use persistencia_sqlite::{AccionRecuperada, InfoConversacion, PersistenciaSqlite};
 pub use infra::reglas::cargar_reglas;
-pub use comandos::run::{OpcionesRun, SalidaTurno, construir_harness, construir_harness_con, quitar_prefijo_verbatim, turno_config_default};
+pub use comandos::run::{OpcionesRun, SalidaTurno, VENTANA_MINIMA, construir_harness, construir_harness_con, quitar_prefijo_verbatim, turno_config_default};
 
 /// Carga `~/.glory-harness.env` si existe (formato `CLAVE=valor`,
 /// `#` = comentario). Solo define variables aún ausentes, así el entorno real

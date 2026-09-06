@@ -43,7 +43,17 @@ pub struct OpcionesRun {
     /// nivel_razonamiento` y viaja como `reasoning_effort` a los proveedores
     /// que lo aceptan (deepseek/groq/cerebras/glory).
     pub razonamiento: Option<String>,
+    /// [039A-3 P6-backend] Ventana de contexto inyectada por el consumidor
+    /// (desktop: config `contexto_max_ventana`, default 150k). `None` (o bajo
+    /// `VENTANA_MINIMA`) → default del core (128k, intacto para task/CLI).
+    /// Se aplica ANTES de construir el runtime: el `AgentContextManager` y el
+    /// desglose del turno clonan esta config al construir (una sola fuente).
+    pub max_ventana: Option<u32>,
 }
+
+/// [039A-3 P6-backend] Piso de sanidad para ventanas inyectadas por el
+/// consumidor: por debajo se ignora (fail-closed al default del core).
+pub const VENTANA_MINIMA: u32 = 10_000;
 
 /// Resultado de un turno one-shot, listo para imprimir.
 pub struct SalidaTurno {
@@ -156,6 +166,13 @@ pub fn construir_harness_con_impl(
         if matches!(razonamiento, "low" | "medium" | "high") {
             config.nivel_razonamiento = Some(razonamiento.to_string());
         }
+    }
+    /* [039A-3 P6-backend] Ventana inyectada por el consumidor (desktop 150k).
+     * Bajo el piso se ignora (fail-closed al default del core 128k). Se fija
+     * aquí, ANTES de `AgentRuntime::nuevo`, porque el manager de contexto y
+     * el desglose del turno clonan `config.contexto` al construir. */
+    if let Some(v) = opciones.max_ventana.filter(|v| *v >= VENTANA_MINIMA) {
+        config.contexto.max_ventana = v;
     }
 
     /* [Bloque 3, F3] Skills del workspace (carpeta `.glory/skills`, archivos
@@ -318,5 +335,48 @@ pub async fn run(prompt: Option<String>, opciones: OpcionesRun) -> std::process:
             eprintln!("[glory-harness] error: {err}");
             std::process::ExitCode::from(1)
         }
+    }
+}
+
+#[cfg(test)]
+mod pruebas_ventana {
+    //! [039A-3 P6-backend] La ventana inyectada llega al runtime ANTES de
+    //! construir (el desglose del turno lee `turno_config.contexto`); sin
+    //! inyección o bajo el piso, el default del core (128k) queda intacto.
+    use super::*;
+
+    fn harness_con(max_ventana: Option<u32>) -> HarnessCli {
+        let persistencia = Arc::new(crate::persistencia::PersistenciaMemoria::nuevo());
+        let programador = Arc::new(crate::persistencia::ProgramadorMemoria::nuevo());
+        construir_harness_con(
+            &OpcionesRun {
+                max_ventana,
+                ..OpcionesRun::default()
+            },
+            persistencia,
+            programador,
+            Uuid::new_v4(),
+        )
+    }
+
+    #[test]
+    fn sin_ventana_se_conserva_el_default_del_core() {
+        let h = harness_con(None);
+        assert_eq!(h.config.contexto.max_ventana, 128_000);
+        assert_eq!(h.runtime.turno_config.contexto.max_ventana, 128_000);
+    }
+
+    #[test]
+    fn ventana_del_desktop_se_inyecta_antes_del_runtime() {
+        let h = harness_con(Some(150_000));
+        assert_eq!(h.config.contexto.max_ventana, 150_000);
+        assert_eq!(h.runtime.turno_config.contexto.max_ventana, 150_000);
+    }
+
+    #[test]
+    fn ventana_bajo_el_piso_se_ignora() {
+        let h = harness_con(Some(1_000));
+        assert_eq!(h.config.contexto.max_ventana, 128_000);
+        assert_eq!(h.runtime.turno_config.contexto.max_ventana, 128_000);
     }
 }

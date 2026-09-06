@@ -59,6 +59,9 @@ fn despachar(args: Vec<String>) -> ExitCode {
                 /* [039A-1 04-09 H7] El CLI run no expone flag de razonamiento:
                  * deja el default del proveedor (None → config intacta). */
                 razonamiento: None,
+                /* [039A-3 P6-backend] El CLI no inyecta ventana: None → default
+                 * del core (128k, intacto). Solo el desktop inyecta (150k). */
+                max_ventana: None,
             };
             let prompt = if let Some(p) = prompt {
                 Some(p)
@@ -78,6 +81,9 @@ fn despachar(args: Vec<String>) -> ExitCode {
                 /* [039A-1 04-09 H7] El CLI chat/tui no expone flag de
                  * razonamiento: deja el default del proveedor. */
                 razonamiento: None,
+                /* [039A-3 P6-backend] Sin inyección de ventana en CLI (None →
+                 * default del core 128k). */
+                max_ventana: None,
             };
             let usa_tui = args.iter().any(|a| a == "--tui");
             con_runtime("chat", |rt| {
