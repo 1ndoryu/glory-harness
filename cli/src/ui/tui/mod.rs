@@ -54,7 +54,7 @@ pub(crate) use glory_harness_core::evento::AgenteEvento;
 pub(crate) use glory_harness_core::runtime::AgentRuntime;
 
 pub(crate) use crate::turno::{historial_desde_persistencia, procesar_turno};
-pub(crate) use crate::run::{construir_harness, OpcionesRun};
+pub(crate) use crate::run::{construir_harness_durable, OpcionesRun};
 
 mod texto;
 mod render;

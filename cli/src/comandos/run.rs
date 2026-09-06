@@ -25,6 +25,7 @@ use glory_harness_core::tool::AgentToolRegistry;
 use glory_harness_core::{AgentPersistence, ProgramadorTareas};
 
 use crate::persistencia::PersistenciaMemoria;
+use crate::persistencia_sqlite::PersistenciaSqlite;
 
 /// Opciones del subcomando `run`.
 #[derive(Debug, Clone, Default)]
@@ -69,8 +70,12 @@ pub struct SalidaTurno {
 pub struct HarnessCli {
     pub runtime: Arc<AgentRuntime>,
     /// Persistencia inyectable (B5): memoria por defecto; la app de escritorio
-    /// pasa SQLite. Los consumidores solo usan el trait, nunca el concreto.
+    /// pasa SQLite. Los consumidores solo usan el trait, nunca el concreto…
+    /// salvo el propio CLI para gestionar conversaciones (`session`, `chat`),
+    /// que necesita la cara CRUD fuera del puerto: la guarda `sqlite` cuando
+    /// el harness se construyó durable ([069A-2]).
     pub persistencia: Arc<dyn AgentPersistence>,
+    pub sqlite: Option<Arc<PersistenciaSqlite>>,
     pub user_id: Uuid,
     pub workspace: Option<PathBuf>,
     pub config: TurnoConfig,
@@ -88,13 +93,69 @@ pub async fn construir_harness(opciones: &OpcionesRun) -> Result<HarnessCli, Str
     persistencia.con_skills_base(user_id);
     let mut registry = AgentToolRegistry::new();
     crate::mcp_cli::registrar_desde_env(&mut registry).await?;
-    Ok(construir_harness_con_impl(
+    let mut harness = construir_harness_con_impl(
         opciones,
         persistencia,
         Arc::new(crate::persistencia::ProgramadorMemoria::nuevo()),
         user_id,
         registry,
-    ))
+    );
+    harness.sqlite = None;
+    Ok(harness)
+}
+
+/// [069A-2] Harness durable para `chat`/`tui`/`session`: la misma BD sqlite
+/// del CLI (`abrir_tiendas_durables`, `user_id` estable) como persistencia del
+/// runtime, de modo que turnos, mensajes y conversaciones sobreviven a los
+/// procesos y `session resume` recompone el contexto. Sin directorio de app
+/// (APPDATA/HOME ausente) falla con error presentable (fail-closed: no se
+/// finge durabilidad con memoria).
+pub async fn construir_harness_durable(opciones: &OpcionesRun) -> Result<HarnessCli, String> {
+    let (tiendas, user_id) = abrir_tiendas_durables()?;
+    tiendas.con_skills_base(user_id);
+    let mut registry = AgentToolRegistry::new();
+    crate::mcp_cli::registrar_desde_env(&mut registry).await?;
+    let mut harness = construir_harness_con_impl(
+        opciones,
+        tiendas.clone(),
+        tiendas.clone(),
+        user_id,
+        registry,
+    );
+    harness.sqlite = Some(tiendas);
+    Ok(harness)
+}
+
+/// [069A-2] Abre la BD durable del CLI y resuelve su `user_id` estable
+/// (creado una vez en `config`). Compartido por `schedule` (tareas), `chat`,
+/// `tui` y `session` (conversaciones): una sola tienda y un solo usuario.
+pub fn abrir_tiendas_durables() -> Result<(Arc<PersistenciaSqlite>, Uuid), String> {
+    let ruta = PersistenciaSqlite::ruta_bd_app().ok_or_else(|| {
+        "sin directorio de app para la BD (APPDATA/HOME ausente)".to_string()
+    })?;
+    let tiendas =
+        Arc::new(PersistenciaSqlite::abrir(&ruta).map_err(|e| e.to_string())?);
+    let user_id = usuario_cli_estable(&tiendas)?;
+    Ok((tiendas, user_id))
+}
+
+/// Lee o crea el `user_id` estable del CLI en la tabla `config` (un valor
+/// corrupto se sustituye por uno nuevo, nunca se aborta por ello).
+pub fn usuario_cli_estable(tiendas: &PersistenciaSqlite) -> Result<Uuid, String> {
+    const CLAVE: &str = "usuario_cli";
+    if let Some(previo) = tiendas
+        .config_leer(CLAVE)
+        .map_err(|e| e.to_string())?
+    {
+        if let Ok(id) = Uuid::parse_str(previo.trim()) {
+            return Ok(id);
+        }
+    }
+    let nuevo = Uuid::new_v4();
+    tiendas
+        .config_guardar(CLAVE, &nuevo.to_string())
+        .map_err(|e| e.to_string())?;
+    Ok(nuevo)
 }
 
 /// Constructor con persistencia y programador inyectables (B5): la app Tauri
@@ -220,6 +281,7 @@ pub fn construir_harness_con_impl(
     HarnessCli {
         runtime,
         persistencia,
+        sqlite: None,
         user_id,
         workspace,
         config,

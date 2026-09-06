@@ -60,7 +60,10 @@ fn exportar_en_tui(
 /// Devuelve `Err` solo si la terminal no admite la TUI; Ctrl+C/Esc/`/salir`
 /// salen con `Ok(())`.
 pub async fn tui(opciones: OpcionesRun) -> Result<(), String> {
-    let harness = construir_harness(&opciones).await?;
+    /* [069A-2] Harness durable como el REPL: los turnos y mensajes de la TUI
+     * comparten la BD (ver `session list`); la TUI no crea fila de
+     * conversación (límite documentado: `session resume` abre el REPL). */
+    let harness = construir_harness_durable(&opciones).await?;
 
     /* [Bloque 3, F3] Comandos slash personalizados del workspace: las
      * plantillas se expanden en el worker ANTES de enviar el mensaje al

@@ -4,3 +4,4 @@
 pub mod daemon;
 pub mod mcp_cli;
 pub mod run;
+pub mod sesion;

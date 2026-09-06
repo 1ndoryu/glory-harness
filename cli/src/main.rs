@@ -11,13 +11,16 @@
 //!   Con `--tui`: pantalla completa ratatui (paneles mensajes/estado/entrada).
 //! - `daemon [--puerto N] [--mostrar-token]` → proceso de fondo NDJSON en
 //!   `127.0.0.1`, multi-sesión, token obligatorio.
+//! - `session <list|ver|resume|borrar> [id]` → gestiona las conversaciones
+//!   durables del CLI (misma BD y usuario que `chat`); `resume` reabre el REPL
+//!   sobre una conversación anterior ([069A-2]).
 //! - `tools` → lista las tools agnósticas del núcleo.
 //! - `doctor` → comprueba configuración (envs de proveedores) y salida.
 //! - `--version`/`-V` → versión del binario + contrato core.
 
 use chrono::{DateTime, Utc};
 use glory_harness::cargar_env_usuario;
-use glory_harness::{chat, daemon, ejecutor, persistencia, run, tui, PersistenciaSqlite};
+use glory_harness::{chat, daemon, ejecutor, persistencia, run, sesion, tui, PersistenciaSqlite};
 use glory_harness_core::ports::{TareaProgramada, TareaProgramadaPendiente};
 use glory_harness_core::{AgentPersistence, HarnessError, ProgramadorTareas};
 use std::process::ExitCode;
@@ -113,6 +116,7 @@ fn despachar(args: Vec<String>) -> ExitCode {
             con_runtime("daemon", |rt| rt.block_on(daemon::run(puerto, mostrar)))
         }
         Some("schedule") => cmd_schedule(&args[1..]),
+        Some("session") => cmd_session(&args[1..]),
         Some("tools") => {
             listar_tools();
             ExitCode::SUCCESS
@@ -123,12 +127,12 @@ fn despachar(args: Vec<String>) -> ExitCode {
         }
         Some(other) => {
             eprintln!("glory-harness: subcomando desconocido '{other}'");
-            eprintln!("uso: glory-harness <run|chat|daemon|schedule|tools|doctor|--version>");
+            eprintln!("uso: glory-harness <run|chat|daemon|schedule|session|tools|doctor|--version>");
             ExitCode::from(2)
         }
         None => {
             eprintln!(
-                "glory-harness: falta subcomando (run|chat|daemon|schedule|tools|doctor|--version)"
+                "glory-harness: falta subcomando (run|chat|daemon|schedule|session|tools|doctor|--version)"
             );
             ExitCode::from(2)
         }
@@ -153,12 +157,13 @@ where
 
 /// [059A-22] Texto de `--help`, extraído del brazo para acotar `despachar`.
 fn imprimir_ayuda() {
-    println!("uso: glory-harness <run|chat|daemon|schedule|tools|doctor|--version>");
+    println!("uso: glory-harness <run|chat|daemon|schedule|session|tools|doctor|--version>");
     println!();
     println!("  run       turno único (--prompt/--stdin/--dir/--provider/--modelo/--modo)");
     println!("  chat      sesión interactiva; --tui para la interfaz enriquecida");
     println!("  daemon    servicio de fondo por NDJSON (consumidor-daemon.mjs)");
     println!("  schedule  tareas programadas: <list|create|remove|logs|run>");
+    println!("  session   conversaciones: <list|ver|resume|borrar> [id]");
     println!("  tools     tools disponibles del núcleo");
     println!("  doctor    diagnóstico de configuración y proveedores");
     println!("  --version versión del CLI y del contrato core");
@@ -180,27 +185,10 @@ enum SalidaSchedule {
 
 /// Abre la BD de la app y resuelve el usuario estable del CLI (se crea una
 /// vez en `config` y se reutiliza: las tareas sobreviven a los procesos).
+/// [069A-2] Delegación al helper compartido de `run` (misma tienda y usuario
+/// que `chat`/`session`).
 fn abrir_tiendas_schedule() -> Result<(Arc<PersistenciaSqlite>, Uuid), HarnessError> {
-    let ruta = PersistenciaSqlite::ruta_bd_app().ok_or_else(|| {
-        HarnessError::Persistencia("sin directorio de app para la BD (APPDATA/HOME ausente)".into())
-    })?;
-    let tiendas = Arc::new(PersistenciaSqlite::abrir(&ruta)?);
-    let user_id = usuario_cli_estable(&tiendas)?;
-    Ok((tiendas, user_id))
-}
-
-/// Lee o crea el `user_id` estable del CLI en la tabla `config` (un valor
-/// corrupto se sustituye por uno nuevo, nunca se aborta por ello).
-fn usuario_cli_estable(tiendas: &PersistenciaSqlite) -> Result<Uuid, HarnessError> {
-    const CLAVE: &str = "usuario_cli";
-    if let Some(previo) = tiendas.config_leer(CLAVE)? {
-        if let Ok(id) = Uuid::parse_str(previo.trim()) {
-            return Ok(id);
-        }
-    }
-    let nuevo = Uuid::new_v4();
-    tiendas.config_guardar(CLAVE, &nuevo.to_string())?;
-    Ok(nuevo)
+    run::abrir_tiendas_durables().map_err(HarnessError::Persistencia)
 }
 
 /// Filtro puro de vencimiento: pendientes con próxima pasada (las
@@ -250,6 +238,46 @@ fn cmd_schedule(args: &[String]) -> ExitCode {
         Ok(SalidaSchedule::Uso) => ExitCode::from(2),
         Err(e) => {
             eprintln!("glory-harness schedule: {e}");
+            ExitCode::from(1)
+        }
+    }
+}
+
+/// `glory-harness session <list|ver|resume|borrar> [id]` ([069A-2]):
+/// gestiona las conversaciones durables del CLI (misma BD sqlite y `user_id`
+/// estable que `chat`/`schedule`). `resume` necesita provider/modelo/dir
+/// como `chat` (reabre el REPL sobre la conversación); el resto solo toca la
+/// BD. Reutiliza el patrón `cmd_schedule`: `Uso` → exit 2, fallo → exit 1.
+fn cmd_session(args: &[String]) -> ExitCode {
+    if args.is_empty() {
+        eprintln!("uso: glory-harness session <list|ver|resume|borrar> [id]");
+        return ExitCode::from(2);
+    }
+    let opciones = run::OpcionesRun {
+        provider: extraer_opcion(args, &["--provider", "--proveedor"]),
+        modelo: extraer_opcion(args, &["--modelo", "--model"]),
+        dir: extraer_opcion(args, &["--dir", "--cwd", "--workspace"])
+            .map(std::path::PathBuf::from),
+        modo: extraer_opcion(args, &["--modo"]),
+        razonamiento: None,
+        max_ventana: None,
+    };
+    let resultado = match tokio::runtime::Runtime::new() {
+        Ok(rt) => rt.block_on(sesion::sesion(args, opciones)),
+        Err(e) => {
+            eprintln!("glory-harness session: no se pudo iniciar el runtime tokio: {e}");
+            return ExitCode::from(1);
+        }
+    };
+    use glory_harness::sesion::SalidaSesion;
+    match resultado {
+        Ok(SalidaSesion::Ok) => ExitCode::SUCCESS,
+        Ok(SalidaSesion::Uso) => {
+            eprintln!("uso: glory-harness session <list|ver|resume|borrar> [id]");
+            ExitCode::from(2)
+        }
+        Err(e) => {
+            eprintln!("glory-harness session: {e}");
             ExitCode::from(1)
         }
     }

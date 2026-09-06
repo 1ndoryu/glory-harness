@@ -500,7 +500,7 @@ fn abrir_sesion_interna(
     {
         if let Some(ws) = harness.workspace.as_ref() {
             persistencia
-                .config_guardar("workspace", &ws.to_string_lossy().into_owned())
+                .config_guardar("workspace", &ws.to_string_lossy())
                 .map_err(|e| e.to_string())?;
         }
     }

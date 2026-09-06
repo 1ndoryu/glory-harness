@@ -22,15 +22,90 @@ use glory_harness_core::historial::{historial_compartido, HistorialCompartido};
 use glory_harness_core::ports::AgentPersistence;
 use glory_harness_core::runtime::AgentRuntime;
 
-use crate::run::{construir_harness, OpcionesRun};
+use crate::run::{construir_harness_durable, OpcionesRun};
 use crate::ui::exportar::{guardar_export, render_markdown, ItemExport};
 use crate::ui::plan::{ejecutar_undo, gestionar_plan, mostrar_plan_si_aplica};
 use crate::ui::turno::{historial_desde_persistencia, procesar_turno};
 
 /// Ejecuta el subcomando `chat`: abre la sesión interactiva y no devuelve
 /// hasta que el usuario salga (`/salir`, Ctrl+C o EOF).
+/// [069A-2] Harness durable (sqlite + `user_id` estable): la conversación se
+/// crea como fila (`conversacion_crear`) y sobrevive a los procesos para
+/// `session resume`; el título se toma del primer mensaje.
 pub async fn chat(opciones: OpcionesRun) -> Result<(), String> {
-    let harness = construir_harness(&opciones).await?;
+    let harness = construir_harness_durable(&opciones).await?;
+    let sqlite = harness.sqlite.clone().ok_or_else(|| {
+        "chat durable sin tienda sqlite (inconsistencia interna)".to_string()
+    })?;
+    let user_id = harness.user_id;
+    let titulo = format!("sesión {}", chrono::Local::now().format("%d-%m %H:%M"));
+    let conversacion_id = sqlite
+        .conversacion_crear(user_id, &titulo)
+        .map_err(|e| e.to_string())?;
+    bucle_chat(harness, sqlite, conversacion_id, Vec::new(), false).await
+}
+
+/// [069A-2] Abre el REPL sobre una conversación existente (`session resume`):
+/// recompone la transcripción de export desde sus mensajes y continúa el hilo
+/// (el historial del turno se lee de la tienda en cada mensaje, como siempre).
+pub async fn chat_resume(opciones: OpcionesRun, conversacion_id: Uuid) -> Result<(), String> {
+    let harness = construir_harness_durable(&opciones).await?;
+    let sqlite = harness.sqlite.clone().ok_or_else(|| {
+        "chat durable sin tienda sqlite (inconsistencia interna)".to_string()
+    })?;
+    let user_id = harness.user_id;
+    // Guarda de ownership: la conversación debe existir y ser del usuario
+    // estable (una ajena se rechaza sin revelar nada más).
+    let propia = sqlite
+        .conversaciones_listar(user_id)
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .any(|c| c.id == conversacion_id);
+    if !propia {
+        return Err(format!("la conversación {conversacion_id} no existe"));
+    }
+    let mensajes = harness
+        .persistencia
+        .listar_mensajes(conversacion_id)
+        .await
+        .map_err(|e| e.to_string())?;
+    let transcripcion = transcripcion_desde_mensajes(&mensajes);
+    println!(
+        "[chat] conversación retomada ({} mensajes en el hilo)",
+        mensajes.len()
+    );
+    bucle_chat(harness, sqlite, conversacion_id, transcripcion, true).await
+}
+
+/// [069A-2] Reconstruye la transcripción de export desde mensajes persistidos
+/// (pura y testeable): usuario → entrada de usuario; asistente → respuesta sin
+/// detalle de tools (los mensajes guardan texto, no eventos).
+pub fn transcripcion_desde_mensajes(
+    mensajes: &[glory_harness_core::ports::MensajePersistido],
+) -> Vec<ItemExport> {
+    mensajes
+        .iter()
+        .map(|m| {
+            if m.rol == "user" {
+                ItemExport::usuario(m.contenido.clone())
+            } else {
+                ItemExport::asistente(m.contenido.clone(), Vec::new())
+            }
+        })
+        .collect()
+}
+
+/// [069A-2] Bucle REPL extraído de `chat` para compartirlo con `session
+/// resume`: arranca sobre `conversacion_id` con su transcripción ya cargada.
+/// `titulada` indica si la fila ya tiene título definitivo (el resume no
+/// retitula; una sesión nueva toma el primer mensaje como título).
+async fn bucle_chat(
+    harness: crate::run::HarnessCli,
+    sqlite: std::sync::Arc<crate::persistencia_sqlite::PersistenciaSqlite>,
+    mut conversacion_id: Uuid,
+    mut transcripcion: Vec<ItemExport>,
+    mut titulada: bool,
+) -> Result<(), String> {
     let persistencia = harness.persistencia;
     let user_id = harness.user_id;
     let workspace = harness.workspace;
@@ -59,15 +134,9 @@ pub async fn chat(opciones: OpcionesRun) -> Result<(), String> {
 
     /* [318A-16 F2] Texto que reintentar tras resolver aprobaciones (tres
      * vías). El REPL reenvía el último mensaje para que el agente ejecute lo
-     * aprobado SIN que el usuario escriba dos veces; el CLI no persiste
-     * mensajes de usuario, así que no duplica historial. */
+     * aprobado SIN que el usuario escriba dos veces. */
     let mut rx_lineas = lanzar_lector_lineas();
-    let mut conversacion_id = Uuid::new_v4();
     let mut reintento: Option<String> = None;
-    /* [318A-17 B3-F5] Transcripción de la sesión para `/export`: mensajes de
-     * usuario + respuestas del asistente con sus tools. Se resetea con
-     * `/nuevo` (nueva conversación). */
-    let mut transcripcion: Vec<ItemExport> = Vec::new();
     /* [318A-17 B3-F6] Historial de checkpoints de la sesión para `/undo`:
      * aprobar un plan deja imagen previa recuperable; el undo revierte el
      * último checkpoint. Vive toda la sesión del REPL (los cambios de disco
@@ -106,9 +175,21 @@ pub async fn chat(opciones: OpcionesRun) -> Result<(), String> {
         {
             Comando::Salir => return Ok(()),
             Comando::NuevaConversacion => {
-                conversacion_id = Uuid::new_v4();
-                transcripcion.clear();
-                println!("[chat] conversación nueva (el agente ya no recuerda lo anterior)");
+                // [069A-2] `/nuevo` crea fila nueva (la anterior queda en la
+                // BD para `session resume`); el título llega con el primer
+                // mensaje. Un fallo aquí no tumba el REPL: se sigue en la
+                // conversación actual.
+                match sqlite.conversacion_crear(user_id, "sesión") {
+                    Ok(id) => {
+                        conversacion_id = id;
+                        titulada = false;
+                        transcripcion.clear();
+                        println!(
+                            "[chat] conversación nueva (el agente ya no recuerda lo anterior)"
+                        );
+                    }
+                    Err(e) => eprintln!("[chat] no se pudo crear la conversación: {e}"),
+                }
                 continue;
             }
             /* [318A-17 B3-F5] `/export [archivo]`: vuelca la transcripción
@@ -134,6 +215,15 @@ pub async fn chat(opciones: OpcionesRun) -> Result<(), String> {
          * aprobar repiten el mismo texto y no deben duplicarse). */
         if !es_reenvio {
             transcripcion.push(ItemExport::usuario(texto.clone()));
+            // [069A-2] La fila nueva toma el primer mensaje como título (60
+            // caracteres); el resume conserva el suyo. No bloquea el turno.
+            if !titulada {
+                titulada = true;
+                let titulo: String = texto.chars().take(60).collect();
+                if let Err(e) = sqlite.conversacion_renombrar(conversacion_id, user_id, &titulo) {
+                    eprintln!("[chat] no se pudo titular la conversación: {e}");
+                }
+            }
         }
         match ejecutar_turno_chat(
             CtxTurnoChat {
@@ -580,4 +670,38 @@ async fn resolver_aprobaciones(
         /* Todas las peticiones se respondieron con palabras clave: reintentar
          * el último mensaje para que el agente ejecute lo aprobado. */
         Siguiente::Reenviar(ultimo_texto.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn mensaje(rol: &str, contenido: &str) -> glory_harness_core::ports::MensajePersistido {
+        glory_harness_core::ports::MensajePersistido {
+            id: Uuid::new_v4(),
+            conversacion_id: Uuid::new_v4(),
+            rol: rol.to_string(),
+            contenido: contenido.to_string(),
+            creado_en: chrono::Utc::now(),
+        }
+    }
+
+    #[test]
+    fn recompone_transcripcion_para_resume() {
+        let mensajes = vec![
+            mensaje("user", "hola"),
+            mensaje("assistant", "buenas"),
+            mensaje("user", "sigue"),
+        ];
+        let t = transcripcion_desde_mensajes(&mensajes);
+        assert_eq!(t.len(), 3);
+        // La forma exacta la valida exportar: basta orden y contenido.
+        let md = crate::exportar::render_markdown(Uuid::new_v4(), &t, chrono::Utc::now());
+        assert!(md.contains("hola") && md.contains("buenas") && md.contains("sigue"));
+    }
+
+    #[test]
+    fn conversacion_vacia_da_transcripcion_vacia() {
+        assert!(transcripcion_desde_mensajes(&[]).is_empty());
+    }
 }

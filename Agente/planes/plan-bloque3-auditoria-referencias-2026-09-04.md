@@ -510,12 +510,19 @@ commit por fase). Mover a ejecución solo tras aprobación del usuario.
       PermissionRequest) ya se emiten.
 
 ### Fase 5 — Sesiones y export
-- [ ] Subcomando `session` (list/ver/resume/borrar) sobre `persistencia_sqlite`;
-      resume de conversación con contexto recompuesto. **Decidido 06-09 (069A-2,
-      alcance completo):** el bloqueo desapareció (039A-3 mergeado) — implementar
-      list/ver/resume/borrar. La transcripción de sesión en memoria de F5 (`ui/turno.rs`,
-      alimentada igual por REPL y TUI) deja la base lista para adoptar esa
-      persistencia cuando sea estable.
+- [x] Subcomando `session` (list/ver/resume/borrar) sobre `persistencia_sqlite`
+      (069A-2, hecho 06-09): `cli/src/comandos/sesion.rs` (`SalidaSesion`
+      Ok/Uso → exit 0/2) + despacho `cmd_session` en `main.rs` + `chat_resume`
+      en `ui/chat.rs`; `chat`/`tui` con harness durable (`run.rs`
+      `construir_harness_durable`, misma BD y `user_id` que `schedule`);
+      `/nuevo` crea fila y el primer mensaje la titula (60 car.); `bucle_chat`
+      extraído y compartido con `resume`; `transcripcion_desde_mensajes` pura.
+      Verificación: 289 tests (232 core + 49 cli-lib + 1 cli-bin + 7 desktop),
+      clippy `-D warnings` limpio workspace, ciclo de vida E2E real (chat →
+      list → resume → ver → borrar → list, BD aislada, sin red), gate 069A-2
+      PASS (0 errores). Deuda aceptada: `bucle_chat` 107 líneas (límite 100);
+      clippy 1.95 estrena `unnecessary_into_owned` sobre línea desktop
+      preexistente (HEAD) — one-liner incluido en este commit.
 - [x] `export` (conversación/turno → markdown con decisiones y eventos).
       Evidencia: claurst `commands/export.rs`, opencode `src/session/`.
       Implementado: `cli/src/ui/exportar.rs` (`ItemExport`
