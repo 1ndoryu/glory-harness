@@ -238,6 +238,11 @@ function abrirEnLateral(id: string): void {
   restaurarLateralAncho();
   paneles.appendChild(gripLateral);
   paneles.appendChild(lateral.raiz);
+  // [039A-3 retoque] El textarea del lateral nace con height 0px porque el
+  // `medir()` de montarEntrada corre en el constructor, antes de estar en el
+  // DOM (scrollHeight 0). Al montar el panel ya se puede medir: recalcula la
+  // altura del input (si no, el área de escritura del lateral queda invisible).
+  lateral.medir();
   // Carga la conversación elegida en el lateral y lo enfoca.
   void (async () => {
     await lateral.cargarConversacion(id);
