@@ -546,6 +546,12 @@ ocultar la lista no, solo para mostrar, se oculta automáticamente si se reduce 
       Verificado en navegador mock: `#lateral-input` `height:16px` (igual que el principal),
       autoresize al escribir (crece a 64px con 4 líneas). Captura
       `C:/tmp/p6b-ret4-input-lateral-visible.png`.
+- [x] Retoque 5 (05-09, commit `c97bb53`): el usuario pidió "quita el borde arriba de aquí"
+      apuntando al pie de la sidebar (zona con el botón "Configuración"). Era el `border-top:
+      1px solid var(--borde)` de `#sidebar .pie`. Fix: se elimina el `border-top` de
+      `#sidebar .pie` (solo `layout.css`, `padding` intacto). Verificado en navegador mock:
+      `getComputedStyle(#sidebar .pie).borderTop` = `0px none`. Captura
+      `C:/tmp/p6b-ret5-pie-sin-borde.png`.
 - [ ] E2E `tauri dev` (bloqueado por el agente paralelo en `cli/`/`core/`).
 
 ---
