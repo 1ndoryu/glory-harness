@@ -65,14 +65,16 @@ Orden propuesto (dependencias de abajo arriba):
       (`tauri icon`, array `icon` en config). RAM arranque release: WS 40 MB (objetivo
       ≤140 MB ✓). `install-release.bat` (copia el release a `%LOCALAPPDATA%\GloryHarness`).
       Gate `039A-1` **PASS** (0 errores, warnings preexistentes).
-- [ ] **069A-5 — Deuda cero Sentinel** (full 0/0/0): 18 warnings + 4 info
-      (directorio-abarrotado, funcion-larga ×11, limite-lineas ×5+nivel-2 ×2,
-      todo-pendiente ×4). Plan:
-      `Agente/planes/plan-deuda-cero-sentinel-2026-09-06.md`. F1-F5
-      commiteados 06-09 (core+CLI 0/0/0 verificado por fichero). F6 desktop
-      BLOQUEADO: `main.rs` en refactor ajeno activo (069A-2-web, no compila,
-      28 errores ajenos) — quedan 2 warnings (enviar_turno 134, limite 963).
-      Gate incremental 069A-5: 0 errores, 2 warnings (desktop).
+- [x] **069A-5 — Deuda cero Sentinel** (CERRADA 07-09 con transferencia):
+      F1-F5 aterrizados 06-09 (core+CLI 0/0/0 por fichero entonces). F6 nunca
+      llegó a 0/0/0: el bloqueo (desktop no compilaba) ya está levantado
+      (`cargo check -p glory-harness-desktop` verde 07-09), pero sus 2
+      warnings persisten y el código reciente (069A-2 F2-F4, 069A-7/9/10,
+      Proyectos) metió deuda nueva. Gate full 07-09: 2E/10W/1I
+      (`.quality-reports/check/069A-5/latest.md`). Toda la deuda restante y
+      nueva se transfiere al próximo plan de deuda (pendiente de crear tras
+      tabla). Plan archivado en `Agente/planes/completados/`. No se reclama
+      0/0/0.
 - [x] **069A-2 — Modo web local unificado con Tauri** (v3, HECHO 06/07-09):
       HTTP+SSE como API única; `SesionComun` compartida; adaptador TS único
       (`Transporte` + `transporteTauri()` en `real.ts`, `crearAdaptadorApi()`
