@@ -1274,16 +1274,14 @@ if (USA_REAL) {
   })();
 }
 
-/** Opciones de turno para `asegurarSesion` en el arranque real. */
+/** Opciones de turno para `asegurarSesion` en el arranque real.
+ * Campos vacíos significan "resolver desde la configuración persistida";
+ * enviar los defaults aquí sobrescribiría la configuración guardada. */
 function opcionesArranque() {
-  let proveedor = modeloActual.proveedor;
-  if (proveedor === 'commandcode' && /^(meta|stealth)\//.test(modeloActual.modelo)) {
-    proveedor = 'glory';
-  }
   return {
-    proveedor,
-    modelo: modeloActual.modelo,
-    modo: modoActual,
-    razonamiento: razonamientoActual,
+    proveedor: '',
+    modelo: '',
+    modo: '',
+    razonamiento: '',
   };
 }

@@ -438,13 +438,42 @@ pub(crate) async fn guardar_config(
             .config_guardar("contexto_max_ventana", &v.to_string())
             .map_err(|e| error("sesion", e.to_string()))?;
     }
+    /* [FG1-069A-10 F1] Persistir cada clave en BD ANTES de reconfigurar el
+     * runtime: así sobrevive a recargas (mantiene paridad con el escritorio
+     * que usa configGuardar de Tauri → persistencia SQLite directa). */
+    let ParcheConfig {
+        provider,
+        modelo,
+        modo,
+        razonamiento,
+        max_ventana: _,
+    } = &peticion;
+    if let Some(p) = provider {
+        comun
+            .persistencia
+            .config_guardar("proveedor", p)
+            .map_err(|e| error("sesion", e.to_string()))?;
+    }
+    if let Some(m) = modelo {
+        comun
+            .persistencia
+            .config_guardar("modelo", m)
+            .map_err(|e| error("sesion", e.to_string()))?;
+    }
+    if let Some(m) = modo {
+        comun
+            .persistencia
+            .config_guardar("modo", m)
+            .map_err(|e| error("sesion", e.to_string()))?;
+    }
+    if let Some(r) = razonamiento {
+        comun
+            .persistencia
+            .config_guardar("nivelRazonamiento", r)
+            .map_err(|e| error("sesion", e.to_string()))?;
+    }
     comun
-        .reconfigurar(
-            peticion.provider,
-            peticion.modelo,
-            peticion.modo,
-            peticion.razonamiento,
-        )
+        .reconfigurar(peticion.provider, peticion.modelo, peticion.modo, peticion.razonamiento)
         .map_err(|e| error("sesion", e.to_string()))?;
     let vista = config_efectiva(&comun)?;
     Ok(Json(serde_json::json!({ "ok": true, "config": vista })))

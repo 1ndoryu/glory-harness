@@ -136,6 +136,13 @@ Orden propuesto (dependencias de abajo arriba):
       `reconfigurar`/`cambiar_workspace`. E2E modelo real: llamó `navegador_reflejo`
       (ok), navegó al fixture e hizo clic en `#btn-uno` (contador=1). Evidencia en
       `Agente/completados/tareas-2026-09-07.md`.
+- [x] **069A-10 — Persistencia web de modelo, modo y razonamiento** (07-09):
+      Fix: `guardar_config` persiste 4 claves en BD, `resolver_opciones` las
+      restaura, `api.ts` mapea `proveedor→provider`, `opcionesArranque` envía
+      campos vacíos. E2E verificado: PATCH devuelve configuración, sesión nueva
+      la recupera, recarga mantiene valores. Gate bloqueado por
+      `tool-release-unpublished` ajeno. Evidencia en
+      `Agente/completados/tareas-2026-09-07.md`.
 
 > **Hecho (04-09, correcciones del primer `tauri dev`):** los 7 hallazgos del primer arranque
 > real quedaron corregidos (H1–H7, bloque 039A-1). Detalle en

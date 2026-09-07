@@ -317,6 +317,9 @@ export function crearTransporteApi(base: string, hooks: HooksAdaptador = {}): Tr
       const parche: Record<string, unknown> = {};
       if (clave === 'nivelRazonamiento') parche['razonamiento'] = valor;
       else if (clave === 'contexto_max_ventana') parche['max_ventana'] = Number(valor);
+      /* [FG1-069A-10 F2] El backend espera `provider` (ParcheConfig), no
+       * `proveedor` (clave del front en español). */
+      else if (clave === 'proveedor') parche['provider'] = valor;
       else parche[clave] = valor;
       await http('PATCH', `/api/v1/session/${sid}/config`, parche);
     },

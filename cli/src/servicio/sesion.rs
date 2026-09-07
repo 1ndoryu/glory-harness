@@ -272,16 +272,14 @@ impl SesionComun {
         razonamiento: Option<String>,
     ) -> Result<(), Error> {
         cargar_env_usuario();
+        let cfg = &self.runtime.turno_config;
         let opciones = OpcionesRun {
-            provider,
-            modelo,
+            provider: provider.or_else(|| Some(cfg.provider.clone())),
+            modelo: modelo.or_else(|| Some(cfg.modelo.clone())),
             dir: Some(PathBuf::from(&self.workspace)),
-            modo,
+            modo: modo.or_else(|| Some(cfg.modo.clone())),
             max_ventana: leer_max_ventana(&self.persistencia)?,
-            razonamiento: match razonamiento {
-                Some(r) => Some(r),
-                None => self.runtime.turno_config.nivel_razonamiento.clone(),
-            },
+            razonamiento: razonamiento.or_else(|| cfg.nivel_razonamiento.clone()),
             notificar: false,
             /* [069A-1 F5] El puerto de navegador se conserva en la sesión y
              * se reinyecta al reconstruir: cambiar de modelo NO debe perder
@@ -482,24 +480,36 @@ fn resolver_opciones(
     persistencia: &PersistenciaSqlite,
     opciones: &OpcionesSesion,
 ) -> Result<OpcionesRun, Error> {
+    let leer = |clave| {
+        persistencia
+            .config_leer(clave)
+            .map_err(|e| Error::Persistencia(e.to_string()))
+    };
     let dir = match opciones.dir.clone() {
         Some(dir) => Some(dir),
-        None => persistencia
-            .config_leer("workspace")
-            .map_err(|e| Error::Persistencia(e.to_string()))?
-            .filter(|dir| !dir.trim().is_empty()),
+        None => leer("workspace")?.filter(|d| !d.trim().is_empty()),
+    };
+    let provider = match opciones.provider.clone() {
+        Some(p) => Some(p),
+        None => leer("proveedor")?,
+    };
+    let modelo = match opciones.modelo.clone() {
+        Some(m) => Some(m),
+        None => leer("modelo")?,
+    };
+    let modo = match opciones.modo.clone() {
+        Some(m) => Some(m),
+        None => leer("modo")?,
     };
     let razonamiento = match opciones.razonamiento.clone() {
         Some(valor) => Some(valor),
-        None => persistencia
-            .config_leer("nivelRazonamiento")
-            .map_err(|e| Error::Persistencia(e.to_string()))?,
+        None => leer("nivelRazonamiento")?,
     };
     Ok(OpcionesRun {
-        provider: opciones.provider.clone(),
-        modelo: opciones.modelo.clone(),
+        provider,
+        modelo,
         dir: dir.map(PathBuf::from),
-        modo: opciones.modo.clone(),
+        modo,
         razonamiento,
         max_ventana: leer_max_ventana(persistencia)?,
         notificar: false,

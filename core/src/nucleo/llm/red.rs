@@ -111,16 +111,29 @@ async fn enviar_solicitud(
 /// único `on_token` y construye el `AiStreamResult` (usage incluido). Si el
 /// cliente canceló (`on_token` → false) se aborta con `Error::Cancelado` sin
 /// devolver una respuesta parcial como éxito.
+/// [069A-9 07-09-2026] Captura `X-Routed-Via` header (gloryapi) como
+/// provider/modelo exacto, con prioridad sobre el campo `model` del body.
 async fn resultado_no_stream(
     respuesta: reqwest::Response,
     proveedor: &str,
     modelo: &str,
     on_token: &mut (dyn FnMut(&str) -> bool + Send),
 ) -> Result<AiStreamResult, Error> {
+    /* [069A-9 07-09-2026] gloryapi expone el proveedor exacto que eligió
+     * su router auto en el header X-Routed-Via. Se extrae ANTES de consumir
+     * el body (respuesta.json() toma ownership de `respuesta`). */
+    let routed_via: Option<(String, String)> = respuesta
+        .headers()
+        .get("X-Routed-Via")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.split_once('/'))
+        .map(|(p, m)| (p.to_string(), m.to_string()));
+
     let datos: serde_json::Value = respuesta.json().await.map_err(|error| Error::Proveedor {
         detalle: format!("Respuesta no JSON del proveedor: {error}"),
         causa: None,
     })?;
+
     let contenido = datos
         .pointer("/choices/0/message/content")
         .and_then(serde_json::Value::as_str)
@@ -134,6 +147,10 @@ async fn resultado_no_stream(
         .get("model")
         .and_then(serde_json::Value::as_str)
         .unwrap_or(modelo);
+    let (provider_final, modelo_final) = match routed_via {
+        Some((p, m)) => (p, m),
+        None => (proveedor.to_string(), modelo_real.to_string()),
+    };
     Ok(AiStreamResult {
         contenido,
         tool_calls: Vec::new(),
@@ -150,8 +167,8 @@ async fn resultado_no_stream(
             .and_then(serde_json::Value::as_str)
             .unwrap_or("")
             .to_string(),
-        provider: proveedor.to_string(),
-        modelo: modelo_real.to_string(),
+        provider: provider_final,
+        modelo: modelo_final,
     })
 }
 
@@ -273,14 +290,38 @@ impl LlmProviderService {
             return resultado_no_stream(respuesta, proveedor, &modelo, on_token).await;
         }
 
+        /* [069A-9 07-09-2026] gloryapi expone el proveedor exacto que eligió
+         * su router auto en el header X-Routed-Via (formato "platform/modelId",
+         * ej. "andoryyu/deepseek-v4-flash"). Si está presente, se usa en lugar
+         * del provider "glory" genérico y del model que el upstream reporte. */
+        let routed_via: Option<(String, String)> = respuesta
+            .headers()
+            .get("X-Routed-Via")
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.split_once('/'))
+            .map(|(p, m)| (p.to_string(), m.to_string()));
+
         let (contenido, tool_calls, tokens_prompt, tokens_complecion, finish_reason, modelo_real) =
             hojear_stream(respuesta, on_token).await?;
         let tool_calls = parsear_tool_calls(tool_calls);
-        let modelo_final = if modelo_real.is_empty() {
-            modelo.to_string()
-        } else {
-            modelo_real
-        };
+
+        /* [069A-9 07-09-2026] Prioridad: routed_via (gloryapi exacto) >
+         * modelo_real del SSE > modelo solicitado. */
+        let provider_final = routed_via
+            .as_ref()
+            .map(|(p, _)| p.clone())
+            .unwrap_or_else(|| proveedor.to_string());
+        let modelo_final = routed_via
+            .as_ref()
+            .map(|(_, m)| m.clone())
+            .or_else(|| {
+                if modelo_real.is_empty() {
+                    None
+                } else {
+                    Some(modelo_real)
+                }
+            })
+            .unwrap_or_else(|| modelo.to_string());
 
         Ok(AiStreamResult {
             contenido,
@@ -288,7 +329,7 @@ impl LlmProviderService {
             tokens_prompt,
             tokens_complecion,
             finish_reason,
-            provider: proveedor.to_string(),
+            provider: provider_final,
             modelo: modelo_final,
         })
     }
