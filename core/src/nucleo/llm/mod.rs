@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 
 mod modelo;
 mod red;
+mod stream;
 
 pub use modelo::{
     candidatos_para, catalogo_proveedores, AiChatOptions, AiChatResult, AiMessage,

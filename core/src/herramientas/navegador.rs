@@ -9,6 +9,7 @@
 
 use crate::{
     error::{Error, Result},
+    ports::NavegadorPort,
     tool::{AgentTool, AgentToolContext, AgentToolResult},
 };
 use async_trait::async_trait;
@@ -125,122 +126,26 @@ impl AgentTool for ToolNavegadorReflejo {
             .ok_or_else(|| Error::Argumentos("operacion requerido".into()))?;
 
         match operacion {
-            "abrir" => {
-                let url = argumentos
-                    .get("url")
-                    .and_then(Value::as_str)
-                    .ok_or_else(|| Error::Argumentos("url requerido para abrir".into()))?;
-                navegador.abrir(url).await?;
-                Ok(AgentToolResult::ok(
-                    format!("Navegador abierto en {url}"),
-                    "abrir navegador",
-                ))
-            },
-            "navegar" => {
-                let url = argumentos
-                    .get("url")
-                    .and_then(Value::as_str)
-                    .ok_or_else(|| Error::Argumentos("url requerido para navegar".into()))?;
-                navegador.navegar(url).await?;
-                Ok(AgentToolResult::ok(
-                    format!("Navegado a {url}"),
-                    "navegar",
-                ))
-            },
-                        "capturar" => {
-                let base64_str = navegador.capturar().await?;
-                // [069A-1 F6] Emitir evento ToolNavegador con la imagen
-                // base64 para que el front la muestre en el panel.
-                let tam = base64_str.len();
-                let preview = if tam > 200 {
-                    format!("{}... ({} bytes total)", &base64_str[..200], tam)
+            "abrir" | "navegar" => {
+                let url = arg_str(&argumentos, "url", operacion)?;
+                if operacion == "abrir" {
+                    navegador.abrir(url).await?;
+                    Ok(AgentToolResult::ok(
+                        format!("Navegador abierto en {url}"),
+                        "abrir navegador",
+                    ))
                 } else {
-                    base64_str.clone()
-                };
-                let evento_extra = crate::evento::AgenteEvento::ToolNavegador {
-                    accion: "capturar".into(),
-                    ok: true,
-                    url: None,
-                    selector: None,
-                    captura_base64: Some(base64_str),
-                    descripcion: format!("captura PNG ({tam} bytes base64)"),
-                };
-                Ok(AgentToolResult::ok_con_evento(
-                    format!("Captura tomada: {preview}"),
-                    format!("captura PNG ({tam} bytes base64)"),
-                    evento_extra,
-                ))
-            },
-            "js" => {
-                let codigo = argumentos
-                    .get("codigo")
-                    .and_then(Value::as_str)
-                    .ok_or_else(|| Error::Argumentos("codigo requerido para js".into()))?;
-                let resultado = navegador.js(codigo).await?;
-                Ok(AgentToolResult::ok(
-                    resultado,
-                    "ejecutar JavaScript",
-                ))
-            },
-            "cdp" => {
-                let metodo = argumentos
-                    .get("metodo")
-                    .and_then(Value::as_str)
-                    .ok_or_else(|| Error::Argumentos("metodo requerido para cdp".into()))?;
-                let parametros = argumentos
-                    .get("parametros")
-                    .and_then(Value::as_str)
-                    .ok_or_else(|| Error::Argumentos("parametros requerido para cdp".into()))?;
-                let resultado = navegador.cdp(metodo, parametros).await?;
-                Ok(AgentToolResult::ok(
-                    resultado,
-                    "CDP",
-                ))
-            },
-            "click" => {
-                let selector = argumentos
-                    .get("selector")
-                    .and_then(Value::as_str)
-                    .ok_or_else(|| Error::Argumentos("selector requerido para click".into()))?;
-                navegador.click(selector).await?;
-                Ok(AgentToolResult::ok(
-                    format!("Click en {selector}"),
-                    "click",
-                ))
-            },
-            "rellenar" => {
-                let selector = argumentos
-                    .get("selector")
-                    .and_then(Value::as_str)
-                    .ok_or_else(|| Error::Argumentos("selector requerido para rellenar".into()))?;
-                let valor = argumentos
-                    .get("valor")
-                    .and_then(Value::as_str)
-                    .ok_or_else(|| Error::Argumentos("valor requerido para rellenar".into()))?;
-                navegador.rellenar(selector, valor).await?;
-                Ok(AgentToolResult::ok(
-                    format!("Campo {selector} rellenado"),
-                    "rellenar formulario",
-                ))
-            },
-            "snapshot" => {
-                let selector = argumentos
-                    .get("selector")
-                    .and_then(Value::as_str)
-                    .ok_or_else(|| Error::Argumentos("selector requerido para snapshot".into()))?;
-                let resultado = navegador.snapshot(selector).await?;
-                Ok(AgentToolResult::ok(
-                    resultado,
-                    "snapshot DOM",
-                ))
-            },
+                    navegador.navegar(url).await?;
+                    Ok(AgentToolResult::ok(format!("Navegado a {url}"), "navegar"))
+                }
+            }
+            "capturar" => op_capturar(navegador).await,
+            "js" | "cdp" => op_script(navegador, operacion, &argumentos).await,
+            "click" | "rellenar" | "snapshot" => op_dom(navegador, operacion, &argumentos).await,
             "cerrar" => {
                 navegador.cerrar().await?;
-                Ok(AgentToolResult::ok(
-                    "Navegador cerrado",
-                    "cerrar navegador",
-                ))
-            },
+                Ok(AgentToolResult::ok("Navegador cerrado", "cerrar navegador"))
+            }
             _ => Err(Error::Argumentos(format!(
                 "operación '{operacion}' no soportada. Válidas: abrir, navegar, capturar, \
                  js, cdp, click, rellenar, snapshot, cerrar"
@@ -249,10 +154,90 @@ impl AgentTool for ToolNavegadorReflejo {
     }
 }
 
+/// [079A-1 F2] Extrae un argumento string (auxiliar de `ejecutar` para el
+/// límite de 100 líneas efectivas del gate).
+fn arg_str<'a>(argumentos: &'a Value, clave: &str, operacion: &str) -> Result<&'a str> {
+    argumentos
+        .get(clave)
+        .and_then(Value::as_str)
+        .ok_or_else(|| Error::Argumentos(format!("{clave} requerido para {operacion}")))
+}
+
+/// [079A-1 F2] Familia `js`/`cdp`: ejecuta script o comando CDP.
+async fn op_script(
+    navegador: &dyn NavegadorPort,
+    operacion: &str,
+    argumentos: &Value,
+) -> Result<AgentToolResult> {
+    if operacion == "js" {
+        let codigo = arg_str(argumentos, "codigo", operacion)?;
+        let resultado = navegador.js(codigo).await?;
+        Ok(AgentToolResult::ok(resultado, "ejecutar JavaScript"))
+    } else {
+        let metodo = arg_str(argumentos, "metodo", operacion)?;
+        let parametros = arg_str(argumentos, "parametros", operacion)?;
+        let resultado = navegador.cdp(metodo, parametros).await?;
+        Ok(AgentToolResult::ok(resultado, "CDP"))
+    }
+}
+
+/// [079A-1 F2] Familia DOM (`click`/`rellenar`/`snapshot`).
+async fn op_dom(
+    navegador: &dyn NavegadorPort,
+    operacion: &str,
+    argumentos: &Value,
+) -> Result<AgentToolResult> {
+    let selector = arg_str(argumentos, "selector", operacion)?;
+    match operacion {
+        "click" => {
+            navegador.click(selector).await?;
+            Ok(AgentToolResult::ok(format!("Click en {selector}"), "click"))
+        }
+        "rellenar" => {
+            let valor = arg_str(argumentos, "valor", operacion)?;
+            navegador.rellenar(selector, valor).await?;
+            Ok(AgentToolResult::ok(
+                format!("Campo {selector} rellenado"),
+                "rellenar formulario",
+            ))
+        }
+        _ => {
+            let resultado = navegador.snapshot(selector).await?;
+            Ok(AgentToolResult::ok(resultado, "snapshot DOM"))
+        }
+    }
+}
+
+/// [079A-1 F2] `capturar`: captura + evento ToolNavegador con la imagen
+/// base64 para que el front la muestre en el panel.
+async fn op_capturar(navegador: &dyn NavegadorPort) -> Result<AgentToolResult> {
+    let base64_str = navegador.capturar().await?;
+    // [069A-1 F6] Emitir evento ToolNavegador con la imagen
+    // base64 para que el front la muestre en el panel.
+    let tam = base64_str.len();
+    let preview = if tam > 200 {
+        format!("{}... ({} bytes total)", &base64_str[..200], tam)
+    } else {
+        base64_str.clone()
+    };
+    let evento_extra = crate::evento::AgenteEvento::ToolNavegador {
+        accion: "capturar".into(),
+        ok: true,
+        url: None,
+        selector: None,
+        captura_base64: Some(base64_str),
+        descripcion: format!("captura PNG ({tam} bytes base64)"),
+    };
+    Ok(AgentToolResult::ok_con_evento(
+        format!("Captura tomada: {preview}"),
+        format!("captura PNG ({tam} bytes base64)"),
+        evento_extra,
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tool::AgentToolRegistry;
     use crate::ports::NavegadorPort;
     use async_trait::async_trait;
 
@@ -266,13 +251,27 @@ mod tests {
             *self.abierto.lock().unwrap() = true;
             Ok(())
         }
-        async fn navegar(&self, _url: &str) -> Result<()> { Ok(()) }
-        async fn capturar(&self) -> Result<String> { Ok("stub_captura_base64".into()) }
-        async fn js(&self, _codigo: &str) -> Result<String> { Ok("stub_resultado".into()) }
-        async fn cdp(&self, _metodo: &str, _parametros: &str) -> Result<String> { Ok("{}".into()) }
-        async fn click(&self, _selector: &str) -> Result<()> { Ok(()) }
-        async fn rellenar(&self, _selector: &str, _valor: &str) -> Result<()> { Ok(()) }
-        async fn snapshot(&self, _selector: &str) -> Result<String> { Ok("<html/>".into()) }
+        async fn navegar(&self, _url: &str) -> Result<()> {
+            Ok(())
+        }
+        async fn capturar(&self) -> Result<String> {
+            Ok("stub_captura_base64".into())
+        }
+        async fn js(&self, _codigo: &str) -> Result<String> {
+            Ok("stub_resultado".into())
+        }
+        async fn cdp(&self, _metodo: &str, _parametros: &str) -> Result<String> {
+            Ok("{}".into())
+        }
+        async fn click(&self, _selector: &str) -> Result<()> {
+            Ok(())
+        }
+        async fn rellenar(&self, _selector: &str, _valor: &str) -> Result<()> {
+            Ok(())
+        }
+        async fn snapshot(&self, _selector: &str) -> Result<String> {
+            Ok("<html/>".into())
+        }
         async fn cerrar(&self) -> Result<()> {
             *self.abierto.lock().unwrap() = false;
             Ok(())
@@ -280,9 +279,14 @@ mod tests {
     }
 
     fn ctx_con_navegador() -> AgentToolContext<'static> {
+        let persistencia: &'static crate::contrato_tests::PersistenciaMock =
+            Box::leak(Box::new(crate::contrato_tests::PersistenciaMock::default()));
+        let stub: &'static StubNavegador = Box::leak(Box::new(StubNavegador {
+            abierto: std::sync::Mutex::new(false),
+        }));
         AgentToolContext {
             user_id: uuid::Uuid::nil(),
-            persistencia: &crate::PersistenciaMemoria::nuevo(),
+            persistencia,
             web_search: None,
             web_fetch: None,
             ai_provider: None,
@@ -290,14 +294,16 @@ mod tests {
             dominio: None,
             todo: None,
             plan: None,
-            navegador: Some(&StubNavegador { abierto: std::sync::Mutex::new(false) }),
+            navegador: Some(stub),
         }
     }
 
     fn ctx_sin_navegador() -> AgentToolContext<'static> {
+        let persistencia: &'static crate::contrato_tests::PersistenciaMock =
+            Box::leak(Box::new(crate::contrato_tests::PersistenciaMock::default()));
         AgentToolContext {
-            user_id: uuid::Uuid::nil(),
-            persistencia: &crate::PersistenciaMemoria::nuevo(),
+            user_id: uuid::Uuid::new_v4(),
+            persistencia,
             web_search: None,
             web_fetch: None,
             ai_provider: None,
@@ -347,7 +353,9 @@ mod tests {
 
     #[tokio::test]
     async fn t05_cierra_y_reabre_stub() {
-        let nav = StubNavegador { abierto: std::sync::Mutex::new(false) };
+        let nav = StubNavegador {
+            abierto: std::sync::Mutex::new(false),
+        };
         nav.abrir("https://ej.com").await.unwrap();
         assert!(*nav.abierto.lock().unwrap());
         nav.cerrar().await.unwrap();
@@ -359,6 +367,9 @@ mod tests {
         let tool = ToolNavegadorReflejo;
         assert_eq!(tool.id(), "navegador_reflejo");
         let s = tool.schema();
-        assert!(s.get("properties").and_then(|p| p.get("operacion")).is_some());
+        assert!(s
+            .get("properties")
+            .and_then(|p| p.get("operacion"))
+            .is_some());
     }
 }

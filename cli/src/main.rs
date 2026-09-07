@@ -34,6 +34,77 @@ fn main() -> ExitCode {
     despachar(std::env::args().skip(1).collect())
 }
 
+/// [079A-1 F2] Construye `OpcionesRun` del brazo `run` (extraído de
+/// `despachar` para el límite de 100 líneas efectivas del gate).
+fn opciones_run(args: &[String]) -> run::OpcionesRun {
+    run::OpcionesRun {
+        provider: extraer_opcion(args, &["--provider", "--proveedor"]),
+        modelo: extraer_opcion(args, &["--modelo", "--model"]),
+        dir: extraer_opcion(args, &["--dir", "--cwd", "--workspace"]).map(std::path::PathBuf::from),
+        modo: extraer_opcion(args, &["--modo"]),
+        /* [039A-1 04-09 H7] El CLI run no expone flag de razonamiento:
+         * deja el default del proveedor (None → config intacta). */
+        razonamiento: None,
+        /* [039A-3 P6-backend] El CLI no inyecta ventana: None → default
+         * del core (128k, intacto). Solo el desktop inyecta (150k). */
+        max_ventana: None,
+        /* [069A-3] Toast de Windows al terminar el turno o pedir un
+         * permiso (solo CLI interactivo, tras flag explícito). */
+        notificar: args.iter().any(|a| a == "--notificar"),
+        navegador: None,
+    }
+}
+
+/// [079A-1 F2] Brazo `run` de `despachar`: prompt por flag/stdin/ausente.
+fn despachar_run(args: &[String]) -> ExitCode {
+    let prompt = extraer_opcion(args, &["--prompt", "--mensaje", "-p"]);
+    let usa_stdin = args.iter().any(|a| a == "--stdin");
+    let opciones = opciones_run(args);
+    let prompt = if let Some(p) = prompt {
+        Some(p)
+    } else if usa_stdin {
+        leer_stdin()
+    } else {
+        None
+    };
+    con_runtime("run", |rt| rt.block_on(run::run(prompt, opciones)))
+}
+
+/// [079A-1 F2] Brazo `chat` de `despachar`: mismo `OpcionesRun` + TUI/REPL.
+fn despachar_chat(args: &[String]) -> ExitCode {
+    let opciones = run::OpcionesRun {
+        provider: extraer_opcion(args, &["--provider", "--proveedor"]),
+        modelo: extraer_opcion(args, &["--modelo", "--model"]),
+        dir: extraer_opcion(args, &["--dir", "--cwd", "--workspace"]).map(std::path::PathBuf::from),
+        modo: extraer_opcion(args, &["--modo"]),
+        /* [039A-1 04-09 H7] El CLI chat/tui no expone flag de
+         * razonamiento: deja el default del proveedor. */
+        razonamiento: None,
+        /* [039A-3 P6-backend] Sin inyección de ventana en CLI (None →
+         * default del core 128k). */
+        max_ventana: None,
+        /* [069A-3] Como en `run` (vale también para `session resume`,
+         * que reabre este mismo REPL). */
+        notificar: args.iter().any(|a| a == "--notificar"),
+        navegador: None,
+    };
+    let usa_tui = args.iter().any(|a| a == "--tui");
+    con_runtime("chat", |rt| {
+        let res = if usa_tui {
+            rt.block_on(tui::tui(opciones))
+        } else {
+            rt.block_on(chat::chat(opciones))
+        };
+        match res {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(e) => {
+                eprintln!("glory-harness chat: {e}");
+                ExitCode::from(1)
+            }
+        }
+    })
+}
+
 /// [059A-22] Despacho de subcomandos, extraído de `fn main` (que queda como
 /// stub de entrada por debajo del límite de 100 líneas efectivas del gate).
 fn despachar(args: Vec<String>) -> ExitCode {
@@ -52,69 +123,8 @@ fn despachar(args: Vec<String>) -> ExitCode {
             imprimir_ayuda();
             ExitCode::SUCCESS
         }
-        Some("run") => {
-            let prompt = extraer_opcion(&args, &["--prompt", "--mensaje", "-p"]);
-            let usa_stdin = args.iter().any(|a| a == "--stdin");
-            let opciones = run::OpcionesRun {
-                provider: extraer_opcion(&args, &["--provider", "--proveedor"]),
-                modelo: extraer_opcion(&args, &["--modelo", "--model"]),
-                dir: extraer_opcion(&args, &["--dir", "--cwd", "--workspace"])
-                    .map(std::path::PathBuf::from),
-                modo: extraer_opcion(&args, &["--modo"]),
-                /* [039A-1 04-09 H7] El CLI run no expone flag de razonamiento:
-                 * deja el default del proveedor (None → config intacta). */
-                razonamiento: None,
-                /* [039A-3 P6-backend] El CLI no inyecta ventana: None → default
-                 * del core (128k, intacto). Solo el desktop inyecta (150k). */
-                max_ventana: None,
-                /* [069A-3] Toast de Windows al terminar el turno o pedir un
-                 * permiso (solo CLI interactivo, tras flag explícito). */
-                notificar: args.iter().any(|a| a == "--notificar"),
-                navegador: None,
-            };
-            let prompt = if let Some(p) = prompt {
-                Some(p)
-            } else if usa_stdin {
-                leer_stdin()
-            } else {
-                None
-            };
-            con_runtime("run", |rt| rt.block_on(run::run(prompt, opciones)))
-        }
-        Some("chat") => {
-            let opciones = run::OpcionesRun {
-                provider: extraer_opcion(&args, &["--provider", "--proveedor"]),
-                modelo: extraer_opcion(&args, &["--modelo", "--model"]),
-                dir: extraer_opcion(&args, &["--dir", "--cwd", "--workspace"])
-                    .map(std::path::PathBuf::from),
-                modo: extraer_opcion(&args, &["--modo"]),
-                /* [039A-1 04-09 H7] El CLI chat/tui no expone flag de
-                 * razonamiento: deja el default del proveedor. */
-                razonamiento: None,
-                /* [039A-3 P6-backend] Sin inyección de ventana en CLI (None →
-                 * default del core 128k). */
-                max_ventana: None,
-                /* [069A-3] Como en `run` (vale también para `session resume`,
-                 * que reabre este mismo REPL). */
-                notificar: args.iter().any(|a| a == "--notificar"),
-                navegador: None,
-            };
-            let usa_tui = args.iter().any(|a| a == "--tui");
-            con_runtime("chat", |rt| {
-                let res = if usa_tui {
-                    rt.block_on(tui::tui(opciones))
-                } else {
-                    rt.block_on(chat::chat(opciones))
-                };
-                match res {
-                    Ok(()) => ExitCode::SUCCESS,
-                    Err(e) => {
-                        eprintln!("glory-harness chat: {e}");
-                        ExitCode::from(1)
-                    }
-                }
-            })
-        }
+        Some("run") => despachar_run(&args),
+        Some("chat") => despachar_chat(&args),
         Some("daemon") => {
             let puerto = extraer_opcion(&args, &["--puerto", "--port"])
                 .and_then(|p| p.parse::<u16>().ok())
@@ -127,7 +137,8 @@ fn despachar(args: Vec<String>) -> ExitCode {
             let puerto = extraer_opcion(&args, &["--puerto", "--port"])
                 .and_then(|p| p.parse::<u16>().ok())
                 .unwrap_or(8799);
-            let dir_ui = args.iter()
+            let dir_ui = args
+                .iter()
                 .position(|a| a == "--dir-ui")
                 .and_then(|i| args.get(i + 1).cloned())
                 .or_else(|| {
