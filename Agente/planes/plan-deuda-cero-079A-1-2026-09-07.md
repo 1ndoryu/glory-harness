@@ -99,4 +99,18 @@ F6 exige F1–F5 verdes; F9 exige todo verde.
 
 ## Estado
 
-F0 pendiente. Próximo: preflight + baseline + roadmap activa.
+F0 hecho (doctor verde tras resync staging; F1 diferida por colisión ajena en
+`web.rs`, orden F2→F3→F4→F5→F1). **F2 hecho** (`6d73691`: `despachar`→
+`opciones_run`/`despachar_run`/`despachar_chat`, `ejecutar`→`arg_str`/`op_script`/
+`op_dom`/`op_capturar`, `hojear_stream`→`extraer_evento_sse`/`fusionar_tool_call`;
+core `--lib` 257 passed, CLI `--lib` 81 passed). Guardian previo (`4fa4cbd`):
+`AgentToolContext` de tests sin campo `navegador` (roto en HEAD desde 069A-1 F5,
+15 errores) + `PersistenciaMemoria` inexistente en tests `navegador.rs`.
+Próximo: F3 (`web_datos.rs` por dominio, `red.rs` stream a `llm/`).
+**F3 hecho** (`041d20a`: `web_datos.rs` 995 → `web_datos/` por dominio;
+`addf369`: `hojear_stream`+SSE → `nucleo/llm/stream.rs`; CLI `--lib` 81 passed,
+core `--lib` 257 passed; warnings restantes solo en ficheros ajenos
+`comandos/web.rs`, `persistencia_sqlite/workspaces.rs`). Lección: partir con
+corte exacto por líneas vía script (nunca reescribir a mano) y en pwsh usar
+comillas simples (un `` `r `` en doble comilla se vuelve CR y rompe el parse).
+Próximo: F4 (`navegador.rs` a subdirectorio).
