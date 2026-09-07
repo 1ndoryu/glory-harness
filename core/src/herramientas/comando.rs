@@ -255,6 +255,7 @@ mod tests {
             dominio: None,
             todo: None,
             plan: None,
+            navegador: None,
         }
     }
 

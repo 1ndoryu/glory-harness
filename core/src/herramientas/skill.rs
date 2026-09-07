@@ -405,6 +405,7 @@ mod tests {
             dominio: None,
             todo: None,
             plan: None,
+            navegador: None,
         };
         let ok = tool
             .ejecutar(&ctx, json!({ "nombre": "revisar-diff" }))

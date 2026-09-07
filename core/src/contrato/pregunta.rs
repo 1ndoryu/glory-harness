@@ -178,6 +178,7 @@ mod tests {
                 dominio: None,
                 todo: None,
                 plan: None,
+                navegador: None,
             };
             ToolAskUser
                 .ejecutar(&ctx, json!({"texto": "¿sí o no?"}))

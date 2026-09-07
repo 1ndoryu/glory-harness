@@ -200,6 +200,7 @@ mod pruebas {
             dominio: None,
             todo: None,
             plan: None,
+            navegador: None,
         }
     }
 

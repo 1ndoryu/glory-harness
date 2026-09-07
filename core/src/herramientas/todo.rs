@@ -239,6 +239,7 @@ mod tests {
             dominio: None,
             todo: Some(store),
             plan: None,
+            navegador: None,
         }
     }
 

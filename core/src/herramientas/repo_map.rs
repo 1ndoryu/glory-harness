@@ -692,6 +692,7 @@ mod tests {
             dominio: None,
             todo: None,
             plan: None,
+            navegador: None,
         };
         let resultado = ToolRepoMap
             .ejecutar(&ctx, json!({"consulta": "tienda"}))

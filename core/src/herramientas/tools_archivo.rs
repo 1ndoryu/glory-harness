@@ -482,6 +482,7 @@ mod tests {
             dominio: None,
             todo: None,
             plan: None,
+            navegador: None,
         }
     }
 
@@ -500,6 +501,7 @@ mod tests {
             dominio: None,
             todo: None,
             plan: Some(plan),
+            navegador: None,
         }
     }
 
@@ -645,6 +647,7 @@ mod tests {
             dominio: None,
             todo: registry.todo(),
             plan: None,
+            navegador: None,
         };
 
         let plan = registry
