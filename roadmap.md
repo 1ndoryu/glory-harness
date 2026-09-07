@@ -75,6 +75,12 @@ Orden propuesto (dependencias de abajo arriba):
       nueva se transfiere al próximo plan de deuda (pendiente de crear tras
       tabla). Plan archivado en `Agente/planes/completados/`. No se reclama
       0/0/0.
+- [ ] **079A-1 — Deuda cero Sentinel, segunda vuelta** (full 0/0/0): 2E/10W/1I
+      (broadcast-mutex ×2, directorio-abarrotado, funcion-larga ×4,
+      limite-lineas ×4+nivel-2, params ×1). Plan:
+      `Agente/planes/plan-deuda-cero-079A-1-2026-09-07.md`. Mismo ciclo que
+      069A-5 + caza de falsos positivos (con fix en Sentinel si aplica) +
+      auditorías SOLID y rendimiento nuevas. F0 pendiente.
 - [x] **069A-2 — Modo web local unificado con Tauri** (v3, HECHO 06/07-09):
       HTTP+SSE como API única; `SesionComun` compartida; adaptador TS único
       (`Transporte` + `transporteTauri()` en `real.ts`, `crearAdaptadorApi()`
@@ -144,6 +150,12 @@ Orden propuesto (dependencias de abajo arriba):
       campos vacíos. E2E verificado: PATCH devuelve configuración, sesión nueva
       la recupera, recarga mantiene valores. Gate bloqueado por
       `tool-release-unpublished` ajeno. Evidencia en
+      `Agente/completados/tareas-2026-09-07.md`.
+- [x] **069A-11 — Inicio del panel meta y acceso web local sin token** (07-09):
+      El panel meta se monta después del selector de workspace y permanece oculto
+      en el borrador inicial; aparece tras crear la conversación con el primer
+      mensaje. El modo web local acepta sesión sin token y limita el bind a
+      loopback cuando no hay `GLORY_HARNESS_WEB_TOKEN`. Evidencia en
       `Agente/completados/tareas-2026-09-07.md`.
 
 > **Hecho (04-09, correcciones del primer `tauri dev`):** los 7 hallazgos del primer arranque
