@@ -19,15 +19,15 @@
 
 use std::sync::{Arc, Mutex};
 
-use glory_harness::{InfoConversacion, PersistenciaSqlite, VENTANA_MINIMA, Workspace};
 use glory_harness::servicio::{Apertura, OpcionesSesion, SesionComun};
+use glory_harness::{InfoConversacion, PersistenciaSqlite, Workspace, VENTANA_MINIMA};
 use glory_harness_core::aprobacion::{PeticionAprobacion, RespuestaAprobacion};
 use glory_harness_core::evento::AgenteEvento;
-use glory_harness_core::AgentPersistence;
-use glory_harness_core::llm::{LlavesProveedor, catalogo_proveedores};
+use glory_harness_core::llm::{catalogo_proveedores, AiMessage, LlavesProveedor};
 use glory_harness_core::ports::MensajePersistido;
 use glory_harness_core::runtime::AgentRuntime;
 use glory_harness_core::sandbox::RespaldoArchivos;
+use glory_harness_core::AgentPersistence;
 use tauri::{AppHandle, Emitter, Manager, State};
 use uuid::Uuid;
 
@@ -180,7 +180,9 @@ fn conteos(llaves: &LlavesProveedor) -> Vec<ProveedorConteo> {
 
 fn sesion_actual(estado: &State<'_, Estado>) -> Result<Arc<Sesion>, String> {
     match estado.sesion.lock() {
-        Ok(g) => g.clone().ok_or_else(|| "abre la sesión primero".to_string()),
+        Ok(g) => g
+            .clone()
+            .ok_or_else(|| "abre la sesión primero".to_string()),
         Err(_) => Err("sesión bloqueada por otro turno".into()),
     }
 }
@@ -237,13 +239,11 @@ fn panel_poner_conversacion(
         .paneles
         .lock()
         .map(|mut p| {
-            let d = p
-                .entry(panel_id.to_string())
-                .or_insert(PanelDatos {
-                    conversacion_id: conv_id,
-                    turno_id: None,
-                    tramo_rewind: None,
-                });
+            let d = p.entry(panel_id.to_string()).or_insert(PanelDatos {
+                conversacion_id: conv_id,
+                turno_id: None,
+                tramo_rewind: None,
+            });
             d.conversacion_id = conv_id;
             d.tramo_rewind = None;
             Ok(())
@@ -382,16 +382,31 @@ fn apertura_a_info(apertura: Apertura) -> InfoSesion {
     }
 }
 
-fn abrir_sesion_interna(
-    estado: &State<'_, Estado>,
-    app: &AppHandle,
+/// [079A-1 F5] Opciones de apertura de sesión: agrupa los parámetros de
+/// `abrir_sesion_interna` para el límite de parámetros del gate.
+#[derive(Default)]
+struct OpcionesApertura {
     provider: Option<String>,
     modelo: Option<String>,
     dir: Option<String>,
     modo: Option<String>,
     razonamiento: Option<String>,
     nueva_conversacion: bool,
+}
+
+fn abrir_sesion_interna(
+    estado: &State<'_, Estado>,
+    app: &AppHandle,
+    opciones: OpcionesApertura,
 ) -> Result<InfoSesion, String> {
+    let OpcionesApertura {
+        provider,
+        modelo,
+        dir,
+        modo,
+        razonamiento,
+        nueva_conversacion,
+    } = opciones;
     /* [069A-1 F5] Si el escritorio tiene soporte de navegador, crea el puerto
      * real y lo inyecta al runtime. Sin navegador → None (fail-closed). */
     let navegador: Option<Arc<dyn glory_harness_core::ports::NavegadorPort>> = app
@@ -466,7 +481,18 @@ fn abrir_sesion(
     modo: Option<String>,
     razonamiento: Option<String>,
 ) -> Result<InfoSesion, String> {
-    abrir_sesion_interna(&estado, &app, provider, modelo, dir, modo, razonamiento, false)
+    abrir_sesion_interna(
+        &estado,
+        &app,
+        OpcionesApertura {
+            provider,
+            modelo,
+            dir,
+            modo,
+            razonamiento,
+            ..Default::default()
+        },
+    )
 }
 
 /// Ejecuta un turno real y reemite cada `AgenteEvento` a la UI.
@@ -484,19 +510,78 @@ async fn enviar_turno(
 ) -> Result<(), String> {
     let sesion = sesion_actual(&estado)?;
     let panel_id = normalizar_panel(panel_id);
-    {
-        let puede = match estado.turno.lock() {
-            Ok(t) => !t.activo,
-            Err(_) => return Err("no se pudo acceder al turno".into()),
-        };
-        if !puede {
-            return Err("ya hay un turno en curso".into());
-        }
+    reclamar_turno(&estado)?;
+    let PaqueteTurno {
+        conv_id,
+        turno_id,
+        historial_previo,
+        mensaje_efectivo,
+        runtime,
+    } = preparar_paquete(&sesion, &panel_id, mensaje).await?;
+    let (tx_ev, rx_ev) = tokio::sync::mpsc::channel::<AgenteEvento>(64);
+    let w = window.clone();
+    fijar_contexto_turno(&sesion, &panel_id, conv_id, turno_id);
+    let uso_accum = std::sync::Arc::new(std::sync::Mutex::new(UsoAcumulado::default()));
+    let uso_reenvio = Arc::clone(&uso_accum);
+    let w_fw = w.clone();
+    let handle = tauri::async_runtime::spawn(async move {
+        // Al cerrar (ok, fallo o abort) se libera el flag para el próximo turno.
+        // Reenvío en la misma tarea: el loop termina con Done (último evento).
+        // [039A-3 P1] Se acumula el Usage real que emite el núcleo (cada
+        // llm_llamada emite uno parcial; un turno con N tools acumula N) y se
+        // propaga al cierre para persistirlo en `turnos`.
+        let reenvio = tauri::async_runtime::spawn(reenviar_eventos(w_fw, rx_ev, uso_reenvio));
+        let resultado = runtime
+            .ejecutar_turno(
+                sesion.user_id,
+                turno_id,
+                conv_id,
+                historial_previo,
+                mensaje_efectivo,
+                &tx_ev,
+            )
+            .await;
+        drop(tx_ev);
+        let _ = reenvio.await;
+        cerrar_turno(&w, &sesion, turno_id, resultado, &uso_accum);
+        terminar_turno(&w, &sesion, &panel_id);
+    });
+    registrar_turno(&estado, handle)
+}
+
+/// [079A-1 F5] Turno preparado y listo para lanzar (paquete que
+/// `preparar_paquete` entrega a `enviar_turno`).
+struct PaqueteTurno {
+    conv_id: Uuid,
+    turno_id: Uuid,
+    historial_previo: Vec<AiMessage>,
+    mensaje_efectivo: String,
+    runtime: Arc<AgentRuntime>,
+}
+
+/// [079A-1 F5] Reserva el turno global (auxiliar de `enviar_turno`).
+fn reclamar_turno(estado: &State<'_, Estado>) -> Result<(), String> {
+    let puede = match estado.turno.lock() {
+        Ok(t) => !t.activo,
+        Err(_) => return Err("no se pudo acceder al turno".into()),
+    };
+    if !puede {
+        return Err("ya hay un turno en curso".into());
     }
+    Ok(())
+}
+
+/// [079A-1 F5] Exige conversación, lee meta y prepara el turno en el
+/// servicio común (auxiliar de `enviar_turno`).
+async fn preparar_paquete(
+    sesion: &Sesion,
+    panel_id: &str,
+    mensaje: String,
+) -> Result<PaqueteTurno, String> {
     /* [069A-7] El turno exige conversación: el front la crea (create-on-write)
      * antes de enviar el primer mensaje. Un panel en borrador no puede enviar
      * (error claro en vez de fallar después en preparar_turno). */
-    let conv_id = conv_id_de_panel_obligatoria(&sesion, &panel_id)?;
+    let conv_id = conv_id_de_panel_obligatoria(sesion, panel_id)?;
     let meta = sesion
         .meta
         .lock()
@@ -513,12 +598,18 @@ async fn enviar_turno(
             .await
             .map_err(|e| e.to_string())?
     };
-    let turno_id = preparacion.turno_id;
-    let historial_previo = preparacion.historial;
-    let mensaje_efectivo = preparacion.mensaje_efectivo;
-    let runtime = preparacion.runtime;
-    let (tx_ev, mut rx_ev) = tokio::sync::mpsc::channel::<AgenteEvento>(64);
-    let w = window.clone();
+    Ok(PaqueteTurno {
+        conv_id,
+        turno_id: preparacion.turno_id,
+        historial_previo: preparacion.historial,
+        mensaje_efectivo: preparacion.mensaje_efectivo,
+        runtime: preparacion.runtime,
+    })
+}
+
+/// [079A-1 F5] Fija el contexto del vault para el turno y limpia el tramo
+/// de rewind obsoleto (auxiliar de `enviar_turno`).
+fn fijar_contexto_turno(sesion: &Sesion, panel_id: &str, conv_id: Uuid, turno_id: Uuid) {
     /* [039A-3 P3] Fijar el contexto del vault para este turno (conversación +
      * turno): las escrituras del harness durante `ejecutar_turno` se
      * atribuyen a este tramo. El hook del núcleo no recibe el turno; el
@@ -533,102 +624,121 @@ async fn enviar_turno(
      * hablando en vez de restaurar): se limpia para no ofrecer una
      * restauración obsoleta. */
     if let Ok(mut g) = sesion.paneles.lock() {
-        if let Some(d) = g.get_mut(&panel_id) {
+        if let Some(d) = g.get_mut(panel_id) {
             d.tramo_rewind = None;
             d.turno_id = Some(turno_id);
         }
     }
-    let handle = tauri::async_runtime::spawn(async move {
-        // Al cerrar (ok, fallo o abort) se libera el flag para el próximo turno.
-        let terminar = |w: &tauri::Window| {
-            if let Some(e) = w.app_handle().try_state::<Estado>() {
-                marcar_turno_terminado(&e);
+}
+
+/// [079A-1 F5] Bucle de reenvío de eventos del núcleo a la ventana; termina
+/// con `Done` y acumula el `Usage` real del turno (auxiliar de `enviar_turno`).
+async fn reenviar_eventos(
+    ventana: tauri::Window,
+    mut rx: tokio::sync::mpsc::Receiver<AgenteEvento>,
+    uso: Arc<Mutex<UsoAcumulado>>,
+) {
+    while let Some(ev) = rx.recv().await {
+        let es_done = matches!(ev, AgenteEvento::Done { .. });
+        acumular_uso(&uso, &ev);
+        let _ = ventana.emit("agente-evento", &ev);
+        if es_done {
+            break;
+        }
+    }
+}
+
+/// [079A-1 F5] Suma un `Usage` parcial al acumulado del turno (un turno con
+/// N tools emite N parciales; provider/modelo = los del último).
+fn acumular_uso(uso: &Mutex<UsoAcumulado>, ev: &AgenteEvento) {
+    if let AgenteEvento::Usage {
+        tokens_prompt,
+        tokens_complecion,
+        provider,
+        modelo,
+        ..
+    } = ev
+    {
+        if let Ok(mut u) = uso.lock() {
+            u.tokens_prompt = u.tokens_prompt.saturating_add(*tokens_prompt);
+            u.tokens_complecion = u.tokens_complecion.saturating_add(*tokens_complecion);
+            if let Some(p) = provider {
+                u.provider = Some(p.clone());
             }
-            if let Ok(mut g) = sesion.paneles.lock() {
-                if let Some(d) = g.get_mut(&panel_id) {
-                    d.turno_id = None;
-                }
-            }
-            /* [039A-3 P3] Limpiar el contexto del vault: el siguiente turno
-             * vuelve a fijarlo; sin limpieza, una escritura fuera de turno
-             * (p. ej. un setup posterior) se atribuiría al último turno. */
-            sesion.vault.fijar_contexto(vault::ContextoTurnoVault::default());
-        };
-        // Reenvío en la misma tarea: el loop termina con Done (último evento).
-        // [039A-3 P1] Se acumula el Usage real que emite el núcleo (cada
-        // llm_llamada emite uno parcial; un turno con N tools acumula N) y se
-        // propaga al cierre para persistirlo en `turnos`.
-        let w_fw = w.clone();
-        let uso_accum = std::sync::Arc::new(std::sync::Mutex::new(UsoAcumulado::default()));
-        let uso_reenvio = Arc::clone(&uso_accum);
-        let reenvio = tauri::async_runtime::spawn(async move {
-            while let Some(ev) = rx_ev.recv().await {
-                let es_done = matches!(ev, AgenteEvento::Done { .. });
-                if let AgenteEvento::Usage {
-                    tokens_prompt,
-                    tokens_complecion,
-                    provider,
-                    modelo,
-                    ..
-                } = &ev
-                {
-                    if let Ok(mut u) = uso_reenvio.lock() {
-                        u.tokens_prompt = u.tokens_prompt.saturating_add(*tokens_prompt);
-                        u.tokens_complecion = u.tokens_complecion.saturating_add(*tokens_complecion);
-                        if let Some(p) = provider {
-                            u.provider = Some(p.clone());
-                        }
-                        if let Some(m) = modelo {
-                            u.modelo = Some(m.clone());
-                        }
-                    }
-                }
-                let _ = w_fw.emit("agente-evento", &ev);
-                if es_done {
-                    break;
-                }
-            }
-        });
-        let resultado = runtime
-            .ejecutar_turno(
-                sesion.user_id,
-                turno_id,
-                conv_id,
-                historial_previo,
-                mensaje_efectivo,
-                &tx_ev,
-            )
-            .await;
-        drop(tx_ev);
-        let _ = reenvio.await;
-        match resultado {
-            Ok(()) => {
-                // [039A-3 P1] Persistir el uso/modelo REAL del turno (los
-                // campos que el runtime guardó son 0 / solicitado). El UPDATE
-                // es best-effort: si falla, el pie de turno no se bloquea.
-                if let Ok(uso) = uso_accum.lock() {
-                    if uso.tokens_prompt > 0 || uso.tokens_complecion > 0 || uso.provider.is_some() {
-                        let _ = sesion.persistencia.turno_actualizar_uso(
-                            turno_id,
-                            uso.tokens_prompt,
-                            uso.tokens_complecion,
-                            uso.provider.as_deref(),
-                            uso.modelo.as_deref(),
-                        );
-                    }
-                }
-                let _ = w.emit("turno-fin", serde_json::json!({"ok": true}));
-            }
-            Err(e) => {
-                let _ = w.emit("agente-evento", &AgenteEvento::Error {
-                    mensaje: e.to_string(),
-                    retryable: true,
-                });
-                let _ = w.emit("turno-fin", serde_json::json!({"ok": false, "error": e.to_string()}));
+            if let Some(m) = modelo {
+                u.modelo = Some(m.clone());
             }
         }
-        terminar(&w);
-    });
+    }
+}
+
+/// [079A-1 F5] Cierra el turno: persiste el uso real (best-effort) y emite
+/// `turno-fin` ok/error (auxiliar de `enviar_turno`).
+fn cerrar_turno(
+    w: &tauri::Window,
+    sesion: &Sesion,
+    turno_id: Uuid,
+    resultado: Result<(), glory_harness_core::error::Error>,
+    uso_accum: &Mutex<UsoAcumulado>,
+) {
+    match resultado {
+        Ok(()) => {
+            // [039A-3 P1] Persistir el uso/modelo REAL del turno (los
+            // campos que el runtime guardó son 0 / solicitado). El UPDATE
+            // es best-effort: si falla, el pie de turno no se bloquea.
+            if let Ok(uso) = uso_accum.lock() {
+                if uso.tokens_prompt > 0 || uso.tokens_complecion > 0 || uso.provider.is_some() {
+                    let _ = sesion.persistencia.turno_actualizar_uso(
+                        turno_id,
+                        uso.tokens_prompt,
+                        uso.tokens_complecion,
+                        uso.provider.as_deref(),
+                        uso.modelo.as_deref(),
+                    );
+                }
+            }
+            let _ = w.emit("turno-fin", serde_json::json!({"ok": true}));
+        }
+        Err(e) => {
+            let _ = w.emit(
+                "agente-evento",
+                &AgenteEvento::Error {
+                    mensaje: e.to_string(),
+                    retryable: true,
+                },
+            );
+            let _ = w.emit(
+                "turno-fin",
+                serde_json::json!({"ok": false, "error": e.to_string()}),
+            );
+        }
+    }
+}
+
+/// [079A-1 F5] Libera el flag de turno, desvincula el panel y limpia el
+/// contexto del vault (auxiliar de `enviar_turno`).
+fn terminar_turno(w: &tauri::Window, sesion: &Sesion, panel_id: &str) {
+    if let Some(e) = w.app_handle().try_state::<Estado>() {
+        marcar_turno_terminado(&e);
+    }
+    if let Ok(mut g) = sesion.paneles.lock() {
+        if let Some(d) = g.get_mut(panel_id) {
+            d.turno_id = None;
+        }
+    }
+    /* [039A-3 P3] Limpiar el contexto del vault: el siguiente turno
+     * vuelve a fijarlo; sin limpieza, una escritura fuera de turno
+     * (p. ej. un setup posterior) se atribuiría al último turno. */
+    sesion
+        .vault
+        .fijar_contexto(vault::ContextoTurnoVault::default());
+}
+
+/// [079A-1 F5] Registra el handle del turno lanzado (auxiliar de `enviar_turno`).
+fn registrar_turno(
+    estado: &State<'_, Estado>,
+    handle: tauri::async_runtime::JoinHandle<()>,
+) -> Result<(), String> {
     match estado.turno.lock() {
         Ok(mut t) => {
             t.handle = Some(handle);
@@ -700,12 +810,7 @@ fn reconfigurar_sesion(
     razonamiento: Option<String>,
 ) -> Result<InfoSesion, String> {
     let sesion = sesion_actual(&estado)?;
-    if estado
-        .turno
-        .lock()
-        .map(|t| t.activo)
-        .unwrap_or(true)
-    {
+    if estado.turno.lock().map(|t| t.activo).unwrap_or(true) {
         return Err("hay un turno en curso".into());
     }
     /* Reconfigurar mueve el provider/modelo/modo; el objeto comun cambia
@@ -741,14 +846,14 @@ fn responder_aprobacion(
         "siempre" => RespuestaAprobacion::Siempre,
         _ => RespuestaAprobacion::Rechazar,
     };
-    runtime.responder_aprobacion(&id, r).map_err(|e| e.to_string())
+    runtime
+        .responder_aprobacion(&id, r)
+        .map_err(|e| e.to_string())
 }
 
 /// Peticiones de aprobación aún pendientes (para pintar tarjetas al cerrar).
 #[tauri::command]
-fn pendientes_aprobacion(
-    estado: State<'_, Estado>,
-) -> Result<Vec<PeticionAprobacion>, String> {
+fn pendientes_aprobacion(estado: State<'_, Estado>) -> Result<Vec<PeticionAprobacion>, String> {
     match estado.sesion.lock() {
         Ok(g) => Ok(g
             .as_ref()
@@ -774,12 +879,7 @@ fn conversacion_nueva(
     panel_id: Option<String>,
 ) -> Result<InfoConversacion, String> {
     let sesion = sesion_actual(&estado)?;
-    if estado
-        .turno
-        .lock()
-        .map(|t| t.activo)
-        .unwrap_or(true)
-    {
+    if estado.turno.lock().map(|t| t.activo).unwrap_or(true) {
         return Err("hay un turno en curso".into());
     }
     let panel_id = normalizar_panel(panel_id);
@@ -812,9 +912,7 @@ fn conversacion_nueva(
 /// [069A-Proyectos] Lista todas las conversaciones agrupables por proyecto.
 /// Las conversaciones legacy conservan `workspace_id: null`.
 #[tauri::command]
-fn listar_conversaciones(
-    estado: State<'_, Estado>,
-) -> Result<Vec<InfoConversacion>, String> {
+fn listar_conversaciones(estado: State<'_, Estado>) -> Result<Vec<InfoConversacion>, String> {
     let sesion = sesion_actual(&estado)?;
     sesion
         .persistencia
@@ -859,12 +957,7 @@ async fn cargar_conversacion(
     panel_id: Option<String>,
 ) -> Result<CargaConversacion, String> {
     let sesion = sesion_actual(&estado)?;
-    if estado
-        .turno
-        .lock()
-        .map(|t| t.activo)
-        .unwrap_or(true)
-    {
+    if estado.turno.lock().map(|t| t.activo).unwrap_or(true) {
         return Err("hay un turno en curso".into());
     }
     let panel_id = normalizar_panel(panel_id);
@@ -890,12 +983,14 @@ async fn cargar_conversacion(
         .persistencia
         .turno_ultimo_uso_por_conversacion(id)
         .map_err(|e| e.to_string())?
-        .map(|(provider, modelo, tokens_prompt, tokens_complecion)| UsoTurnoPersistido {
-            provider,
-            modelo,
-            tokens_prompt,
-            tokens_complecion,
-        });
+        .map(
+            |(provider, modelo, tokens_prompt, tokens_complecion)| UsoTurnoPersistido {
+                provider,
+                modelo,
+                tokens_prompt,
+                tokens_complecion,
+            },
+        );
     /* [039A-3 P5] La conversación cargada queda como actual de este panel.
      * [039A-3 P3] Al cambiar de conversación se limpia el tramo pendiente de
      * restaurar (pertenece a la conversación anterior): su restauración ya no
@@ -956,12 +1051,7 @@ fn eliminar_conversacion(
     panel_id: Option<String>,
 ) -> Result<Option<InfoConversacion>, String> {
     let sesion = sesion_actual(&estado)?;
-    if estado
-        .turno
-        .lock()
-        .map(|t| t.activo)
-        .unwrap_or(true)
-    {
+    if estado.turno.lock().map(|t| t.activo).unwrap_or(true) {
         return Err("hay un turno en curso".into());
     }
     let panel_id = normalizar_panel(panel_id);
@@ -1015,12 +1105,7 @@ async fn rewind_conversacion(
     panel_id: Option<String>,
 ) -> Result<CargaConversacion, String> {
     let sesion = sesion_actual(&estado)?;
-    if estado
-        .turno
-        .lock()
-        .map(|t| t.activo)
-        .unwrap_or(true)
-    {
+    if estado.turno.lock().map(|t| t.activo).unwrap_or(true) {
         return Err("hay un turno en curso".into());
     }
     let panel_id = normalizar_panel(panel_id);
@@ -1084,12 +1169,14 @@ async fn rewind_conversacion(
         .persistencia
         .turno_ultimo_uso_por_conversacion(conv_id)
         .map_err(|e| e.to_string())?
-        .map(|(provider, modelo, tokens_prompt, tokens_complecion)| UsoTurnoPersistido {
-            provider,
-            modelo,
-            tokens_prompt,
-            tokens_complecion,
-        });
+        .map(
+            |(provider, modelo, tokens_prompt, tokens_complecion)| UsoTurnoPersistido {
+                provider,
+                modelo,
+                tokens_prompt,
+                tokens_complecion,
+            },
+        );
     Ok(CargaConversacion {
         id: conv_id,
         titulo,
@@ -1113,12 +1200,7 @@ fn restaurar_archivos_tramo(
     panel_id: Option<String>,
 ) -> Result<RestauracionTramo, String> {
     let sesion = sesion_actual(&estado)?;
-    if estado
-        .turno
-        .lock()
-        .map(|t| t.activo)
-        .unwrap_or(true)
-    {
+    if estado.turno.lock().map(|t| t.activo).unwrap_or(true) {
         return Err("hay un turno en curso".into());
     }
     let panel_id = normalizar_panel(panel_id);
@@ -1201,11 +1283,7 @@ fn config_leer(estado: State<'_, Estado>, clave: String) -> Result<Option<String
 
 /// Guarda una clave de configuración (`provider_defecto`, `modelo_defecto`…).
 #[tauri::command]
-fn config_guardar(
-    estado: State<'_, Estado>,
-    clave: String,
-    valor: String,
-) -> Result<(), String> {
+fn config_guardar(estado: State<'_, Estado>, clave: String, valor: String) -> Result<(), String> {
     let sesion = sesion_actual(&estado)?;
     sesion
         .persistencia
@@ -1232,7 +1310,15 @@ fn elegir_workspace(estado: State<'_, Estado>, app: AppHandle) -> Result<InfoSes
                 .persistencia
                 .config_guardar("workspace", &ruta)
                 .map_err(|e| e.to_string())?;
-            abrir_sesion_interna(&estado, &app, None, None, Some(ruta), None, None, true)
+            abrir_sesion_interna(
+                &estado,
+                &app,
+                OpcionesApertura {
+                    dir: Some(ruta),
+                    nueva_conversacion: true,
+                    ..Default::default()
+                },
+            )
         }
         None => info_de_panel(&actual, PANEL_PRINCIPAL),
     }
@@ -1317,10 +1403,7 @@ fn workspaces_listar(estado: State<'_, Estado>) -> Result<ValorWorkspaces, Strin
         .workspaces_listar(sesion.user_id)
         .map_err(|e| e.to_string())?;
     let activa = area_activa(&sesion)?;
-    Ok(ValorWorkspaces {
-        workspaces,
-        activa,
-    })
+    Ok(ValorWorkspaces { workspaces, activa })
 }
 
 #[derive(serde::Serialize)]
@@ -1342,12 +1425,7 @@ fn workspace_crear_o_activar(
     ruta: String,
 ) -> Result<InfoSesion, String> {
     let sesion = sesion_actual(&estado)?;
-    if estado
-        .turno
-        .lock()
-        .map(|t| t.activo)
-        .unwrap_or(true)
-    {
+    if estado.turno.lock().map(|t| t.activo).unwrap_or(true) {
         return Err("hay un turno en curso".into());
     }
     let nombre = nombre.trim();
@@ -1403,7 +1481,15 @@ fn workspace_crear_o_activar(
         .persistencia
         .config_guardar("workspace", &ruta_s)
         .map_err(|e| e.to_string())?;
-    abrir_sesion_interna(&estado, &app, None, None, Some(ruta_s), None, None, true)
+    abrir_sesion_interna(
+        &estado,
+        &app,
+        OpcionesApertura {
+            dir: Some(ruta_s),
+            nueva_conversacion: true,
+            ..Default::default()
+        },
+    )
 }
 
 /// [069A-Proyectos] Activa un área EXISTENTE del usuario por su ruta (para
@@ -1415,12 +1501,7 @@ fn workspace_activar_por_ruta(
     ruta: String,
 ) -> Result<InfoSesion, String> {
     let sesion = sesion_actual(&estado)?;
-    if estado
-        .turno
-        .lock()
-        .map(|t| t.activo)
-        .unwrap_or(true)
-    {
+    if estado.turno.lock().map(|t| t.activo).unwrap_or(true) {
         return Err("hay un turno en curso".into());
     }
     let ruta_s = ruta.trim().to_string();
@@ -1438,7 +1519,15 @@ fn workspace_activar_por_ruta(
         .persistencia
         .config_guardar("workspace", &ruta_s)
         .map_err(|e| e.to_string())?;
-    abrir_sesion_interna(&estado, &app, None, None, Some(ruta_s), None, None, true)
+    abrir_sesion_interna(
+        &estado,
+        &app,
+        OpcionesApertura {
+            dir: Some(ruta_s),
+            nueva_conversacion: true,
+            ..Default::default()
+        },
+    )
 }
 
 /// [069A-Proyectos] Renombra un área del usuario. `false` = no existe.
@@ -1467,10 +1556,7 @@ fn workspace_renombrar(
 /// sin área (`workspace_id = NULL`) y reaparecen en la carpeta sin proyecto.
 /// `false` = no existía.
 #[tauri::command]
-fn workspace_eliminar(
-    estado: State<'_, Estado>,
-    id: String,
-) -> Result<bool, String> {
+fn workspace_eliminar(estado: State<'_, Estado>, id: String) -> Result<bool, String> {
     let sesion = sesion_actual(&estado)?;
     let id = Uuid::parse_str(id.trim()).map_err(|_| "id inválido".to_string())?;
     sesion
@@ -1486,9 +1572,7 @@ fn actualizar_meta(
     meta: Option<String>,
 ) -> Result<Option<String>, String> {
     let sesion = sesion_actual(&estado)?;
-    let normalizada = meta
-        .map(|m| m.trim().to_string())
-        .filter(|m| !m.is_empty());
+    let normalizada = meta.map(|m| m.trim().to_string()).filter(|m| !m.is_empty());
     sesion
         .meta
         .lock()
@@ -1527,16 +1611,16 @@ fn main() {
             workspace_renombrar,
             workspace_eliminar,
             actualizar_meta,
-            navegador::navegador_abrir,
-            navegador::navegador_navegar,
-            navegador::navegador_cerrar,
-            navegador::navegador_posicionar,
-            navegador::navegador_capturar,
-            navegador::navegador_js,
-            navegador::navegador_cdp,
-            navegador::navegador_click,
-            navegador::navegador_rellenar,
-            navegador::navegador_snapshot,
+            navegador::comandos::navegador_abrir,
+            navegador::comandos::navegador_navegar,
+            navegador::comandos::navegador_cerrar,
+            navegador::comandos::navegador_posicionar,
+            navegador::comandos::navegador_capturar,
+            navegador::comandos::navegador_js,
+            navegador::comandos::navegador_cdp,
+            navegador::comandos::navegador_click,
+            navegador::comandos::navegador_rellenar,
+            navegador::comandos::navegador_snapshot,
         ])
         .run(tauri::generate_context!())
         .unwrap_or_else(|e| {
