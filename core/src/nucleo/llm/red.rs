@@ -129,6 +129,11 @@ async fn resultado_no_stream(
     if !on_token(&contenido) {
         return Err(Error::Cancelado);
     }
+    /* [069A-7 06-09-2026] Capturar `model` real de la respuesta no-stream. */
+    let modelo_real = datos
+        .get("model")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or(modelo);
     Ok(AiStreamResult {
         contenido,
         tool_calls: Vec::new(),
@@ -146,7 +151,7 @@ async fn resultado_no_stream(
             .unwrap_or("")
             .to_string(),
         provider: proveedor.to_string(),
-        modelo: modelo.to_string(),
+        modelo: modelo_real.to_string(),
     })
 }
 
@@ -268,9 +273,14 @@ impl LlmProviderService {
             return resultado_no_stream(respuesta, proveedor, &modelo, on_token).await;
         }
 
-        let (contenido, tool_calls, tokens_prompt, tokens_complecion, finish_reason) =
+        let (contenido, tool_calls, tokens_prompt, tokens_complecion, finish_reason, modelo_real) =
             hojear_stream(respuesta, on_token).await?;
         let tool_calls = parsear_tool_calls(tool_calls);
+        let modelo_final = if modelo_real.is_empty() {
+            modelo.to_string()
+        } else {
+            modelo_real
+        };
 
         Ok(AiStreamResult {
             contenido,
@@ -279,7 +289,7 @@ impl LlmProviderService {
             tokens_complecion,
             finish_reason,
             provider: proveedor.to_string(),
-            modelo: modelo.to_string(),
+            modelo: modelo_final,
         })
     }
 
@@ -476,12 +486,13 @@ impl LlmProviderService {
 async fn hojear_stream(
     respuesta: reqwest::Response,
     on_token: &mut (dyn FnMut(&str) -> bool + Send),
-) -> Result<(String, Vec<serde_json::Value>, u32, u32, String), Error> {
+) -> Result<(String, Vec<serde_json::Value>, u32, u32, String, String), Error> {
     let mut contenido = String::new();
     let mut tool_calls: Vec<serde_json::Value> = Vec::new();
     let mut tokens_prompt = 0u32;
     let mut tokens_complecion = 0u32;
     let mut finish_reason = String::new();
+    let mut modelo_real = String::new();
 
     let mut bytes = respuesta.bytes_stream();
     use futures_util::StreamExt;
@@ -503,6 +514,16 @@ async fn hojear_stream(
             let Ok(evento) = serde_json::from_str::<serde_json::Value>(data) else {
                 continue;
             };
+            /* [069A-7 06-09-2026] Capturar `model` del SSE (glory API reporta
+             * el modelo real que eligió su router auto). Se toma del primer
+             * chunk que lo incluya. */
+            if modelo_real.is_empty() {
+                if let Some(m) = evento.get("model").and_then(serde_json::Value::as_str) {
+                    if !m.is_empty() {
+                        modelo_real = m.to_string();
+                    }
+                }
+            }
             if let Some(usage) = evento.get("usage") {
                 tokens_prompt = usage
                     .get("prompt_tokens")
@@ -579,5 +600,6 @@ async fn hojear_stream(
         tokens_prompt,
         tokens_complecion,
         finish_reason,
+        modelo_real,
     ))
 }

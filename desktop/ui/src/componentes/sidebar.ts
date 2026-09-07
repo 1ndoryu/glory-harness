@@ -8,7 +8,7 @@
 // (la misma del selector de modelo y del modo de ejecución).
 // ============================================================
 
-import type { Conversacion } from '../dominio/tipos';
+import type { Conversacion, Workspace } from '../dominio/tipos';
 import { icono } from './iconos';
 import {
   abrirMenuContextual,
@@ -28,6 +28,8 @@ export interface Sidebar {
    * conserva la selección si el id sigue existiendo.
    */
   sustituir(conversaciones: Conversacion[]): void;
+  /** [069A-Proyectos] Sustituye la lista de proyectos + proyecto activo. */
+  sustituirProyectos(proyectos: Workspace[], activo: Workspace | null): void;
   /** [039A-3 P4] Pone el título de una conversación en edición inline (misma
    * mecánica que el ⋯ de su fila). No-op si el id no está en la lista. */
   empezarRenombrar(id: string): void;
@@ -43,6 +45,10 @@ export type AccionNav = 'nueva' | 'agente' | 'flujo' | 'complementos' | 'navegad
 
 export interface SidebarOpciones {
   conversaciones: Conversacion[];
+  /** [069A-Proyectos] Lista de proyectos registrados. */
+  proyectos: Workspace[];
+  /** [069A-Proyectos] Proyecto activo actual (el que filtra conversaciones). */
+  proyectoActivo: Workspace | null;
   /** Al pulsar una conversación (activa esa conversación). */
   onSeleccionar: (id: string) => void;
   /** Se invoca tras cambiar el nombre de una conversación. */
@@ -51,6 +57,10 @@ export interface SidebarOpciones {
   onArchivar: (id: string, archivada: boolean) => void;
   /** Se invoca al eliminar una conversación. */
   onEliminar: (id: string) => void;
+  /** [069A-Proyectos] Se invoca al pulsar el botón + de proyectos. */
+  onCrearProyecto?: () => void;
+  /** [069A-Proyectos] Se invoca al elegir un proyecto del menú (ruta). */
+  onSeleccionarProyecto?: (ruta: string) => void;
   /** [039A-3 P5] Consulta si se puede ofrecer "Abrir en panel lateral"
    * (el orquestador decide: <2 chats abiertos y ancho suficiente). */
   puedeAbrirLateral?: () => boolean;
@@ -109,7 +119,27 @@ export function montarSidebar(opts: SidebarOpciones): Sidebar {
     ),
   );
 
-  // ---- lista de conversaciones (activas + sección archivadas) ----
+  // ---- [069A-Proyectos] Cabecera y grupos de conversaciones ----
+  const proyectos: Workspace[] = [...opts.proyectos];
+  let proyectoActivo: Workspace | null = opts.proyectoActivo;
+
+  const progSec = el('div', 'prog-sec');
+  const progHeader = el('div', 'prog-header');
+  const progNombre = el('span', 'prog-nombre');
+  progNombre.textContent = 'Proyectos';
+  const progMas = el('button', 'prog-mas') as HTMLButtonElement;
+  progMas.type = 'button';
+  progMas.title = 'Crear proyecto';
+  progMas.setAttribute('aria-label', 'Crear proyecto');
+  progMas.appendChild(icono('mas', true));
+  progMas.addEventListener('click', (e) => {
+    e.stopPropagation();
+    opts.onCrearProyecto?.();
+  });
+  progHeader.append(progNombre, progMas);
+  progSec.appendChild(progHeader);
+
+  // ---- lista de conversaciones agrupadas por proyecto ----
   const lista = el('div');
   lista.id = 'lista-conversaciones';
 
@@ -186,8 +216,11 @@ export function montarSidebar(opts: SidebarOpciones): Sidebar {
   }
 
   /** Crea una celda .conv con su menú contextual (misma mecánica que el modelo). */
-  function crearCelda(conv: Conversacion): HTMLDivElement {
-    const d = el('div', 'conv' + (conv.archivada ? ' archivada' : ''));
+  function crearCelda(conv: Conversacion, dentroDeProyecto = false): HTMLDivElement {
+    const d = el(
+      'div',
+      'conv' + (conv.archivada ? ' archivada' : '') + (dentroDeProyecto ? ' conv-proyecto' : ''),
+    );
     if (!conv.archivada && conv.seleccionada) d.classList.add('sel');
     d.dataset.id = conv.id;
     const t = el('div', 't');
@@ -199,7 +232,7 @@ export function montarSidebar(opts: SidebarOpciones): Sidebar {
     btnMas.type = 'button';
     btnMas.title = 'acciones de conversación';
     btnMas.setAttribute('aria-label', 'acciones de conversación');
-    btnMas.innerHTML = '⋯';
+    btnMas.appendChild(icono('mas-horizontal', true));
     d.appendChild(btnMas);
 
     function abrirMenu(ancla: HTMLElement, e?: MouseEvent): void {
@@ -282,28 +315,64 @@ export function montarSidebar(opts: SidebarOpciones): Sidebar {
     return d;
   }
 
-  function pintarLista(): void {
-    lista.replaceChildren();
-    celdas.clear(); // los nodos viejos salieron del DOM; no dejar referencias muertas
-    const activas = conversaciones.filter((c) => !c.archivada);
-    const archivadas = conversaciones.filter((c) => c.archivada);
+  function añadirGrupoProyecto(proyecto: Workspace, grupo: Conversacion[]): void {
+    const cabecera = el('div', 'proyecto-grupo');
+    const boton = el('button', 'proyecto-grupo-boton') as HTMLButtonElement;
+    boton.type = 'button';
+    boton.title = `Activar proyecto ${proyecto.nombre}`;
+    boton.appendChild(icono('carpeta', true));
+    const nombre = el('span', 'proyecto-grupo-nombre');
+    nombre.textContent = proyecto.nombre;
+    boton.appendChild(nombre);
+    if (proyectoActivo?.id === proyecto.id) boton.classList.add('activo');
+    boton.addEventListener('click', () => {
+      if (proyectoActivo?.id !== proyecto.id) opts.onSeleccionarProyecto?.(proyecto.ruta);
+    });
+    cabecera.appendChild(boton);
+    lista.appendChild(cabecera);
 
-    activas.forEach((c) => {
-      const d = crearCelda(c);
+    grupo.filter((c) => !c.archivada).forEach((c) => {
+      const d = crearCelda(c, true);
       celdas.set(c.id, d);
       lista.appendChild(d);
     });
-    if (archivadas.length > 0) {
+    grupo.filter((c) => c.archivada).forEach((c) => {
+      const d = crearCelda(c, true);
+      celdas.set(c.id, d);
+      lista.appendChild(d);
+    });
+  }
+
+  function pintarLista(): void {
+    lista.replaceChildren();
+    celdas.clear();
+    const porProyecto = new Map<string, Conversacion[]>();
+    conversaciones.forEach((c) => {
+      if (c.workspaceId) {
+        const grupo = porProyecto.get(c.workspaceId) ?? [];
+        grupo.push(c);
+        porProyecto.set(c.workspaceId, grupo);
+      }
+    });
+
+    proyectos.forEach((proyecto) => añadirGrupoProyecto(proyecto, porProyecto.get(proyecto.id) ?? []));
+
+    const sinProyecto = conversaciones.filter((c) => !c.workspaceId);
+    if (sinProyecto.length > 0) {
       const sep = el('div', 'conv-sep');
-      sep.textContent = 'Archivadas';
+      sep.textContent = 'Sin proyecto';
       lista.appendChild(sep);
-      archivadas.forEach((c) => {
+      sinProyecto.filter((c) => !c.archivada).forEach((c) => {
+        const d = crearCelda(c);
+        celdas.set(c.id, d);
+        lista.appendChild(d);
+      });
+      sinProyecto.filter((c) => c.archivada).forEach((c) => {
         const d = crearCelda(c);
         celdas.set(c.id, d);
         lista.appendChild(d);
       });
     }
-    // reaplica la selección visual tras repintar
     if (activaId) seleccionar(activaId);
   }
 
@@ -323,6 +392,7 @@ export function montarSidebar(opts: SidebarOpciones): Sidebar {
   pie.appendChild(bConfig);
 
   aside.appendChild(nav);
+  aside.appendChild(progSec);
   aside.appendChild(lista);
   aside.appendChild(pie);
 
@@ -346,6 +416,12 @@ export function montarSidebar(opts: SidebarOpciones): Sidebar {
     },
     eliminarConversacion(id: string) {
       eliminar(id);
+    },
+    /** [069A-Proyectos] Sustituye lista de proyectos + actualiza el header. */
+    sustituirProyectos(nuevos: Workspace[], activo: Workspace | null) {
+      proyectos.splice(0, proyectos.length, ...nuevos);
+      proyectoActivo = activo;
+      pintarLista();
     },
   };
 }

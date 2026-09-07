@@ -9,10 +9,16 @@
 // modelo/modo del runtime compartido M1.
 // ============================================================
 
-import type { ModeloSeleccionado, ProveedorModelo } from '../dominio/tipos';
+import type {
+  ElementoSeleccionado,
+  ModeloSeleccionado,
+  ProveedorModelo,
+  Workspace,
+} from '../dominio/tipos';
 import { icono, iconoHtml } from './iconos';
 import { abrirMenuContextual, cerrarMenuActual, crearItemMenu } from './menu';
 import { montarSelectorModelo } from './selectorModelo';
+import { montarSelectorWorkspace } from './selectorWorkspace';
 import { el } from '../util/dom';
 
 export type ModoEjecucion = 'predeterminado' | 'meta' | 'autonomo';
@@ -100,6 +106,15 @@ export interface Entrada {
    * vacío. El resto de campos alimenta el pequeño menú `.ctx-detalle` que
    * aparece al poner el cursor sobre el círculo (uso de la ventana). */
   setContexto(estado: EstadoContexto): void;
+  /** Actualiza las áreas disponibles sin reconstruir el composer. */
+  setWorkspaces(workspaces: Workspace[], seleccionadoId: string | null): void;
+  /** Oculta/muestra el selector de workspace (conversación nueva vs existente). */
+  setConversaId(id: string | null): void;
+  /** [seleccionar] Adjunta un elemento del navegador como badge pendiente:
+   * se muestra sobre el textarea y se antepone al próximo mensaje enviado. */
+  adjuntarElemento(elem: ElementoSeleccionado): void;
+  /** [seleccionar] Badge pendiente actual (`null` si no hay). */
+  getElementoPendiente(): ElementoSeleccionado | null;
 }
 
 export interface EntradaOpciones {
@@ -127,11 +142,36 @@ export interface EntradaOpciones {
   onModoCambiado?: (modo: ModoEjecucion) => void;
   /** [039A-1 04-09 H7] Se invoca al elegir un nivel de razonamiento (completa). */
   onRazonamientoCambiado?: (razonamiento: string) => void;
+  /** Áreas disponibles para la conversación nueva. */
+  workspaces?: Workspace[];
+  /** Área destino seleccionada; `null` = conversación sin proyecto. */
+  workspaceSeleccionadoId?: string | null;
+  /** Se invoca al cambiar el área destino de la conversación nueva. */
+  onWorkspaceCambiado?: (workspaceId: string | null) => void;
 }
 
 export function montarEntrada(opts: EntradaOpciones): Entrada {
   const raiz = el('div', 'entrada');
   const variante: VarianteEntrada = opts.variante ?? 'completa';
+
+  // [069A-8] Selector de área de trabajo como menú contextual (mismo estilo
+  // que .menu-ctx), dentro de un cuadro centrado que SOLO se muestra cuando
+  // la conversación es nueva (conversaId === null).
+  let conversaId: string | null = null;
+  const selectorWorkspaceBox = el('div', 'selector-workspace-box');
+  selectorWorkspaceBox.hidden = false; // visible por defecto (nueva)
+  const sw = montarSelectorWorkspace({
+    workspaces: opts.workspaces ?? [],
+    seleccionadoId: opts.workspaceSeleccionadoId ?? null,
+    onCambio(id) {
+      opts.onWorkspaceCambiado?.(id);
+    },
+  });
+  selectorWorkspaceBox.appendChild(sw.raiz);
+
+  function pintarVisibilidadWorkspace(): void {
+    selectorWorkspaceBox.hidden = conversaId !== null;
+  }
 
   const caja = el('div', 'caja');
   const textarea = el('textarea') as HTMLTextAreaElement;
@@ -427,6 +467,7 @@ export function montarEntrada(opts: EntradaOpciones): Entrada {
   controles.appendChild(indicador);
   controles.appendChild(btnEnviar);
 
+  raiz.appendChild(selectorWorkspaceBox);
   caja.appendChild(textarea);
   caja.appendChild(controles);
   raiz.appendChild(caja);
@@ -469,6 +510,57 @@ export function montarEntrada(opts: EntradaOpciones): Entrada {
     e.stopPropagation();
     cancelarEnEdicion();
   });
+
+  // ---------- [seleccionar] badge de elemento del navegador ----------
+  // El usuario eligió un elemento de la página (hover+clic en el panel
+  // navegador). Se muestra como badge sobre el textarea y, al enviar, se
+  // antepone al texto un descriptor para que el modelo lo reciba y pueda
+  // actuar sobre él (p. ej. con la tool `navegador_reflejo`).
+  let adjunto: ElementoSeleccionado | null = null;
+
+  const barraAdjunto = el('div', 'adjunto-badge');
+  barraAdjunto.hidden = true;
+  const adjuntoInfo = el('span', 'adjunto-badge-info');
+  const btnQuitarAdjunto = el('button', 'adjunto-badge-quitar') as HTMLButtonElement;
+  btnQuitarAdjunto.type = 'button';
+  btnQuitarAdjunto.textContent = 'quitar';
+  btnQuitarAdjunto.title = 'quitar elemento seleccionado';
+  barraAdjunto.appendChild(adjuntoInfo);
+  barraAdjunto.appendChild(btnQuitarAdjunto);
+  // El badge va sobre el textarea (primera fila de la caja del compositor).
+  caja.insertBefore(barraAdjunto, caja.firstChild);
+
+  function pintarAdjunto(): void {
+    if (!adjunto) {
+      barraAdjunto.hidden = true;
+      return;
+    }
+    const textoRecorte = adjunto.texto ? ` · “${adjunto.texto.slice(0, 40)}”` : '';
+    adjuntoInfo.textContent = `elemento: ${adjunto.etiqueta}${textoRecorte}`;
+    barraAdjunto.title = `selector: ${adjunto.selector}\npágina: ${adjunto.pagina}`;
+    barraAdjunto.hidden = false;
+  }
+
+  function quitarAdjunto(): void {
+    adjunto = null;
+    pintarAdjunto();
+  }
+
+  btnQuitarAdjunto.addEventListener('click', (e) => {
+    e.stopPropagation();
+    quitarAdjunto();
+  });
+
+  /** Al enviar, antepone el descriptor del elemento adjunto al texto. */
+  function textoConAdjunto(texto: string): string {
+    if (!adjunto) return texto;
+    const base = adjunto.texto ? adjunto.texto.trim().slice(0, 200) : '';
+    const contexto = base ? ` ("${base}")` : '';
+    const descriptor =
+      `[elemento de la página ${adjunto.pagina} — selector CSS: ${adjunto.selector}` +
+      ` — etiqueta: ${adjunto.etiqueta}${contexto}]`;
+    return `${descriptor}\n\n${texto}`;
+  }
 
   // ---------- textarea autoexpandible (máx 5 líneas) ----------
   function ajustarEntrada(): void {
@@ -515,7 +607,11 @@ export function montarEntrada(opts: EntradaOpciones): Entrada {
     const editandoId = edicion ? edicion.id : null;
     edicion = null;
     pintarBarraEdicion();
-    opts.onEnviar(texto, editandoId);
+    // [seleccionar] El adjunto (elemento del navegador) viaja antepuesto al
+    // texto y se limpia tras enviarlo (un uso por mensaje).
+    const textoFinal = textoConAdjunto(texto);
+    quitarAdjunto();
+    opts.onEnviar(textoFinal, editandoId);
   }
 
   btnEnviar.addEventListener('click', enviar);
@@ -637,6 +733,21 @@ export function montarEntrada(opts: EntradaOpciones): Entrada {
     },
     setContexto(estado: EstadoContexto) {
       pintarContexto(estado);
+    },
+    setWorkspaces(workspaces: Workspace[], seleccionadoId: string | null) {
+      sw.setWorkspaces(workspaces, seleccionadoId);
+    },
+    setConversaId(id: string | null) {
+      conversaId = id;
+      pintarVisibilidadWorkspace();
+    },
+    adjuntarElemento(elem: ElementoSeleccionado) {
+      adjunto = elem;
+      pintarAdjunto();
+      textarea.focus();
+    },
+    getElementoPendiente() {
+      return adjunto;
     },
   };
 }

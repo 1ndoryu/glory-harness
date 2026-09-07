@@ -59,7 +59,81 @@ pub(crate) struct CambiarWorkspace {
     pub(crate) ruta: String,
 }
 
+/// [069A-Proyectos] Cuerpo de `POST /workspaces`: registrar (o reutilizar
+/// renombrando) un área de trabajo con esa carpeta y activarla.
+#[derive(Debug, Deserialize)]
+pub(crate) struct CrearWorkspace {
+    pub(crate) nombre: String,
+    pub(crate) ruta: String,
+}
+
+/// [069A-Proyectos] Cuerpo de `PATCH /workspaces/:wid`: renombrar.
+#[derive(Debug, Deserialize)]
+pub(crate) struct ParcheWorkspace {
+    pub(crate) nombre: Option<String>,
+}
+
 // ── Helpers ──────────────────────────────────────────────────────────────
+
+/// [069A-Proyectos] Área de trabajo activa de la sesión. Si la ruta activa
+/// (`comun.workspace`) es un directorio real pero no está registrada en la
+/// tabla, se auto-registra (workspace implícito, como opencode/claurst/grok
+/// usan `cwd` como área). Si no hay ruta activa, devuelve el primer workspace
+/// registrado (o `None` si no hay ninguno).
+fn area_activa(comun: &SesionComun) -> Result<Option<crate::Workspace>, ApiError> {
+    if comun.workspace.is_empty() || comun.workspace == "<desconocido>" {
+        // Sin ruta activa: primer workspace registrado, o None.
+        return comun
+            .persistencia
+            .workspaces_listar(comun.user_id)
+            .map(|ws| ws.into_iter().next())
+            .map_err(|e| error("sesion", e.to_string()));
+    }
+    // La ruta activa de la sesión puede estar o no registrada en la tabla.
+    match comun
+        .persistencia
+        .workspace_por_ruta(comun.user_id, &comun.workspace)
+        .map_err(|e| error("sesion", e.to_string()))?
+    {
+        Some(ws) => Ok(Some(ws)),
+        None => {
+            // La ruta activa existe como directorio real pero no está
+            // registrada: auto-registrarla.
+            let path = std::path::Path::new(&comun.workspace);
+            if path.is_dir() {
+                let nombre = path
+                    .file_name()
+                    .map(|n| n.to_string_lossy().to_string())
+                    .unwrap_or_else(|| "Área de trabajo".to_string());
+                comun
+                    .persistencia
+                    .workspace_crear(comun.user_id, &nombre, &comun.workspace)
+                    .map(Some)
+                    .map_err(|e| error("sesion", e.to_string()))
+            } else {
+                // La ruta persistida ya no existe (disco extraído, carpeta
+                // borrada): primer workspace registrado o None.
+                comun
+                    .persistencia
+                    .workspaces_listar(comun.user_id)
+                    .map(|ws| ws.into_iter().next())
+                    .map_err(|e| error("sesion", e.to_string()))
+            }
+        }
+    }
+}
+
+/// [069A-Proyectos] Nombre de área validado: no vacío, ≤200 caracteres.
+fn nombre_area_validado(nombre: Option<String>) -> Result<String, ApiError> {
+    let n = nombre
+        .map(|n| n.trim().to_string())
+        .filter(|n| !n.is_empty())
+        .ok_or_else(|| error("peticion_invalida", "el nombre es obligatorio"))?;
+    if n.chars().count() > MAX_TITULO_CHARS {
+        return Err(error("peticion_invalida", "nombre demasiado largo"));
+    }
+    Ok(n)
+}
 
 /// `true` si la sesión tiene un turno en curso.
 async fn turno_en_curso(sesion: &Arc<SesionWeb>) -> bool {
@@ -103,6 +177,10 @@ async fn sesion_y_comun(
 
 // ── Conversaciones ───────────────────────────────────────────────────────
 
+/// [069A-Proyectos] Filtra la lista visible por el área activa de la sesión
+/// (la carpeta con fila en `workspaces`): `Some(ws)` → solo sus
+/// conversaciones; `None` (carpeta sin proyecto) → solo las sin área. La
+/// respuesta incluye el proyecto activo para que el front pinte el header.
 /// `GET /api/v1/conversations` — recientes primero, incluye archivo.
 pub(crate) async fn listar_conversaciones(
     State(state): State<Arc<AppState>>,
@@ -110,15 +188,21 @@ pub(crate) async fn listar_conversaciones(
     Path(id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     let (_, comun) = sesion_y_comun(&headers, &Method::GET, &state, &id).await?;
+    let area = area_activa(&comun)?;
     let lista = comun
         .persistencia
-        .conversaciones_listar(comun.user_id)
+        .conversaciones_listar_con_proyecto(comun.user_id)
         .map_err(|e| error("sesion", e.to_string()))?;
-    Ok(Json(
-        serde_json::json!({ "ok": true, "conversaciones": lista }),
-    ))
+    Ok(Json(serde_json::json!({
+        "ok": true,
+        "conversaciones": lista,
+        "proyecto": area,
+    })))
 }
 
+/// [069A-Proyectos] Crea la conversación dentro del área activa (si la
+/// carpeta actual es un proyecto registrado); si no, sin área. La sesión no
+/// guarda `workspace_id` duplicado: el backend lo resuelve por ruta.
 /// `POST /api/v1/conversations` — crea y la deja como actual (409 con turno).
 pub(crate) async fn crear_conversacion(
     State(state): State<Arc<AppState>>,
@@ -131,9 +215,10 @@ pub(crate) async fn crear_conversacion(
         return Err(error("turno_activo", "hay un turno en curso"));
     }
     let titulo = titulo_validado(peticion.titulo)?;
+    let area = area_activa(&comun)?;
     let nuevo_id = comun
         .persistencia
-        .conversacion_crear(comun.user_id, &titulo)
+        .conversacion_crear_en(comun.user_id, &titulo, area.as_ref().map(|a| a.id))
         .map_err(|e| error("sesion", e.to_string()))?;
     *sesion.conversacion_id.lock().await = Some(nuevo_id);
     Ok(Json(serde_json::json!({
@@ -426,6 +511,153 @@ pub(crate) async fn cambiar_workspace_ep(
     Ok(Json(
         serde_json::json!({ "ok": true, "workspace": comun.workspace }),
     ))
+}
+
+// ── [069A-Proyectos] Áreas de trabajo (workspaces) ───────────────────────
+
+/// `GET /api/v1/workspaces` — áreas del usuario (recientes primero) + cuál es
+/// la activa (resuelta por la ruta de la sesión; `null` si la carpeta actual
+/// no tiene proyecto registrado).
+pub(crate) async fn listar_workspaces(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<Json<Value>, ApiError> {
+    let (_, comun) = sesion_y_comun(&headers, &Method::GET, &state, &id).await?;
+    let workspaces = comun
+        .persistencia
+        .workspaces_listar(comun.user_id)
+        .map_err(|e| error("sesion", e.to_string()))?;
+    let activa = area_activa(&comun)?;
+    Ok(Json(serde_json::json!({
+        "ok": true,
+        "workspaces": workspaces,
+        "activa": activa,
+    })))
+}
+
+/// [069A-Proyectos] Crea/activa un proyecto sobre la carpeta actual:
+/// 1) valida la ruta absoluta + directorio; 2) si ya hay un área con esa
+/// carpeta, la reutiliza renombrándola (idempotente); si no, crea la fila y,
+/// al ser la PRIMERA área del usuario, adopta las conversaciones sin área
+/// (legacy) para que no desaparezcan del sidebar; 3) activa la carpeta como
+/// workspace de la sesión (config + runtime) y la deja como actual.
+/// `POST /api/v1/workspaces` — 409 con turno en curso.
+pub(crate) async fn crear_workspace(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Json(peticion): Json<CrearWorkspace>,
+) -> Result<Json<Value>, ApiError> {
+    let (sesion, _) = sesion_y_comun(&headers, &Method::POST, &state, &id).await?;
+    if turno_en_curso(&sesion).await {
+        return Err(error("turno_activo", "hay un turno en curso"));
+    }
+    let nombre = nombre_area_validado(Some(peticion.nombre))?;
+    let ruta = PathBuf::from(peticion.ruta.trim());
+    if !ruta.is_absolute() {
+        return Err(error("peticion_invalida", "la ruta debe ser absoluta"));
+    }
+    if !ruta.is_dir() {
+        return Err(error(
+            "no_encontrado",
+            "la ruta no existe o no es un directorio",
+        ));
+    }
+
+    let mut comun = sesion.comun.lock().await;
+    let ruta_s = ruta.to_string_lossy().into_owned();
+    let area = match comun
+        .persistencia
+        .workspace_por_ruta(comun.user_id, &ruta_s)
+        .map_err(|e| error("sesion", e.to_string()))?
+    {
+        // Ya hay un proyecto para esta carpeta → reutilizarlo con el nombre
+        // pedido (idempotente; el usuario lo está "creando" de nuevo).
+        Some(existente) => {
+            comun
+                .persistencia
+                .workspace_renombrar(comun.user_id, existente.id, &nombre)
+                .map_err(|e| error("sesion", e.to_string()))?;
+            existente
+        }
+        None => {
+            // Primera área del usuario → adoptar las conversaciones sin área
+            // (legacy) para que el sidebar filtrado no las oculte.
+            let es_primera = comun
+                .persistencia
+                .workspaces_listar(comun.user_id)
+                .map_err(|e| error("sesion", e.to_string()))?
+                .is_empty();
+            let creada = comun
+                .persistencia
+                .workspace_crear(comun.user_id, &nombre, &ruta_s)
+                .map_err(|e| error("sesion", e.to_string()))?;
+            if es_primera {
+                comun
+                    .persistencia
+                    .workspace_adoptar_sin_area(comun.user_id, creada.id)
+                    .map_err(|e| error("sesion", e.to_string()))?;
+            }
+            creada
+        }
+    };
+
+    // Activar la carpeta como workspace de la sesión (persiste config +
+    // reconstruye runtime sobre ella). Valida de nuevo la ruta (ya hecha).
+    comun
+        .cambiar_workspace(ruta)
+        .map_err(|e| error("sesion", e.to_string()))?;
+    Ok(Json(serde_json::json!({
+        "ok": true,
+        "activa": area_activa(&comun)?,
+        "creada": area,
+        "workspace": comun.workspace,
+    })))
+}
+
+/// `PATCH /api/v1/workspaces/:wid` — renombra (no adopta ni reasigna).
+pub(crate) async fn renombrar_workspace(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path((id, wid)): Path<(String, String)>,
+    Json(peticion): Json<ParcheWorkspace>,
+) -> Result<Json<Value>, ApiError> {
+    let (_, comun) = sesion_y_comun(&headers, &Method::PATCH, &state, &id).await?;
+    let nombre = match peticion.nombre {
+        Some(n) => nombre_area_validado(Some(n))?,
+        None => return Err(error("peticion_invalida", "nombre obligatorio")),
+    };
+    let wid = Uuid::parse_str(wid.trim())
+        .map_err(|_| error("peticion_invalida", "id de área malformado"))?;
+    let ok = comun
+        .persistencia
+        .workspace_renombrar(comun.user_id, wid, &nombre)
+        .map_err(|e| error("sesion", e.to_string()))?;
+    if !ok {
+        return Err(error("no_encontrado", "área de trabajo no encontrada"));
+    }
+    Ok(Json(serde_json::json!({ "ok": true, "renombrada": true })))
+}
+
+/// `DELETE /api/v1/workspaces/:wid` — elimina; sus conversaciones quedan sin
+/// área (`workspace_id = NULL`) y reaparecen en la carpeta sin proyecto.
+pub(crate) async fn eliminar_workspace(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path((id, wid)): Path<(String, String)>,
+) -> Result<Json<Value>, ApiError> {
+    let (_, comun) = sesion_y_comun(&headers, &Method::DELETE, &state, &id).await?;
+    let wid = Uuid::parse_str(wid.trim())
+        .map_err(|_| error("peticion_invalida", "id de área malformado"))?;
+    let ok = comun
+        .persistencia
+        .workspace_eliminar(comun.user_id, wid)
+        .map_err(|e| error("sesion", e.to_string()))?;
+    if !ok {
+        return Err(error("no_encontrado", "área de trabajo no encontrada"));
+    }
+    Ok(Json(serde_json::json!({ "ok": true, "eliminada": true })))
 }
 
 #[cfg(test)]

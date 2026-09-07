@@ -45,7 +45,7 @@ export function crearMensajeUsuario(
     mas.type = 'button';
     mas.title = 'acciones del mensaje';
     mas.setAttribute('aria-label', 'acciones del mensaje');
-    mas.textContent = '⋯';
+    mas.appendChild(icono('mas-horizontal', true));
     mas.addEventListener('click', (e) => {
       e.stopPropagation();
       onAcciones(id, mas.getBoundingClientRect());

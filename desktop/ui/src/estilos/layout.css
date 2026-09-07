@@ -61,13 +61,20 @@
     cursor: pointer;
     text-align: left;
     opacity: 0.8;
+    overflow: hidden;
 }
 #sidebar .nav-boton:hover { opacity: 1; }
+#sidebar .nav-boton .ic { flex: none; }
+#sidebar .nav-boton span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+}
 
 #lista-conversaciones {
     flex: 1;
     overflow-y: auto;
-    padding-top: var(--sp-sm);
 }
 .conv {
     padding: var(--sp-xs) var(--sp-md);
@@ -122,6 +129,65 @@
     opacity: 0.4;
 }
 
+/* [069A-Proyectos] Cabecera plana y grupos visibles; el proyecto activo
+   conserva solo el destino de los chats nuevos, no filtra el historial. */
+.prog-sec {
+    padding: var(--sp-xs) var(--sp-md);
+    opacity: 0.55;
+}
+.prog-header {
+    display: flex;
+    align-items: center;
+    min-height: 20px;
+}
+.prog-nombre {
+    flex: 1;
+    font-size: var(--sm);
+}
+.prog-mas {
+    flex: none;
+    display: none;
+    background: transparent;
+    color: #000;
+    border: none;
+    font-family: inherit;
+    font-size: var(--sm);
+    line-height: 1;
+    padding: 0 2px;
+    cursor: pointer;
+}
+.prog-header:hover .prog-mas,
+.prog-header:focus-within .prog-mas { display: inline-block; }
+.proyecto-grupo {
+    padding-top: var(--sp-xs);
+}
+.proyecto-grupo-boton {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-xs);
+    width: 100%;
+    padding: var(--sp-xs) var(--sp-md);
+    border: none;
+    background: transparent;
+    color: #000;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+    opacity: 0.55;
+    overflow: hidden;
+}
+.proyecto-grupo-boton:hover,
+.proyecto-grupo-boton.activo { opacity: 1; }
+.proyecto-grupo-boton .ic { flex: none; }
+.proyecto-grupo-nombre {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--sm);
+    min-width: 0;
+}
+.conv-proyecto { padding-left: var(--sp-md); }
+
 #sidebar .pie {
     padding: var(--sp-xs) 0 var(--sp-xs);
 }
@@ -139,8 +205,16 @@
     gap: var(--sp-sm);
     text-align: left;
     opacity: 0.8;
+    overflow: hidden;
 }
 #sidebar .pie-boton:hover { opacity: 1; }
+#sidebar .pie-boton .ic { flex: none; }
+#sidebar .pie-boton span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+}
 
 /* ---------- Paneles (1-2 chats) ---------- */
 /* [039A-3 P5] #paneles es el contenedor flex de los chats duplicables

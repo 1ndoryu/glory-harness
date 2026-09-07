@@ -13,7 +13,13 @@
 // recibe los eventos (el adaptador real es compartido).
 // ============================================================
 
-import type { Conversacion, ModeloSeleccionado, ProveedorModelo } from '../dominio/tipos';
+import type {
+  Conversacion,
+  ElementoSeleccionado,
+  ModeloSeleccionado,
+  ProveedorModelo,
+  Workspace,
+} from '../dominio/tipos';
 import { montarCabeceraChat, type CabeceraChat } from './cabecera';
 import {
   montarEntrada,
@@ -72,6 +78,13 @@ export interface DepsPanel {
   getModelo(): ModeloSeleccionado;
   getModo(): ModoEjecucion;
   getRazonamiento(): string;
+  /** Workspaces disponibles y destino actual de las conversaciones nuevas. */
+  getWorkspaces(): Workspace[];
+  getWorkspaceSeleccionadoId(): string | null;
+  /** Activa el destino seleccionado en la sesión antes de crear la conversación. */
+  onWorkspaceCambiado(id: string | null): void;
+  /** Prepara el workspace destino justo antes de enviar (create-on-write). */
+  prepararWorkspaceSeleccionado(): Promise<void>;
   /** true si CUALQUIER panel tiene turno en curso (M1: 1 a la vez). */
   hayTurnoGlobal(): boolean;
   /** El panel que lanza avisa → el orquestador pone TODOS en 'corriendo'. */
@@ -142,6 +155,13 @@ export interface PanelChat {
   avisoLocal(texto: string, meta: string, detalle: string): void;
   /** [039A-3 P6] Actualiza el indicador circular de contexto de la entrada. */
   setContexto(estado: EstadoContexto): void;
+  /** Actualiza el selector de área de trabajo de la conversación nueva. */
+  setWorkspaces(workspaces: Workspace[], seleccionadoId: string | null): void;
+  /** Oculta/muestra el selector de workspace según si la conversación es nueva. */
+  setConversaId(id: string | null): void;
+  /** [seleccionar] Muestra un elemento del navegador como badge pendiente en
+   * la entrada de ESTE panel (se antepone al próximo mensaje enviado). */
+  adjuntarElemento(elem: ElementoSeleccionado): void;
 }
 
 export interface PanelChatOpciones {
@@ -163,6 +183,8 @@ export interface PanelChatOpciones {
   onModeloCambiado?: (modelo: ModeloSeleccionado) => void;
   onModoCambiado?: (modo: ModoEjecucion) => void;
   onRazonamientoCambiado?: (razonamiento: string) => void;
+  /** El usuario eligió un área de trabajo distinta para la conversación nueva. */
+  onWorkspaceCambiado?: (workspaceId: string | null) => void;
 }
 
 export function montarPanelChat(opts: PanelChatOpciones): PanelChat {
@@ -198,6 +220,11 @@ export function montarPanelChat(opts: PanelChatOpciones): PanelChat {
     modeloActual: d.getModelo(),
     modo: d.getModo(),
     razonamiento: d.getRazonamiento(),
+    workspaces: d.getWorkspaces(),
+    workspaceSeleccionadoId: d.getWorkspaceSeleccionadoId(),
+    onWorkspaceCambiado(workspaceId) {
+      opts.onWorkspaceCambiado?.(workspaceId);
+    },
     onEnviar(texto, editandoId) {
       void enviar(texto, editandoId);
     },
@@ -366,6 +393,7 @@ export function montarPanelChat(opts: PanelChatOpciones): PanelChat {
   /** Aplica la carga devuelta por el backend (rewind o carga inicial). */
   function aplicarCarga(carga: CargaConversacion): void {
     conversaId = carga.id;
+    entrada.setConversaId(conversaId);
     limpiarChat();
     pintarHistorial(carga.mensajes, carga.acciones, carga.ultimo_uso);
     cabecera.ponerTitulo(carga.titulo);
@@ -618,6 +646,7 @@ export function montarPanelChat(opts: PanelChatOpciones): PanelChat {
       try {
         const conv = await d.adaptador.sesion.nueva(undefined, tipo);
         conversaId = conv.id;
+        entrada.setConversaId(conversaId);
         cabecera.ponerTitulo(conv.titulo);
         d.onConversacionCambio(conv.id);
       } catch (e: unknown) {
@@ -668,6 +697,7 @@ export function montarPanelChat(opts: PanelChatOpciones): PanelChat {
    * primer mensaje, no al abrir/recargar/pulsar "Nueva conversación". */
   function ponerBorrador(): void {
     conversaId = null;
+    entrada.setConversaId(null);
     limpiarChat();
     cabecera.ponerTitulo('Nueva conversación');
     d.onConversacionCambio(null);
@@ -690,6 +720,7 @@ export function montarPanelChat(opts: PanelChatOpciones): PanelChat {
   /** Carga una conversación en ESTE panel. En mock solo cambia el título. */
   async function cargarConversacion(id: string): Promise<void> {
     conversaId = id;
+    entrada.setConversaId(id);
     if (!d.usaReal) {
       const conv = d.conversaciones().find((c) => c.id === id);
       if (conv) cabecera.ponerTitulo(conv.titulo);
@@ -703,6 +734,7 @@ export function montarPanelChat(opts: PanelChatOpciones): PanelChat {
     try {
       const carga = await d.adaptador.sesion.cargar(id, tipo);
       conversaId = carga.id;
+      entrada.setConversaId(conversaId);
       limpiarChat();
       pintarHistorial(carga.mensajes, carga.acciones, carga.ultimo_uso);
       cabecera.ponerTitulo(carga.titulo);
@@ -789,6 +821,15 @@ export function montarPanelChat(opts: PanelChatOpciones): PanelChat {
     },
     setContexto(estado: EstadoContexto) {
       entrada.setContexto(estado);
+    },
+    setWorkspaces(workspaces: Workspace[], seleccionadoId: string | null) {
+      entrada.setWorkspaces(workspaces, seleccionadoId);
+    },
+    setConversaId(id: string | null) {
+      entrada.setConversaId(id);
+    },
+    adjuntarElemento(elem: ElementoSeleccionado) {
+      entrada.adjuntarElemento(elem);
     },
   };
 

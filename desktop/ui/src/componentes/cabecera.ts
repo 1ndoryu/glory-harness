@@ -94,7 +94,7 @@ export function montarCabeceraChat(opts: CabeceraChatOpciones): CabeceraChat {
   btnMas.type = 'button';
   btnMas.title = 'acciones de la conversación';
   btnMas.setAttribute('aria-label', 'acciones de la conversación');
-  btnMas.textContent = '⋯';
+  btnMas.appendChild(icono('mas-horizontal', true));
   btnMas.addEventListener('click', (e) => {
     e.stopPropagation();
     opts.onAcciones(btnMas.getBoundingClientRect());

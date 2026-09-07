@@ -118,6 +118,12 @@ pub struct SesionComun {
     pub modelo: String,
     pub modo: String,
     pub workspace: String,
+    /// [069A-1 F5] Puerto del navegador interno conservado entre
+    /// reconstrucciones (cambio de modelo/workspace). `None` → la tool
+    /// `navegador_reflejo` no se registra (fail-closed). Solo el escritorio
+    /// inyecta un valor real; se conserva aquí para que reconfigurar/cambiar
+    /// workspace no pierdan la tool al reconstruir el runtime.
+    pub navegador: Option<Arc<dyn NavegadorPort>>,
 }
 
 /// Datos preparados para que el consumidor ejecute y transporte un turno.
@@ -226,6 +232,10 @@ impl SesionComun {
             modelo: format!("{}/{}", harness.config.provider, harness.config.modelo),
             modo: harness.config.modo,
             workspace,
+            /* [069A-1 F5] El puerto de navegador vive en la sesión: se
+             * conserva para que `reconfigurar`/`cambiar_workspace` lo
+             * reinyecten al reconstruir el runtime. */
+            navegador: opciones_run.navegador.clone(),
         };
         /* [069A-7] `info()` reporta `conv_autocreada:false`; la apertura real
          * propaga si el servicio auto-creó la fila vacía (ver struct). */
@@ -273,19 +283,22 @@ impl SesionComun {
                 None => self.runtime.turno_config.nivel_razonamiento.clone(),
             },
             notificar: false,
-            /* [069A-1 F5] Reconfigurar no recibe un puerto de navegador:
-             * el hardware/COM vive en la sesión actual, no se reemplaza. */
-            navegador: None,
+            /* [069A-1 F5] El puerto de navegador se conserva en la sesión y
+             * se reinyecta al reconstruir: cambiar de modelo NO debe perder
+             * la tool `navegador_reflejo` (el hardware/COM vive en la sesión
+             * actual y se preserva entre reconstrucciones). */
+            navegador: self.navegador.clone(),
         };
         self.reconstruir(opciones)
     }
 
     /// [069A-2 F3] Cambia el workspace a una ruta absoluta validada y
     /// reconstruye el runtime sobre ella, conservando proveedor, modelo,
-    /// modo y razonamiento vigentes. El llamador debe garantizar que no hay
-    /// turno activo (el runtime en curso conserva el workspace viejo).
-    /// Nota: las sesiones web nunca tienen puerto de navegador
-    /// (`OpcionesSesion::default`), así que no hay nada que preservar ahí.
+    /// modo, razonamiento y puerto de navegador vigentes. El llamador debe
+    /// garantizar que no hay turno activo (el runtime en curso conserva el
+    /// workspace viejo). Nota: las sesiones web nunca tienen puerto de
+    /// navegador (`OpcionesSesion::default`), así que no hay nada que
+    /// preservar ahí.
     pub fn cambiar_workspace(&mut self, ruta: PathBuf) -> Result<(), Error> {
         if !ruta.is_absolute() {
             return Err(Error::Configuracion("la ruta debe ser absoluta".into()));
@@ -308,7 +321,9 @@ impl SesionComun {
             max_ventana: leer_max_ventana(&self.persistencia)?,
             razonamiento: cfg.nivel_razonamiento.clone(),
             notificar: false,
-            navegador: None,
+            /* [069A-1 F5] Se conserva el puerto de navegador de la sesión:
+             * cambiar el workspace no debe perder la tool. */
+            navegador: self.navegador.clone(),
         };
         self.reconstruir(opciones)
     }

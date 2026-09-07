@@ -1,11 +1,15 @@
 import { defineConfig } from 'vite';
 
 export default defineConfig({
-  // Puerto fijo para poder abrir el front sin backend (mismo puerto de
-  // desarrollo que usaba el boceto del plan 039A-1).
   server: {
     port: 8760,
     strictPort: true,
+    proxy: {
+      '/api': {
+        target: 'http://127.0.0.1:8799',
+        changeOrigin: true,
+      },
+    },
   },
   preview: {
     port: 8760,

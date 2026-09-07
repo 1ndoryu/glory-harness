@@ -96,6 +96,21 @@ body.redimensionando-navegador {
     background: #ccc;
 }
 
+/* [seleccionar] Botón en modo activo: inversión monocroma */
+.nav-btn.activo {
+    background: var(--texto);
+    color: var(--fondo);
+    border-color: var(--texto);
+}
+
+.nav-btn.activo:hover {
+    background: #000;
+}
+
+.nav-btn.activo .ic {
+    stroke: var(--fondo);
+}
+
 /* Contenedor webview (HWND child en Tauri; iframe en modo web) */
 .nav-webview {
     flex: 1;

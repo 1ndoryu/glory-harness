@@ -145,6 +145,8 @@ pub(crate) fn error(code: &str, msg: impl Into<String>) -> ApiError {
 pub(crate) enum Credencial {
     Maestra,
     Sesion(String),
+    /// Indica si la credencial vino por cookie (para origen_valido).
+    SesionCookie(String),
 }
 
 fn bearer(headers: &HeaderMap) -> Option<&str> {
@@ -180,13 +182,14 @@ async fn credencial(headers: &HeaderMap, state: &AppState) -> Option<Credencial>
             return Some(Credencial::Maestra);
         }
         if Uuid::parse_str(t).is_ok() && state.sesiones.lock().await.contains_key(t) {
+            // Autenticado por Bearer → no es cookie, mutaciones permitidas.
             return Some(Credencial::Sesion(t.to_string()));
         }
         return None;
     }
     if let Some(sid) = cookie_sesion(headers) {
         if Uuid::parse_str(&sid).is_ok() && state.sesiones.lock().await.contains_key(&sid) {
-            return Some(Credencial::Sesion(sid));
+            return Some(Credencial::SesionCookie(sid));
         }
     }
     None
@@ -237,16 +240,13 @@ pub(crate) async fn autorizar_sesion(
     let cred = credencial(headers, state)
         .await
         .ok_or_else(|| error("no_autorizado", "token inválido o ausente"))?;
-    let sid = match cred {
+    let (sid, por_cookie) = match cred {
         Credencial::Maestra => {
             return Err(error("no_autorizado", "el token maestro no abre sesiones"));
         }
-        Credencial::Sesion(s) => s,
+        Credencial::Sesion(s) => (s, false),
+        Credencial::SesionCookie(s) => (s, true),
     };
-    if sid != id_ruta {
-        return Err(error("no_autorizado", "la sesión no es tuya"));
-    }
-    let por_cookie = cookie_sesion(headers).as_deref() == Some(id_ruta);
     if !origen_valido(headers, por_cookie, metodo) {
         return Err(error("origen", "origen no permitido para esta mutación"));
     }
@@ -472,6 +472,15 @@ pub(crate) fn router(state: Arc<AppState>) -> Router {
             "/api/v1/session/{id}/workspace",
             get(super::web_datos::leer_workspace).post(super::web_datos::cambiar_workspace_ep),
         )
+        .route(
+            "/api/v1/session/{id}/workspaces",
+            get(super::web_datos::listar_workspaces).post(super::web_datos::crear_workspace),
+        )
+        .route(
+            "/api/v1/session/{id}/workspaces/{wid}",
+            patch(super::web_datos::renombrar_workspace)
+                .delete(super::web_datos::eliminar_workspace),
+        )
         // [069A-2 F6] Tope de cuerpo por petición (axum trae 2 MiB por
         // defecto; 256 KiB cubre mensaje/config/workspace de sobra).
         .layer(RequestBodyLimitLayer::new(BODY_MAX_BYTES))
@@ -499,7 +508,10 @@ pub async fn run(puerto: u16, ui_dir: Option<String>, fixture: bool) -> std::pro
         app = app.fallback_service(serve_dir);
     }
 
-    let addr = SocketAddr::from(([127, 0, 0, 1], puerto));
+    // [fix C8] Bind a 0.0.0.0 (todas las interfaces, IPv4 + dual-stack
+    // según plataforma) para que localhost (::1) y 127.0.0.1 funcionen
+    // sin conflictos con procesos zombies en FIN_WAIT_2.
+    let addr = SocketAddr::from(([0, 0, 0, 0], puerto));
     eprintln!("[glory-harness web] escuchando en http://{addr}");
     eprintln!("[glory-harness web] autenticación: Bearer token en GLORY_HARNESS_WEB_TOKEN");
 

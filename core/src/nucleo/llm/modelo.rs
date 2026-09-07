@@ -140,11 +140,13 @@ pub(crate) fn url_proveedor(proveedor: &str) -> String {
  * resuelve a deepseek/deepseek-v4-flash: es la vía que "siempre funciona"
  * (preferencia documentada del usuario). Los demás IDs reales del catálogo
  * (deepseek-v4-flash*, deepseek-ai/..., meta/muse-spark-1.2-contributor,
- * stealth/ox-alpha) se pasan tal cual a gloryapi: ya son IDs del catálogo. */
+ * stealth/ox-alpha) se pasan tal cual a gloryapi: ya son IDs del catálogo.
+ * [069A-7 06-09-2026] `auto` ya NO se mapea aquí: pasa literal como "auto"
+ * a glory API para que su router decida el modelo real. */
 pub(crate) fn modelo_proveedor(proveedor: &str, modelo: &str) -> String {
     if proveedor == "glory" {
         match modelo {
-            "commandcode" | "glm-5.3-flash" | "auto" => "deepseek/deepseek-v4-flash".to_string(),
+            "commandcode" | "glm-5.3-flash" => "deepseek/deepseek-v4-flash".to_string(),
             otro => otro.to_string(),
         }
     } else {

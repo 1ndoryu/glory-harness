@@ -116,6 +116,26 @@ Orden propuesto (dependencias de abajo arriba):
       7 tests desktop; UI build OK. Gate bloqueado por `tool-release-unpublished` preexistente
       (repin `6baf87c2`, ajeno). Plan movido a `Agente/planes/completados/`; evidencia en
       `Agente/completados/tareas-2026-09-06.md`. BD quedó en 0 conversaciones (limpia).
+- [x] **069A-8 — Selector de área de trabajo en el composer** (09-09):
+      Añadido `<select>` nativo "Área de trabajo" dentro de `.entrada`, antes de `.caja`.
+      Opciones: "Sin proyecto" + workspaces registrados. Cableado `DepsPanel` → `main.ts` →
+      `adaptador.sesion.workspaces.activarPorRuta()`. Al cambiar proyecto: pone el panel
+      en borrador y refresca sidebar. CSS en `entrada.css`. Build tsc+vite OK. Verificado
+      en navegador: selector visible, cambio de opción funcional, panel reacciona.
+- [x] **069A-9 — Seleccionar elemento de la página + modelo navega** (07-09):
+      (a) Botón "Seleccionar elemento" en el panel navegador: hover resalta el
+      elemento (outline + crosshair) y al hacer clic captura un descriptor robusto
+      (`pagina` URL + `selector` CSS con `#id`/tag+clases+nth-child + `etiqueta` +
+      `texto`) que se adjunta como badge al chat; el siguiente mensaje lo antepone
+      (`[elemento de la página <url> — selector CSS: <sel> — etiqueta: <tag>]`) para
+      que el modelo lo reciba. Solo app de escritorio (WebView2); modo web → aviso.
+      E2E desktop 9/9 OK (hover resalta, clic captura, badge visible, envío con
+      badge). (b) Fix causa raíz: el modelo no veía `navegador_reflejo` al cambiar
+      de modelo porque `SesionComun::reconfigurar` reconstruía el runtime con
+      `navegador: None`. `SesionComun` conserva el puerto y lo reinyecta en
+      `reconfigurar`/`cambiar_workspace`. E2E modelo real: llamó `navegador_reflejo`
+      (ok), navegó al fixture e hizo clic en `#btn-uno` (contador=1). Evidencia en
+      `Agente/completados/tareas-2026-09-07.md`.
 
 > **Hecho (04-09, correcciones del primer `tauri dev`):** los 7 hallazgos del primer arranque
 > real quedaron corregidos (H1–H7, bloque 039A-1). Detalle en

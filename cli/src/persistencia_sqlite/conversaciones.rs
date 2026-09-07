@@ -73,14 +73,94 @@ impl PersistenciaSqlite {
         Ok(())
     }
 
-    /// Lista las conversaciones del usuario (recientes primero).
+    /// Lista TODAS las conversaciones del usuario (recientes primero).
+    /// Ownership/CRUD global (CLI, Tauri, web, tests): no filtra por área.
     pub fn conversaciones_listar(&self, user_id: Uuid) -> HarnessResult<Vec<InfoConversacion>> {
-        self.conversaciones_listar_ws(user_id, None)
+        let conn = bloquear(&self.conn);
+        let mut out = Vec::new();
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, titulo, archivada, actualizada_en FROM conversaciones
+                 WHERE user_id = ?1 ORDER BY actualizada_en DESC",
+            )
+            .map_err(|e| Error::Persistencia(e.to_string()))?;
+        let filas = stmt
+            .query_map(params![user_id.as_hyphenated().to_string()], |f| {
+                Ok((
+                    f.get::<_, String>(0)?,
+                    f.get::<_, String>(1)?,
+                    f.get::<_, i64>(2)?,
+                    f.get::<_, String>(3)?,
+                ))
+            })
+            .map_err(|e| Error::Persistencia(e.to_string()))?;
+        for fila in filas {
+            let (id, titulo, archivada, actualizada) =
+                fila.map_err(|e| Error::Persistencia(e.to_string()))?;
+            out.push(InfoConversacion {
+                id: a_uuid(id)?,
+                titulo,
+                archivada: archivada != 0,
+                actualizada_en: a_fecha(actualizada)?,
+                workspace_id: None,
+                workspace_nombre: None,
+            });
+        }
+        Ok(out)
     }
 
-    /// [069A-Proyectos] Lista las conversaciones de un área concreta
-    /// (`Some(ws)`) o TODAS (`None`, comportamiento previo). La pública
-    /// `conversaciones_listar` delega con `None` para no romper call sites.
+    /// Lista todas las conversaciones del usuario junto con su proyecto.
+    /// `LEFT JOIN` conserva visibles las conversaciones legacy sin proyecto.
+    pub fn conversaciones_listar_con_proyecto(
+        &self,
+        user_id: Uuid,
+    ) -> HarnessResult<Vec<InfoConversacion>> {
+        let conn = bloquear(&self.conn);
+        let mut stmt = conn
+            .prepare(
+                "SELECT c.id, c.titulo, c.archivada, c.actualizada_en,
+                        c.workspace_id, w.nombre
+                 FROM conversaciones c
+                 LEFT JOIN workspaces w
+                   ON w.id = c.workspace_id AND w.user_id = c.user_id
+                 WHERE c.user_id = ?1
+                 ORDER BY c.actualizada_en DESC",
+            )
+            .map_err(|e| Error::Persistencia(e.to_string()))?;
+        let filas = stmt
+            .query_map(params![user_id.as_hyphenated().to_string()], |f| {
+                Ok((
+                    f.get::<_, String>(0)?,
+                    f.get::<_, String>(1)?,
+                    f.get::<_, i64>(2)?,
+                    f.get::<_, String>(3)?,
+                    f.get::<_, Option<String>>(4)?,
+                    f.get::<_, Option<String>>(5)?,
+                ))
+            })
+            .map_err(|e| Error::Persistencia(e.to_string()))?;
+        let mut out = Vec::new();
+        for fila in filas {
+            let (id, titulo, archivada, actualizada, workspace_id, workspace_nombre) =
+                fila.map_err(|e| Error::Persistencia(e.to_string()))?;
+            out.push(InfoConversacion {
+                id: a_uuid(id)?,
+                titulo,
+                archivada: archivada != 0,
+                actualizada_en: a_fecha(actualizada)?,
+                workspace_id: workspace_id.map(|s| a_uuid(s)).transpose()?,
+                workspace_nombre,
+            });
+        }
+        Ok(out)
+    }
+
+    /// [069A-Proyectos] Lista las conversaciones VISIBLES para un área:
+    /// `Some(ws)` → solo las de esa área; `None` → solo las SIN área
+    /// (`workspace_id IS NULL`, el legado previo a la feature o el estado
+    /// "carpeta activa sin proyecto registrado"). NO es "todas": para eso
+    /// está `conversaciones_listar`. La sidebar de la sesión filtra por el
+    /// área activa resuelta por ruta (`None` = sin proyecto).
     pub fn conversaciones_listar_ws(
         &self,
         user_id: Uuid,
@@ -88,68 +168,50 @@ impl PersistenciaSqlite {
     ) -> HarnessResult<Vec<InfoConversacion>> {
         let conn = bloquear(&self.conn);
         let mut out = Vec::new();
+        let user_s = user_id.as_hyphenated().to_string();
+        let mut consultar = |sql: &str, p: &[&dyn rusqlite::types::ToSql]| -> HarnessResult<()> {
+            let mut stmt = conn
+                .prepare(sql)
+                .map_err(|e| Error::Persistencia(e.to_string()))?;
+            let filas = stmt
+                .query_map(p, |f| {
+                    Ok((
+                        f.get::<_, String>(0)?,
+                        f.get::<_, String>(1)?,
+                        f.get::<_, i64>(2)?,
+                        f.get::<_, String>(3)?,
+                    ))
+                })
+                .map_err(|e| Error::Persistencia(e.to_string()))?;
+            for fila in filas {
+                let (id, titulo, archivada, actualizada) =
+                    fila.map_err(|e| Error::Persistencia(e.to_string()))?;
+                out.push(InfoConversacion {
+                    id: a_uuid(id)?,
+                    titulo,
+                    archivada: archivada != 0,
+                    actualizada_en: a_fecha(actualizada)?,
+                    workspace_id: None,
+                    workspace_nombre: None,
+                });
+            }
+            Ok(())
+        };
         match workspace_id {
             Some(ws) => {
-                let mut stmt = conn
-                    .prepare(
-                        "SELECT id, titulo, archivada, actualizada_en FROM conversaciones
-                         WHERE user_id = ?1 AND workspace_id = ?2 ORDER BY actualizada_en DESC",
-                    )
-                    .map_err(|e| Error::Persistencia(e.to_string()))?;
-                let filas = stmt
-                    .query_map(
-                        params![
-                            user_id.as_hyphenated().to_string(),
-                            ws.as_hyphenated().to_string()
-                        ],
-                        |f| {
-                            Ok((
-                                f.get::<_, String>(0)?,
-                                f.get::<_, String>(1)?,
-                                f.get::<_, i64>(2)?,
-                                f.get::<_, String>(3)?,
-                            ))
-                        },
-                    )
-                    .map_err(|e| Error::Persistencia(e.to_string()))?;
-                for fila in filas {
-                    let (id, titulo, archivada, actualizada) =
-                        fila.map_err(|e| Error::Persistencia(e.to_string()))?;
-                    out.push(InfoConversacion {
-                        id: a_uuid(id)?,
-                        titulo,
-                        archivada: archivada != 0,
-                        actualizada_en: a_fecha(actualizada)?,
-                    });
-                }
+                let ws_s = ws.as_hyphenated().to_string();
+                consultar(
+                    "SELECT id, titulo, archivada, actualizada_en FROM conversaciones
+                     WHERE user_id = ?1 AND workspace_id = ?2 ORDER BY actualizada_en DESC",
+                    &[&user_s, &ws_s],
+                )?;
             }
             None => {
-                let mut stmt = conn
-                    .prepare(
-                        "SELECT id, titulo, archivada, actualizada_en FROM conversaciones
-                         WHERE user_id = ?1 ORDER BY actualizada_en DESC",
-                    )
-                    .map_err(|e| Error::Persistencia(e.to_string()))?;
-                let filas = stmt
-                    .query_map(params![user_id.as_hyphenated().to_string()], |f| {
-                        Ok((
-                            f.get::<_, String>(0)?,
-                            f.get::<_, String>(1)?,
-                            f.get::<_, i64>(2)?,
-                            f.get::<_, String>(3)?,
-                        ))
-                    })
-                    .map_err(|e| Error::Persistencia(e.to_string()))?;
-                for fila in filas {
-                    let (id, titulo, archivada, actualizada) =
-                        fila.map_err(|e| Error::Persistencia(e.to_string()))?;
-                    out.push(InfoConversacion {
-                        id: a_uuid(id)?,
-                        titulo,
-                        archivada: archivada != 0,
-                        actualizada_en: a_fecha(actualizada)?,
-                    });
-                }
+                consultar(
+                    "SELECT id, titulo, archivada, actualizada_en FROM conversaciones
+                     WHERE user_id = ?1 AND workspace_id IS NULL ORDER BY actualizada_en DESC",
+                    &[&user_s],
+                )?;
             }
         }
         Ok(out)

@@ -14,11 +14,13 @@ import './estilos/index.css';
 import { CONVERSACIONES } from './datos/conversaciones';
 import { historialEjemplo } from './datos/historialEjemplo';
 import { MODELO_INICIAL, PROVEEDORES } from './dominio/catalogoModelos';
-import type { Conversacion, ModeloSeleccionado } from './dominio/tipos';
+import type { Conversacion, ModeloSeleccionado, Workspace } from './dominio/tipos';
 
 import { montarSidebar } from './componentes/sidebar';
 import type { ModoEjecucion } from './componentes/entrada';
 import { montarModalConfiguracion } from './componentes/modal';
+import { montarModalProyecto } from './componentes/modalProyecto';
+import './estilos/modalProyecto.css';
 import { montarPanelMeta } from './componentes/panelMeta';
 import { montarPanelChat, type PanelChat } from './componentes/panelChat';
 import { montarPanelNavegador } from './componentes/panelNavegador';
@@ -93,6 +95,10 @@ let conversaciones: Conversacion[] = USA_REAL
   ? []
   : CONVERSACIONES.map((c) => ({ ...c }));
 
+// [069A-Proyectos] Proyectos registrados en la sesión + activo actual.
+let proyectos: Workspace[] = [];
+let proyectoActivo: Workspace | null = null;
+
 // ---------- PanelMeta global (M1): lo monta el orquestador dentro de la
 // entrada del principal (el lateral no tiene panelMeta propio). ----------
 const panelMeta = montarPanelMeta({
@@ -129,6 +135,11 @@ const hooksAdaptador: HooksAdaptador = {
     sincronizarModeloDesdeSesion(info);
     const ws = info.workspace;
     if (ws && ws !== '<desconocido>') modal.asignarValor('workspace', ws);
+    // [069A-Proyectos] Tras cambiar de workspace (proyecto), refrescar
+    // la lista de proyectos + conversaciones. No esperar si falla.
+    if (USA_REAL) {
+      void refrescarProyectos().then(() => resincronizarSidebar());
+    }
   },
   // [039A-3 P6] El `ContextoDetalle`/`usage` del backend repinta el indicador
   // circular de TODOS los paneles con el % y la ventana real (fuente única).
@@ -231,13 +242,32 @@ function sincronizarModeloDesdeSesion(info: InfoSesion): void {
 
 async function resincronizarSidebar(): Promise<void> {
   if (!USA_REAL) return;
+  await refrescarProyectos();
   const lista = await adaptador.sesion.listar();
   conversaciones = lista.map((c) => ({
     id: c.id,
     titulo: c.titulo,
     archivada: c.archivada,
+    workspaceId: c.workspace_id,
+    workspaceNombre: c.workspace_nombre,
   }));
   sidebar.sustituir(conversaciones);
+}
+
+/** [069A-Proyectos] Refresca el estado de proyectos desde el backend. */
+async function refrescarProyectos(): Promise<void> {
+  if (!USA_REAL) return;
+  try {
+    const res = await adaptador.sesion.workspaces.listar();
+    proyectos = res.workspaces;
+    proyectoActivo = res.activa;
+    sidebar.sustituirProyectos(proyectos, proyectoActivo);
+    // Sincroniza el selector de workspace de todos los paneles.
+    const seleccionadoId = proyectoActivo?.id ?? null;
+    panelesRegistrados.forEach((p) => p.setWorkspaces(proyectos, seleccionadoId));
+  } catch {
+    // silencioso: el sidebar conserva el último estado válido
+  }
 }
 
 /** Renombra en la lista local + títulos de paneles + backend. */
@@ -384,6 +414,8 @@ function abrirAccionesPanel(panel: PanelChat, rect: DOMRect): void {
 // ---------- Sidebar ----------
 const sidebar = montarSidebar({
   conversaciones,
+  proyectos,
+  proyectoActivo,
   onSeleccionar(id) {
     // La sidebar carga la conversación en el panel ENFOCADO.
     const panel = panelActivo();
@@ -514,6 +546,30 @@ const sidebar = montarSidebar({
   onAbrirEnLateral(id) {
     abrirEnLateral(id);
   },
+  /** [069A-Proyectos] Abre el modal para crear un nuevo proyecto. */
+  onCrearProyecto() {
+    modalProyecto.abrir();
+  },
+  /** [069A-Proyectos] Cambia el proyecto activo por ruta. */
+  onSeleccionarProyecto(ruta: string) {
+    if (!USA_REAL) return;
+    void (async () => {
+      try {
+        // No permitir si hay turno en curso.
+        if (turnoGlobal) {
+          avisoGlobal('hay un turno en curso', '', 'espera a que termine antes de cambiar de proyecto');
+          return;
+        }
+        await adaptador.sesion.workspaces.activarPorRuta(ruta);
+        // onSesion / refrescarProyectos refrescarán sidebar + lista.
+        // El panel principal pasa a borrador (sin conversación del otro proyecto).
+        principal.ponerBorrador();
+        activarPanel(principal);
+      } catch (e: unknown) {
+        avisoGlobal(`no se pudo cambiar de proyecto: ${String(e)}`, '', '');
+      }
+    })();
+  },
   abrirConfig: () => modal.abrir(),
 });
 
@@ -541,6 +597,29 @@ function crearPanel(
       getModelo: () => modeloActual,
       getModo: () => modoActual,
       getRazonamiento: () => razonamientoActual,
+      getWorkspaces: () => proyectos,
+      getWorkspaceSeleccionadoId: () => proyectoActivo?.id ?? null,
+      prepararWorkspaceSeleccionado: async () => {
+        // No-op: la activación se delega al callback.
+      },
+      onWorkspaceCambiado(id) {
+        // Siempre hay un workspace activo (el agente trabaja en algún
+        // área). Si id es null no se hace nada (fallback al activo actual).
+        if (id === null) return;
+        const ws = proyectos.find((p) => p.id === id);
+        if (!ws) return;
+        if (turnoGlobal) return;
+        void (async () => {
+          try {
+            await adaptador.sesion.workspaces.activarPorRuta(ws.ruta);
+            // onSesion refrescará sidebar + lista.
+            principal.ponerBorrador();
+            activarPanel(principal);
+          } catch (e: unknown) {
+            avisoGlobal(`no se pudo cambiar de proyecto: ${String(e)}`, '', '');
+          }
+        })();
+      },
       hayTurnoGlobal,
       notificarTurnoInicio,
       notificarTurnoFin,
@@ -602,6 +681,22 @@ function crearPanel(
             avisoGlobal(`no se pudo guardar el razonamiento: ${String(e)}`, '', ''),
           );
       }
+    },
+    onWorkspaceCambiado(id) {
+      // Siempre hay un workspace activo. Si id es null, no se hace nada.
+      if (id === null) return;
+      const ws = proyectos.find((p) => p.id === id);
+      if (!ws) return;
+      if (turnoGlobal) return;
+      void (async () => {
+        try {
+          await adaptador.sesion.workspaces.activarPorRuta(ws.ruta);
+          principal.ponerBorrador();
+          activarPanel(principal);
+        } catch (e: unknown) {
+          avisoGlobal(`no se pudo cambiar de proyecto: ${String(e)}`, '', '');
+        }
+      })();
     },
   });
 
@@ -853,6 +948,18 @@ const navegador = montarPanelNavegador({
   onCerrar() {
     cerrarNavegador();
   },
+  // [seleccionar] El usuario eligió un elemento de la página con el modo
+  // "seleccionar": se adjunta como badge al chat activo para que el modelo
+  // reciba el descriptor (URL + selector CSS) en el próximo mensaje.
+  onSeleccionar(elem) {
+    const panel = panelActivo();
+    if (!panel) {
+      avisoGlobal('abre un chat para recibir el elemento', '', elem.etiqueta);
+      return;
+    }
+    activarPanel(panel);
+    panel.adjuntarElemento(elem);
+  },
 });
 let navegadorAbierto = false;
 
@@ -1071,6 +1178,29 @@ if (USA_MOCK) {
 
 // Añade el modal fuera de #app (hermano del layout).
 document.body.appendChild(modal.raiz);
+
+// [069A-Proyectos] Modal "Nuevo proyecto" autocontenido.
+const modalProyecto = montarModalProyecto({
+  invoke: USA_TAURI ? invoke : undefined,
+  onGuardar(nombre, ruta) {
+    if (!USA_REAL) return;
+    void (async () => {
+      try {
+        if (turnoGlobal) {
+          avisoGlobal('hay un turno en curso', '', 'espera a que termine para crear un proyecto');
+          return;
+        }
+        await adaptador.sesion.workspaces.guardarProyecto(nombre, ruta);
+        // onSesion / refrescarProyectos refrescarán sidebar + lista.
+        principal.ponerBorrador();
+        activarPanel(principal);
+      } catch (e: unknown) {
+        avisoGlobal(`no se pudo crear el proyecto: ${String(e)}`, '', '');
+      }
+    })();
+  },
+});
+document.body.appendChild(modalProyecto.raiz);
 
 // ---------- Arranque real: sesión + lista + última conversación ----------
 if (USA_REAL) {

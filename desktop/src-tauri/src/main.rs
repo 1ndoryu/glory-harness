@@ -19,7 +19,7 @@
 
 use std::sync::{Arc, Mutex};
 
-use glory_harness::{InfoConversacion, PersistenciaSqlite, VENTANA_MINIMA};
+use glory_harness::{InfoConversacion, PersistenciaSqlite, VENTANA_MINIMA, Workspace};
 use glory_harness::servicio::{Apertura, OpcionesSesion, SesionComun};
 use glory_harness_core::aprobacion::{PeticionAprobacion, RespuestaAprobacion};
 use glory_harness_core::evento::AgenteEvento;
@@ -787,9 +787,13 @@ fn conversacion_nueva(
         .map(|t| t.trim().to_string())
         .filter(|t| !t.is_empty())
         .unwrap_or_else(|| "Nueva conversación".into());
+    /* [069A-Proyectos] La conversación nueva nace dentro del área activa de
+     * la carpeta actual (si es un proyecto registrado); si no, sin área. El
+     * workspace_id se resuelve por ruta (nunca se duplica en `SesionComun`). */
+    let area = area_activa(&sesion)?;
     let id = sesion
         .persistencia
-        .conversacion_crear(sesion.user_id, &titulo)
+        .conversacion_crear_en(sesion.user_id, &titulo, area.as_ref().map(|a| a.id))
         .map_err(|e| e.to_string())?;
     /* [039A-3 P5] La nueva conversación queda como actual SOLO de este panel.
      * [039A-3 P3] Conversación nueva = contexto nuevo: no hay tramo previo
@@ -800,10 +804,13 @@ fn conversacion_nueva(
         titulo,
         archivada: false,
         actualizada_en: chrono::Utc::now(),
+        workspace_id: None,
+        workspace_nombre: None,
     })
 }
 
-/// Lista las conversaciones del usuario (recientes primero, incluye archivo).
+/// [069A-Proyectos] Lista todas las conversaciones agrupables por proyecto.
+/// Las conversaciones legacy conservan `workspace_id: null`.
 #[tauri::command]
 fn listar_conversaciones(
     estado: State<'_, Estado>,
@@ -811,7 +818,7 @@ fn listar_conversaciones(
     let sesion = sesion_actual(&estado)?;
     sesion
         .persistencia
-        .conversaciones_listar(sesion.user_id)
+        .conversaciones_listar_con_proyecto(sesion.user_id)
         .map_err(|e| e.to_string())
 }
 
@@ -1231,6 +1238,247 @@ fn elegir_workspace(estado: State<'_, Estado>, app: AppHandle) -> Result<InfoSes
     }
 }
 
+/// [069A-Proyectos] Diálogo nativo de carpeta para el modal "Nuevo proyecto".
+/// Solo devuelve la ruta (String vacía si el usuario cancela), sin reabrir la
+/// sesión ni persistir nada. El modal decide qué hacer con la ruta.
+#[tauri::command]
+fn elegir_carpeta_proyecto() -> Result<String, String> {
+    let carpeta = rfd::FileDialog::new()
+        .set_title("Seleccionar carpeta del proyecto")
+        .pick_folder();
+    match carpeta {
+        Some(dir) => Ok(dir.to_string_lossy().into_owned()),
+        None => Ok(String::new()),
+    }
+}
+
+// --- [069A-Proyectos] Áreas de trabajo (workspaces) ---
+
+/// [069A-Proyectos] Área registrada para la carpeta ACTIVA de la sesión
+/// (`comun.workspace`). Si la ruta activa es un directorio real pero no está
+/// registrada en la tabla, SE AUTO-REGISTRA (workspace implícito, como
+/// opencode/claurst/grok usan `cwd` como área). Así el frontend siempre
+/// recibe `activa: Some(...)` cuando hay workspaces o una ruta válida.
+fn area_activa(sesion: &Sesion) -> Result<Option<Workspace>, String> {
+    let workspace = sesion
+        .comun
+        .lock()
+        .map(|c| c.workspace.clone())
+        .map_err(|_| "sesión bloqueada".to_string())?;
+    if workspace.is_empty() || workspace == "<desconocido>" {
+        // Sin ruta activa: el primer workspace registrado, o None.
+        return sesion
+            .persistencia
+            .workspaces_listar(sesion.user_id)
+            .map(|ws| ws.into_iter().next())
+            .map_err(|e| e.to_string());
+    }
+    // La ruta activa de la sesión puede estar o no registrada en la tabla.
+    match sesion
+        .persistencia
+        .workspace_por_ruta(sesion.user_id, &workspace)
+        .map_err(|e| e.to_string())?
+    {
+        Some(ws) => Ok(Some(ws)),
+        None => {
+            // La ruta activa existe como directorio real pero no está
+            // registrada: auto-registrarla.
+            let path = std::path::Path::new(&workspace);
+            if path.is_dir() {
+                let nombre = path
+                    .file_name()
+                    .map(|n| n.to_string_lossy().to_string())
+                    .unwrap_or_else(|| "Área de trabajo".to_string());
+                sesion
+                    .persistencia
+                    .workspace_crear(sesion.user_id, &nombre, &workspace)
+                    .map(Some)
+                    .map_err(|e| e.to_string())
+            } else {
+                // La ruta persistida ya no existe (disco extraído, carpeta
+                // borrada): primer workspace registrado o None.
+                sesion
+                    .persistencia
+                    .workspaces_listar(sesion.user_id)
+                    .map(|ws| ws.into_iter().next())
+                    .map_err(|e| e.to_string())
+            }
+        }
+    }
+}
+
+/// [069A-Proyectos] Lista las áreas del usuario + cuál es la activa (la de la
+/// carpeta actual; `null` si no es un proyecto registrado).
+#[tauri::command]
+fn workspaces_listar(estado: State<'_, Estado>) -> Result<ValorWorkspaces, String> {
+    let sesion = sesion_actual(&estado)?;
+    let workspaces = sesion
+        .persistencia
+        .workspaces_listar(sesion.user_id)
+        .map_err(|e| e.to_string())?;
+    let activa = area_activa(&sesion)?;
+    Ok(ValorWorkspaces {
+        workspaces,
+        activa,
+    })
+}
+
+#[derive(serde::Serialize)]
+struct ValorWorkspaces {
+    workspaces: Vec<Workspace>,
+    activa: Option<Workspace>,
+}
+
+/// [069A-Proyectos] Registra (o reutiliza renombrando) un proyecto para una
+/// carpeta y la activa como workspace de la sesión. Si es la PRIMERA área del
+/// usuario, adopta las conversaciones sin área (legacy) para que no
+/// desaparezcan del sidebar. Devuelve la sesión resultante (mismo contrato
+/// que `elegir_workspace`). 409 con turno en curso.
+#[tauri::command]
+fn workspace_crear_o_activar(
+    estado: State<'_, Estado>,
+    app: AppHandle,
+    nombre: String,
+    ruta: String,
+) -> Result<InfoSesion, String> {
+    let sesion = sesion_actual(&estado)?;
+    if estado
+        .turno
+        .lock()
+        .map(|t| t.activo)
+        .unwrap_or(true)
+    {
+        return Err("hay un turno en curso".into());
+    }
+    let nombre = nombre.trim();
+    if nombre.is_empty() {
+        return Err("el nombre es obligatorio".into());
+    }
+    if nombre.chars().count() > 200 {
+        return Err("nombre demasiado largo".into());
+    }
+    let ruta = std::path::PathBuf::from(ruta.trim());
+    if !ruta.is_absolute() {
+        return Err("la ruta debe ser absoluta".into());
+    }
+    if !ruta.is_dir() {
+        return Err("la ruta no existe o no es un directorio".into());
+    }
+    let ruta_s = ruta.to_string_lossy().into_owned();
+    let comun = sesion
+        .comun
+        .lock()
+        .map_err(|_| "sesión bloqueada".to_string())?;
+    let es_primera = comun
+        .persistencia
+        .workspaces_listar(comun.user_id)
+        .map_err(|e| e.to_string())?
+        .is_empty();
+    match comun
+        .persistencia
+        .workspace_por_ruta(comun.user_id, &ruta_s)
+        .map_err(|e| e.to_string())?
+    {
+        Some(existente) => {
+            comun
+                .persistencia
+                .workspace_renombrar(comun.user_id, existente.id, nombre)
+                .map_err(|e| e.to_string())?;
+        }
+        None => {
+            let creada = comun
+                .persistencia
+                .workspace_crear(comun.user_id, nombre, &ruta_s)
+                .map_err(|e| e.to_string())?;
+            if es_primera {
+                comun
+                    .persistencia
+                    .workspace_adoptar_sin_area(comun.user_id, creada.id)
+                    .map_err(|e| e.to_string())?;
+            }
+        }
+    };
+    drop(comun);
+    sesion
+        .persistencia
+        .config_guardar("workspace", &ruta_s)
+        .map_err(|e| e.to_string())?;
+    abrir_sesion_interna(&estado, &app, None, None, Some(ruta_s), None, None, true)
+}
+
+/// [069A-Proyectos] Activa un área EXISTENTE del usuario por su ruta (para
+/// cambiar de proyecto desde el menú del header, sin crear ni renombrar).
+#[tauri::command]
+fn workspace_activar_por_ruta(
+    estado: State<'_, Estado>,
+    app: AppHandle,
+    ruta: String,
+) -> Result<InfoSesion, String> {
+    let sesion = sesion_actual(&estado)?;
+    if estado
+        .turno
+        .lock()
+        .map(|t| t.activo)
+        .unwrap_or(true)
+    {
+        return Err("hay un turno en curso".into());
+    }
+    let ruta_s = ruta.trim().to_string();
+    if ruta_s.is_empty() {
+        return Err("la ruta es obligatoria".into());
+    }
+    let existe = sesion
+        .persistencia
+        .workspace_por_ruta(sesion.user_id, &ruta_s)
+        .map_err(|e| e.to_string())?;
+    if existe.is_none() {
+        return Err("no existe un proyecto para esa carpeta".into());
+    }
+    sesion
+        .persistencia
+        .config_guardar("workspace", &ruta_s)
+        .map_err(|e| e.to_string())?;
+    abrir_sesion_interna(&estado, &app, None, None, Some(ruta_s), None, None, true)
+}
+
+/// [069A-Proyectos] Renombra un área del usuario. `false` = no existe.
+#[tauri::command]
+fn workspace_renombrar(
+    estado: State<'_, Estado>,
+    id: String,
+    nombre: String,
+) -> Result<bool, String> {
+    let sesion = sesion_actual(&estado)?;
+    let id = Uuid::parse_str(id.trim()).map_err(|_| "id inválido".to_string())?;
+    let nombre = nombre.trim();
+    if nombre.is_empty() {
+        return Err("el nombre es obligatorio".into());
+    }
+    if nombre.chars().count() > 200 {
+        return Err("nombre demasiado largo".into());
+    }
+    sesion
+        .persistencia
+        .workspace_renombrar(sesion.user_id, id, nombre)
+        .map_err(|e| e.to_string())
+}
+
+/// [069A-Proyectos] Elimina un área del usuario. Sus conversaciones quedan
+/// sin área (`workspace_id = NULL`) y reaparecen en la carpeta sin proyecto.
+/// `false` = no existía.
+#[tauri::command]
+fn workspace_eliminar(
+    estado: State<'_, Estado>,
+    id: String,
+) -> Result<bool, String> {
+    let sesion = sesion_actual(&estado)?;
+    let id = Uuid::parse_str(id.trim()).map_err(|_| "id inválido".to_string())?;
+    sesion
+        .persistencia
+        .workspace_eliminar(sesion.user_id, id)
+        .map_err(|e| e.to_string())
+}
+
 /// Fija la meta del modo `meta` (`None`/vacía = sin meta). Normalizada.
 #[tauri::command]
 fn actualizar_meta(
@@ -1272,6 +1520,12 @@ fn main() {
             config_leer,
             config_guardar,
             elegir_workspace,
+            elegir_carpeta_proyecto,
+            workspaces_listar,
+            workspace_crear_o_activar,
+            workspace_activar_por_ruta,
+            workspace_renombrar,
+            workspace_eliminar,
             actualizar_meta,
             navegador::navegador_abrir,
             navegador::navegador_navegar,

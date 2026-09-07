@@ -19,6 +19,7 @@ import {
   type ProveedorInfo,
   type Transporte,
 } from '../tauri/real';
+import type { Workspace } from '../dominio/tipos';
 
 /** Claves que viven en el servidor; el resto cae a localStorage (igual que
  * el mock): la superficie configLeer/Guardar no cambia. */
@@ -150,6 +151,20 @@ export function crearTransporteApi(base: string, hooks: HooksAdaptador = {}): Tr
       const f = (d as { code?: string; message?: string }) ?? {};
       onEvento({ tipo: 'error', mensaje: f.message ?? f.code ?? 'error', retryable: true } as never);
     });
+  }
+
+  /** [069A-Proyectos] Extraído para reuso en workspaceActivarsPorRuta. */
+  async function fijarWorkspaceImpl(ruta: string): Promise<InfoSesion> {
+    const r = await http<{ workspace: string }>('POST', `/api/v1/session/${sid}/workspace`, {
+      ruta,
+    });
+    const base_info: InfoSesion = ultimoInfo ?? {
+      modelo: '/',
+      workspace: r.workspace,
+      proveedores: [],
+      conversacion: null,
+    };
+    return recordar({ ...base_info, workspace: r.workspace });
   }
 
   return {
@@ -309,20 +324,57 @@ export function crearTransporteApi(base: string, hooks: HooksAdaptador = {}): Tr
       Promise.reject(
         new Error('en modo web la ruta se fija con fijarWorkspace (campo de texto)'),
       ),
-    fijarWorkspace: async (ruta) => {
-      const r = await http<{ workspace: string }>('POST', `/api/v1/session/${sid}/workspace`, {
-        ruta,
-      });
+    // [069A-Proyectos] Extraída a función compartida para workspaceActivarsPorRuta.
+    fijarWorkspace: async (ruta) => fijarWorkspaceImpl(ruta),
+    fijarMeta: () =>
+      Promise.reject(new Error('la meta no disponible en modo web (fase 069A-2)')),
+    // [069A-Proyectos] HTTP workspaces
+    workspacesListar: async () => {
+      const r = await http<{ ok: boolean; workspaces: Workspace[]; activa: Workspace | null }>(
+        'GET',
+        `/api/v1/session/${sid}/workspaces`,
+      );
+      return { workspaces: r.workspaces, activa: r.activa };
+    },
+    proyectoGuardar: async (nombre, ruta) => {
+      // Web: POST /workspaces crea la fila + POST /workspace la activa
+      const creada = await http<{ ok: boolean; activa: Workspace; creada: Workspace; workspace: string }>(
+        'POST',
+        `/api/v1/session/${sid}/workspaces`,
+        { nombre, ruta },
+      );
       const base_info: InfoSesion = ultimoInfo ?? {
         modelo: '/',
-        workspace: r.workspace,
+        workspace: creada.workspace,
         proveedores: [],
         conversacion: null,
       };
-      return recordar({ ...base_info, workspace: r.workspace });
+      // El backend ya cambió el workspace de la sesión; componer info limpia.
+      const info: InfoSesion = {
+        ...base_info,
+        workspace: creada.workspace,
+      };
+      return recordar(info);
     },
-    fijarMeta: () =>
-      Promise.reject(new Error('la meta no disponible en modo web (fase 069A-2)')),
+    workspaceActivarsPorRuta: async (ruta) => {
+      // Reusa fijarWorkspace (POST /workspace) que cambia la ruta activa.
+      return fijarWorkspaceImpl(ruta);
+    },
+    workspaceRenombrar: async (id, nombre) => {
+      const r = await http<{ ok: boolean; renombrada: boolean }>(
+        'PATCH',
+        `/api/v1/session/${sid}/workspaces/${encodeURIComponent(id)}`,
+        { nombre },
+      );
+      return r.renombrada;
+    },
+    workspaceEliminar: async (id) => {
+      const r = await http<{ ok: boolean; eliminada: boolean }>(
+        'DELETE',
+        `/api/v1/session/${sid}/workspaces/${encodeURIComponent(id)}`,
+      );
+      return r.eliminada;
+    },
   };
 }
 

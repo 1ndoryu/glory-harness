@@ -1,0 +1,101 @@
+/* ============================================================
+   Modal "Nuevo proyecto" (069A-Proyectos): formulario simple
+   con nombre + carpeta + botones guardar/cancelar.
+   Patrón .modal-fondo/.modal igual que modal.css; las clases
+   hijas usan prefijo proyecto-modal- para no colisionar.
+   ============================================================ */
+
+.proyecto-modal-titulo {
+    font-size: var(--sm);
+    padding: var(--sp-md) var(--sp-md) 0;
+    font-weight: normal;
+}
+
+.proyecto-modal-cuerpo {
+    padding: var(--sp-md);
+    display: flex;
+    flex-direction: column;
+    gap: var(--sp-sm);
+    flex: 1;
+}
+
+.proyecto-modal-label {
+    display: flex;
+    flex-direction: column;
+    gap: var(--sp-xs);
+    font-size: var(--xs);
+}
+
+.proyecto-modal-input {
+    border: 1px solid #000;
+    background: #fff;
+    color: #000;
+    font-family: inherit;
+    font-size: var(--sm);
+    padding: var(--sp-xs) var(--sp-sm);
+    width: 100%;
+}
+
+.proyecto-modal-input:focus {
+    outline: none;
+    background: #fff;
+}
+
+.proyecto-modal-fila-ruta {
+    display: flex;
+    gap: var(--sp-xs);
+    align-items: stretch;
+}
+
+.proyecto-modal-fila-ruta .proyecto-modal-input {
+    flex: 1;
+}
+
+.proyecto-modal-boton-ruta {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid #000;
+    background: #fff;
+    color: #000;
+    font-family: inherit;
+    padding: var(--sp-xs) var(--sp-sm);
+    cursor: pointer;
+}
+
+.proyecto-modal-boton-ruta:hover {
+    background: #000;
+    color: #fff;
+}
+
+.proyecto-modal-botones {
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--sp-sm);
+    margin-top: var(--sp-sm);
+}
+
+.proyecto-modal-btn {
+    border: 1px solid #000;
+    background: #fff;
+    color: #000;
+    font-family: inherit;
+    font-size: var(--sm);
+    padding: var(--sp-xs) var(--sp-md);
+    cursor: pointer;
+}
+
+.proyecto-modal-btn:hover {
+    background: #000;
+    color: #fff;
+}
+
+.proyecto-modal-btn-primario {
+    background: #000;
+    color: #fff;
+}
+
+.proyecto-modal-btn-primario:hover {
+    background: #fff;
+    color: #000;
+}

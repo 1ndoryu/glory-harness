@@ -164,6 +164,11 @@ pub struct InfoConversacion {
     pub titulo: String,
     pub archivada: bool,
     pub actualizada_en: DateTime<Utc>,
+    /// Proyecto asociado solo cuando la conversación se lista para la sidebar.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub workspace_id: Option<Uuid>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub workspace_nombre: Option<String>,
 }
 
 /// Acción (tool) recuperada para repintar el historial al recargar.

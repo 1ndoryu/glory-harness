@@ -58,6 +58,23 @@ impl PersistenciaSqlite {
         })
     }
 
+    /// [069A-Proyectos] Adopta las conversaciones SIN área (`workspace_id IS
+    /// NULL`, el legado previo a la feature) hacia esta área. Lo usa el flujo
+    /// "crear/activar proyecto" cuando se registra la PRIMERA área del
+    /// usuario, para que las conversaciones que ya existían no "desaparezcan"
+    /// al quedar el sidebar filtrado por área. Devuelve el nº de filas
+    /// afectadas. Renombrar NO adopta; `workspace_eliminar` devuelve a NULL.
+    pub fn workspace_adoptar_sin_area(&self, user_id: Uuid, id: Uuid) -> HarnessResult<usize> {
+        let n = bloquear(&self.conn)
+            .execute(
+                "UPDATE conversaciones SET workspace_id = ?1
+                 WHERE user_id = ?2 AND workspace_id IS NULL",
+                params![id.as_hyphenated().to_string(), user_id.as_hyphenated().to_string()],
+            )
+            .map_err(|e| Error::Persistencia(e.to_string()))?;
+        Ok(n)
+    }
+
     /// Lista las áreas del usuario (recientes primero).
     pub fn workspaces_listar(&self, user_id: Uuid) -> HarnessResult<Vec<Workspace>> {
         let conn = bloquear(&self.conn);
@@ -280,5 +297,31 @@ mod tests {
         assert_eq!(p.workspaces_listar(user).expect("listar").len(), 1);
         // Eliminar inexistente → false.
         assert!(!p.workspace_eliminar(user, Uuid::new_v4()).expect("eliminar fake"));
+
+        // Adoptar legacy: al crear la PRIMERA área del usuario, las
+        // conversaciones sin área pasan a esa área (no "desaparecen").
+        let user2 = Uuid::new_v4();
+        let legacy = p.conversacion_crear(user2, "legacy").expect("crear legacy");
+        assert!(p
+            .conversaciones_listar_ws(user2, None)
+            .expect("legacy sin area")
+            .iter()
+            .any(|c| c.id == legacy));
+        let area = p
+            .workspace_crear(user2, "Área nueva", "C:\\tmp\\proyecto-nuevo")
+            .expect("crear area");
+        let adoptadas = p
+            .workspace_adoptar_sin_area(user2, area.id)
+            .expect("adoptar");
+        assert_eq!(adoptadas, 1);
+        assert!(p
+            .conversaciones_listar_ws(user2, Some(area.id))
+            .expect("area con legacy")
+            .iter()
+            .any(|c| c.id == legacy));
+        assert!(p
+            .conversaciones_listar_ws(user2, None)
+            .expect("sin area vacio")
+            .is_empty());
     }
 }

@@ -17,7 +17,7 @@ import {
   type AsistenteVivo,
   type HerramientaViva,
 } from '../componentes/mensajes';
-import type { DecisionAprobacion, IconoNombre } from '../dominio/tipos';
+import type { DecisionAprobacion, IconoNombre, Workspace } from '../dominio/tipos';
 import { el } from '../util/dom';
 
 /**
@@ -82,6 +82,8 @@ export interface InfoConversacion {
   titulo: string;
   archivada: boolean;
   actualizada_en: string;
+  workspace_id?: string | null;
+  workspace_nombre?: string | null;
 }
 
 export interface InfoSesion {
@@ -218,6 +220,12 @@ export interface Transporte {
   elegirWorkspace(): Promise<InfoSesion>;
   fijarWorkspace(ruta: string): Promise<InfoSesion>;
   fijarMeta(meta: string | null): Promise<string | null>;
+  // [069A-Proyectos] Gestión de proyectos (áreas de trabajo).
+  workspacesListar(): Promise<{ workspaces: Workspace[]; activa: Workspace | null }>;
+  proyectoGuardar(nombre: string, ruta: string): Promise<InfoSesion>;
+  workspaceActivarsPorRuta(ruta: string): Promise<InfoSesion>;
+  workspaceRenombrar(id: string, nombre: string): Promise<boolean>;
+  workspaceEliminar(id: string): Promise<boolean>;
 }
 
 /** Transporte Tauri in-process (comportamiento 039A-1 intacto). */
@@ -278,6 +286,16 @@ export function transporteTauri(): Transporte {
         new Error('en Tauri el workspace se elige con el diálogo nativo (elegirWorkspace)'),
       ),
     fijarMeta: (meta) => invoke<string | null>('actualizar_meta', { meta }),
+    // [069A-Proyectos] Tauri: invoke directo a comandos del backend.
+    workspacesListar: () =>
+      invoke<{ workspaces: Workspace[]; activa: Workspace | null }>('workspaces_listar'),
+    proyectoGuardar: (nombre, ruta) =>
+      invoke<InfoSesion>('workspace_crear_o_activar', { nombre, ruta }),
+    workspaceActivarsPorRuta: (ruta) =>
+      invoke<InfoSesion>('workspace_activar_por_ruta', { ruta }),
+    workspaceRenombrar: (id, nombre) =>
+      invoke<boolean>('workspace_renombrar', { id, nombre }),
+    workspaceEliminar: (id) => invoke<boolean>('workspace_eliminar', { id }),
   };
 }
 
@@ -657,6 +675,30 @@ export function crearAdaptadorReal(hooks: HooksAdaptador = {}, transporte: Trans
       },
       async actualizarMeta(meta: string | null): Promise<string | null> {
         return transporte.fijarMeta(meta);
+      },
+      // [069A-Proyectos] Proyectos (áreas de trabajo).
+      workspaces: {
+        async listar(): Promise<{ workspaces: Workspace[]; activa: Workspace | null }> {
+          return transporte.workspacesListar();
+        },
+        async guardarProyecto(nombre: string, ruta: string): Promise<InfoSesion> {
+          const info = await transporte.proyectoGuardar(nombre, ruta);
+          sesionAbierta = true;
+          hooks.onSesion?.(info);
+          return info;
+        },
+        async activarPorRuta(ruta: string): Promise<InfoSesion> {
+          const info = await transporte.workspaceActivarsPorRuta(ruta);
+          sesionAbierta = true;
+          hooks.onSesion?.(info);
+          return info;
+        },
+        async renombrar(id: string, nombre: string): Promise<boolean> {
+          return transporte.workspaceRenombrar(id, nombre);
+        },
+        async eliminar(id: string): Promise<boolean> {
+          return transporte.workspaceEliminar(id);
+        },
       },
     },
   };

@@ -7,6 +7,7 @@ import type { IconoNombre } from '../dominio/tipos';
 
 const TRAZOS: Record<IconoNombre, string> = {
   lupa: '<circle cx="11" cy="11" r="8"></circle><path d="m21 21-4.3-4.3"></path>',
+  carpeta: '<path d="M3 6a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"></path>',
   archivo:
     '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"></path><path d="M14 2v4a2 2 0 0 0 2 2h4"></path>',
   lapiz: '<path d="M12 20h9"></path><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"></path>',
@@ -48,6 +49,22 @@ const TRAZOS: Record<IconoNombre, string> = {
   spin: '<path d="M21 12a9 9 0 1 1-6.219-8.56"></path>',
   navegador:
     '<circle cx="12" cy="12" r="10"></circle><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"></polygon>',
+  // [fix Lucide] Iconos añadidos para reemplazar texto/emoji/SVGs custom
+  mas: '<line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line>',
+  'mas-horizontal':
+    '<circle cx="12" cy="12" r="1"></circle><circle cx="19" cy="12" r="1"></circle><circle cx="5" cy="12" r="1"></circle>',
+  pausa:
+    '<rect x="14" y="4" width="4" height="16" rx="1"></rect><rect x="6" y="4" width="4" height="16" rx="1"></rect>',
+  reproducir: '<polygon points="6 3 20 12 6 21 6 3"></polygon>',
+  'flecha-izq': '<path d="m12 19-7-7 7-7"></path><path d="M19 12H5"></path>',
+  'flecha-der': '<path d="m5 12 7-7 7 7"></path><path d="M19 12H5"></path>',
+  recargar:
+    '<path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"></path><path d="M21 3v5h-5"></path><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"></path><path d="M3 21v-5h5"></path>',
+  camara:
+    '<path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3Z"></path><circle cx="12" cy="13" r="3"></circle>',
+  // [seleccionar] Lucide "mouse-pointer": elegir un elemento de la página.
+  seleccionar:
+    '<path d="m3 3 7.07 16.97 2.51-7.39 7.39-2.51L3 3z"></path><path d="m13 13 6 6"></path>',
 };
 
 /** Crea un SVG de icono. `pequeno` añade .ic-xs (11px). */

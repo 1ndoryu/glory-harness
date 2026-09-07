@@ -9,6 +9,7 @@
 // ============================================================
 
 import { el } from '../util/dom';
+import { iconoHtml } from './iconos';
 
 /** Estado visible: inactivo (sin turno) · corriendo · pausado. */
 export type EstadoMeta = 'inactivo' | 'corriendo' | 'pausado';
@@ -37,10 +38,8 @@ export interface PanelMetaOpciones {
   onReanudar: () => void;
 }
 
-const ICONO_PAUSA =
-  '<svg class="ic ic-xs" viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="4" width="4" height="16"></rect><rect x="14" y="4" width="4" height="16"></rect></svg>';
-const ICONO_PLAY =
-  '<svg class="ic ic-xs" viewBox="0 0 24 24" aria-hidden="true"><polygon points="6 3 20 12 6 21 6 3"></polygon></svg>';
+const ICONO_PAUSA = iconoHtml('pausa', true);
+const ICONO_PLAY = iconoHtml('reproducir', true);
 
 const ETIQUETA_ESTADO: Record<EstadoMeta, string> = {
   inactivo: 'inactivo',

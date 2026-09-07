@@ -31,6 +31,18 @@ export interface Conversacion {
   seleccionada?: boolean;
   /** Ocultas bajo la sección Archivadas de la sidebar. */
   archivada?: boolean;
+  /** Proyecto asociado; null/undefined = sin proyecto. */
+  workspaceId?: string | null;
+  workspaceNombre?: string | null;
+}
+
+/** [069A-Proyectos] Área de trabajo (proyecto): agrupa conversaciones por
+ * carpeta. Serializado 1:1 con el backend. */
+export interface Workspace {
+  id: string;
+  nombre: string;
+  ruta: string;
+  creada_en: string;
 }
 
 /** Resultado de una herramienta: texto plano o HTML de diff (- / +). */
@@ -105,6 +117,7 @@ export type Bloque =
 
 export type IconoNombre =
   | 'lupa'
+  | 'carpeta'
   | 'archivo'
   | 'lapiz'
   | 'globo'
@@ -129,4 +142,29 @@ export type IconoNombre =
   | 'chevron-abajo'
   | 'chevron-derecha'
   | 'navegador'
-  | 'spin';
+  | 'spin'
+  | 'mas'
+  | 'mas-horizontal'
+  | 'pausa'
+  | 'reproducir'
+  | 'flecha-izq'
+  | 'flecha-der'
+  | 'recargar'
+  | 'camara'
+  | 'seleccionar';
+
+// ---------- Elemento elegido en el navegador (feature seleccionar) ----------
+
+/** Descriptor de un elemento del navegador que el usuario eligió para
+ * pasárselo al modelo. Lo produce el panel navegador (desktop/WebView2) al
+ * hacer hover+clic en "seleccionar elemento". */
+export interface ElementoSeleccionado {
+  /** URL de la página donde está el elemento. */
+  pagina: string;
+  /** Selector CSS robusto que localiza el elemento (para `navegador_reflejo`). */
+  selector: string;
+  /** Etiqueta corta: `tag#id.clase` (para el badge). */
+  etiqueta: string;
+  /** Recorte del texto visible del elemento (para el badge/contexto). */
+  texto: string;
+}
