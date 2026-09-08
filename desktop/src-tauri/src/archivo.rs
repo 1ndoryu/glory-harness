@@ -10,7 +10,7 @@ use std::path::PathBuf;
 const MAX_BYTES: u64 = 256 * 1024;
 
 /// Archivo leído para el visor.
-#[derive(Serialize)]
+#[derive(Debug, Serialize)]
 pub struct ArchivoLeido {
     /// Ruta absoluta canonicalizada.
     pub ruta: String,

@@ -32,6 +32,8 @@ use tauri::{AppHandle, Emitter, Manager, State};
 use uuid::Uuid;
 
 mod archivo;
+mod filesystem;
+mod git;
 mod conversaciones;
 mod navegador;
 mod sesion;
@@ -479,6 +481,11 @@ fn main() {
             workspaces::workspace_eliminar,
             workspaces::actualizar_meta,
             archivo::leer_archivo,
+            filesystem::workspace_info,
+            filesystem::workspace_listar_entrada,
+            filesystem::workspace_leer_archivo,
+            filesystem::workspace_buscar,
+            git::workspace_git_estado,
             navegador::comandos::navegador_abrir,
             navegador::comandos::navegador_navegar,
             navegador::comandos::navegador_cerrar,

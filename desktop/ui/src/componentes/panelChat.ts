@@ -174,9 +174,12 @@ export interface PanelChat {
 
 /** [089A-2] Cambio de archivo para el visor (ruta + diff ya formateado). */
 export interface CambioArchivoPanel {
+  origen: 'tool';
+  tool: 'file_write' | 'file_patch';
   ruta: string;
   titulo: string;
-  diffHtml: string;
+  resumen: string;
+  diff: string | null;
 }
 
 export interface PanelChatOpciones {
@@ -530,9 +533,12 @@ export function montarPanelChat(opts: PanelChatOpciones): PanelChat {
     const ruta = rutaDeArgs(args);
     if (!ruta) return;
     cambios.push({
+      origen: 'tool',
+      tool,
       ruta,
       titulo: descripcionDeTool(tool, args),
-      diffHtml: formatearResultadoHerramienta(resumen, diff),
+      resumen,
+      diff,
     });
   }
   /** Extrae la ruta de los argumentos de una tool de archivo. */

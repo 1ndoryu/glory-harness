@@ -8,14 +8,15 @@
 // ============================================================
 
 import '../estilos/visor.css';
-import { invoke } from '@tauri-apps/api/core';
 import { el } from '../util/dom';
-import { esEntornoTauri } from '../tauri/real';
 
 export interface CambioArchivo {
+  origen: 'tool';
+  tool: 'file_write' | 'file_patch';
   ruta: string;
   titulo: string;
-  diffHtml: string;
+  resumen: string;
+  diff: string | null;
 }
 
 export interface PanelVisor {
@@ -32,7 +33,9 @@ export interface PanelVisor {
 
 type SubTab = 'archivo' | 'cambios';
 
-export function montarPanelVisor(): PanelVisor {
+export function montarPanelVisor(opts: {
+  leerArchivo?: (ruta: string) => Promise<{ ruta: string; lineas: number; contenido: string }>;
+} = {}): PanelVisor {
   const raiz = el('div', 'panel-visor');
 
   const barra = el('div', 'visor-barra');
@@ -81,7 +84,6 @@ export function montarPanelVisor(): PanelVisor {
   raiz.appendChild(tabCambios);
 
   let sub: SubTab = 'archivo';
-  let base: string | null = null;
   const vistos = new Map<string, HTMLElement>();
 
   function pintarSub(): void {
@@ -111,21 +113,13 @@ export function montarPanelVisor(): PanelVisor {
       avisar('escribe una ruta primero.');
       return;
     }
-    if (!esEntornoTauri()) {
-      avisar('el visor de archivos solo está disponible en la app de escritorio.');
-      return;
-    }
-    if (!base) {
-      avisar('sin área de trabajo activa: elige un proyecto en la entrada.');
+    if (!opts.leerArchivo) {
+      avisar('la lectura local solo está disponible en la app de escritorio.');
       return;
     }
     inputRuta.value = r;
     try {
-      const res = (await invoke('leer_archivo', { base, ruta: r })) as {
-        ruta: string;
-        lineas: number;
-        contenido: string;
-      };
+      const res = await opts.leerArchivo(r);
       const nombre = res.ruta.split(/[/\\]/).pop() || res.ruta;
       meta.textContent = `${nombre} — ${res.lineas} líneas`;
       meta.title = res.ruta;
@@ -171,7 +165,8 @@ export function montarPanelVisor(): PanelVisor {
 
   return {
     raiz,
-    registrarCambio(cambio) {      const clave = cambio.ruta || cambio.titulo;
+    registrarCambio(cambio) {
+      const clave = `${cambio.origen}:${cambio.tool}:${cambio.ruta || cambio.titulo}`;
       vistos.get(clave)?.remove();
       if (vacio.parentNode === listaCambios) vacio.remove();
       const tarjeta = el('div', 'visor-cambio');
@@ -190,14 +185,15 @@ export function montarPanelVisor(): PanelVisor {
       cab.appendChild(btnRuta);
       cab.appendChild(meta);
       const diff = el('div', 'visor-cambio-diff');
-      diff.innerHTML = cambio.diffHtml;
+      pintarDiffSeguro(diff, cambio.resumen, cambio.diff);
       tarjeta.appendChild(cab);
       tarjeta.appendChild(diff);
       listaCambios.prepend(tarjeta);
       vistos.set(clave, tarjeta);
     },
-    fijarBase(ruta) {
-      base = ruta && ruta.trim() !== '' ? ruta : null;
+    fijarBase(_ruta) {
+      // La ruta activa se resuelve en el backend; se conserva el método para
+      // mantener la API del visor y los callers existentes.
     },
     limpiarCambios() {
       vistos.clear();
@@ -209,6 +205,22 @@ export function montarPanelVisor(): PanelVisor {
       void cargar(ruta);
     },
   };
+}
+
+function pintarDiffSeguro(contenedor: HTMLElement, resumen: string, diff: string | null): void {
+  const resumenNodo = el('span', 'resumen');
+  resumenNodo.textContent = resumen.trim();
+  contenedor.appendChild(resumenNodo);
+  if (!diff?.trim()) return;
+
+  for (const linea of diff.split('\\n')) {
+    if (linea.startsWith('@@')) continue;
+    const fila = el('span', 'visor-diff-linea');
+    const clase = linea.startsWith('+') ? 'add' : linea.startsWith('-') ? 'del' : 'ctx';
+    fila.classList.add(clase);
+    fila.textContent = linea.startsWith(' ') ? linea.slice(1) : linea;
+    contenedor.appendChild(fila);
+  }
 }
 
 function subTabBtn(etiqueta: string): HTMLButtonElement {

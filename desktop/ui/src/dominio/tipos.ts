@@ -45,6 +45,36 @@ export interface Workspace {
   creada_en: string;
 }
 
+export interface EntradaWorkspace {
+  ruta: string;
+  nombre: string;
+  tipo: 'archivo' | 'directorio' | 'enlace' | 'desconocido';
+  tamano: number | null;
+  modificado_en: string | null;
+  ignorado: boolean;
+  hijos: EntradaWorkspace[] | null;
+}
+
+export interface ListadoWorkspace {
+  ruta: string;
+  entradas: EntradaWorkspace[];
+  truncado: boolean;
+  excluidas: string[];
+}
+
+export interface ResultadoBusqueda {
+  consulta: string;
+  entradas: EntradaWorkspace[];
+  truncado: boolean;
+  excluidas: string[];
+}
+
+export interface ErrorFilesystem {
+  codigo: string;
+  mensaje: string;
+  ruta?: string | null;
+}
+
 /** Resultado de una herramienta: texto plano o HTML de diff (- / +). */
 export type ResultadoHerramienta =
   | { tipo: 'texto'; texto: string }

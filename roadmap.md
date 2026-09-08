@@ -210,6 +210,13 @@ Orden propuesto (dependencias de abajo arriba):
       smart-case, timeout 180 s, fallback local con aviso. Supera a la v1 por
       `GLORY_TGREP_BIN` (código eliminado). Evidencia:
       `Agente/completados/tareas-2026-09-08.md`; gate 089A-8 PASS 0/0/0.
+- [x] **089A-9 — Explorador real del workspace, cambios/diffs y terminal**
+      (08-09, HECHO 08-09): Fases 0–4 completadas (contratos, filesystem
+      backend con tests 7/7, árbol lazy con apertura, cambios seguros de
+      tools sin truncamiento, Git local con panel y tab). Watcher nativo y
+      terminal PTY diferidos por decisión de MVP (ponytail); se reabren
+      como tarea separada si el uso real lo justifica. Evidencia:
+      `Agente/completados/tareas-2026-09-08.md`.
 
 > **Hecho (04-09, correcciones del primer `tauri dev`):** los 7 hallazgos del primer arranque
 > real quedaron corregidos (H1–H7, bloque 039A-1). Detalle en
@@ -236,6 +243,10 @@ Orden propuesto (dependencias de abajo arriba):
 
 ## Planes activos
 
+- `Agente/planes/completados/plan-workspace-explorer-diffs-terminal-2026-09.md` (089A-9) —
+  **cerrado 08-09** con Fases 0–4 completadas; watcher y PTY diferidos (ponytail).
+  activo; primera fase filesystem local + árbol/apertura, sin Git/watcher/PTY
+  hasta disponer de contratos y evidencia verificable.
 - `Agente/planes/completados/plan-deuda-cero-079A-1-2026-09-07.md` (079A-1) —
   **cerrado 07-09** con gate full PASS 0/0/0.
 - `Agente/planes/plan-web-real-069A-2.md` (069A-2) — **cerrado con observaciones**:

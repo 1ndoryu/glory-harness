@@ -27,6 +27,8 @@ import { montarBarraSuperior } from './componentes/barraSuperior';
 import { montarPanelNavegador } from './componentes/panelNavegador';
 import { montarPanelDerecho } from './componentes/panelDerecho';
 import { montarPanelVisor } from './componentes/panelVisor';
+import { montarPanelFiles } from './componentes/panelFiles';
+import { montarPanelGit } from './componentes/panelGit';
 import { renderizarBloque } from './componentes/mensajes';
 import {
   abrirMenuContextual,
@@ -1085,7 +1087,15 @@ let navegadorAbierto = false;
 // Chat lateral, Navegador y Visor conviven como tabs (antes el navegador
 // y el lateral se excluían). El grip del navegador desaparece: el panel
 // derecho trae su grip único (ancho persistido en la clave de siempre).
-const visor = montarPanelVisor();
+const visor = montarPanelVisor({ leerArchivo: USA_TAURI ? adaptador.sesion.filesystem.leer : undefined });
+const files = montarPanelFiles({
+  transporte: adaptador.sesion.filesystem,
+  abrirArchivo(ruta) {
+    abrirVisor();
+    visor.abrirArchivo(ruta);
+  },
+});
+const git = montarPanelGit({ transporte: { estado: adaptador.sesion.filesystem.gitEstado } });
 const panelDerecho = montarPanelDerecho({
   onCambioTab(id) {
     // La webview hija es nativa: no respeta `hidden`. Al salir de su tab
@@ -1101,7 +1111,9 @@ const panelDerecho = montarPanelDerecho({
   },
   // [089A-4] El usuario eligió una opción del inicio (panel sin tabs).
   onElegirInicio(opcion) {
-    if (opcion === 'navegador') abrirNavegador();
+    if (opcion === 'files') abrirFiles();
+    else if (opcion === 'git') abrirGit();
+    else if (opcion === 'navegador') abrirNavegador();
     else if (opcion === 'visor') abrirVisor();
     else abrirChatLateralVacio();
   },
@@ -1174,6 +1186,24 @@ function reposicionarWebview(): void {
 }
 
 /** Abre el tab Visor (vuelca los cambios del panel activo + fija el área). */
+function abrirFiles(): void {
+  files.recargar();
+  asegurarPanelDerecho();
+  panelDerecho.abrirTab('files', 'Files', files.raiz, () => {
+    panelDerecho.cerrarTab('files');
+    cerrarPanelDerechoSiVacio();
+  });
+}
+
+function abrirGit(): void {
+  git.recargar();
+  asegurarPanelDerecho();
+  panelDerecho.abrirTab('git', 'Git local', git.raiz, () => {
+    panelDerecho.cerrarTab('git');
+    cerrarPanelDerechoSiVacio();
+  });
+}
+
 function abrirVisor(): void {
   visor.limpiarCambios();
   panelActivo()

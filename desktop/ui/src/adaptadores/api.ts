@@ -19,6 +19,7 @@ import {
   type ProveedorInfo,
   type Transporte,
 } from '../tauri/real';
+import type { EstadoGit } from '../componentes/panelGit';
 import type { Workspace } from '../dominio/tipos';
 
 /** Claves que viven en el servidor; el resto cae a localStorage (igual que
@@ -384,6 +385,21 @@ export function crearTransporteApi(base: string, hooks: HooksAdaptador = {}): Tr
         `/api/v1/session/${sid}/workspaces/${encodeURIComponent(id)}`,
       );
       return r.eliminada;
+    },
+    workspaceInfo: async () => {
+      throw new Error('Files requiere la aplicación de escritorio local');
+    },
+    workspaceListarEntrada: async () => {
+      throw new Error('Files no está disponible en el modo web');
+    },
+    workspaceLeerArchivo: async () => {
+      throw new Error('la lectura local no está disponible en el modo web');
+    },
+    workspaceBuscar: async () => {
+      throw new Error('la búsqueda local no está disponible en el modo web');
+    },
+    workspaceGitEstado: async (): Promise<EstadoGit> => {
+      throw new Error('Git local no está disponible en el modo web');
     },
   };
 }

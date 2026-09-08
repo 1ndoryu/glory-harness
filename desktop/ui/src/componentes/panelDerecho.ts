@@ -19,7 +19,7 @@ import { icono } from './iconos';
 import { el } from '../util/dom';
 import type { IconoNombre } from '../dominio/tipos';
 
-/** Id de tab: 'navegador' | 'visor' | 'chat:<conversaId>'. */
+/** Id de tab: 'files' | 'navegador' | 'visor' | 'chat:<conversaId>'. */
 export type TabDerechaId = string;
 
 export interface PanelDerecho {
@@ -41,7 +41,7 @@ export interface PanelDerecho {
 }
 
 /** Opción del inicio (pantalla sin tabs): abre su tab correspondiente. */
-export type OpcionInicio = 'navegador' | 'visor' | 'chat';
+export type OpcionInicio = 'files' | 'git' | 'navegador' | 'visor' | 'chat';
 
 export function montarPanelDerecho(opts: {
   onCambioTab(id: TabDerechaId | null): void;
@@ -92,6 +92,8 @@ export function montarPanelDerecho(opts: {
     return btn;
   }
 
+  opcionInicio('files', 'carpeta', 'Files');
+  opcionInicio('git', 'flujo', 'Git local');
   opcionInicio('navegador', 'navegador', 'Navegador');
   opcionInicio('visor', 'archivo', 'Visor');
   // Gating como Synara: el chat lateral solo si hay conversación activa
@@ -105,6 +107,8 @@ export function montarPanelDerecho(opts: {
       rect: botonMas.getBoundingClientRect(),
       construir(menu) {
         for (const [opcion, etiqueta] of [
+          ['files', 'Files'],
+          ['git', 'Git local'],
           ['navegador', 'Navegador'],
           ['visor', 'Visor'],
           ...(chatLateralDisponible ? [['chat', 'Chat lateral']] : []),

@@ -18,7 +18,13 @@ import {
   type AsistenteVivo,
   type HerramientaViva,
 } from '../componentes/mensajes';
-import type { DecisionAprobacion, IconoNombre, Workspace } from '../dominio/tipos';
+import type {
+  DecisionAprobacion,
+  IconoNombre,
+  ListadoWorkspace,
+  ResultadoBusqueda,
+  Workspace,
+} from '../dominio/tipos';
 import { el } from '../util/dom';
 
 /**
@@ -188,7 +194,14 @@ export interface HooksAdaptador {
   onConexion?: (estado: 'conectando' | 'en-linea' | 'reconectando' | 'error', detalle?: string) => void;
   /** [089A-2] El agente modificó un archivo (file_write/file_patch con diff):
    * el orquestador lo refleja en el tab Cambios del visor. Hook opcional. */
-  onCambioArchivo?: (cambio: { ruta: string; titulo: string; diffHtml: string }) => void;
+  onCambioArchivo?: (cambio: {
+    origen: 'tool';
+    tool: 'file_write' | 'file_patch';
+    ruta: string;
+    titulo: string;
+    resumen: string;
+    diff: string | null;
+  }) => void;
 }
 
 /** [069A-2 F4] Transporte del adaptador: la fuente de los eventos y el
@@ -230,6 +243,11 @@ export interface Transporte {
   workspaceActivarsPorRuta(ruta: string): Promise<InfoSesion>;
   workspaceRenombrar(id: string, nombre: string): Promise<boolean>;
   workspaceEliminar(id: string): Promise<boolean>;
+  workspaceInfo(): Promise<{ ruta: string; nombre: string }>;
+  workspaceListarEntrada(ruta: string, profundidad?: number): Promise<ListadoWorkspace>;
+  workspaceLeerArchivo(ruta: string): Promise<{ ruta: string; lineas: number; contenido: string }>;
+  workspaceBuscar(consulta: string, ruta?: string): Promise<ResultadoBusqueda>;
+  workspaceGitEstado(): Promise<import('../componentes/panelGit').EstadoGit>;
 }
 
 /** Transporte Tauri in-process (comportamiento 039A-1 intacto). */
@@ -300,6 +318,20 @@ export function transporteTauri(): Transporte {
     workspaceRenombrar: (id, nombre) =>
       invoke<boolean>('workspace_renombrar', { id, nombre }),
     workspaceEliminar: (id) => invoke<boolean>('workspace_eliminar', { id }),
+    workspaceInfo: () => invoke<{ ruta: string; nombre: string }>('workspace_info'),
+    workspaceListarEntrada: (ruta, profundidad) =>
+      invoke<ListadoWorkspace>('workspace_listar_entrada', { rutaRelativa: ruta, profundidad }),
+    workspaceLeerArchivo: (ruta) =>
+      invoke<{ ruta: string; lineas: number; contenido: string }>('workspace_leer_archivo', {
+        rutaRelativa: ruta,
+      }),
+    workspaceBuscar: (consulta, ruta) =>
+      invoke<ResultadoBusqueda>('workspace_buscar', {
+        consulta,
+        rutaRelativa: ruta ?? null,
+      }),
+    workspaceGitEstado: () =>
+      invoke<import('../componentes/panelGit').EstadoGit>('workspace_git_estado'),
   };
 }
 
@@ -473,7 +505,7 @@ export function crearAdaptadorReal(hooks: HooksAdaptador = {}, transporte: Trans
         break;
       }
       case 'tool_result': {
-        const dif = ev.diff?.slice(0, 600);
+        const dif = ev.diff ?? null;
         if (herramienta) {
           const detalle = formatearResultadoHerramienta(ev.resumen, dif);
           if (ev.ok) herramienta.completada('ok', { tipo: 'html', html: detalle });
@@ -490,9 +522,12 @@ export function crearAdaptadorReal(hooks: HooksAdaptador = {}, transporte: Trans
           dif
         ) {
           hooks.onCambioArchivo?.({
+            origen: 'tool',
+            tool: ev.tool,
             ruta: rutaHerramienta,
             titulo: descripcionDeTool(ev.tool, undefined),
-            diffHtml: formatearResultadoHerramienta(ev.resumen, dif),
+            resumen: ev.resumen,
+            diff: dif,
           });
         }
         rutaHerramienta = null;
@@ -795,6 +830,23 @@ export function crearAdaptadorReal(hooks: HooksAdaptador = {}, transporte: Trans
         },
         async eliminar(id: string): Promise<boolean> {
           return transporte.workspaceEliminar(id);
+        },
+      },
+      filesystem: {
+        async info(): Promise<{ ruta: string; nombre: string }> {
+          return transporte.workspaceInfo();
+        },
+        async listar(ruta: string, profundidad?: number): Promise<ListadoWorkspace> {
+          return transporte.workspaceListarEntrada(ruta, profundidad);
+        },
+        async leer(ruta: string): Promise<{ ruta: string; lineas: number; contenido: string }> {
+          return transporte.workspaceLeerArchivo(ruta);
+        },
+        async buscar(consulta: string, ruta?: string): Promise<ResultadoBusqueda> {
+          return transporte.workspaceBuscar(consulta, ruta);
+        },
+        async gitEstado(): Promise<import('../componentes/panelGit').EstadoGit> {
+          return transporte.workspaceGitEstado();
         },
       },
     },
