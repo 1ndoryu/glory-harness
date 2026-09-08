@@ -138,6 +138,16 @@ Orden propuesto (dependencias de abajo arriba):
       mensaje. El modo web local acepta sesión sin token y limita el bind a
       loopback cuando no hay `GLORY_HARNESS_WEB_TOKEN`. Evidencia en
       `Agente/completados/tareas-2026-09-07.md`.
+- [ ] **089A-1 — Controles de ventana propios estilo Paseo** (08-09, en curso):
+      Quitar botones nativos (`decorations: false` en `tauri.conf.json`) e
+      integrar minimizar/maximizar-restaurar/cerrar propios en la cabecera del
+      panel principal (nuevo `componentes/ventana.ts` + `estilos/ventana.css`,
+      iconos `minimizar`/`maximizar`/`restaurar` en `iconos.ts` + `tipos.ts`;
+      orden Paseo; hover invertido monocromo reutilizando `.cab-boton`).
+      Solo bajo Tauri (`esEntornoTauri`); en web no se montan. La cabecera
+      principal actúa como barra de arrastre (`data-tauri-drag-region`).
+      Referencia guardada en `area-trabajo/paseo`
+      (`components/desktop/window-controls.tsx`, `titlebar-drag-region.tsx`).
 
 > **Hecho (04-09, correcciones del primer `tauri dev`):** los 7 hallazgos del primer arranque
 > real quedaron corregidos (H1–H7, bloque 039A-1). Detalle en

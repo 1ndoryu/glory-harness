@@ -151,7 +151,10 @@ export type IconoNombre =
   | 'flecha-der'
   | 'recargar'
   | 'camara'
-  | 'seleccionar';
+  | 'seleccionar'
+  | 'minimizar'
+  | 'maximizar'
+  | 'restaurar';
 
 // ---------- Elemento elegido en el navegador (feature seleccionar) ----------
 

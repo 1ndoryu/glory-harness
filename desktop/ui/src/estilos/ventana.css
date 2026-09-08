@@ -1,0 +1,16 @@
+/* ============================================================
+   Controles de ventana propios (089A-1, orden Paseo: minimizar,
+   maximizar/restaurar, cerrar). Van al extremo derecho de la
+   cabecera del panel principal, tras el grupo ⋯. Reutilizan
+   `.cab-boton` (24px + hover invertido monocromo); aquí solo el
+   contenedor y el separador lateral.
+   ============================================================ */
+
+.cabecera-chat .controles-ventana {
+    display: flex;
+    align-items: center;
+    flex: none;
+    margin-left: var(--sp-sm);
+    padding-left: var(--sp-xs);
+    border-left: 1px solid var(--borde);
+}

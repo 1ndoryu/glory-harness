@@ -13,6 +13,8 @@
 
 import { icono } from './iconos';
 import { el } from '../util/dom';
+import { esEntornoTauri } from '../tauri/real';
+import { crearControlesVentana } from './ventana';
 
 export interface CabeceraChat {
   raiz: HTMLElement;
@@ -158,6 +160,16 @@ export function montarCabeceraChat(opts: CabeceraChatOpciones): CabeceraChat {
   cab.appendChild(acciones);
   cab.appendChild(t);
   cab.appendChild(accionesMas);
+
+  // [089A-1] Controles de ventana propios estilo Paseo, solo en el panel
+  // principal bajo Tauri (en web siguen los nativos del navegador). La
+  // cabecera actúa como barra de arrastre (`data-tauri-drag-region`) y la
+  // botonera minimizar/maximizar/cerrar queda al extremo derecho, tras ⋯.
+  // No aplica a paneles laterales (son chats, no chrome de ventana).
+  if (!lateral && esEntornoTauri()) {
+    cab.setAttribute('data-tauri-drag-region', '');
+    cab.appendChild(crearControlesVentana());
+  }
 
   return {
     raiz: cab,

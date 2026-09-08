@@ -65,6 +65,13 @@ const TRAZOS: Record<IconoNombre, string> = {
   // [seleccionar] Lucide "mouse-pointer": elegir un elemento de la página.
   seleccionar:
     '<path d="m3 3 7.07 16.97 2.51-7.39 7.39-2.51L3 3z"></path><path d="m13 13 6 6"></path>',
+  // [089A-1] Controles de ventana propios (orden Paseo: minimizar,
+  // maximizar/restaurar, cerrar). Trazos Lucide 24px monocromo; 'x' ya
+  // existe para cerrar. 'restaurar' adapta el glifo de Paseo (rect + L).
+  minimizar: '<path d="M5 12h14"></path>',
+  maximizar: '<rect width="18" height="18" x="3" y="3" rx="2"></rect>',
+  restaurar:
+    '<rect x="9" y="9" width="11" height="11" rx="2"></rect><path d="M5 15V5a2 2 0 0 1 2-2h10"></path>',
 };
 
 /** Crea un SVG de icono. `pequeno` añade .ic-xs (11px). */
