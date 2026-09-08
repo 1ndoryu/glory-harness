@@ -38,14 +38,16 @@ use axum::{
     Json, Router,
 };
 use serde_json::Value;
-use tokio::sync::{broadcast, Mutex};
+use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
-use tokio_stream::wrappers::BroadcastStream;
+use tokio_stream::wrappers::ReceiverStream;
 use tokio_stream::StreamExt;
 use tower_http::limit::RequestBodyLimitLayer;
 use uuid::Uuid;
 
 use crate::servicio::{OpcionesSesion, SesionComun};
+
+use super::web_sse::DifusionSse;
 
 /// Token maestro opcional: solo crea sesiones. Nunca autoriza nada más.
 /// Sin token configurado, `web` funciona en modo local tokenless; `run` lo
@@ -63,7 +65,7 @@ pub(crate) const COOKIE_SESION: &str = "gh_sesion";
 /// [069A-2 F6] Límites del modo web local (single-user, loopback).
 /// Cuerpo HTTP máximo por petición (mensajes, config, workspace).
 pub(crate) const BODY_MAX_BYTES: usize = 256 * 1024;
-/// Sesiones vivas máximas (cada una retiene runtime + broadcast).
+/// Sesiones vivas máximas (cada una retiene runtime + difusión SSE).
 pub(crate) const MAX_SESIONES: usize = 16;
 /// TTL de sesión en segundos (24 h, igual que `Max-Age` de la cookie).
 pub(crate) const SESION_TTL_SECS: u64 = 86_400;
@@ -83,14 +85,23 @@ pub(crate) struct SesionWeb {
     /// SOLO al escribir el primer mensaje (create-on-write); `None` es el
     /// estado legítimo tras abrir con lista vacía o borrar la última.
     pub(crate) conversacion_id: Mutex<Option<Uuid>>,
-    /// Canal broadcast con el JSON de cable `{"event":..,"data":..}` compacto.
-    pub(crate) tx: broadcast::Sender<String>,
+    /// [079A-1 F1] Difusión SSE lock-free (un mpsc acotado por suscriptor,
+    /// ver `web_sse.rs`): el JSON de cable `{"event":..,"data":..}` compacto.
+    pub(crate) sse: Mutex<DifusionSse>,
     /// Objetivo vigente del modo `meta`, equivalente al estado IPC de Tauri.
     pub(crate) meta: Mutex<Option<String>>,
     pub(crate) turno: Mutex<Option<TurnoActivo>>,
     /// [069A-2 F6] Creación para TTL (las sesiones no son eternas aunque el
     /// proceso viva días; el cierre explícito sigue siendo `DELETE`).
     pub(crate) creada: Instant,
+}
+
+impl SesionWeb {
+    /// [079A-1 F1] Emite un cable a los suscriptores SSE (best-effort,
+    /// lock-free; ver `web_sse.rs`). Nunca bloquea ni falla.
+    pub(crate) async fn emitir(&self, cable: String) {
+        self.sse.lock().await.emitir(cable);
+    }
 }
 
 pub(crate) struct AppState {
@@ -289,7 +300,10 @@ async fn crear_sesion(
     headers: HeaderMap,
 ) -> Result<Response, ApiError> {
     let autorizado = state.token.is_none()
-        || matches!(credencial(&headers, &state).await, Some(Credencial::Maestra));
+        || matches!(
+            credencial(&headers, &state).await,
+            Some(Credencial::Maestra)
+        );
     if !autorizado {
         return Err(error("no_autorizado", "token inválido o ausente"));
     }
@@ -313,12 +327,11 @@ async fn crear_sesion(
         Some(apertura.conversacion)
     };
 
-    let (tx, _rx) = broadcast::channel(256);
     let session_id = Uuid::new_v4().to_string();
     let sesion = Arc::new(SesionWeb {
         comun: Mutex::new(comun),
         conversacion_id: Mutex::new(conversacion.as_ref().map(|c| c.id)),
-        tx,
+        sse: Mutex::new(DifusionSse::nueva()),
         meta: Mutex::new(None),
         turno: Mutex::new(None),
         creada: Instant::now(),
@@ -373,7 +386,10 @@ pub(crate) async fn actualizar_meta(
         .as_ref()
         .is_some_and(|m| m.chars().count() > MAX_META_CHARS)
     {
-        return Err(error("meta_larga", "meta demasiado larga (máx. 8000 caracteres)"));
+        return Err(error(
+            "meta_larga",
+            "meta demasiado larga (máx. 8000 caracteres)",
+        ));
     }
     *sesion.meta.lock().await = normalizada.clone();
     Ok(Json(serde_json::json!({ "ok": true, "meta": normalizada })))
@@ -391,7 +407,7 @@ async fn cerrar_sesion(
     Ok(Json(serde_json::json!({ "ok": true, "session_id": id })))
 }
 
-/// `GET /api/v1/session/:id/events` → SSE con snapshot `ready` + broadcast.
+/// `GET /api/v1/session/:id/events` → SSE con snapshot `ready` + difusión.
 async fn eventos_sse(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
@@ -415,15 +431,13 @@ async fn eventos_sse(
         }),
     );
 
-    let rx = sesion.tx.subscribe();
+    let rx = sesion.sse.lock().await.suscribir().1;
     let stream = tokio_stream::once(Ok(Event::default()
         .event("ready")
         .data(ready_json_data(&ready))))
-    .chain(BroadcastStream::new(rx).map(|msg| {
-        let cable = match msg {
-            Ok(c) => c,
-            Err(_) => cable("error", serde_json::json!({"code": "lagged"})),
-        };
+    // [079A-1 F1] Sin `Lagged`: el mpsc acotado descarta ante lector lento
+    // en vez de avisar (ver `web_sse.rs`); el lector ve eventos contiguos.
+    .chain(ReceiverStream::new(rx).map(|cable| {
         let (tipo, data) = partir_cable(&cable);
         Ok(Event::default().event(tipo).data(data))
     }));
@@ -463,10 +477,7 @@ pub(crate) fn router(state: Arc<AppState>) -> Router {
         .route("/api/v1/session", post(crear_sesion))
         .route("/api/v1/session/{id}", delete(cerrar_sesion))
         .route("/api/v1/session/{id}/events", get(eventos_sse))
-        .route(
-            "/api/v1/session/{id}/meta",
-            patch(actualizar_meta),
-        )
+        .route("/api/v1/session/{id}/meta", patch(actualizar_meta))
         .route(
             "/api/v1/session/{id}/turns",
             post(super::web_turnos::iniciar_turno),
@@ -605,12 +616,11 @@ pub(crate) mod tests {
             None,
         )
         .expect("abrir sesión memoria");
-        let (tx, _rx) = broadcast::channel(256);
         let sid = Uuid::new_v4().to_string();
         let sesion = Arc::new(SesionWeb {
             conversacion_id: Mutex::new(Some(apertura.conversacion.id)),
             comun: Mutex::new(comun),
-            tx,
+            sse: Mutex::new(DifusionSse::nueva()),
             meta: Mutex::new(None),
             turno: Mutex::new(None),
             creada: Instant::now(),
@@ -627,9 +637,7 @@ pub(crate) mod tests {
     /// el servicio auto-creó una "Nueva conversación" vacía (BD sin filas),
     /// se descarta (mismo patrón que `crear_sesion`) y la sesión queda sin
     /// conversación actual (`None`). Replica el arranque real con lista vacía.
-    pub(crate) async fn sesion_memoria_borrador(
-        state: &Arc<AppState>,
-    ) -> (String, Arc<SesionWeb>) {
+    pub(crate) async fn sesion_memoria_borrador(state: &Arc<AppState>) -> (String, Arc<SesionWeb>) {
         let persist = crate::PersistenciaSqlite::en_memoria().expect("bd memoria");
         let (comun, apertura) = crate::servicio::SesionComun::abrir_con_persistencia(
             crate::servicio::OpcionesSesion::default(),
@@ -646,12 +654,11 @@ pub(crate) mod tests {
         } else {
             Some(apertura.conversacion.id)
         };
-        let (tx, _rx) = broadcast::channel(256);
         let sid = Uuid::new_v4().to_string();
         let sesion = Arc::new(SesionWeb {
             conversacion_id: Mutex::new(conversacion_id),
             comun: Mutex::new(comun),
-            tx,
+            sse: Mutex::new(DifusionSse::nueva()),
             meta: Mutex::new(None),
             turno: Mutex::new(None),
             creada: Instant::now(),
@@ -755,7 +762,10 @@ pub(crate) mod tests {
                 Request::builder()
                     .method(Method::PATCH)
                     .uri(format!("/api/v1/session/{sid}/meta"))
-                    .header(header::AUTHORIZATION, "Bearer 00000000-0000-0000-0000-000000000000")
+                    .header(
+                        header::AUTHORIZATION,
+                        "Bearer 00000000-0000-0000-0000-000000000000",
+                    )
                     .header(header::CONTENT_TYPE, "application/json")
                     .body(Body::from(r#"{"meta":"ajena"}"#))
                     .unwrap(),
@@ -844,7 +854,6 @@ pub(crate) mod tests {
             None,
         )
         .expect("abrir sesión memoria");
-        let (tx, _rx) = broadcast::channel(256);
         let sid = Uuid::new_v4().to_string();
         let vieja = Instant::now() - Duration::from_secs(SESION_TTL_SECS + 60);
         state.sesiones.lock().await.insert(
@@ -852,7 +861,7 @@ pub(crate) mod tests {
             Arc::new(SesionWeb {
                 conversacion_id: Mutex::new(Some(apertura.conversacion.id)),
                 comun: Mutex::new(comun),
-                tx,
+                sse: Mutex::new(DifusionSse::nueva()),
                 meta: Mutex::new(None),
                 turno: Mutex::new(None),
                 creada: vieja,

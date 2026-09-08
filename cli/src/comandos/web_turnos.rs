@@ -2,7 +2,7 @@
 //!
 //! Replica el ciclo de vida de Tauri (`desktop/src-tauri/src/main.rs`,
 //! `enviar_turno`): `preparar_turno` → `ejecutar_turno` con canal mpsc →
-//! reenvío a broadcast SSE → `turn.finished` obligatorio. Un turno activo
+//! reenvío a difusión SSE → `turn.finished` obligatorio. Un turno activo
 //! por sesión (409 ante segundo inicio); cancelar aborta la tarea y marca
 //! `cancelado` en BD; aprobar es idempotente (duplicada no ejecuta dos
 //! veces). En modo `--fixture` el turno es sintético (sin proveedor).
@@ -47,10 +47,12 @@ pub(crate) async fn abortar_turno_activo(sesion: &Arc<SesionWeb>, motivo: &str) 
         t.handle.abort();
         let comun = sesion.comun.lock().await.clone();
         let _ = comun.cancelar_turno(t.id).await;
-        let _ = sesion.tx.send(cable(
-            "turn.finished",
-            serde_json::json!({ "turn_id": t.id, "ok": false, "error": motivo }),
-        ));
+        sesion
+            .emitir(cable(
+                "turn.finished",
+                serde_json::json!({ "turn_id": t.id, "ok": false, "error": motivo }),
+            ))
+            .await;
     }
 }
 
@@ -118,10 +120,12 @@ pub(crate) async fn iniciar_turno(
     let turno_id = preparacion.turno_id;
     let fixture = state.fixture;
 
-    let _ = sesion.tx.send(cable(
-        "turn.started",
-        serde_json::json!({ "turn_id": turno_id }),
-    ));
+    sesion
+        .emitir(cable(
+            "turn.started",
+            serde_json::json!({ "turn_id": turno_id }),
+        ))
+        .await;
 
     let sesion2 = Arc::clone(&sesion);
     let user_id = comun.user_id;
@@ -226,15 +230,19 @@ async fn turno_fixture(sesion: &Arc<SesionWeb>, turno_id: Uuid, mensaje: &str) {
         if matches!(ev, AgenteEvento::Done { .. }) {
             break;
         }
-        let _ = sesion.tx.send(cable(
-            "agent.event",
-            serde_json::to_value(&ev).unwrap_or(Value::Null),
-        ));
+        sesion
+            .emitir(cable(
+                "agent.event",
+                serde_json::to_value(&ev).unwrap_or(Value::Null),
+            ))
+            .await;
     }
-    let _ = sesion.tx.send(cable(
-        "turn.finished",
-        serde_json::json!({ "turn_id": turno_id, "ok": true, "error": null }),
-    ));
+    sesion
+        .emitir(cable(
+            "turn.finished",
+            serde_json::json!({ "turn_id": turno_id, "ok": true, "error": null }),
+        ))
+        .await;
 }
 
 /// Turno real: mismo patrón que Tauri (`enviar_turno`).
@@ -247,7 +255,7 @@ async fn turno_real(
     let turno_id = preparacion.turno_id;
     let (tx_ev, mut rx_ev) = mpsc::channel::<AgenteEvento>(64);
 
-    let tx_fw = sesion.tx.clone();
+    let sesion_fw = Arc::clone(sesion);
     let reenvio = tokio::spawn(async move {
         let mut uso_p = 0u32;
         let mut uso_c = 0u32;
@@ -272,10 +280,12 @@ async fn turno_real(
                     mod_ = modelo.clone();
                 }
             }
-            let _ = tx_fw.send(cable(
-                "agent.event",
-                serde_json::to_value(&ev).unwrap_or(Value::Null),
-            ));
+            sesion_fw
+                .emitir(cable(
+                    "agent.event",
+                    serde_json::to_value(&ev).unwrap_or(Value::Null),
+                ))
+                .await;
             if es_done {
                 break;
             }
@@ -309,24 +319,30 @@ async fn turno_real(
                     mod_.as_deref(),
                 );
             }
-            let _ = sesion.tx.send(cable(
-                "turn.finished",
-                serde_json::json!({ "turn_id": turno_id, "ok": true, "error": null }),
-            ));
+            sesion
+                .emitir(cable(
+                    "turn.finished",
+                    serde_json::json!({ "turn_id": turno_id, "ok": true, "error": null }),
+                ))
+                .await;
         }
         Err(e) => {
-            let _ = sesion.tx.send(cable(
-                "agent.event",
-                serde_json::to_value(&AgenteEvento::Error {
-                    mensaje: e.to_string(),
-                    retryable: true,
-                })
-                .unwrap_or(Value::Null),
-            ));
-            let _ = sesion.tx.send(cable(
-                "turn.finished",
-                serde_json::json!({ "turn_id": turno_id, "ok": false, "error": e.to_string() }),
-            ));
+            sesion
+                .emitir(cable(
+                    "agent.event",
+                    serde_json::to_value(&AgenteEvento::Error {
+                        mensaje: e.to_string(),
+                        retryable: true,
+                    })
+                    .unwrap_or(Value::Null),
+                ))
+                .await;
+            sesion
+                .emitir(cable(
+                    "turn.finished",
+                    serde_json::json!({ "turn_id": turno_id, "ok": false, "error": e.to_string() }),
+                ))
+                .await;
         }
     }
 }
@@ -356,8 +372,8 @@ mod tests {
         b.body(Body::from(cuerpo.to_string())).unwrap()
     }
 
-    /// Espera el `turn.finished` en el broadcast (falla si tarda >10 s).
-    async fn esperar_finished(rx: &mut tokio::sync::broadcast::Receiver<String>) -> Value {
+    /// Espera el `turn.finished` en la difusión SSE (falla si tarda >10 s).
+    async fn esperar_finished(rx: &mut tokio::sync::mpsc::Receiver<String>) -> Value {
         timeout(Duration::from_secs(10), async {
             loop {
                 let en_cable = rx.recv().await.expect("canal abierto");
@@ -375,7 +391,7 @@ mod tests {
     async fn turno_fixture_completa_ciclo() {
         let state = state_test();
         let (sid, sesion) = sesion_memoria(&state).await;
-        let mut rx = sesion.tx.subscribe();
+        let mut rx = sesion.sse.lock().await.suscribir().1;
         let app = super::super::web::router(Arc::clone(&state));
 
         let res = app
@@ -561,7 +577,7 @@ mod tests {
         assert_eq!(sin_auth.status(), reqwest::StatusCode::UNAUTHORIZED);
 
         // Con cookie: el turno arranca (se publica DESPUÉS de abrir el SSE,
-        // porque el broadcast no hace replay para suscriptores tardíos).
+        // porque la difusión no hace replay para suscriptores tardíos).
         let mut resp = cliente
             .get(format!("{base}/api/v1/session/{sid}/events"))
             .header("Cookie", &cookie)
