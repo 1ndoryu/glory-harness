@@ -1,5 +1,9 @@
 //! [079A-1 F3] Tests HTTP del hub de datos (partidos de web_datos.rs).
 
+//! Módulo solo-test (también declarado tras `#[cfg(test)]`): el atributo
+//! interno marca el fichero para analizadores por fichero.
+#![cfg(test)]
+
 use super::super::web::tests::{sesion_memoria, state_test};
 use axum::{
     body::Body,

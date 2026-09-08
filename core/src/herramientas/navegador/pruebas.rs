@@ -1,5 +1,9 @@
 //! [079A-1 F4] Tests del dominio navegador (partidos de herramientas/navegador.rs).
 
+//! Módulo solo-test (también declarado tras `#[cfg(test)]`): el atributo
+//! interno marca el fichero para analizadores por fichero.
+#![cfg(test)]
+
 use super::*;
 
 use crate::error::Result;
