@@ -114,3 +114,29 @@ core `--lib` 257 passed; warnings restantes solo en ficheros ajenos
 corte exacto por líneas vía script (nunca reescribir a mano) y en pwsh usar
 comillas simples (un `` `r `` en doble comilla se vuelve CR y rompe el parse).
 Próximo: F4 (`navegador.rs` a subdirectorio).
+**F4 hecho** (`16fadef`: `core/src/herramientas/navegador.rs` →
+`navegador/` reflejo+operaciones+pruebas con re-export; core `--lib` 257
+passed; lección: `//!` tras items → E0753, visibilidad `pub(super)` cruzada).
+**F5 hecho** (`922cf9a`: `enviar_turno`→`PaqueteTurno`+7 auxiliares,
+`abrir_sesion_interna` 9 params→`OpcionesApertura`,
+`desktop navegador.rs` 756→`navegador/` estado+comandos+webview2+puerto;
+`cargo check -p glory-harness-desktop` verde; `cargo test` desktop bloqueado
+por disco C: lleno, decisión usuario: no borrar; lección: comandos Tauri no se
+re-exportan — `pub(crate) mod comandos` + ruta `navegador::comandos::X`).
+**F6 hecho** (glory-sentinel `1587c59`: `unwrap/panic-produccion-rs` ignoran
+fichero solo-test con `#![cfg(test)]` vía `rustTestScope.ts` compartido con
+`rustReglasNuevas.ts`, 3 tests nuevos, `rules.md`; budget ADR 0001: 648/650;
+repin harness `065b445`, doctor ready/readyForAnalyze/readyForGate true;
+gate full 38E/2W → **2E/2W**: solo `broadcast-mutex` ×2 en `web.rs` ajeno +
+`limite-lineas`+nivel-2 en `desktop main.rs` 1232 efectivas).
+Próximo: F5b (`main.rs` desktop bajo 500) → F1 (cuando `web.rs` se enfríe) →
+F7/F8 → F9.
+**F5b hecho**: `desktop main.rs` 1666→519 por dominios (`turno.rs`,
+`sesion.rs`, `conversaciones.rs`, `workspaces.rs`, `pruebas.rs` con
+`#![cfg(test)]`); `leer_max_ventana` movida a `pruebas.rs` (0 llamadas prod);
+`check -p glory-harness-desktop` 0 warnings propios; gate full → **2E/0W**
+(solo `broadcast-mutex` ×2 ajeno en `web.rs`). Lecciones: lanzar scripts con
+`pwsh` 7 (PS 5.1 lee ANSI y rompe asserts UTF-8); `use super::*` sí trae
+privados del padre — los 6 errores eran símbolos movidos (cualificar
+`sesion::`/`conversaciones::` + `pub(super)`); structs en firmas de comandos
+Tauri-pub(crate) exigen `pub(super)` (E0451).
