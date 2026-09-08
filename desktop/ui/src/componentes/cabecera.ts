@@ -14,16 +14,15 @@
 import { icono } from './iconos';
 import { el } from '../util/dom';
 import { esEntornoTauri } from '../tauri/real';
-import { crearControlesVentana } from './ventana';
+import { crearControlesVentana, hacerArrastrable } from './ventana';
 
 export interface CabeceraChat {
   raiz: HTMLElement;
   /** Cambia el título mostrado. */
   ponerTitulo(texto: string): void;
-  /** [039A-3 P4/P6b] Refleja el estado visible/oculto de la lista: con la
-   * lista visible (`abierta=true`) el botón de mostrarla se oculta (no hay
-   * ocultación manual); con la lista oculta (`abierta=false`) aparece el
-   * botón que SOLO la muestra. No-op en un panel lateral (no tiene toggle). */
+  /** [089A-2] Refleja el estado visible/oculto de la lista en el botón de
+   * alternar (siempre visible): con la lista visible muestra el icono de
+   * ocultar y viceversa. No-op en un panel lateral (no tiene toggle). */
   setSidebarAbierta(abierta: boolean): void;
   /** [039A-3 P4] Pone el título en edición inline (renombrar). Se usa desde
    * el ⋯ de la cabecera; al guardar llama `onGuardar(nuevo)`. */
@@ -47,6 +46,8 @@ export interface CabeceraChatOpciones {
   onAcciones: (rect: DOMRect) => void;
   /** Se invoca al pulsar el botón de colapsar/expandir la sidebar. */
   onToggleSidebar?: () => void;
+  /** [089A-2] Se invoca al pulsar el botón del visor (solo principal). */
+  onAbrirVisor?: () => void;
   /** [039A-3 P5] Se invoca al pulsar el botón × de un panel lateral. */
   onCerrar?: () => void;
 }
@@ -68,18 +69,28 @@ export function montarCabeceraChat(opts: CabeceraChatOpciones): CabeceraChat {
   let btnCerrar: HTMLButtonElement | null = null;
 
   if (!lateral) {
-    // [039A-3 P6b] El botón de la lista SOLO sirve para MOSTRARLA cuando está
-    // oculta (auto por ancho mínimo); nunca la oculta manualmente. Por eso
-    // nace oculto (la lista arranca visible) y solo aparece si `abierta=false`.
+    // [089A-2] El botón de la lista SIEMPRE visible: alterna mostrar/ocultar
+    // (antes solo aparecía para mostrar cuando la lista estaba oculta).
     btnToggle = el('button', 'cab-boton') as HTMLButtonElement;
-    btnToggle.id = `${opts.idPrefijo}-abrir-sidebar`;
+    btnToggle.id = `${opts.idPrefijo}-alternar-sidebar`;
     btnToggle.type = 'button';
-    btnToggle.title = 'mostrar lista de conversaciones';
-    btnToggle.setAttribute('aria-label', 'mostrar lista de conversaciones');
-    btnToggle.hidden = true;
-    btnToggle.appendChild(icono('panel-izq-abrir'));
+    btnToggle.title = 'ocultar lista de conversaciones';
+    btnToggle.setAttribute('aria-label', 'ocultar lista de conversaciones');
+    btnToggle.appendChild(icono('panel-izq-cerrar'));
     btnToggle.addEventListener('click', () => opts.onToggleSidebar?.());
     acciones.appendChild(btnToggle);
+    // [089A-2] Botón del visor (archivo y cambios): solo en el principal,
+    // junto al toggle de la lista. Abre el tab Visor del panel derecho.
+    if (!lateral && opts.onAbrirVisor) {
+      const btnVisor = el('button', 'cab-boton') as HTMLButtonElement;
+      btnVisor.id = `${opts.idPrefijo}-abrir-visor`;
+      btnVisor.type = 'button';
+      btnVisor.title = 'visor de archivo y cambios';
+      btnVisor.setAttribute('aria-label', 'visor de archivo y cambios');
+      btnVisor.appendChild(icono('archivo'));
+      btnVisor.addEventListener('click', () => opts.onAbrirVisor?.());
+      acciones.appendChild(btnVisor);
+    }
   } else {
     btnCerrar = el('button', 'cab-boton cab-cerrar') as HTMLButtonElement;
     btnCerrar.id = `${opts.idPrefijo}-cerrar-panel`;
@@ -167,7 +178,7 @@ export function montarCabeceraChat(opts: CabeceraChatOpciones): CabeceraChat {
   // botonera minimizar/maximizar/cerrar queda al extremo derecho, tras ⋯.
   // No aplica a paneles laterales (son chats, no chrome de ventana).
   if (!lateral && esEntornoTauri()) {
-    cab.setAttribute('data-tauri-drag-region', '');
+    hacerArrastrable(cab);
     cab.appendChild(crearControlesVentana());
   }
 
@@ -178,11 +189,13 @@ export function montarCabeceraChat(opts: CabeceraChatOpciones): CabeceraChat {
     },
     setSidebarAbierta(abierta: boolean) {
       if (btnToggle) {
-        // [039A-3 P6b] El botón de la lista solo aparece cuando la lista está
-        // oculta (auto por ancho) y su única acción es MOSTRARLA. Con la lista
-        // visible el botón se oculta: no hay ocultación manual.
-        btnToggle.hidden = abierta;
-        const label = 'mostrar lista de conversaciones';
+        // [089A-2] Visible siempre: el icono refleja el estado (cerrar para
+        // ocultar, abrir para mostrar). Ya no se usa `hidden`.
+        btnToggle.hidden = false;
+        btnToggle.replaceChildren(icono(abierta ? 'panel-izq-cerrar' : 'panel-izq-abrir'));
+        const label = abierta
+          ? 'ocultar lista de conversaciones'
+          : 'mostrar lista de conversaciones';
         btnToggle.title = label;
         btnToggle.setAttribute('aria-label', label);
       }

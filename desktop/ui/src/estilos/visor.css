@@ -1,0 +1,179 @@
+/* ============================================================
+   Visor de archivo y cambios (089A-2). Monocromo: bordes 1px,
+   sub-tab activa invertida, diff con los estilos existentes
+   (.add/.del de mensajes.css).
+   ============================================================ */
+
+.panel-visor {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    background: var(--fondo);
+    color: var(--texto);
+}
+
+.visor-barra {
+    display: flex;
+    align-items: stretch;
+    flex: none;
+    border-bottom: 1px solid var(--borde);
+}
+
+.visor-subtab {
+    font-family: inherit;
+    font-size: var(--xs);
+    background: transparent;
+    color: var(--texto);
+    border: none;
+    border-right: 1px solid var(--borde);
+    padding: var(--sp-xs) var(--sp-sm);
+    cursor: pointer;
+    opacity: 0.55;
+}
+
+.visor-subtab:hover { opacity: 1; }
+
+.visor-subtab.sel {
+    opacity: 1;
+    background: var(--texto);
+    color: var(--fondo);
+}
+
+.visor-tab {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+.visor-tab[hidden] { display: none; }
+
+.visor-ruta-fila {
+    display: flex;
+    gap: var(--sp-xs);
+    flex: none;
+    padding: var(--sp-sm);
+    border-bottom: 1px solid var(--borde);
+}
+
+.visor-ruta {
+    flex: 1;
+    min-width: 0;
+    font-family: inherit;
+    font-size: var(--xs);
+    background: var(--fondo);
+    color: var(--texto);
+    border: 1px solid var(--borde);
+    padding: var(--sp-xs) var(--sp-sm);
+}
+
+.visor-ruta:focus { outline: none; }
+
+.visor-aviso {
+    flex: none;
+    font-size: var(--xs);
+    padding: var(--sp-xs) var(--sp-sm);
+    border-bottom: 1px solid var(--borde);
+}
+
+.visor-aviso[hidden] { display: none; }
+
+.visor-codigo {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+    font-size: var(--xs);
+    line-height: 1.5;
+    padding: var(--sp-sm) 0;
+}
+
+.visor-linea {
+    display: flex;
+    min-width: max-content;
+    padding-right: var(--sp-md);
+}
+
+.visor-linea:hover { background: var(--texto); }
+.visor-linea:hover .visor-num,
+.visor-linea:hover .visor-texto { color: var(--fondo); }
+
+.visor-num {
+    flex: none;
+    width: 4ch;
+    text-align: right;
+    margin-right: var(--sp-sm);
+    padding-left: var(--sp-sm);
+    opacity: 0.4;
+    user-select: none;
+}
+
+.visor-texto {
+    white-space: pre;
+}
+
+.visor-plano {
+    white-space: pre;
+    font-size: var(--xs);
+    padding: 0 var(--sp-sm);
+    margin: 0;
+    font-family: inherit;
+}
+
+.visor-cambios {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: var(--sp-sm);
+    padding: var(--sp-sm);
+}
+
+.visor-vacio {
+    font-size: var(--xs);
+    opacity: 0.6;
+    line-height: 1.6;
+}
+
+.visor-cambio {
+    border: 1px solid var(--borde);
+    flex: none;
+}
+
+.visor-cambio-cab {
+    display: flex;
+    align-items: baseline;
+    gap: var(--sp-sm);
+    padding: var(--sp-xs) var(--sp-sm);
+    border-bottom: 1px solid var(--borde);
+}
+
+.visor-cambio-ruta {
+    font-family: inherit;
+    font-size: var(--xs);
+    background: transparent;
+    color: var(--texto);
+    border: none;
+    padding: 0;
+    cursor: pointer;
+    text-decoration: underline;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.visor-cambio-titulo {
+    font-size: var(--xs);
+    opacity: 0.6;
+    margin-left: auto;
+    flex: none;
+}
+
+.visor-cambio-diff {
+    font-size: var(--xs);
+    padding: var(--sp-xs) var(--sp-sm);
+    white-space: pre-wrap;
+    max-height: 260px;
+    overflow: auto;
+}

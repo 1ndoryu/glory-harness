@@ -31,6 +31,7 @@ use glory_harness_core::AgentPersistence;
 use tauri::{AppHandle, Emitter, Manager, State};
 use uuid::Uuid;
 
+mod archivo;
 mod conversaciones;
 mod navegador;
 mod sesion;
@@ -477,9 +478,11 @@ fn main() {
             workspaces::workspace_renombrar,
             workspaces::workspace_eliminar,
             workspaces::actualizar_meta,
+            archivo::leer_archivo,
             navegador::comandos::navegador_abrir,
             navegador::comandos::navegador_navegar,
             navegador::comandos::navegador_cerrar,
+            navegador::comandos::navegador_mostrar,
             navegador::comandos::navegador_posicionar,
             navegador::comandos::navegador_capturar,
             navegador::comandos::navegador_js,

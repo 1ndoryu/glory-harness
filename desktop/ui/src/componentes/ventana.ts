@@ -14,6 +14,34 @@ import '../estilos/ventana.css';
 import { icono } from './iconos';
 import { el } from '../util/dom';
 
+/** Ventana Tauri precargada (el import dinámico no bloquea el bundle web). */
+let ventanaFutura: Promise<{ startDragging(): Promise<void> }> | null = null;
+function ventana(): Promise<{ startDragging(): Promise<void> }> {
+  if (!ventanaFutura) {
+    ventanaFutura = import('@tauri-apps/api/window').then((m) => m.getCurrentWindow());
+  }
+  return ventanaFutura;
+}
+
+/**
+ * Hace una cabecera arrastrable (mover la ventana).
+ * Combina `data-tauri-drag-region` con `startDragging()` programático en
+ * mousedown: el atributo solo a veces no basta (p. ej. según el runtime
+ * WebView2); el programático siempre funciona. Los clics en botones,
+ * inputs y enlaces no arrastran (siguen clicando).
+ */
+export function hacerArrastrable(cabecera: HTMLElement): void {
+  cabecera.setAttribute('data-tauri-drag-region', '');
+  cabecera.addEventListener('mousedown', (e) => {
+    if (e.button !== 0) return;
+    const objetivo = e.target as HTMLElement | null;
+    if (objetivo?.closest('button, input, textarea, select, a, [contenteditable="true"]')) return;
+    void ventana()
+      .then((v) => v.startDragging())
+      .catch(() => {});
+  });
+}
+
 /** Crea la botonera de ventana (sin anclar; lo hace `cabecera.ts`). */
 export function crearControlesVentana(): HTMLElement {
   const grupo = el('div', 'controles-ventana');

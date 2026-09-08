@@ -145,9 +145,25 @@ Orden propuesto (dependencias de abajo arriba):
       iconos `minimizar`/`maximizar`/`restaurar` en `iconos.ts` + `tipos.ts`;
       orden Paseo; hover invertido monocromo reutilizando `.cab-boton`).
       Solo bajo Tauri (`esEntornoTauri`); en web no se montan. La cabecera
-      principal actúa como barra de arrastre (`data-tauri-drag-region`).
+      principal actúa como barra de arrastre (`data-tauri-drag-region` +
+      `startDragging()` programático; los clics en botones/inputs no arrastran).
       Referencia guardada en `area-trabajo/paseo`
       (`components/desktop/window-controls.tsx`, `titlebar-drag-region.tsx`).
+- [ ] **089A-2 — Layout Paseo: entrada flotante, toggles, tabs y visor** (08-09, en curso):
+      (a) `.mensajes` sin `max-width`/centrado (todo el ancho); `.entrada`
+      flotante por encima (`absolute`, fondo sólido + borde superior) con
+      reserva inferior dinámica vía `ResizeObserver` en `panelChat`.
+      (b) Botón sidebar siempre visible y alterna (mostrar/ocultar); botón
+      visor en la cabecera principal; × en la barra de tabs cierra el panel.
+      (c) Panel derecho con tabs (`panelDerecho.ts` + `tabs.css`): Chat
+      lateral, Navegador y Visor conviven (fin de la exclusión mutua);
+      grip único; comando nuevo `navegador_mostrar` (oculta la webview hija
+      sin destruirla al cambiar de tab).
+      (d) Visor de archivo y cambios (`panelVisor.ts` + `visor.css` +
+      comando `leer_archivo` validado al workspace): Archivo real + Cambios
+      (hook `onCambioArchivo` en vivo + `listarCambios()` del historial).
+      Límite v1: al cambiar de conversación con el visor abierto, los cambios
+      se refrescan al reabrirlo.
 
 > **Hecho (04-09, correcciones del primer `tauri dev`):** los 7 hallazgos del primer arranque
 > real quedaron corregidos (H1–H7, bloque 039A-1). Detalle en

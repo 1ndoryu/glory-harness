@@ -87,14 +87,40 @@ pub async fn navegador_navegar(app: AppHandle, url: String) -> Result<(), String
 
 /// Cierra la webview hija.
 #[tauri::command]
-pub async fn navegador_cerrar(app: AppHandle) -> Result<(), String> {
-    let estado_lock = app
+pub async fn navegador_cerrar(app: AppHandle) -> Result<(), String> {    let estado_lock = app
         .try_state::<std::sync::Mutex<EstadoNavegador>>()
         .ok_or_else(|| "navegador no disponible".to_string())?;
     let mut estado = estado_lock
         .lock()
         .map_err(|_| "estado bloqueado".to_string())?;
     cerrar_webview(&mut estado);
+    Ok(())
+}
+
+/// Muestra u oculta la webview hija sin destruirla (para las tabs del panel
+/// derecho). Ocultar la mueve fuera de la pantalla (1×1 en -10000); al
+/// mostrar, el frontend la reposiciona con `navegador_posicionar`.
+#[tauri::command]
+pub async fn navegador_mostrar(app: AppHandle, visible: bool) -> Result<(), String> {
+    let estado_lock = app
+        .try_state::<std::sync::Mutex<EstadoNavegador>>()
+        .ok_or_else(|| "navegador no disponible".to_string())?;
+    let estado = estado_lock
+        .lock()
+        .map_err(|_| "estado bloqueado".to_string())?;
+    let wv = estado
+        .webview
+        .as_ref()
+        .ok_or_else(|| "navegador no abierto".to_string())?;
+
+    if !visible {
+        wv.set_position(tauri::Position::Logical(tauri::LogicalPosition::new(
+            -10000.0, -10000.0,
+        )))
+        .map_err(|e| format!("ocultar falló: {e}"))?;
+        wv.set_size(tauri::Size::Logical(tauri::LogicalSize::new(1.0, 1.0)))
+            .map_err(|e| format!("ocultar falló: {e}"))?;
+    }
     Ok(())
 }
 

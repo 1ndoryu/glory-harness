@@ -1,0 +1,104 @@
+/* ============================================================
+   Panel derecho con tabs (089A-2): Chat lateral, Navegador y Visor.
+   Monocromo estricto: bordes de 1px, tab activa invertida.
+   ============================================================ */
+
+.panel-derecho {
+    flex: 0 0 var(--panel-derecho-ancho, 50%);
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    border-left: 1px solid var(--borde);
+    min-height: 0;
+}
+
+/* Grip entre #paneles y el panel derecho (hijo flex, no absolute). */
+#cuerpo > .panel-derecho-grip {
+    flex: none;
+    width: 9px;
+    cursor: col-resize;
+    z-index: 5;
+}
+
+.tabs-barra {
+    display: flex;
+    align-items: stretch;
+    flex: none;
+    border-bottom: 1px solid var(--borde);
+}
+
+.tabs-botones {
+    display: flex;
+    align-items: stretch;
+    flex: 1;
+    min-width: 0;
+}
+
+.tab {
+    font-family: inherit;
+    font-size: var(--xs);
+    background: transparent;
+    color: var(--texto);
+    border: none;
+    border-right: 1px solid var(--borde);
+    padding: var(--sp-xs) var(--sp-sm);
+    cursor: pointer;
+    opacity: 0.55;
+    white-space: nowrap;
+}
+
+.tab:hover { opacity: 1; }
+
+.tab.sel {
+    opacity: 1;
+    background: var(--texto);
+    color: var(--fondo);
+}
+
+.tab-cerrar {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    flex: none;
+    background: transparent;
+    color: var(--texto);
+    border: none;
+    border-left: 1px solid var(--borde);
+    cursor: pointer;
+    padding: 0;
+}
+
+.tab-cerrar:hover {
+    background: var(--texto);
+    color: var(--fondo);
+}
+
+.tabs-contenido {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+.tabs-contenido > [hidden] { display: none; }
+
+/* El chat lateral pierde su borde/ancho de cuando vivía en #paneles. */
+.tabs-contenido > .chat[data-panel='lateral'] {
+    border-left: none;
+    flex: 1;
+    min-height: 0;
+}
+
+/* El navegador pasa de ancho fijo a rellenar el tab. */
+.tabs-contenido > .panel-navegador {
+    flex: 1;
+    min-width: 0;
+    width: auto;
+    max-width: none;
+}
+
+.tabs-contenido > .panel-visor {
+    flex: 1;
+    min-height: 0;
+}
