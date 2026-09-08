@@ -43,6 +43,13 @@ const TRAZOS: Record<IconoNombre, string> = {
     '<rect width="18" height="18" x="3" y="3" rx="2"></rect><path d="M9 3v18"></path><path d="m16 15-3-3 3-3"></path>',
   'panel-izq-abrir':
     '<rect width="18" height="18" x="3" y="3" rx="2"></rect><path d="M9 3v18"></path><path d="m14 15 3-3-3-3"></path>',
+  // [089A-2] Toggle del panel derecho (espejo del izquierdo): la divisoria
+  // va a la derecha (x=15); cerrar pliega hacia el borde (chevron der) y
+  // abrir despliega hacia el centro (chevron izq).
+  'panel-der-cerrar':
+    '<rect width="18" height="18" x="3" y="3" rx="2"></rect><path d="M15 3v18"></path><path d="m8 15 3-3-3-3"></path>',
+  'panel-der-abrir':
+    '<rect width="18" height="18" x="3" y="3" rx="2"></rect><path d="M15 3v18"></path><path d="m16 15-3-3 3-3"></path>',
   detener: '<rect x="6.5" y="6.5" width="11" height="11"></rect>',
   'chevron-abajo': '<path d="m6 9 6 6 6-6"></path>',
   'chevron-derecha': '<path d="m9 18 6-6-6-6"></path>',

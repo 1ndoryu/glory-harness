@@ -137,6 +137,8 @@ export type IconoNombre =
   | 'volver'
   | 'panel-izq-cerrar'
   | 'panel-izq-abrir'
+  | 'panel-der-cerrar'
+  | 'panel-der-abrir'
   | 'flecha-arriba'
   | 'detener'
   | 'chevron-abajo'

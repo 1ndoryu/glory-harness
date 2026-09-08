@@ -54,11 +54,16 @@ export function montarPanelVisor(): PanelVisor {
   btnCargar.textContent = 'cargar';
   filaRuta.appendChild(inputRuta);
   filaRuta.appendChild(btnCargar);
+  // [089A-2] Barra meta estilo Paseo (FilePanelBar): nombre + ruta completa
+  // en el tooltip + nº de líneas. Monocromo, sin colores.
+  const meta = el('div', 'visor-meta');
+  meta.hidden = true;
   const aviso = el('div', 'visor-aviso');
   aviso.hidden = true;
   const codigo = el('div', 'visor-codigo');
   codigo.setAttribute('aria-label', 'contenido del archivo');
   tabArchivo.appendChild(filaRuta);
+  tabArchivo.appendChild(meta);
   tabArchivo.appendChild(aviso);
   tabArchivo.appendChild(codigo);
 
@@ -121,6 +126,10 @@ export function montarPanelVisor(): PanelVisor {
         lineas: number;
         contenido: string;
       };
+      const nombre = res.ruta.split(/[/\\]/).pop() || res.ruta;
+      meta.textContent = `${nombre} — ${res.lineas} líneas`;
+      meta.title = res.ruta;
+      meta.hidden = false;
       pintarCodigo(res.contenido);
     } catch (e: unknown) {
       avisar(`no se pudo leer: ${String(e)}`);

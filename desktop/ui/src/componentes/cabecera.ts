@@ -24,6 +24,10 @@ export interface CabeceraChat {
    * alternar (siempre visible): con la lista visible muestra el icono de
    * ocultar y viceversa. No-op en un panel lateral (no tiene toggle). */
   setSidebarAbierta(abierta: boolean): void;
+  /** [089A-2] Refleja el estado visible/oculto del panel derecho en el
+   * botón de alternar (siempre visible en el principal, a la derecha del
+   * título): abierto muestra el icono de plegar y viceversa. */
+  setPanelDerechoAbierto(abierto: boolean): void;
   /** [039A-3 P4] Pone el título en edición inline (renombrar). Se usa desde
    * el ⋯ de la cabecera; al guardar llama `onGuardar(nuevo)`. */
   empezarRenombrar(
@@ -46,6 +50,9 @@ export interface CabeceraChatOpciones {
   onAcciones: (rect: DOMRect) => void;
   /** Se invoca al pulsar el botón de colapsar/expandir la sidebar. */
   onToggleSidebar?: () => void;
+  /** [089A-2] Se invoca al pulsar el botón de mostrar/ocultar el panel
+   * derecho (solo principal, siempre visible). */
+  onTogglePanelDerecho?: () => void;
   /** [089A-2] Se invoca al pulsar el botón del visor (solo principal). */
   onAbrirVisor?: () => void;
   /** [039A-3 P5] Se invoca al pulsar el botón × de un panel lateral. */
@@ -114,6 +121,20 @@ export function montarCabeceraChat(opts: CabeceraChatOpciones): CabeceraChat {
   });
   const accionesMas = el('div', 'acciones-mas');
   accionesMas.setAttribute('aria-label', 'acciones de la conversación');
+
+  // [089A-2] Toggle del panel derecho (espejo del de la lista): siempre
+  // visible en el principal, a la izquierda del ⋯ (derecha del título).
+  let btnToggleDer: HTMLButtonElement | null = null;
+  if (!lateral && opts.onTogglePanelDerecho) {
+    btnToggleDer = el('button', 'cab-boton') as HTMLButtonElement;
+    btnToggleDer.id = `${opts.idPrefijo}-alternar-panel-derecho`;
+    btnToggleDer.type = 'button';
+    btnToggleDer.title = 'mostrar panel derecho';
+    btnToggleDer.setAttribute('aria-label', 'mostrar panel derecho');
+    btnToggleDer.appendChild(icono('panel-der-abrir'));
+    btnToggleDer.addEventListener('click', () => opts.onTogglePanelDerecho?.());
+    accionesMas.appendChild(btnToggleDer);
+  }
   accionesMas.appendChild(btnMas);
 
   // ---- título (editado inline al renombrar) ----
@@ -198,6 +219,14 @@ export function montarCabeceraChat(opts: CabeceraChatOpciones): CabeceraChat {
           : 'mostrar lista de conversaciones';
         btnToggle.title = label;
         btnToggle.setAttribute('aria-label', label);
+      }
+    },
+    setPanelDerechoAbierto(abierto: boolean) {
+      if (btnToggleDer) {
+        btnToggleDer.replaceChildren(icono(abierto ? 'panel-der-cerrar' : 'panel-der-abrir'));
+        const label = abierto ? 'ocultar panel derecho' : 'mostrar panel derecho';
+        btnToggleDer.title = label;
+        btnToggleDer.setAttribute('aria-label', label);
       }
     },
     empezarRenombrar(valor, onGuardar, onCancelar) {

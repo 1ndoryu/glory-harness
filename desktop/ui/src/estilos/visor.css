@@ -78,6 +78,20 @@
 
 .visor-aviso[hidden] { display: none; }
 
+/* [089A-2] Meta del archivo (Paseo FilePanelBar, monocromo): nombre visible,
+   ruta completa en el tooltip. */
+.visor-meta {
+    flex: none;
+    font-size: var(--xs);
+    padding: var(--sp-xs) var(--sp-sm);
+    border-bottom: 1px solid var(--borde);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.visor-meta[hidden] { display: none; }
+
 .visor-codigo {
     flex: 1;
     min-height: 0;

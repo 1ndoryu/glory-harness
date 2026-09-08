@@ -162,8 +162,14 @@ Orden propuesto (dependencias de abajo arriba):
       (d) Visor de archivo y cambios (`panelVisor.ts` + `visor.css` +
       comando `leer_archivo` validado al workspace): Archivo real + Cambios
       (hook `onCambioArchivo` en vivo + `listarCambios()` del historial).
-      Límite v1: al cambiar de conversación con el visor abierto, los cambios
-      se refrescan al reabrirlo.
+      Estilo Paseo estructural (tabs Archivo|Cambios, barra meta con nombre,
+      ruta en tooltip y nº de líneas, cabecera por cambio con ruta clicable);
+      monocromo estricto, sin verde/rojo. Límite v1: al cambiar de
+      conversación con el visor abierto, los cambios se refrescan al reabrirlo.
+      (e) Toggle del panel derecho (botón siempre visible en la cabecera
+      principal, espejo del izquierdo; ocultar no destruye las tabs), ×
+      propio por tab y multi-chat (una tab `chat:<id>` por conversación,
+      máx. 8 laterales; reabrir una abierta solo activa su tab).
 
 > **Hecho (04-09, correcciones del primer `tauri dev`):** los 7 hallazgos del primer arranque
 > real quedaron corregidos (H1–H7, bloque 039A-1). Detalle en

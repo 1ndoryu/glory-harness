@@ -1,6 +1,7 @@
 /* ============================================================
-   Panel derecho con tabs (089A-2): Chat lateral, Navegador y Visor.
-   Monocromo estricto: bordes de 1px, tab activa invertida.
+   Panel derecho con tabs (089A-2): chats laterales (multi-chat),
+   Navegador y Visor. Monocromo estricto: bordes de 1px, tab activa
+   invertida, × propio por tab (además del × global).
    ============================================================ */
 
 .panel-derecho {
@@ -35,16 +36,20 @@
 }
 
 .tab {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--sp-xs);
     font-family: inherit;
     font-size: var(--xs);
     background: transparent;
     color: var(--texto);
     border: none;
     border-right: 1px solid var(--borde);
-    padding: var(--sp-xs) var(--sp-sm);
+    padding: var(--sp-xs) var(--sp-xs) var(--sp-xs) var(--sp-sm);
     cursor: pointer;
     opacity: 0.55;
     white-space: nowrap;
+    max-width: 220px;
 }
 
 .tab:hover { opacity: 1; }
@@ -54,6 +59,27 @@
     background: var(--texto);
     color: var(--fondo);
 }
+
+.tab-etiqueta {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+}
+
+/* × propio de cada tab (Paseo: cierre por tab). */
+.tab-x {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: none;
+    opacity: 0.55;
+    padding: 1px;
+}
+
+.tab-x:hover { opacity: 1; }
+
+.tab-x .ic { width: 12px; height: 12px; }
 
 .tab-cerrar {
     display: inline-flex;
