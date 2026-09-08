@@ -186,6 +186,9 @@ export interface HooksAdaptador {
   /** [069A-2 F4] Estado de la conexión del transporte (solo el HTTP/SSE la
    * reporta; Tauri in-process no la usa). */
   onConexion?: (estado: 'conectando' | 'en-linea' | 'reconectando' | 'error', detalle?: string) => void;
+  /** [089A-2] El agente modificó un archivo (file_write/file_patch con diff):
+   * el orquestador lo refleja en el tab Cambios del visor. Hook opcional. */
+  onCambioArchivo?: (cambio: { ruta: string; titulo: string; diffHtml: string }) => void;
 }
 
 /** [069A-2 F4] Transporte del adaptador: la fuente de los eventos y el
@@ -340,7 +343,7 @@ function rangoDeLectura(argumentos: unknown): string {
   if (typeof inicio === 'number' && Number.isInteger(inicio) && inicio >= 1) {
     return `desde línea ${inicio}`;
   }
-  return 'archivo completo';
+  return '';
 }
 
 export function descripcionDeTool(tool: string, argumentos?: unknown): string {
@@ -350,8 +353,10 @@ export function descripcionDeTool(tool: string, argumentos?: unknown): string {
       return ruta ? `Modificando ${ruta} · archivo completo` : 'Modificando archivo completo';
     case 'file_patch':
       return ruta ? `Modificando ${ruta} · líneas modificadas` : 'Modificando archivo · líneas modificadas';
-    case 'file_read':
-      return ruta ? `Leyendo ${ruta} · ${rangoDeLectura(argumentos)}` : `Leyendo archivo · ${rangoDeLectura(argumentos)}`;
+    case 'file_read': {
+      const rango = rangoDeLectura(argumentos);
+      return ruta ? `Leyendo ${ruta}${rango ? ` · ${rango}` : ''}` : `Leyendo archivo${rango ? ` · ${rango}` : ''}`;
+    }
     case 'file_search': {
       const patron = textoDeArgumento(argumentos, 'patron');
       return patron ? `Buscando archivos: ${patron}` : 'Buscando archivos';
@@ -407,6 +412,8 @@ export function crearAdaptadorReal(hooks: HooksAdaptador = {}, transporte: Trans
   let onFin: (() => void) | null = null;
   let asistente: AsistenteVivo | null = null;
   let herramienta: HerramientaViva | null = null;
+  // [089A-2] Ruta de la tool de archivo en curso (para el tab Cambios).
+  let rutaHerramienta: string | null = null;
   let ultimoMensaje = '';
   let huboPeticiones = false;
   let cerrado = false;
@@ -458,6 +465,11 @@ export function crearAdaptadorReal(hooks: HooksAdaptador = {}, transporte: Trans
         mensajes?.appendChild(herramienta.raiz);
         bajarScroll();
         asistente = null;
+        // [089A-2] Recuerda la ruta si es escritura/parche de archivo.
+        rutaHerramienta =
+          ev.tool === 'file_write' || ev.tool === 'file_patch'
+            ? rutaDeArgumentos(ev.argumentos)
+            : null;
         break;
       }
       case 'tool_result': {
@@ -471,6 +483,19 @@ export function crearAdaptadorReal(hooks: HooksAdaptador = {}, transporte: Trans
           // Sin bloque de herramienta: aviso en texto plano (crearAvisoSistema usa textContent).
           aviso(`${ev.tool} → ${ev.ok ? 'ok' : 'falló'}`, '', dif ? `${ev.resumen}\n${dif}` : ev.resumen);
         }
+        // [089A-2] Notifica el cambio al visor (solo escrituras con ruta y diff).
+        if (
+          (ev.tool === 'file_write' || ev.tool === 'file_patch') &&
+          rutaHerramienta &&
+          dif
+        ) {
+          hooks.onCambioArchivo?.({
+            ruta: rutaHerramienta,
+            titulo: descripcionDeTool(ev.tool, undefined),
+            diffHtml: formatearResultadoHerramienta(ev.resumen, dif),
+          });
+        }
+        rutaHerramienta = null;
         break;
       }
       case 'peticion_aprobacion': {

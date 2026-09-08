@@ -176,6 +176,19 @@ export const OPCIONES_PERMISOS: GrupoOpciones = {
   ],
 };
 
+export const OPCIONES_APARIENCIA: GrupoOpciones = {
+  titulo: 'Apariencia',
+  opciones: [
+    {
+      id: 'temaOscuro',
+      etiqueta: 'Modo oscuro',
+      tipo: 'booleano',
+      valor: false,
+      nota: 'Invierte la paleta monocroma de la interfaz.',
+    },
+  ],
+};
+
 export const OPCIONES_CONTEXTO: GrupoOpciones = {
   titulo: 'Contexto',
   opciones: [
@@ -233,5 +246,6 @@ export const FORMULARIO_CONFIGURACION: Array<{
   { id: 'modelo', etiqueta: 'Modelo', grupos: [OPCIONES_MODELO] },
   { id: 'ejecucion', etiqueta: 'Ejecución', grupos: [OPCIONES_EJECUCION] },
   { id: 'permisos', etiqueta: 'Permisos', grupos: [OPCIONES_PERMISOS] },
+  { id: 'apariencia', etiqueta: 'Apariencia', grupos: [OPCIONES_APARIENCIA] },
   { id: 'contexto', etiqueta: 'Contexto', grupos: [OPCIONES_CONTEXTO] },
 ];

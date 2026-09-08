@@ -59,12 +59,13 @@ export function formatearResultadoHerramienta(resumen: string, diff?: string | n
   if (añadidas + eliminadas === 0) {
     return `<span class="resumen">${escaparHtml(encabezado)}</span>`;
   }
-  const conteo: string[] = [];
-  if (añadidas > 0) conteo.push(`${añadidas} añadida${añadidas === 1 ? '' : 's'}`);
-  if (eliminadas > 0) conteo.push(`${eliminadas} eliminada${eliminadas === 1 ? '' : 's'}`);
+  const conteo = [
+    eliminadas > 0 ? `-${eliminadas}` : '',
+    añadidas > 0 ? `+${añadidas}` : '',
+  ].filter(Boolean).join(' ');
   return [
     `<span class="resumen">${escaparHtml(encabezado)}</span>`,
-    `<span class="rotulo-cambios">Cambios (${conteo.join(', ')}):</span>`,
+    `<span class="rotulo-cambios">${conteo}</span>`,
     cuerpo.join(''),
   ].join('\n');
 }

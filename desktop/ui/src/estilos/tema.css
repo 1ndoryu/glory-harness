@@ -1,0 +1,137 @@
+/* Tema oscuro aplicado después de los estilos de componentes para que las
+   reglas monocromas existentes sigan usando la misma geometría. */
+html[data-tema='oscuro'] {
+    color-scheme: dark;
+    --fondo: #111111;
+    --texto: #eeeeee;
+    --invertido: #111111;
+    --borde: #5a5a5a;
+}
+
+/* Algunos componentes conservan bordes monocromos explícitos en claro;
+   aquí se rebajan todos de forma uniforme para evitar líneas blancas duras. */
+html[data-tema='oscuro'] * {
+    border-color: var(--borde);
+}
+
+html[data-tema='oscuro'] .cabecera-chat,
+html[data-tema='oscuro'] .cabecera-chat .titulo,
+html[data-tema='oscuro'] .msg-user,
+html[data-tema='oscuro'] .msg-asis,
+html[data-tema='oscuro'] .msg-asis .texto {
+    color: var(--texto) !important;
+}
+
+html[data-tema='oscuro'] body,
+html[data-tema='oscuro'] #app,
+html[data-tema='oscuro'] #cuerpo,
+html[data-tema='oscuro'] #paneles,
+html[data-tema='oscuro'] #sidebar,
+html[data-tema='oscuro'] .chat,
+html[data-tema='oscuro'] .entrada .caja,
+html[data-tema='oscuro'] .modal,
+html[data-tema='oscuro'] .config-nav,
+html[data-tema='oscuro'] .config-paneles,
+html[data-tema='oscuro'] .menu-ctx,
+html[data-tema='oscuro'] .menu-ctx .menu-sub,
+html[data-tema='oscuro'] .ctx-detalle,
+html[data-tema='oscuro'] .herramienta .resultado,
+html[data-tema='oscuro'] .razonamiento .resultado,
+html[data-tema='oscuro'] .aviso-sistema .resultado,
+html[data-tema='oscuro'] .aprobacion .args {
+    background-color: var(--fondo) !important;
+    color: var(--texto) !important;
+}
+
+html[data-tema='oscuro'] #sidebar .nav-boton,
+html[data-tema='oscuro'] #sidebar .pie-boton,
+html[data-tema='oscuro'] .proyecto-grupo-boton,
+html[data-tema='oscuro'] .cabecera-chat .cab-boton,
+html[data-tema='oscuro'] .conv .conv-mas,
+html[data-tema='oscuro'] .prog-mas,
+html[data-tema='oscuro'] .entrada .controles .control,
+html[data-tema='oscuro'] .entrada .editando-msg,
+html[data-tema='oscuro'] .entrada .editando-msg-cancelar,
+html[data-tema='oscuro'] .pie-turno .pie-copiar,
+html[data-tema='oscuro'] .menu-ctx .menu-item,
+html[data-tema='oscuro'] .msg-user .msg-mas,
+html[data-tema='oscuro'] .btn,
+html[data-tema='oscuro'] .entrada .selector-workspace-boton,
+html[data-tema='oscuro'] .entrada textarea,
+html[data-tema='oscuro'] .pm-campo textarea,
+html[data-tema='oscuro'] .input-texto,
+html[data-tema='oscuro'] .select,
+html[data-tema='oscuro'] .campo .selector-modelo.selector-modal {
+    background-color: var(--fondo) !important;
+    color: var(--texto) !important;
+}
+
+html[data-tema='oscuro'] .barra,
+html[data-tema='oscuro'] .config-item:hover,
+html[data-tema='oscuro'] .config-item.sel,
+html[data-tema='oscuro'] .cabecera-chat .cab-boton:hover,
+html[data-tema='oscuro'] .menu-ctx .menu-item:hover,
+html[data-tema='oscuro'] .menu-ctx .menu-grupo:hover > .menu-item,
+html[data-tema='oscuro'] .menu-ctx .menu-grupo:hover > .menu-sub .menu-item:hover,
+html[data-tema='oscuro'] .entrada .selector-workspace-boton:hover,
+html[data-tema='oscuro'] .btn.primario,
+html[data-tema='oscuro'] .entrada .btn-enviar,
+html[data-tema='oscuro'] .pm-play,
+html[data-tema='oscuro'] .check-box,
+html[data-tema='oscuro'] .toggle .opt.sel,
+html[data-tema='oscuro'] .aviso-sistema .aviso-accion {
+    background-color: var(--texto) !important;
+    color: var(--fondo) !important;
+}
+
+html[data-tema='oscuro'] .msg-user,
+html[data-tema='oscuro'] .msg-asis,
+html[data-tema='oscuro'] .modal,
+html[data-tema='oscuro'] .panel-meta,
+html[data-tema='oscuro'] .entrada .caja,
+html[data-tema='oscuro'] .campo .valor,
+html[data-tema='oscuro'] .check-box,
+html[data-tema='oscuro'] .toggle,
+html[data-tema='oscuro'] .input-texto,
+html[data-tema='oscuro'] .select,
+html[data-tema='oscuro'] .btn,
+html[data-tema='oscuro'] .entrada .selector-workspace-boton,
+html[data-tema='oscuro'] .campo .selector-modelo.selector-modal,
+html[data-tema='oscuro'] .herramienta .resultado,
+html[data-tema='oscuro'] .razonamiento .resultado,
+html[data-tema='oscuro'] .aviso-sistema .resultado,
+html[data-tema='oscuro'] .aprobacion .args,
+html[data-tema='oscuro'] .pm-play {
+    border-color: var(--borde) !important;
+}
+
+html[data-tema='oscuro'] .modal-fondo {
+    background: rgba(0, 0, 0, 0.65) !important;
+}
+
+/* El mensaje conserva solo su contorno también en oscuro; no es una tarjeta. */
+html[data-tema='oscuro'] .msg-user,
+html[data-tema='oscuro'] .msg-asis {
+    background: transparent !important;
+    color: var(--texto) !important;
+}
+
+html[data-tema='oscuro'] .trama-45 {
+    background-image: repeating-linear-gradient(45deg, var(--texto) 0 1.5px, transparent 1.5px 6px) !important;
+}
+html[data-tema='oscuro'] .trama-135 {
+    background-image: repeating-linear-gradient(-45deg, var(--texto) 0 1.5px, transparent 1.5px 6px) !important;
+}
+html[data-tema='oscuro'] .trama-puntos {
+    background-image: radial-gradient(var(--texto) 1px, transparent 1.5px) !important;
+}
+
+html[data-tema='oscuro'] .cursor,
+html[data-tema='oscuro'] .panel-meta.corriendo .pm-estado .punto {
+    background-color: var(--texto) !important;
+}
+html[data-tema='oscuro'] .panel-meta.pausado .pm-estado .punto,
+html[data-tema='oscuro'] .panel-meta.inactivo .pm-estado .punto {
+    background-color: var(--fondo) !important;
+    border-color: var(--borde) !important;
+}

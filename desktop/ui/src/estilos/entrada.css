@@ -2,6 +2,22 @@
    Entrada (compositor), controles y menú contextual — port 1:1.
    ============================================================ */
 
+/* [089A-2] La entrada flota por encima del scroll (absolute al fondo del
+   .chat): el scroll ocupa toda la pantalla y la conversación reserva hueco
+   abajo (padding-bottom de .mensajes). Sin centrado ni tope de ancho.
+   El contenedor NO lleva fondo ni borde: solo `.caja` (fondo + borde). */
+.chat > .entrada {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 5;
+    width: 100%;
+    margin: 0;
+    padding: var(--sp-sm) var(--sp-lg) var(--sp-lg);
+    background: transparent;
+    border-top: none;
+}
 .entrada {
     max-width: 860px;
     width: 100%;
@@ -51,6 +67,7 @@
     color: #000;
     font-family: inherit;
     font-size: var(--sm);
+    font-weight: inherit;
     line-height: 1.45;
     padding: 0;
     overflow-y: hidden;

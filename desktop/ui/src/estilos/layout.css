@@ -42,10 +42,16 @@
 }
 #cuerpo.sidebar-colapsada #sidebar,
 #cuerpo.sidebar-colapsada .sidebar-grip { display: none; }
+#sidebar .marcaAplicacion {
+    padding: var(--sp-md) var(--sp-md) var(--sp-sm);
+    font-size: var(--lg);
+    font-weight: normal;
+    line-height: 1;
+}
 #sidebar .nav-botones {
     display: flex;
     flex-direction: column;
-    padding: var(--sp-xs) 0 var(--sp-lg);
+    padding: var(--sp-sm) 0 var(--sp-lg);
 }
 #sidebar .nav-boton {
     display: flex;
@@ -235,7 +241,14 @@
 }
 
 /* ---------- Chat ---------- */
-.chat { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.chat {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    /* [089A-2] La entrada flota por encima (absolute): el chat es su marco. */
+    position: relative;
+}
 /* [039A-3 P5/P6b] El borde entre principal y lateral lo pone el borde
    izquierdo del LATERAL (con el grip divisor en medio ya no vale
    `.chat + .chat`: lo rompe el grip). */
@@ -387,11 +400,15 @@ body.redimensionando-lateral {
     flex: 1;
     overflow-y: auto;
     padding: var(--sp-lg);
+    /* [089A-2] Reserva bajo el contenido para que la entrada flotante no
+    tape los últimos mensajes. La ajusta el JS (ResizeObserver de la
+    entrada); el valor inicial cubre el primer pintado. */
+    padding-bottom: var(--entrada-reserva, 200px);
     display: flex;
     flex-direction: column;
     gap: var(--sp-md);
-    max-width: 860px;
+    /* [089A-2] Sin centrado ni tope: el scroll ocupa todo el ancho. */
     width: 100%;
-    margin: 0 auto;
+    margin: 0;
     min-height: 0;
 }

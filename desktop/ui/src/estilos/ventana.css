@@ -1,14 +1,51 @@
 /* ============================================================
-   Controles de ventana propios (089A-1, orden Paseo: minimizar,
-   maximizar/restaurar, cerrar). Van al extremo derecho de la
-   cabecera del panel principal, tras el grupo ⋯. Reutilizan
-   `.cab-boton` (24px + hover invertido monocromo); aquí solo el
-   contenedor y el separador lateral.
+   Botonera caption de ventana (089A-3, referencia Synara
+   `DesktopWindowControls.tsx`): 46px de ancho por botón y alto
+   completo de la barra superior, planos (sin radio ni borde), glifo
+   centrado. Cerrar con hover rojo Synara #c42b1c (excepción explícita
+   a "sin rojo hover" pedida por el usuario en 089A-3).
    ============================================================ */
 
-.cabecera-chat .controles-ventana {
+.barra-superior .controles-ventana {
+    display: flex;
+    align-items: stretch;
+    flex: none;
+    margin-left: auto;
+}
+
+.barra-superior .caption-boton {
     display: flex;
     align-items: center;
+    justify-content: center;
+    width: 46px;
+    height: 100%;
     flex: none;
-    margin-left: var(--sp-xs);
+    background: transparent;
+    color: inherit;
+    border: none;
+    font-family: inherit;
+    padding: 0;
+    cursor: pointer;
+    outline: none;
+    user-select: none;
+    -webkit-user-select: none;
+    transition: background-color 75ms;
+}
+.barra-superior .caption-boton:hover {
+    background: color-mix(in srgb, currentColor 9%, transparent);
+}
+.barra-superior .caption-boton:active {
+    background: color-mix(in srgb, currentColor 5%, transparent);
+}
+.barra-superior .caption-boton:disabled {
+    opacity: 0.35;
+    cursor: default;
+}
+.barra-superior .caption-boton.ven-cerrar:hover { background: #c42b1c; color: #fff; }
+.barra-superior .caption-boton.ven-cerrar:active { background: #b9281b; color: #fff; }
+
+.barra-superior .caption-glifo {
+    font-family: "Segoe Fluent Icons", "Segoe MDL2 Assets", sans-serif;
+    font-size: 10px;
+    line-height: 1;
 }

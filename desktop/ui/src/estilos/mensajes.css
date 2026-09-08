@@ -4,14 +4,17 @@
 
 .msg-user {
     align-self: flex-end;
-    background: #fff;
-    color: #000;
+    background: transparent;
+    color: inherit;
     border: 1px solid #000;
     padding: var(--sp-sm) var(--sp-md);
     max-width: 70%;
     font-size: var(--sm);
     position: relative;
 }
+
+/* Los mensajes se distinguen por el contorno, no por una tarjeta rellena. */
+.msg-asis { background: transparent; }
 
 /* [039A-3 P2] Botón ⋯ de acciones del mensaje: flotante a la esquina, visible
    al hover/foco (patrón desktop: acciones no intrusivas hasta que se pide). */
@@ -23,8 +26,8 @@
     height: 20px;
     line-height: 1;
     border: 1px solid #000;
-    background: #fff;
-    color: #000;
+    background: transparent;
+    color: inherit;
     font-size: 13px;
     display: none;
     align-items: center;

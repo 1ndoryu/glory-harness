@@ -23,7 +23,10 @@ import { montarModalProyecto } from './componentes/modalProyecto';
 import './estilos/modalProyecto.css';
 import { montarPanelMeta } from './componentes/panelMeta';
 import { montarPanelChat, type PanelChat } from './componentes/panelChat';
+import { montarBarraSuperior } from './componentes/barraSuperior';
 import { montarPanelNavegador } from './componentes/panelNavegador';
+import { montarPanelDerecho } from './componentes/panelDerecho';
+import { montarPanelVisor } from './componentes/panelVisor';
 import { renderizarBloque } from './componentes/mensajes';
 import {
   abrirMenuContextual,
@@ -51,6 +54,22 @@ cuerpo.id = 'cuerpo';
 // #paneles es el contenedor flex de los chats duplicables (1-2).
 const paneles = el('div');
 paneles.id = 'paneles';
+
+// [089A-3] Barra superior global estilo Synara (toggles + arrastre +
+// botonera caption). Se monta como primera hija de #app (ver montaje).
+// Los callbacks existen como declaraciones hoisted más abajo; solo se
+// invocan en runtime (clic), cuando todo ya está definido.
+const barra = montarBarraSuperior({
+  onToggleSidebar() {
+    alternarSidebar();
+  },
+  onTogglePanelDerecho() {
+    alternarPanelDerecho();
+  },
+  onAbrirVisor() {
+    abrirVisor();
+  },
+});
 
 // ---------- Estado compartido M1 (runtime único) ----------
 let modeloActual: ModeloSeleccionado = MODELO_INICIAL;
@@ -89,6 +108,12 @@ const BASE_API = USA_TAURI ? null : detectarBaseApi();
 const USA_REAL = USA_TAURI || BASE_API !== null;
 const USA_MOCK = !USA_REAL && import.meta.env.VITE_MOCK === '1';
 const MODO_TEXTO = USA_TAURI ? 'tauri in-process' : BASE_API !== null ? `web (${BASE_API || 'mismo origen'})` : 'sin backend';
+const CLAVE_TEMA_OSCURO = 'temaOscuro';
+
+function aplicarTemaOscuro(activo: boolean): void {
+  if (activo) document.documentElement.dataset.tema = 'oscuro';
+  else delete document.documentElement.dataset.tema;
+}
 
 // Lista de conversaciones (fuente para la sidebar y el ⋯ de cabecera).
 let conversaciones: Conversacion[] = USA_REAL
@@ -175,6 +200,11 @@ const hooksAdaptador: HooksAdaptador = {
   onConexion(estado, detalle) {
     if (estado !== 'en-linea') avisoGlobal(`backend web: ${estado}`, '', detalle ?? '');
   },
+  // [089A-2] Cambios de archivos del agente → tab Cambios del visor.
+  // Seguro: corre en runtime, cuando `visor` ya existe.
+  onCambioArchivo(cambio) {
+    visor.registrarCambio(cambio);
+  },
 };
 // Tauri → IPC in-process; web (`?api=`/`gh_api`/mismo origen) → HTTP/SSE.
 // `adaptador` se usa en cierres de runtime; en modo ni-ni nunca se monta.
@@ -182,7 +212,9 @@ const adaptador = USA_TAURI
   ? crearAdaptadorReal(hooksAdaptador)
   : crearAdaptadorApi(BASE_API ?? '', hooksAdaptador);
 
-// ---------- Gestión de paneles (1 principal + 0..1 lateral) ----------
+// ---------- Gestión de paneles (1 principal + 0..N laterales) ----------
+// [089A-2] Cada lateral vive en su propia tab `chat:<conversaId>` del panel
+// derecho (multi-chat estilo Paseo): ya no hay límite de 2 paneles.
 const panelesRegistrados: PanelChat[] = [];
 
 function panelActivo(): PanelChat | null {
@@ -291,32 +323,45 @@ async function renombrarEnLista(id: string, titulo: string): Promise<void> {
   }
 }
 
-/** ¿Se puede ofrecer "Abrir en panel lateral"? (<2 chats y ancho mínimo). */
+/** ¿Se puede ofrecer "Abrir en lateral"? (multi-chat: hasta 8 laterales en
+ * tabs; el ancho ya no limita porque comparten el panel derecho). */
+const MAX_LATERALES = 8;
 function puedeAbrirLateral(): boolean {
-  return panelesRegistrados.length < 2 && window.innerWidth >= 900;
+  return panelesRegistrados.filter((p) => p.tipo === 'lateral').length < MAX_LATERALES;
 }
 
-/** Abre/activa un segundo panel lateral mostrando la conversación dada. */
+/** Abre/activa un lateral en su propia tab `chat:<id>` (multi-chat). Si la
+ * conversación ya está abierta, solo se activa su tab. */
+let contadorLaterales = 0;
 function abrirEnLateral(id: string): void {
-  if (!puedeAbrirLateral()) {
-    if (panelesRegistrados.length >= 2) {
-      avisoGlobal('ya hay dos paneles abiertos', '', 'cierra el lateral para abrir otro');
-    } else {
-      avisoGlobal('pantalla demasiado estrecha', '', 'amplía la ventana para usar dos paneles');
-    }
+  const tabId = `chat:${id}`;
+  const yaAbierto = panelesRegistrados.find(
+    (p) => p.tipo === 'lateral' && p.raiz.dataset.tabId === tabId,
+  );
+  if (yaAbierto) {
+    asegurarPanelDerecho();
+    panelDerecho.activarTab(tabId);
+    activarPanel(yaAbierto);
+    yaAbierto.enfocarEntrada();
     return;
   }
-  const lateral = crearPanel('lateral', 'lateral', {
+  if (!puedeAbrirLateral()) {
+    avisoGlobal('demasiados laterales abiertos', '', 'cierra alguna tab del panel derecho');
+    return;
+  }
+  contadorLaterales += 1;
+  const titulo = conversaciones.find((c) => c.id === id)?.titulo ?? 'Chat';
+  const lateral = crearPanel('lateral', `lateral-${contadorLaterales}`, {
     onCerrar() {
-      cerrarLateral();
+      cerrarLateral(tabId);
     },
   });
-  // [039A-3 P6b] Divisor redimensionable entre principal y lateral: se
-  // inserta ANTES del lateral y se restaura el ancho persistido.
-  gripLateral = crearGripLateral();
-  restaurarLateralAncho();
-  paneles.appendChild(gripLateral);
-  paneles.appendChild(lateral.raiz);
+  lateral.raiz.dataset.tabId = tabId;
+  // [089A-2] El lateral vive como tab del panel derecho (convive con el
+  // navegador, el visor y otros chats). Sin grip propio: el panel derecho
+  // trae su grip único.
+  asegurarPanelDerecho();
+  panelDerecho.abrirTab(tabId, titulo, lateral.raiz, () => cerrarLateral(tabId));
   // [039A-3 retoque] El textarea del lateral nace con height 0px porque el
   // `medir()` de montarEntrada corre en el constructor, antes de estar en el
   // DOM (scrollHeight 0). Al montar el panel ya se puede medir: recalcula la
@@ -329,19 +374,28 @@ function abrirEnLateral(id: string): void {
   })();
 }
 
-/** Cierra el panel lateral (el principal permanece). */
-function cerrarLateral(): void {
-  const idx = panelesRegistrados.findIndex((p) => p.tipo === 'lateral');
-  if (idx < 0) return;
-  const lateral = panelesRegistrados[idx];
-  lateral.raiz.remove();
-  panelesRegistrados.splice(idx, 1);
-  gripLateral?.remove();
-  gripLateral = null;
-  const principal = panelesRegistrados.find((p) => p.tipo === 'principal');
-  if (principal) {
-    activarPanel(principal);
-    principal.enfocarEntrada();
+/** Cierra un lateral (`tabId`) o todos (el principal permanece). */
+function cerrarLateral(tabId?: string): void {
+  const victimas = panelesRegistrados.filter(
+    (p) => p.tipo === 'lateral' && (!tabId || p.raiz.dataset.tabId === tabId),
+  );
+  if (victimas.length === 0) return;
+  const habiaActivo = victimas.some((p) => p === panelActivo());
+  victimas.forEach((p) => {
+    const idx = panelesRegistrados.indexOf(p);
+    if (idx >= 0) panelesRegistrados.splice(idx, 1);
+    const tid = p.raiz.dataset.tabId;
+    if (tid) panelDerecho.cerrarTab(tid);
+  });
+  // [089A-2] Desmonta sus tabs; si no quedan tabs se oculta el panel derecho
+  // (con su grip). El nodo lo conserva el panel hasta reabrirlo.
+  cerrarPanelDerechoSiVacio();
+  if (habiaActivo) {
+    const principal = panelesRegistrados.find((p) => p.tipo === 'principal');
+    if (principal) {
+      activarPanel(principal);
+      principal.enfocarEntrada();
+    }
   }
 }
 
@@ -643,9 +697,13 @@ function crearPanel(
     },
     onCerrar: opts.onCerrar,
     onToggleSidebar() {
-      // [039A-3 P6b] El botón de la lista SOLO la muestra; nunca la oculta.
-      mostrarSidebar();
+      // [089A-2] El botón de la cabecera alterna la lista (mostrar/ocultar).
+      alternarSidebar();
     },
+    // [089A-2] Toggle del panel derecho (solo el principal lo muestra).
+    onTogglePanelDerecho: tipo === 'principal' ? () => alternarPanelDerecho() : undefined,
+    // [089A-2] Botón del visor (solo el principal lo muestra).
+    onAbrirVisor: tipo === 'principal' ? () => abrirVisor() : undefined,
     onModeloCambiado(nuevo) {
       modeloActual = nuevo;
       // [039A-3 P6b] Propaga a TODOS los paneles (ambos son completos y
@@ -789,7 +847,9 @@ function guardarSidebar(clave: string, valor: string): void {
   }
 }
 function leerSidebar(clave: string): string | null {
-  if (USA_REAL) return null;
+  // El modo web usa localStorage para estas claves; Tauri las restaura por IPC
+  // cuando termina de abrir la sesión persistida en SQLite.
+  if (USA_TAURI) return null;
   try {
     return window.localStorage.getItem(clave);
   } catch {
@@ -819,6 +879,9 @@ function aplicarSidebar(): void {
   const visible = sidebarAbierta && (!angosta || sidebarForzada);
   cuerpo.classList.toggle('sidebar-colapsada', !visible);
   panelesRegistrados.forEach((p) => p.setSidebarAbierta(visible));
+  // [089A-3] Espejo en la barra superior global (la cabecera ya no tiene
+  // el toggle; su setter es no-op).
+  barra.setSidebarAbierta(visible);
 }
 function pintarSidebar(): void {
   aplicarSidebar();
@@ -830,27 +893,40 @@ function mostrarSidebar(): void {
   aplicarSidebar();
   guardarSidebar(CLAVE_COLAPSADA, '0');
 }
+/** [089A-2] Oculta la lista (manual; el auto-ocultado por ancho sigue). */
+function ocultarSidebar(): void {
+  sidebarAbierta = false;
+  sidebarForzada = false;
+  aplicarSidebar();
+  guardarSidebar(CLAVE_COLAPSADA, '1');
+}
+/** [089A-2] Alterna la lista (botón siempre visible de la cabecera). */
+function alternarSidebar(): void {
+  const visible = !cuerpo.classList.contains('sidebar-colapsada');
+  if (visible) ocultarSidebar();
+  else mostrarSidebar();
+}
 
 // Escucha resize para el auto-ocultado de la lista por ancho mínimo.
 window.addEventListener('resize', () => aplicarSidebar());
 
-// ---------- Grip de redimensionado del panel lateral (2 chats) ----------
-// [039A-3 P6b] Divisor vertical arrastrable entre el principal y el lateral.
-// Se inserta en #paneles antes del lateral al abrirlo y se quita al cerrarlo.
-// Ancho parte de la mitad (--lateral-ancho: 50%) y el arrastre lo fija en px
-// dentro de [260, 70% del ancho de #paneles]; se persiste para restaurarlo.
+// ---------- Grip de redimensionado del panel derecho (tabs) ----------
+// [089A-2] Divisor vertical arrastrable entre #paneles y el panel derecho.
+// Vive en #cuerpo (hijo flex de 9px, no absolute) y fija
+// `--panel-derecho-ancho` en #cuerpo dentro de [260, 70%]; se persiste en
+// la misma clave de siempre (sigue siendo "el ancho del panel derecho").
 const CLAVE_LATERAL_ANCHO = 'lateral_ancho';
-let gripLateral: HTMLElement | null = null;
-let lateralAnchoFijado: number | null = null;
-function medirPanelesAncho(): number {
-  return paneles.getBoundingClientRect().width;
+let gripPanelDerecho: HTMLElement | null = null;
+let anchoPanelDerechoFijado: number | null = null;
+function medirAnchoCuerpo(): number {
+  return cuerpo.getBoundingClientRect().width;
 }
-function aplicarLateralAncho(px: number): void {
-  lateralAnchoFijado = px;
-  paneles.style.setProperty('--lateral-ancho', `${px}px`);
+function aplicarPanelDerechoAncho(px: number): void {
+  anchoPanelDerechoFijado = px;
+  cuerpo.style.setProperty('--panel-derecho-ancho', `${px}px`);
 }
-function crearGripLateral(): HTMLElement {
-  const g = el('div', 'lateral-grip');
+function crearGripPanelDerecho(): HTMLElement {
+  const g = el('div', 'panel-derecho-grip');
   g.setAttribute('aria-hidden', 'true');
   let arrastrando = false;
   g.addEventListener('mousedown', (e) => {
@@ -860,42 +936,39 @@ function crearGripLateral(): HTMLElement {
   });
   window.addEventListener('mousemove', (e) => {
     if (!arrastrando) return;
-    const rect = paneles.getBoundingClientRect();
-    // [039A-3 P6b retoque] El lateral está ANCLADO al borde DERECHO de
-    // #paneles (flex: principal 1 + grip 5px + lateral `0 0 var(--lateral-ancho)`).
-    // El ancho del lateral es la distancia del cursor (el borde del divisor)
-    // hasta el borde derecho: arrastrar el divisor a la IZQUIERDA ENGRANDE el
-    // lateral y a la DERECHA lo encoge (gesto natural). Antes se calculaba
-    // desde el borde izquierdo y funcionaba INVERTIDO.
+    const rect = cuerpo.getBoundingClientRect();
+    // El panel derecho está ANCLADO al borde derecho de #cuerpo: su ancho
+    // es la distancia del cursor hasta el borde derecho (igual que antes
+    // con el lateral en #paneles).
     const ancho = rect.right - e.clientX;
     const MIN = 260;
     const MAX = Math.round(rect.width * 0.7);
     const clampeado = Math.min(MAX, Math.max(MIN, Math.round(ancho)));
-    aplicarLateralAncho(clampeado);
+    aplicarPanelDerechoAncho(clampeado);
   });
   window.addEventListener('mouseup', () => {
     if (!arrastrando) return;
     arrastrando = false;
     document.body.classList.remove('redimensionando-lateral');
-    if (lateralAnchoFijado !== null) {
-      guardarSidebar(CLAVE_LATERAL_ANCHO, String(lateralAnchoFijado));
+    if (anchoPanelDerechoFijado !== null) {
+      guardarSidebar(CLAVE_LATERAL_ANCHO, String(anchoPanelDerechoFijado));
     }
   });
   return g;
 }
 
-// Al reabrir el lateral se restaura el ancho persistido (si no supera el 70%
-// disponible, p. ej. si la ventana se redujo respecto del último arrastre).
-function restaurarLateralAncho(): void {
+// Al abrir el panel derecho se restaura el ancho persistido (si cabe en el
+// 70% disponible).
+function restaurarPanelDerechoAncho(): void {
   const base = leerSidebar(CLAVE_LATERAL_ANCHO);
-  const anchoPaneles = medirPanelesAncho();
-  const MAX = Math.round(anchoPaneles * 0.7);
-  let px = Math.round(anchoPaneles * 0.5); // parte de la mitad
+  const anchoCuerpo = medirAnchoCuerpo();
+  const MAX = Math.round(anchoCuerpo * 0.7);
+  let px = Math.round(anchoCuerpo * 0.5); // parte de la mitad
   if (base) {
     const n = Number(base);
     if (Number.isFinite(n)) px = Math.round(Math.min(MAX, Math.max(260, n)));
   }
-  aplicarLateralAncho(Math.min(MAX, Math.max(260, px)));
+  aplicarPanelDerechoAncho(Math.min(MAX, Math.max(260, px)));
 }
 
 function sincronizarPanelMeta(): void {
@@ -925,13 +998,15 @@ const modal = montarModalConfiguracion({
       // backend la consumirá al construir la sesión (inyección de
       // `contexto.max_ventana`, pendiente de P6 backend). No hay estado local
       // que actualizar: la fuente para el indicador es el ContextoDetalle.
+    } else if (id === CLAVE_TEMA_OSCURO) {
+      aplicarTemaOscuro(valor === true || valor === 'true');
     }
     if (
       USA_REAL &&
-      (id === 'modo' || id === 'nivelRazonamiento' || id === 'contexto_max_ventana')
+      (id === 'modo' || id === 'nivelRazonamiento' || id === 'contexto_max_ventana' || id === CLAVE_TEMA_OSCURO)
     ) {
       void adaptador.sesion
-        .configGuardar(id, String(valor))
+        .configGuardar(id, valor === true ? '1' : String(valor))
         .catch((e: unknown) => avisoGlobal(`no se pudo guardar ${id}: ${String(e)}`, '', ''));
     }
   },
@@ -974,80 +1049,116 @@ const navegador = montarPanelNavegador({
 });
 let navegadorAbierto = false;
 
-// [069A-2 fix] Grip de redimensionado del panel navegador: divisor vertical
-// arrastrable en el borde IZQUIERDO del panel (que está anclado a la derecha
-// de #cuerpo). Cambia `--navegador-ancho` dentro de [320, 70% del ancho de
-// #cuerpo] y persiste el resultado (CLAVE_NAVEGADOR_ANCHO).
-const CLAVE_NAVEGADOR_ANCHO = 'navegador_ancho';
-let gripNavegador: HTMLElement | null = null;
-let navegadorAnchoFijado: number | null = null;
-function aplicarNavegadorAncho(px: number): void {
-  navegadorAnchoFijado = px;
-  cuerpo.style.setProperty('--navegador-ancho', `${Math.round(px)}px`);
-}
-function medirCuerpoAncho(): number {
-  return cuerpo.getBoundingClientRect().width;
-}
-/** Clampea al rango válido según el ancho actual de #cuerpo. */
-function clampearNavegadorAncho(px: number): number {
-  const MIN = 320;
-  const MAX = Math.max(MIN, Math.round(medirCuerpoAncho() * 0.7));
-  return Math.min(MAX, Math.max(MIN, Math.round(px)));
-}
-function crearGripNavegador(): HTMLElement {
-  const g = el('div', 'navegador-grip');
-  g.setAttribute('aria-hidden', 'true');
-  let arrastrando = false;
-  g.addEventListener('mousedown', (e) => {
-    e.preventDefault();
-    arrastrando = true;
-    document.body.classList.add('redimensionando-navegador');
-  });
-  window.addEventListener('mousemove', (e) => {
-    if (!arrastrando) return;
-    // El panel está anclado al borde derecho de #cuerpo: su ancho es la
-    // distancia del cursor al borde derecho (igual que el grip lateral).
-    const rect = cuerpo.getBoundingClientRect();
-    aplicarNavegadorAncho(clampearNavegadorAncho(rect.right - e.clientX));
-  });
-  window.addEventListener('mouseup', () => {
-    if (!arrastrando) return;
-    arrastrando = false;
-    document.body.classList.remove('redimensionando-navegador');
-    if (navegadorAnchoFijado !== null) {
-      guardarSidebar(CLAVE_NAVEGADOR_ANCHO, String(navegadorAnchoFijado));
+// ---------- Panel derecho con tabs + visor (089A-2) ----------
+// Chat lateral, Navegador y Visor conviven como tabs (antes el navegador
+// y el lateral se excluían). El grip del navegador desaparece: el panel
+// derecho trae su grip único (ancho persistido en la clave de siempre).
+const visor = montarPanelVisor();
+const panelDerecho = montarPanelDerecho({
+  onCerrarTodo() {
+    cerrarLateral();
+    cerrarNavegador();
+    panelDerecho.cerrarTab('visor');
+  },
+  onCambioTab(id) {
+    // La webview hija es nativa: no respeta `hidden`. Al salir de su tab
+    // se oculta (sin destruirla) y al volver se muestra + reposiciona.
+    if (!USA_TAURI || !navegadorAbierto) return;
+    if (id === 'navegador') {
+      void invoke('navegador_mostrar', { visible: true })
+        .then(() => reposicionarWebview())
+        .catch(() => {});
+    } else {
+      void invoke('navegador_mostrar', { visible: false }).catch(() => {});
     }
-  });
-  return g;
+  },
+});
+
+/** Visibilidad del panel derecho (independiente de sus tabs: ocultar no
+ * destruye; las tabs y sus nodos vivos se conservan). Arranca oculto. */
+let panelDerechoVisible = false;
+
+/** Refleja la visibilidad en el toggle de la barra superior global. */
+function pintarToggleDerecho(): void {
+  panelesRegistrados
+    .find((p) => p.tipo === 'principal')
+    ?.setPanelDerechoAbierto(panelDerechoVisible);
+  // [089A-3] La cabecera ya no tiene el toggle (su setter es no-op); el
+  // espejo real vive en la barra superior.
+  barra.setPanelDerechoAbierto(panelDerechoVisible);
 }
-/** Restaura el ancho persistido del navegador (si cabe en la ventana). */
-async function restaurarAnchoNavegador(): Promise<void> {
-  let base: string | null = null;
-  if (USA_REAL) {
-    try {
-      base = await adaptador.sesion.configLeer(CLAVE_NAVEGADOR_ANCHO);
-    } catch {
-      base = null;
-    }
-  } else {
-    base = leerSidebar(CLAVE_NAVEGADOR_ANCHO);
+
+/** Monta el panel derecho en #cuerpo (con su grip) si aún no está. */
+function asegurarPanelDerecho(): void {
+  if (!gripPanelDerecho) {
+    gripPanelDerecho = crearGripPanelDerecho();
+    restaurarPanelDerechoAncho();
   }
-  const px = base ? clampearNavegadorAncho(Number(base) || 480) : 480;
-  aplicarNavegadorAncho(px);
+  if (!gripPanelDerecho.parentNode) cuerpo.appendChild(gripPanelDerecho);
+  if (!panelDerecho.raiz.parentNode) cuerpo.appendChild(panelDerecho.raiz);
+  panelDerechoVisible = true;
+  pintarToggleDerecho();
+}
+
+/** Oculta el panel derecho sin destruir sus tabs (el toggle lo reabre). */
+function ocultarPanelDerecho(): void {
+  gripPanelDerecho?.remove();
+  gripPanelDerecho = null;
+  panelDerecho.raiz.remove();
+  panelDerechoVisible = false;
+  pintarToggleDerecho();
+}
+
+/** Alterna el panel derecho (botón siempre visible de la cabecera). Sin
+ * tabs, abre el visor para que el botón siempre haga algo visible. */
+function alternarPanelDerecho(): void {
+  if (panelDerechoVisible) ocultarPanelDerecho();
+  else if (panelDerecho.hayTabs()) asegurarPanelDerecho();
+  else abrirVisor();
+}
+
+/** Quita el panel derecho (y su grip) si ya no tiene tabs. */
+function cerrarPanelDerechoSiVacio(): void {
+  if (panelDerecho.hayTabs()) return;
+  ocultarPanelDerecho();
+}
+
+/** Reposiciona la webview hija sobre su contenedor (tras mostrar su tab). */
+function reposicionarWebview(): void {
+  const contenedor = document.getElementById('navegador-webview-contenedor');
+  if (!contenedor) return;
+  const r = contenedor.getBoundingClientRect();
+  if (r.width < 2 || r.height < 2) return;
+  void invoke('navegador_posicionar', {
+    x: Math.round(r.left),
+    y: Math.round(r.top),
+    ancho: Math.round(r.width),
+    alto: Math.round(r.height),
+  }).catch(() => {});
+}
+
+/** Abre el tab Visor (vuelca los cambios del panel activo + fija el área). */
+function abrirVisor(): void {
+  visor.limpiarCambios();
+  panelActivo()
+    ?.listarCambios()
+    .forEach((c) => visor.registrarCambio(c));
+  visor.fijarBase(proyectoActivo?.ruta ?? null);
+  asegurarPanelDerecho();
+  panelDerecho.abrirTab('visor', 'Visor', visor.raiz, () => {
+    panelDerecho.cerrarTab('visor');
+    cerrarPanelDerechoSiVacio();
+  });
 }
 
 function abrirNavegador(): void {
   if (navegadorAbierto) return;
-  if (gripLateral) {
-    avisoGlobal('cierra el panel lateral para abrir el navegador', '', ''); // eslint-disable-line
-    return;
-  }
+  // [089A-2] El navegador vive como tab del panel derecho y convive con el
+  // chat lateral y el visor (antes se excluían entre sí).
   navegadorAbierto = true;
+  asegurarPanelDerecho();
+  panelDerecho.abrirTab('navegador', 'Navegador', navegador.raiz, () => cerrarNavegador());
   navegador.mostrar(true);
-  // Inserta el grip redimensionable y restaura su ancho persistido.
-  gripNavegador = crearGripNavegador();
-  cuerpo.appendChild(gripNavegador);
-  void restaurarAnchoNavegador();
 
   if (!USA_TAURI) {
     // [069A-2 fix] Modo web: el iframe se autogestiona; solo se fija la URL
@@ -1112,9 +1223,9 @@ function cerrarNavegador(): void {
   if (!navegadorAbierto) return;
   navegadorAbierto = false;
   navegador.mostrar(false);
-  // Quita el grip de redimensionado del navegador.
-  gripNavegador?.remove();
-  gripNavegador = null;
+  // [089A-2] Desmonta su tab; si no quedan tabs se cierra el panel derecho.
+  panelDerecho.cerrarTab('navegador');
+  cerrarPanelDerechoSiVacio();
   // Solo en Tauri existe la webview child que cerrar; en web el iframe se
   // vacía dentro del propio panel (btnCerrar) y aquí solo se oculta.
   if (USA_TAURI) {
@@ -1133,7 +1244,11 @@ cuerpo.appendChild(sidebar.raiz);
 cuerpo.appendChild(grip);
 paneles.appendChild(principal.raiz);
 cuerpo.appendChild(paneles);
-cuerpo.appendChild(navegador.raiz); // Navegador a la derecha de paneles
+// [089A-2] El navegador y el visor viven detached hasta abrir su tab del
+// panel derecho (que se monta bajo demanda con `asegurarPanelDerecho`).
+// [089A-3] La barra superior global va primera (a todo el ancho, por
+// encima de sidebar/paneles/panel derecho).
+app.appendChild(barra.raiz);
 app.appendChild(cuerpo);
 raizApp.appendChild(app);
 
@@ -1149,6 +1264,8 @@ function pintarEstadoInicial(): void {
   pintarSidebar();
 }
 pintarEstadoInicial();
+// [089A-2] El toggle derecho arranca en "mostrar" (panel oculto, sin tabs).
+pintarToggleDerecho();
 
 // Recalcular alturas del textarea tras montar al DOM.
 panelesRegistrados.forEach((p) => p.medir());
@@ -1218,7 +1335,7 @@ if (USA_REAL) {
   void (async () => {
     try {
       await adaptador.asegurarSesion(opcionesArranque());
-      const [provG, modG, modoG, razG, anchoG, colG, ctxG] = await Promise.all([
+      const [provG, modG, modoG, razG, anchoG, colG, ctxG, temaG] = await Promise.all([
         adaptador.sesion.configLeer('proveedor'),
         adaptador.sesion.configLeer('modelo'),
         adaptador.sesion.configLeer('modo'),
@@ -1226,6 +1343,7 @@ if (USA_REAL) {
         adaptador.sesion.configLeer(CLAVE_ANCHO),
         adaptador.sesion.configLeer(CLAVE_COLAPSADA),
         adaptador.sesion.configLeer('contexto_max_ventana'),
+        adaptador.sesion.configLeer(CLAVE_TEMA_OSCURO),
       ]);
       if (anchoG) {
         const n = Number(anchoG);
@@ -1260,6 +1378,11 @@ if (USA_REAL) {
       // refleja el valor guardado en el control del panel Contexto).
       if (ctxG && Number(ctxG) > 0) {
         modal.asignarValor('contexto_max_ventana', ctxG);
+      }
+      if (temaG !== null) {
+        const activo = temaG === '1' || temaG === 'true';
+        aplicarTemaOscuro(activo);
+        modal.asignarValor(CLAVE_TEMA_OSCURO, activo);
       }
       sincronizarPanelMeta();
       await resincronizarSidebar();

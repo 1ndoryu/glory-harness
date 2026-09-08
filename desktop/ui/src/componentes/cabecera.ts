@@ -13,8 +13,6 @@
 
 import { icono } from './iconos';
 import { el } from '../util/dom';
-import { esEntornoTauri } from '../tauri/real';
-import { crearControlesVentana, hacerArrastrable } from './ventana';
 
 export interface CabeceraChat {
   raiz: HTMLElement;
@@ -65,40 +63,19 @@ export function montarCabeceraChat(opts: CabeceraChatOpciones): CabeceraChat {
   let titulo = opts.titulo;
   const lateral = opts.lateral ?? false;
 
-  // ---- acciones: colapsar sidebar (principal) / × cerrar (lateral) + ⋯ ----
-  // [039A-3 P6b] El botón ⋯ va al EXTREMO DERECHO de la cabecera: se monta en
-  // un grupo propio `acciones-mas` tras el título (el toggle/× queda a la
-  // izquierda). Así el título queda alineado a la izquierda y ⋯ a la derecha.
+  // ---- acciones: × cerrar (lateral) + ⋯ ----
+  // [089A-3] Los toggles globales (sidebar, panel derecho, visor) se mudaron
+  // a la barra superior global (`barraSuperior.ts`): la cabecera queda con el
+  // título + ⋯ (y el × en laterales). `acciones` se conserva como contenedor
+  // (vacío en el principal) para no cambiar la estructura.
   const acciones = el('div', 'acciones-cabecera');
   acciones.setAttribute('aria-label', 'acciones de la conversación');
 
-  let btnToggle: HTMLButtonElement | null = null;
+  // [089A-3] Sin toggles en la cabecera (mudados a la barra superior):
+  // solo el × de cierre en laterales.
   let btnCerrar: HTMLButtonElement | null = null;
 
-  if (!lateral) {
-    // [089A-2] El botón de la lista SIEMPRE visible: alterna mostrar/ocultar
-    // (antes solo aparecía para mostrar cuando la lista estaba oculta).
-    btnToggle = el('button', 'cab-boton') as HTMLButtonElement;
-    btnToggle.id = `${opts.idPrefijo}-alternar-sidebar`;
-    btnToggle.type = 'button';
-    btnToggle.title = 'ocultar lista de conversaciones';
-    btnToggle.setAttribute('aria-label', 'ocultar lista de conversaciones');
-    btnToggle.appendChild(icono('panel-izq-cerrar'));
-    btnToggle.addEventListener('click', () => opts.onToggleSidebar?.());
-    acciones.appendChild(btnToggle);
-    // [089A-2] Botón del visor (archivo y cambios): solo en el principal,
-    // junto al toggle de la lista. Abre el tab Visor del panel derecho.
-    if (!lateral && opts.onAbrirVisor) {
-      const btnVisor = el('button', 'cab-boton') as HTMLButtonElement;
-      btnVisor.id = `${opts.idPrefijo}-abrir-visor`;
-      btnVisor.type = 'button';
-      btnVisor.title = 'visor de archivo y cambios';
-      btnVisor.setAttribute('aria-label', 'visor de archivo y cambios');
-      btnVisor.appendChild(icono('archivo'));
-      btnVisor.addEventListener('click', () => opts.onAbrirVisor?.());
-      acciones.appendChild(btnVisor);
-    }
-  } else {
+  if (lateral) {
     btnCerrar = el('button', 'cab-boton cab-cerrar') as HTMLButtonElement;
     btnCerrar.id = `${opts.idPrefijo}-cerrar-panel`;
     btnCerrar.type = 'button';
@@ -122,19 +99,9 @@ export function montarCabeceraChat(opts: CabeceraChatOpciones): CabeceraChat {
   const accionesMas = el('div', 'acciones-mas');
   accionesMas.setAttribute('aria-label', 'acciones de la conversación');
 
-  // [089A-2] Toggle del panel derecho (espejo del de la lista): siempre
-  // visible en el principal, a la izquierda del ⋯ (derecha del título).
-  let btnToggleDer: HTMLButtonElement | null = null;
-  if (!lateral && opts.onTogglePanelDerecho) {
-    btnToggleDer = el('button', 'cab-boton') as HTMLButtonElement;
-    btnToggleDer.id = `${opts.idPrefijo}-alternar-panel-derecho`;
-    btnToggleDer.type = 'button';
-    btnToggleDer.title = 'mostrar panel derecho';
-    btnToggleDer.setAttribute('aria-label', 'mostrar panel derecho');
-    btnToggleDer.appendChild(icono('panel-der-abrir'));
-    btnToggleDer.addEventListener('click', () => opts.onTogglePanelDerecho?.());
-    accionesMas.appendChild(btnToggleDer);
-  }
+  // [089A-3] Toggle del panel derecho mudado a la barra superior global.
+  // Se conserva el campo (no-op) para no cambiar `CabeceraChatOpciones` ni
+  // `panelChat.ts`.
   accionesMas.appendChild(btnMas);
 
   // ---- título (editado inline al renombrar) ----
@@ -193,41 +160,24 @@ export function montarCabeceraChat(opts: CabeceraChatOpciones): CabeceraChat {
   cab.appendChild(t);
   cab.appendChild(accionesMas);
 
-  // [089A-1] Controles de ventana propios estilo Paseo, solo en el panel
-  // principal bajo Tauri (en web siguen los nativos del navegador). La
-  // cabecera actúa como barra de arrastre (`data-tauri-drag-region`) y la
-  // botonera minimizar/maximizar/cerrar queda al extremo derecho, tras ⋯.
-  // No aplica a paneles laterales (son chats, no chrome de ventana).
-  if (!lateral && esEntornoTauri()) {
-    hacerArrastrable(cab);
-    cab.appendChild(crearControlesVentana());
-  }
+  // [089A-3] Arrastre + botonera de ventana mudados a la barra superior
+  // global (`barraSuperior.ts`). La cabecera ya no es chrome de ventana.
 
   return {
     raiz: cab,
     ponerTitulo(texto: string) {
       ponerTitulo(texto);
     },
-    setSidebarAbierta(abierta: boolean) {
-      if (btnToggle) {
-        // [089A-2] Visible siempre: el icono refleja el estado (cerrar para
-        // ocultar, abrir para mostrar). Ya no se usa `hidden`.
-        btnToggle.hidden = false;
-        btnToggle.replaceChildren(icono(abierta ? 'panel-izq-cerrar' : 'panel-izq-abrir'));
-        const label = abierta
-          ? 'ocultar lista de conversaciones'
-          : 'mostrar lista de conversaciones';
-        btnToggle.title = label;
-        btnToggle.setAttribute('aria-label', label);
-      }
+    // [089A-3] No-op: el toggle de la lista vive en la barra superior
+    // global (`barraSuperior.ts`). Se conserva el método para no cambiar
+    // la interfaz `CabeceraChat` ni `panelChat.ts`.
+    setSidebarAbierta(_abierta: boolean) {
+      /* no-op */
     },
-    setPanelDerechoAbierto(abierto: boolean) {
-      if (btnToggleDer) {
-        btnToggleDer.replaceChildren(icono(abierto ? 'panel-der-cerrar' : 'panel-der-abrir'));
-        const label = abierto ? 'ocultar panel derecho' : 'mostrar panel derecho';
-        btnToggleDer.title = label;
-        btnToggleDer.setAttribute('aria-label', label);
-      }
+    // [089A-3] No-op: el toggle del panel derecho vive en la barra
+    // superior global. Se conserva el método por la misma razón.
+    setPanelDerechoAbierto(_abierto: boolean) {
+      /* no-op */
     },
     empezarRenombrar(valor, onGuardar, onCancelar) {
       empezarRenombrar(valor, onGuardar, onCancelar);

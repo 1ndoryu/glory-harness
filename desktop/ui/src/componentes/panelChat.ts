@@ -153,6 +153,9 @@ export interface PanelChat {
   /** [039A-3 P4/P6b] Refleja lista visible/oculta en el botón de la cabecera
    * (solo el principal lo tiene). */
   setSidebarAbierta(abierta: boolean): void;
+  /** [089A-2] Refleja panel derecho visible/oculto en el botón de la
+   * cabecera (solo el principal lo tiene). */
+  setPanelDerechoAbierto(abierto: boolean): void;
   /** Repinta un aviso en este panel (mock/próximamente, sin backend). */
   avisoLocal(texto: string, meta: string, detalle: string): void;
   /** [039A-3 P6] Actualiza el indicador circular de contexto de la entrada. */
@@ -164,6 +167,16 @@ export interface PanelChat {
   /** [seleccionar] Muestra un elemento del navegador como badge pendiente en
    * la entrada de ESTE panel (se antepone al próximo mensaje enviado). */
   adjuntarElemento(elem: ElementoSeleccionado): void;
+  /** [089A-2] Cambios de archivos de la conversación cargada (historial:
+   * tools file_write/file_patch con su diff), para el tab Cambios del visor. */
+  listarCambios(): CambioArchivoPanel[];
+}
+
+/** [089A-2] Cambio de archivo para el visor (ruta + diff ya formateado). */
+export interface CambioArchivoPanel {
+  ruta: string;
+  titulo: string;
+  diffHtml: string;
 }
 
 export interface PanelChatOpciones {
@@ -180,6 +193,10 @@ export interface PanelChatOpciones {
   /** Panel principal: se invoca al pulsar el botón de MOSTRAR la lista
    * (solo aparece si la lista está oculta por ancho; no hay ocultación manual). */
   onToggleSidebar?: () => void;
+  /** [089A-2] Panel principal: muestra/oculta el panel derecho. */
+  onTogglePanelDerecho?: () => void;
+  /** [089A-2] Panel principal: se invoca al pulsar el botón del visor. */
+  onAbrirVisor?: () => void;
   /** El usuario cambió el modelo/modo/razonamiento en la barra de ESTE panel
    * (todos los paneles son completos; el orquestador propaga M1 al resto). */
   onModeloCambiado?: (modelo: ModeloSeleccionado) => void;
@@ -206,6 +223,9 @@ export function montarPanelChat(opts: PanelChatOpciones): PanelChat {
       opts.onAcciones(rect);
     },
     onToggleSidebar: tipo === 'principal' ? () => opts.onToggleSidebar?.() : undefined,
+    onTogglePanelDerecho:
+      tipo === 'principal' ? () => opts.onTogglePanelDerecho?.() : undefined,
+    onAbrirVisor: tipo === 'principal' ? () => opts.onAbrirVisor?.() : undefined,
     onCerrar: tipo === 'lateral' ? () => opts.onCerrar?.() : undefined,
   });
 
@@ -248,6 +268,18 @@ export function montarPanelChat(opts: PanelChatOpciones): PanelChat {
   chat.appendChild(mensajes);
   chat.appendChild(entrada.raiz);
 
+  // [089A-2] La entrada flota por encima del scroll: la reserva inferior de
+  // .mensajes sigue a la altura real de la entrada (el textarea crece).
+  try {
+    const reserva = new ResizeObserver(() => {
+      const alto = entrada.raiz.getBoundingClientRect().height;
+      if (alto > 0) mensajes.style.paddingBottom = `${Math.ceil(alto) + 24}px`;
+    });
+    reserva.observe(entrada.raiz);
+  } catch {
+    // Sin ResizeObserver (navegador antiguo): vale el valor CSS inicial.
+  }
+
   // ---------- estado local del panel ----------
   let conversaId: string | null = null;
   let usuariosHistorial = new Map<string, string>();
@@ -277,6 +309,8 @@ export function montarPanelChat(opts: PanelChatOpciones): PanelChat {
   function limpiarChat(): void {
     mensajes.replaceChildren();
     usuariosHistorial = new Map<string, string>();
+    // [089A-2] Los cambios acumulados pertenecen a la conversación anterior.
+    cambios.length = 0;
     // Se descarta una edición pendiente (su mensaje ya no está visible).
     entrada.cancelarEnEdicion();
   }
@@ -480,11 +514,36 @@ export function montarPanelChat(opts: PanelChatOpciones): PanelChat {
     const estado: EstadoHerramienta = accion.ok
       ? { estado: 'completada', meta, resultado }
       : { estado: 'error', meta, resultado };
+    // [089A-2] Acumula cambios de archivos para el visor.
+    registrarCambioHistorial(accion.tool, argumentosPersistidos(accion.argumentos_json), accion.resumen, accion.diff);
     return crearHerramienta({
       icono: iconoDeTool(accion.tool),
       titulo: descripcionDeTool(accion.tool, argumentosPersistidos(accion.argumentos_json)),
       estado,
     });
+  }
+
+  /** [089A-2] Cambios del historial (file_write/file_patch con ruta). */
+  const cambios: CambioArchivoPanel[] = [];
+  function registrarCambioHistorial(tool: string, args: unknown, resumen: string, diff: string | null): void {
+    if (tool !== 'file_write' && tool !== 'file_patch') return;
+    const ruta = rutaDeArgs(args);
+    if (!ruta) return;
+    cambios.push({
+      ruta,
+      titulo: descripcionDeTool(tool, args),
+      diffHtml: formatearResultadoHerramienta(resumen, diff),
+    });
+  }
+  /** Extrae la ruta de los argumentos de una tool de archivo. */
+  function rutaDeArgs(args: unknown): string | null {
+    if (typeof args !== 'object' || args === null) return null;
+    const o = args as Record<string, unknown>;
+    for (const clave of ['ruta', 'path', 'archivo']) {
+      const v = o[clave];
+      if (typeof v === 'string' && v.trim() !== '') return v;
+    }
+    return null;
   }
 
   /** Pinta historial persistido intercalando las herramientas del turno. */
@@ -827,6 +886,9 @@ export function montarPanelChat(opts: PanelChatOpciones): PanelChat {
     setSidebarAbierta(abierta: boolean) {
       cabecera.setSidebarAbierta(abierta);
     },
+    setPanelDerechoAbierto(abierto: boolean) {
+      cabecera.setPanelDerechoAbierto(abierto);
+    },
     avisoLocal(texto: string, meta: string, detalle: string) {
       avisoChat(texto, meta, detalle);
     },
@@ -841,6 +903,9 @@ export function montarPanelChat(opts: PanelChatOpciones): PanelChat {
     },
     adjuntarElemento(elem: ElementoSeleccionado) {
       entrada.adjuntarElemento(elem);
+    },
+    listarCambios() {
+      return [...cambios];
     },
   };
 

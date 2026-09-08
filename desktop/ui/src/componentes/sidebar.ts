@@ -76,6 +76,10 @@ export function montarSidebar(opts: SidebarOpciones): Sidebar {
   aside.id = 'sidebar';
   const conversaciones: Conversacion[] = [...opts.conversaciones];
 
+  const marca = el('h1', 'marcaAplicacion');
+  marca.textContent = 'Glory Harness';
+  aside.appendChild(marca);
+
   // ---- botones de acción (nav) ----
   const nav = el('nav', 'nav-botones');
   nav.setAttribute('aria-label', 'crear y tipos de conversación');

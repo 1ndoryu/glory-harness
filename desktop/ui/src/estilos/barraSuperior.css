@@ -1,0 +1,62 @@
+/* ============================================================
+   Barra superior global (089A-3, referencia Synara
+   `DesktopWindowControls.tsx`): 46px a todo el ancho, primera hija
+   de #app. Toggles a la izquierda, marca centrada (zona de arrastre)
+   y botonera caption a la derecha (ver ventana.css).
+   Monocromo salvo el hover de cerrar (rojo Synara #c42b1c, excepción
+   explícita pedida por el usuario en 089A-3).
+   ============================================================ */
+
+.barra-superior {
+    height: 46px;
+    flex: none;
+    display: flex;
+    align-items: stretch;
+    background: var(--fondo);
+    color: var(--texto);
+    border-bottom: 1px solid var(--borde);
+    /* La barra es zona de arrastre bajo Tauri: sin selección de texto. */
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+.barra-superior .barra-grupo {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-xs);
+    padding: 0 var(--sp-sm);
+    flex: none;
+}
+
+.barra-superior .bar-boton {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    background: transparent;
+    color: inherit;
+    border: none;
+    font-family: inherit;
+    padding: 0;
+    cursor: pointer;
+}
+.barra-superior .bar-boton:hover { background: #000; color: #fff; }
+
+.barra-superior .barra-centro {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 0;
+}
+
+.barra-superior .barra-marca {
+    font-size: var(--sm);
+    opacity: 0.55;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    /* El texto no intercepta el gesto de arrastre. */
+    pointer-events: none;
+}

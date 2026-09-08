@@ -170,6 +170,23 @@ Orden propuesto (dependencias de abajo arriba):
       principal, espejo del izquierdo; ocultar no destruye las tabs), ×
       propio por tab y multi-chat (una tab `chat:<id>` por conversación,
       máx. 8 laterales; reabrir una abierta solo activa su tab).
+- [ ] **089A-3 — Barra superior global estilo Synara** (08-09, en curso, parte 1):
+      Barra de 46px a todo el ancho por encima de sidebar/paneles/panel
+      derecho (nuevo `componentes/barraSuperior.ts` + `estilos/barraSuperior.css`,
+      primera hija de `#app`): toggles sidebar/panel-derecho + visor mudados
+      desde la cabecera del principal, zona central arrastrable y botonera
+      min/max/cerrar con glifos nativos Segoe (46px, planos, orden Paseo;
+      cerrar con hover rojo `#c42b1c` como la referencia —excepción explícita
+      a "sin rojo hover" pedida por el usuario). Arrastre + botonera solo bajo
+      Tauri. La cabecera queda con título + ⋯ (+ × en laterales). Referencia:
+      `area-trabajo/synara` (`DesktopWindowControls.tsx`). Plan en
+      `Agente/planes/plan-089A-3-barra-superior-2026-09-08.md`.
+- [ ] **089A-4 — Launcher del panel derecho estilo Synara** (08-09, pendiente, parte 2):
+      Cuando el panel derecho no tiene tabs (o tab "inicio"), mostrar pantalla
+      de opciones centrada (icono + etiqueta, full-width) al estilo
+      `RightDockLauncher` de Synara: Review, Terminal, Browser, Files,
+      Side chats, Source control (con gating según contexto). Referencia:
+      `RightDock.tsx` + `rightDockPaneMeta.tsx` en `area-trabajo/synara`.
 
 > **Hecho (04-09, correcciones del primer `tauri dev`):** los 7 hallazgos del primer arranque
 > real quedaron corregidos (H1–H7, bloque 039A-1). Detalle en

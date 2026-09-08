@@ -37,8 +37,15 @@ body {
     background: var(--fondo);
     color: var(--texto);
     font-family: var(--font);
+    font-weight: 300;
+    font-synthesis: none;
     line-height: 1.55;
 }
+
+button,
+input,
+textarea,
+select { font-weight: inherit; }
 
 /* ---------- Patrones monocromo ---------- */
 .trama-45  { background-image: repeating-linear-gradient(45deg,  #000 0 1.5px, transparent 1.5px 6px); }
