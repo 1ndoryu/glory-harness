@@ -16,6 +16,7 @@ use serde_json::{json, Value};
 use std::sync::Arc;
 
 const MAX_LECTURA_BYTES: usize = 1_048_576; // 1MB (truncado con aviso)
+const MAX_LECTURA_LINEAS: u64 = 400;
 
 /// Límite de búsqueda de archivos: resultados, profundidad y tamaño agregado.
 const FILE_SEARCH_MAX_RESULTADOS: usize = 50;
@@ -30,7 +31,7 @@ impl AgentTool for ToolFileRead {
         "file_read"
     }
     fn descripcion(&self) -> &'static str {
-        "Lee un archivo del workspace local y devuelve su contenido.\nFORMATO DE SALIDA: el contenido crudo dentro de un bloque ``` (con aviso si se truncó); con rango, el encabezado declara el rango leído (p. ej. líneas 1-40 de 200).\nLÍMITES: máx 1 MB por lectura (se trunca con aviso); con `offset_linea`/`limite_lineas` (1-based, opcionales) solo se lee esa ventana y se indica si hay más; solo rutas dentro del workspace; archivos de secretos bloqueados.\nCUÁNDO USARLA: antes de editar un archivo (file_patch/file_write) o para responder sobre código existente; para archivos grandes lee por rangos de ~40-100 líneas encadenando `offset_linea`. Para localizar archivos usa file_search.\nERRORES: ruta inexistente, fuera del workspace, bloqueada por secreto o rango fuera de límites."
+        "Lee un archivo del workspace local y devuelve su contenido.\nFORMATO DE SALIDA: el contenido crudo dentro de un bloque ``` (con aviso si se truncó); con rango, el encabezado declara el rango leído (p. ej. líneas 1-40 de 200).\nLÍMITES: máx 1 MB por lectura (se trunca con aviso); con `offset_linea`/`limite_lineas` (1-based, obligatorios juntos) solo se lee esa ventana, de máximo 400 líneas, y se indica si hay más; solo rutas dentro del workspace; archivos de secretos bloqueados.\nCUÁNDO USARLA: antes de editar un archivo (file_patch/file_write) o para responder sobre código existente; para archivos grandes lee por rangos de ~40-400 líneas encadenando `offset_linea`. Para localizar archivos usa file_search.\nERRORES: ruta inexistente, fuera del workspace, bloqueada por secreto o rango fuera de límites."
     }
     fn schema(&self) -> Value {
         json!({
@@ -38,7 +39,7 @@ impl AgentTool for ToolFileRead {
             "properties": {
                 "ruta": {"type": "string", "description": "Ruta relativa al workspace (ej. src/main.rs)"},
                 "offset_linea": {"type": "integer", "minimum": 1, "description": "Primera línea a leer (1-based). Opcional: sin él se lee desde el inicio."},
-                "limite_lineas": {"type": "integer", "minimum": 1, "description": "Máximo de líneas de la ventana. Opcional (defecto: archivo completo hasta 1 MB)."}
+                "limite_lineas": {"type": "integer", "minimum": 1, "maximum": 400, "description": "Máximo de líneas de la ventana (hasta 400). Opcional: sin él se lee el archivo completo hasta 1 MB."}
             },
             "required": ["ruta"]
         })
@@ -55,6 +56,11 @@ impl AgentTool for ToolFileRead {
             .ok_or_else(|| Error::Argumentos("ruta requerida".into()))?;
         let offset = argumentos.get("offset_linea").and_then(Value::as_u64);
         let limite = argumentos.get("limite_lineas").and_then(Value::as_u64);
+        if limite.is_some_and(|valor| valor > MAX_LECTURA_LINEAS) {
+            return Err(Error::Argumentos(format!(
+                "limite_lineas no puede superar {MAX_LECTURA_LINEAS}"
+            )));
+        }
         // Sin rango: comportamiento actual (archivo completo, truncado a 1 MB).
         let (contenido, aviso, resumen_rango) = match (offset, limite) {
             (None, None) => {
