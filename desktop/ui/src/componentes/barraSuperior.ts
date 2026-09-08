@@ -3,8 +3,8 @@
 // `apps/web/src/components/SidebarHeaderNavigationControls.tsx` y
 // `AppNavigationButtons.tsx`).
 // Orden fiel a Synara, de izquierda a derecha: toggle de la lista,
-// atrás, adelante … marca … toggle del panel derecho y botonera de
-// ventana (min, max/restaurar, cerrar, orden Paseo).
+// atrás, adelante … marca … zona derecha con tabs, toggle del panel y
+// botonera de ventana (min, max/restaurar, cerrar).
 // Todos los iconos son Lucide (`iconos.ts`); la botonera conserva el
 // estilo caption nativo (46px, planos, cerrar hover #c42b1c).
 // La barra es la zona arrastrable de la ventana; arrastre + botonera
@@ -39,6 +39,8 @@ export interface BarraSuperior {
   setPanelDerechoAbierto(abierto: boolean): void;
   /** Habilita atrás/adelante (pendiente: siempre false hasta el historial). */
   setPuedeNavegar(atras: boolean, adelante: boolean): void;
+  /** Monta la única barra de tabs en la zona derecha superior. */
+  montarTabs(tabsBarra: HTMLElement): void;
 }
 
 /** Botón de la barra (Lucide, monocromo). */
@@ -83,13 +85,15 @@ export function montarBarraSuperior(opts: BarraSuperiorOpciones): BarraSuperior 
   marca.appendChild(nombre);
   barra.appendChild(marca);
 
-  // ---- Grupo derecho: toggle del panel derecho + botonera ----
+  // ---- Zona derecha: tabs + toggle del panel + botonera ----
+  const zonaDerecha = el('div', 'barra-zona-derecha');
   const grupoDer = el('div', 'barra-grupo');
   const btnDerecho = botonBarra('panel-der-abrir', 'mostrar panel derecho', () =>
     opts.onAlternarPanelDerecho(),
   );
   grupoDer.appendChild(btnDerecho);
-  barra.appendChild(grupoDer);
+  zonaDerecha.appendChild(grupoDer);
+  barra.appendChild(zonaDerecha);
 
   if (esEntornoTauri()) {
     hacerArrastrable(barra);
@@ -109,6 +113,7 @@ export function montarBarraSuperior(opts: BarraSuperiorOpciones): BarraSuperior 
       btnSidebar.setAttribute('aria-label', etiqueta);
     },
     setPanelDerechoAbierto(abierto: boolean) {
+      zonaDerecha.classList.toggle('abierto', abierto);
       btnDerecho.replaceChildren(
         icono(abierto ? 'panel-der-cerrar' : 'panel-der-abrir'),
       );
@@ -119,6 +124,9 @@ export function montarBarraSuperior(opts: BarraSuperiorOpciones): BarraSuperior 
     setPuedeNavegar(atras: boolean, adelante: boolean) {
       btnAtras.disabled = !atras;
       btnAdelante.disabled = !adelante;
+    },
+    montarTabs(tabsBarra) {
+      zonaDerecha.insertBefore(tabsBarra, grupoDer);
     },
   };
 }

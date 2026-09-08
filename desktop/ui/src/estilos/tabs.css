@@ -1,7 +1,7 @@
 /* ============================================================
    Panel derecho con tabs (089A-2): chats laterales (multi-chat),
-   Navegador y Visor. Monocromo estricto: bordes de 1px, tab activa
-   invertida, × propio por tab (además del × global).
+   Navegador y Visor. Monocromo estricto: bordes de 1px y tab activa
+   invertida. La barra solo aparece cuando existe una pestaña.
    ============================================================ */
 
 .panel-derecho {
@@ -13,10 +13,15 @@
     min-height: 0;
 }
 
-/* Grip entre #paneles y el panel derecho (hijo flex, no absolute). */
+/* El grip solo captura el arrastre sobre el divisor: se superpone a la
+   línea y no ocupa una franja visible entre #paneles y el panel derecho. */
 #cuerpo > .panel-derecho-grip {
-    flex: none;
+    position: absolute;
+    top: 0;
+    right: var(--panel-derecho-ancho, 50%);
+    bottom: 0;
     width: 9px;
+    transform: translateX(50%);
     cursor: col-resize;
     z-index: 5;
 }
@@ -33,6 +38,33 @@
     align-items: stretch;
     flex: 1;
     min-width: 0;
+    overflow-x: auto;
+    padding-left: var(--sp-xs);
+}
+
+.tab-mas {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: none;
+    width: 30px;
+    padding: 0;
+    color: var(--texto);
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    opacity: 0.65;
+}
+
+.tab-mas:hover,
+.tab-mas:focus-visible {
+    opacity: 1;
+    background: color-mix(in srgb, var(--texto) 8%, var(--fondo));
+}
+
+.tab-mas .ic {
+    width: 14px;
+    height: 14px;
 }
 
 .tab {
@@ -56,8 +88,6 @@
 
 .tab.sel {
     opacity: 1;
-    background: var(--texto);
-    color: var(--fondo);
 }
 
 .tab-etiqueta {
@@ -67,7 +97,8 @@
     min-width: 0;
 }
 
-/* × propio de cada tab (Paseo: cierre por tab). */
+/* Cada tab conserva su cierre propio; la barra superior ya controla
+   mostrar/ocultar el panel completo, por eso no hay otro cierre aquí. */
 .tab-x {
     display: inline-flex;
     align-items: center;
@@ -81,23 +112,8 @@
 
 .tab-x .ic { width: 12px; height: 12px; }
 
-.tab-cerrar {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 28px;
-    flex: none;
-    background: transparent;
-    color: var(--texto);
-    border: none;
-    border-left: 1px solid var(--borde);
-    cursor: pointer;
-    padding: 0;
-}
-
-.tab-cerrar:hover {
-    background: var(--texto);
-    color: var(--fondo);
+.tabs-barra[hidden] {
+    display: none;
 }
 
 .tabs-contenido {
@@ -107,6 +123,10 @@
     flex-direction: column;
 }
 
+/* `display:flex` tiene más prioridad que el estilo nativo de `[hidden]`;
+   sin esta regla, el contenedor vacío sigue reservando toda su altura cuando
+   el panel muestra el launcher. */
+.tabs-contenido[hidden] { display: none; }
 .tabs-contenido > [hidden] { display: none; }
 
 /* El chat lateral pierde su borde/ancho de cuando vivía en #paneles. */

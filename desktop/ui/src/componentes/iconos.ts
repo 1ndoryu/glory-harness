@@ -40,16 +40,15 @@ const TRAZOS: Record<IconoNombre, string> = {
   volver:
     '<path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline>',
   'panel-izq-cerrar':
-    '<rect width="18" height="18" x="3" y="3" rx="2"></rect><path d="M9 3v18"></path><path d="m16 15-3-3 3-3"></path>',
+    '<rect width="18" height="18" x="3" y="3" rx="2"></rect><path d="M9 3v18"></path>',
   'panel-izq-abrir':
-    '<rect width="18" height="18" x="3" y="3" rx="2"></rect><path d="M9 3v18"></path><path d="m14 15 3-3-3-3"></path>',
+    '<rect width="18" height="18" x="3" y="3" rx="2"></rect><path d="M9 3v18"></path>',
   // [089A-2] Toggle del panel derecho (espejo del izquierdo): la divisoria
-  // va a la derecha (x=15); cerrar pliega hacia el borde (chevron der) y
-  // abrir despliega hacia el centro (chevron izq).
+  // va a la derecha (x=15); sin flecha/chevron, estilo Synara.
   'panel-der-cerrar':
-    '<rect width="18" height="18" x="3" y="3" rx="2"></rect><path d="M15 3v18"></path><path d="m8 15 3-3-3-3"></path>',
+    '<rect width="18" height="18" x="3" y="3" rx="2"></rect><path d="M15 3v18"></path>',
   'panel-der-abrir':
-    '<rect width="18" height="18" x="3" y="3" rx="2"></rect><path d="M15 3v18"></path><path d="m16 15-3-3 3-3"></path>',
+    '<rect width="18" height="18" x="3" y="3" rx="2"></rect><path d="M15 3v18"></path>',
   detener: '<rect x="6.5" y="6.5" width="11" height="11"></rect>',
   'chevron-abajo': '<path d="m6 9 6 6 6-6"></path>',
   'chevron-derecha': '<path d="m9 18 6-6-6-6"></path>',
@@ -64,7 +63,7 @@ const TRAZOS: Record<IconoNombre, string> = {
     '<rect x="14" y="4" width="4" height="16" rx="1"></rect><rect x="6" y="4" width="4" height="16" rx="1"></rect>',
   reproducir: '<polygon points="6 3 20 12 6 21 6 3"></polygon>',
   'flecha-izq': '<path d="m12 19-7-7 7-7"></path><path d="M19 12H5"></path>',
-  'flecha-der': '<path d="m5 12 7-7 7 7"></path><path d="M19 12H5"></path>',
+  'flecha-der': '<path d="m12 5 7 7-7 7"></path><path d="M5 12h14"></path>',
   recargar:
     '<path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"></path><path d="M21 3v5h-5"></path><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"></path><path d="M3 21v-5h5"></path>',
   camara:

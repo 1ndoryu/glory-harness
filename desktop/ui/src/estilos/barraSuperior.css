@@ -1,15 +1,15 @@
 /* ============================================================
    Barra superior global (089A-3, referencia Synara
    `SidebarHeaderNavigationControls.tsx` + `AppNavigationButtons.tsx`):
-   46px a todo el ancho, primera hija de #app. Grupo izquierdo con
+   38px a todo el ancho, primera hija de #app. Grupo izquierdo con
    toggle de lista + atrás/adelante (orden Synara), marca (zona de
-   arrastre) y grupo derecho con toggle del panel derecho + botonera
+   arrastre) y zona derecha con tabs, toggle del panel y botonera
    caption (ver ventana.css). Todo Lucide y monocromo, salvo el hover
    de cerrar (rojo Synara #c42b1c, excepción explícita 089A-3).
    ============================================================ */
 
 .barra-superior {
-    height: 46px;
+    height: 38px;
     flex: none;
     display: flex;
     align-items: stretch;
@@ -27,6 +27,33 @@
     gap: var(--sp-xs);
     padding: 0 var(--sp-sm);
     flex: none;
+}
+
+/* Cuando el panel derecho está abierto, esta zona ocupa exactamente su
+   ancho persistido: el borde izquierdo coincide con el divisor del panel
+   y la barra de tabs queda encima del contenido, no dentro de él. */
+.barra-superior .barra-zona-derecha {
+    display: flex;
+    align-items: stretch;
+    flex: none;
+    min-width: 0;
+    margin-left: auto;
+}
+.barra-superior .barra-zona-derecha.abierto {
+    width: var(--panel-derecho-ancho, 50%);
+    border-left: 1px solid var(--borde);
+}
+.barra-superior .barra-zona-derecha .tabs-barra {
+    flex: 1;
+    min-width: 0;
+    min-height: 0;
+    border-bottom: none;
+}
+.barra-superior .barra-zona-derecha .tabs-botones {
+    min-width: 0;
+}
+.barra-superior .barra-zona-derecha .tab {
+    height: 100%;
 }
 
 .barra-superior .barra-boton {

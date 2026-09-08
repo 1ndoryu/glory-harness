@@ -1,0 +1,39 @@
+/* Scrollbars tipo Synara/Paseo: estrechos, discretos y sin botones.
+   El thumb queda insetado para no pegarse al borde del contenido. */
+:root {
+    --scrollbar-thumb: rgba(0, 0, 0, 0.1);
+    --scrollbar-thumb-hover: rgba(0, 0, 0, 0.18);
+}
+
+html[data-tema='oscuro'] {
+    --scrollbar-thumb: rgba(255, 255, 255, 0.07);
+    --scrollbar-thumb-hover: rgba(255, 255, 255, 0.14);
+}
+
+* {
+    scrollbar-color: var(--scrollbar-thumb) transparent;
+    scrollbar-width: thin;
+}
+
+*::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+    background: transparent;
+}
+
+*::-webkit-scrollbar-track,
+*::-webkit-scrollbar-corner {
+    background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+    border: 2px solid transparent;
+    border-radius: 999px;
+    background-color: var(--scrollbar-thumb);
+    background-clip: padding-box;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+    background-color: var(--scrollbar-thumb-hover);
+    background-clip: padding-box;
+}

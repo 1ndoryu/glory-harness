@@ -19,9 +19,8 @@
     border-top: none;
 }
 .entrada {
-    max-width: 860px;
     width: 100%;
-    margin: 0 auto;
+    margin: 0;
     padding: 0 var(--sp-lg) var(--sp-lg);
 }
 /* [069A-8] Cuadro centrado con selector de área de trabajo (menú contextual),

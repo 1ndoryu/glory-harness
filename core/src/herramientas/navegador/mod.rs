@@ -13,8 +13,8 @@
 //! siga resolviendo sin cambios.
 
 mod operaciones;
-mod reflejo;
 #[cfg(test)]
 mod pruebas;
+mod reflejo;
 
 pub(crate) use reflejo::ToolNavegadorReflejo;

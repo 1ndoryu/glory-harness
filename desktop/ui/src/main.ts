@@ -47,8 +47,9 @@ const raizApp = document.getElementById('app');
 if (!raizApp) throw new Error('falta #app');
 
 // ---------- Layout raíz ----------
-const app = el('div');
-app.id = 'app';
+// `index.html` ya aporta el único #app. Reutilizarlo evita anidar otro
+// contenedor con `height: 100vh`, que en modo web hacía crecer el documento.
+const app = raizApp;
 const cuerpo = el('div');
 cuerpo.id = 'cuerpo';
 // #paneles es el contenedor flex de los chats duplicables (1-2).
@@ -380,6 +381,28 @@ function abrirEnLateral(id: string): void {
     await lateral.cargarConversacion(id);
     activarPanel(lateral);
   })();
+}
+
+/** Abre un lateral nuevo sin cargar la conversación enfocada. */
+function abrirChatLateralVacio(): void {
+  if (!puedeAbrirLateral()) {
+    avisoGlobal('demasiados laterales abiertos', '', 'cierra alguna tab del panel derecho');
+    return;
+  }
+  contadorLaterales += 1;
+  const tabId = `chat:nuevo-${contadorLaterales}`;
+  const lateral = crearPanel('lateral', `lateral-${contadorLaterales}`, {
+    onCerrar() {
+      cerrarLateral(tabId);
+    },
+  });
+  lateral.raiz.dataset.tabId = tabId;
+  lateral.ponerBorrador();
+  asegurarPanelDerecho();
+  panelDerecho.abrirTab(tabId, 'Nueva conversación', lateral.raiz, () => cerrarLateral(tabId));
+  lateral.medir();
+  activarPanel(lateral);
+  lateral.enfocarEntrada();
 }
 
 /** Cierra un lateral (`tabId`) o todos (el principal permanece). */
@@ -932,6 +955,7 @@ function medirAnchoCuerpo(): number {
 function aplicarPanelDerechoAncho(px: number): void {
   anchoPanelDerechoFijado = px;
   cuerpo.style.setProperty('--panel-derecho-ancho', `${px}px`);
+  app.style.setProperty('--panel-derecho-ancho', `${px}px`);
 }
 function crearGripPanelDerecho(): HTMLElement {
   const g = el('div', 'panel-derecho-grip');
@@ -1063,13 +1087,6 @@ let navegadorAbierto = false;
 // derecho trae su grip único (ancho persistido en la clave de siempre).
 const visor = montarPanelVisor();
 const panelDerecho = montarPanelDerecho({
-  onCerrarTodo() {
-    cerrarLateral();
-    cerrarNavegador();
-    panelDerecho.cerrarTab('visor');
-    // [089A-4] El × global oculta el panel (no deja el inicio a la vista).
-    ocultarPanelDerecho();
-  },
   onCambioTab(id) {
     // La webview hija es nativa: no respeta `hidden`. Al salir de su tab
     // se oculta (sin destruirla) y al volver se muestra + reposiciona.
@@ -1086,12 +1103,12 @@ const panelDerecho = montarPanelDerecho({
   onElegirInicio(opcion) {
     if (opcion === 'navegador') abrirNavegador();
     else if (opcion === 'visor') abrirVisor();
-    else {
-      const id = panelActivo()?.conversaId;
-      if (id) abrirEnLateral(id);
-    }
+    else abrirChatLateralVacio();
   },
 });
+// La barra de tabs comparte la barra superior; el panel derecho conserva
+// únicamente el contenido y el launcher para no dejar una segunda barra.
+barra.montarTabs(panelDerecho.tabsBarra);
 
 /** Visibilidad del panel derecho (independiente de sus tabs: ocultar no
  * destruye; las tabs y sus nodos vivos se conservan). Arranca oculto. */
@@ -1136,7 +1153,7 @@ function alternarPanelDerecho(): void {
 }
 
 /** Sin tabs el panel se queda mostrando el inicio (089A-4): ya no se
- * desmonta al cerrar la última tab (el × global y el toggle lo ocultan). */
+ * desmonta al cerrar la última tab; el toggle superior controla su visibilidad. */
 function cerrarPanelDerechoSiVacio(): void {
   if (panelDerecho.hayTabs()) return;
   /* el inicio ocupa el panel; nada que desmontar */
@@ -1266,10 +1283,10 @@ cuerpo.appendChild(paneles);
 // [089A-2] El navegador y el visor viven detached hasta abrir su tab del
 // panel derecho (que se monta bajo demanda con `asegurarPanelDerecho`).
 // [089A-3] La barra superior global va primera (a todo el ancho, por
-// encima de sidebar/paneles/panel derecho).
+// encima de sidebar/paneles/panel derecho). `app` ya es `raizApp`, así que no
+// se vuelve a insertar a sí mismo (eso provoca un HierarchyRequestError).
 app.appendChild(barra.raiz);
 app.appendChild(cuerpo);
-raizApp.appendChild(app);
 
 // Estado inicial de la sidebar (ancho/colapso persistidos + selección).
 function pintarEstadoInicial(): void {

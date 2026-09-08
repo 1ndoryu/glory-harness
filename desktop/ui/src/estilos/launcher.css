@@ -22,7 +22,8 @@
 .panel-inicio .inicio-lista {
     display: flex;
     flex-direction: column;
-    gap: var(--sp-xs);
+    align-items: center;
+    gap: var(--sp-sm);
     width: 100%;
     max-width: 280px;
 }
@@ -30,24 +31,27 @@
 .panel-inicio .inicio-opcion {
     display: flex;
     align-items: center;
+    justify-content: center;
     gap: var(--sp-sm);
     width: 100%;
+    min-height: 48px;
     padding: var(--sp-sm) var(--sp-md);
-    background: transparent;
-    color: inherit;
-    border: 1px solid transparent;
+    background: var(--fondo);
+    color: var(--texto);
+    border: 1px solid var(--borde);
     cursor: pointer;
+    font-family: var(--font);
     font-size: var(--sm);
-    text-align: left;
+    font-weight: inherit;
+    text-align: center;
 }
 
 .panel-inicio .inicio-opcion:hover {
-    background: color-mix(in srgb, currentColor 7%, transparent);
-    border-color: var(--borde);
+    background: color-mix(in srgb, var(--texto) 7%, var(--fondo));
 }
 
 .panel-inicio .inicio-opcion:active {
-    background: color-mix(in srgb, currentColor 4%, transparent);
+    background: color-mix(in srgb, var(--texto) 4%, var(--fondo));
 }
 
 .panel-inicio .inicio-opcion:disabled {
@@ -56,8 +60,7 @@
 }
 
 .panel-inicio .inicio-opcion:disabled:hover {
-    background: transparent;
-    border-color: transparent;
+    background: var(--fondo);
 }
 
 .panel-inicio .inicio-opcion .ic {

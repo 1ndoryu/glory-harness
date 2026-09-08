@@ -2,10 +2,10 @@
 // Panel derecho con tabs (089A-2, referencia Paseo): chats laterales,
 // Navegador y Visor conviven como pestañas en vez de excluirse.
 // Los ids son dinámicos: 'navegador', 'visor' y 'chat:<id>' (una tab por
-// conversación lateral). Cada tab con cierre propio lleva su × (además
-// del × global que cierra todo el panel). El contenido de cada tab es el
-// nodo vivo del componente (se oculta con `hidden`, no se destruye).
-// Sin tabs muestra el inicio: pantalla de opciones centrada (icono +
+// conversación lateral). Cada tab con cierre propio cierra solo su pestaña.
+// El contenido de cada tab es el nodo vivo del componente (se oculta con
+// `hidden`, no se destruye). Sin tabs muestra el inicio: pantalla de
+// opciones centrada (icono +
 // etiqueta, full-width) al estilo `RightDockLauncher` de Synara
 // (089A-4): Navegador, Visor y Chat lateral (con gating: el chat solo
 // si hay conversación activa; Terminal/Files/Source control pendientes,
@@ -14,6 +14,7 @@
 
 import '../estilos/tabs.css';
 import '../estilos/launcher.css';
+import { cerrarMenuActual, abrirMenuContextual, crearItemMenu } from './menu';
 import { icono } from './iconos';
 import { el } from '../util/dom';
 import type { IconoNombre } from '../dominio/tipos';
@@ -23,6 +24,8 @@ export type TabDerechaId = string;
 
 export interface PanelDerecho {
   raiz: HTMLElement;
+  /** Barra única de tabs, montada por el orquestador en la barra superior. */
+  tabsBarra: HTMLElement;
   /** Monta el contenido en su tab (o reactiva la existente) y la activa. */
   abrirTab(id: TabDerechaId, titulo: string, contenido: HTMLElement, onCerrar?: () => void): void;
   /** Activa una tab existente (sin crearla). */
@@ -41,7 +44,6 @@ export interface PanelDerecho {
 export type OpcionInicio = 'navegador' | 'visor' | 'chat';
 
 export function montarPanelDerecho(opts: {
-  onCerrarTodo(): void;
   onCambioTab(id: TabDerechaId | null): void;
   /** El usuario eligió una opción del inicio (panel sin tabs). */
   onElegirInicio(opcion: OpcionInicio): void;
@@ -52,17 +54,16 @@ export function montarPanelDerecho(opts: {
   const barra = el('div', 'tabs-barra');
   barra.setAttribute('role', 'tablist');
   const botones = el('div', 'tabs-botones');
-  const btnCerrar = el('button', 'tab-cerrar') as HTMLButtonElement;
-  btnCerrar.type = 'button';
-  btnCerrar.title = 'cerrar panel derecho';
-  btnCerrar.setAttribute('aria-label', 'cerrar panel derecho');
-  btnCerrar.appendChild(icono('x'));
-  btnCerrar.addEventListener('click', () => opts.onCerrarTodo());
   barra.appendChild(botones);
-  barra.appendChild(btnCerrar);
+  const botonMas = el('button', 'tab-mas') as HTMLButtonElement;
+  botonMas.type = 'button';
+  botonMas.title = 'Agregar tab';
+  botonMas.setAttribute('aria-label', 'Agregar tab');
+  botonMas.setAttribute('aria-haspopup', 'menu');
+  botonMas.appendChild(icono('mas'));
+  barra.appendChild(botonMas);
 
   const contenido = el('div', 'tabs-contenido');
-  raiz.appendChild(barra);
   raiz.appendChild(contenido);
 
   // ---- Inicio (089A-4): pantalla de opciones sin tabs, estilo
@@ -97,6 +98,31 @@ export function montarPanelDerecho(opts: {
   // (el orquestador lo habilita con `fijarInicioChatDisponible`).
   const btnChatInicio = opcionInicio('chat', 'mensaje', 'Chat lateral');
   btnChatInicio.disabled = true;
+  let chatLateralDisponible = false;
+
+  function abrirMenuAgregar(): void {
+    abrirMenuContextual({
+      rect: botonMas.getBoundingClientRect(),
+      construir(menu) {
+        for (const [opcion, etiqueta] of [
+          ['navegador', 'Navegador'],
+          ['visor', 'Visor'],
+          ...(chatLateralDisponible ? [['chat', 'Chat lateral']] : []),
+        ] as Array<[OpcionInicio, string]>) {
+          menu.appendChild(
+            crearItemMenu({
+              texto: etiqueta,
+              onClick() {
+                cerrarMenuActual();
+                opts.onElegirInicio(opcion);
+              },
+            }),
+          );
+        }
+      },
+    });
+  }
+  botonMas.addEventListener('click', abrirMenuAgregar);
 
   const tabs = new Map<TabDerechaId, { boton: HTMLButtonElement; nodo: HTMLElement; onCerrar?: () => void }>();
   let activaId: TabDerechaId | null = null;
@@ -108,9 +134,9 @@ export function montarPanelDerecho(opts: {
       t.boton.setAttribute('aria-selected', String(esActiva));
       t.nodo.hidden = !esActiva;
     }
-    // Sin tabs: el inicio ocupa el panel (Synara muestra su launcher).
-    // La barra de tabs se conserva (su × global cierra el panel).
+    // Sin tabs: el launcher ocupa todo el panel y no hay barra vacía.
     const vacio = tabs.size === 0;
+    barra.hidden = vacio;
     inicio.hidden = !vacio;
     contenido.hidden = vacio;
   }
@@ -133,8 +159,11 @@ export function montarPanelDerecho(opts: {
     }
   }
 
+  pintar();
+
   return {
     raiz,
+    tabsBarra: barra,
     abrirTab(id, titulo, nodo, onCerrar) {
       let t = tabs.get(id);
       if (!t) {
@@ -191,6 +220,7 @@ export function montarPanelDerecho(opts: {
       return tabs.size > 0;
     },
     fijarInicioChatDisponible(hay: boolean) {
+      chatLateralDisponible = hay;
       btnChatInicio.disabled = !hay;
     },
   };
