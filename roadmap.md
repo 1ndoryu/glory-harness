@@ -170,7 +170,8 @@ Orden propuesto (dependencias de abajo arriba):
       principal, espejo del izquierdo; ocultar no destruye las tabs), ×
       propio por tab y multi-chat (una tab `chat:<id>` por conversación,
       máx. 8 laterales; reabrir una abierta solo activa su tab).
-- [ ] **089A-3 — Barra superior global estilo Synara** (08-09, en curso, parte 1):
+- [ ] **089A-3 — Barra superior global estilo Synara** (08-09, en curso, parte 1;
+      commit `d013e03`, verificación visual pendiente del usuario):
       Barra de 46px a todo el ancho por encima de sidebar/paneles/panel
       derecho (nuevo `componentes/barraSuperior.ts` + `estilos/barraSuperior.css`,
       primera hija de `#app`): toggles sidebar/panel-derecho + visor mudados
