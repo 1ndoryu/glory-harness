@@ -171,23 +171,33 @@ Orden propuesto (dependencias de abajo arriba):
       propio por tab y multi-chat (una tab `chat:<id>` por conversación,
       máx. 8 laterales; reabrir una abierta solo activa su tab).
 - [ ] **089A-3 — Barra superior global estilo Synara** (08-09, en curso, parte 1;
-      commit `d013e03`, verificación visual pendiente del usuario):
+      commit `d013e03`, verificación visual pendiente del usuario; ajustes 08-09:
+      orden fiel Synara —lista, atrás, adelante … marca … toggle derecho +
+      botonera—; sin botón de visor (redundante); atrás/adelante presentes pero
+      deshabilitados; botonera caption 100% Lucide):
       Barra de 46px a todo el ancho por encima de sidebar/paneles/panel
       derecho (nuevo `componentes/barraSuperior.ts` + `estilos/barraSuperior.css`,
-      primera hija de `#app`): toggles sidebar/panel-derecho + visor mudados
+      primera hija de `#app`): toggle sidebar + atrás/adelante mudados
       desde la cabecera del principal, zona central arrastrable y botonera
-      min/max/cerrar con glifos nativos Segoe (46px, planos, orden Paseo;
+      min/max/cerrar con iconos Lucide (46px, planos, orden Paseo;
       cerrar con hover rojo `#c42b1c` como la referencia —excepción explícita
       a "sin rojo hover" pedida por el usuario). Arrastre + botonera solo bajo
       Tauri. La cabecera queda con título + ⋯ (+ × en laterales). Referencia:
-      `area-trabajo/synara` (`DesktopWindowControls.tsx`). Plan en
+      `area-trabajo/synara` (`DesktopWindowControls.tsx`,
+      `SidebarHeaderNavigationControls.tsx`, `AppNavigationButtons.tsx`). Plan en
       `Agente/planes/plan-089A-3-barra-superior-2026-09-08.md`.
-- [ ] **089A-4 — Launcher del panel derecho estilo Synara** (08-09, pendiente, parte 2):
-      Cuando el panel derecho no tiene tabs (o tab "inicio"), mostrar pantalla
+- [ ] **089A-4 — Launcher del panel derecho estilo Synara** (08-09, en curso, parte 2):
+      Al abrir el panel derecho sin tabs muestra el inicio para elegir contenido
+      (nuevo `estilos/launcher.css`, estado vacío en `panelDerecho.ts`): pantalla
       de opciones centrada (icono + etiqueta, full-width) al estilo
-      `RightDockLauncher` de Synara: Review, Terminal, Browser, Files,
-      Side chats, Source control (con gating según contexto). Referencia:
+      `RightDockLauncher` de Synara con Navegador, Visor y Chat lateral (con
+      gating: el chat solo si hay conversación activa). El × global oculta el
+      panel; cerrar la última tab deja el inicio (ya no se desmonta). Referencia:
       `RightDock.tsx` + `rightDockPaneMeta.tsx` en `area-trabajo/synara`.
+- [ ] **089A-5 — Pendiente Synara (lógica, no visual)** (08-09, pendiente):
+      historial de la app para atrás/adelante (misma lógica que Synara,
+      hoy deshabilitados) y Terminal/Files/Source control como opciones del
+      inicio cuando existan esos paneles.
 
 > **Hecho (04-09, correcciones del primer `tauri dev`):** los 7 hallazgos del primer arranque
 > real quedaron corregidos (H1–H7, bloque 039A-1). Detalle en

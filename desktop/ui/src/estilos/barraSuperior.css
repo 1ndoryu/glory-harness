@@ -1,10 +1,11 @@
 /* ============================================================
    Barra superior global (089A-3, referencia Synara
-   `DesktopWindowControls.tsx`): 46px a todo el ancho, primera hija
-   de #app. Toggles a la izquierda, marca centrada (zona de arrastre)
-   y botonera caption a la derecha (ver ventana.css).
-   Monocromo salvo el hover de cerrar (rojo Synara #c42b1c, excepción
-   explícita pedida por el usuario en 089A-3).
+   `SidebarHeaderNavigationControls.tsx` + `AppNavigationButtons.tsx`):
+   46px a todo el ancho, primera hija de #app. Grupo izquierdo con
+   toggle de lista + atrás/adelante (orden Synara), marca (zona de
+   arrastre) y grupo derecho con toggle del panel derecho + botonera
+   caption (ver ventana.css). Todo Lucide y monocromo, salvo el hover
+   de cerrar (rojo Synara #c42b1c, excepción explícita 089A-3).
    ============================================================ */
 
 .barra-superior {
@@ -28,7 +29,7 @@
     flex: none;
 }
 
-.barra-superior .bar-boton {
+.barra-superior .barra-boton {
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -37,26 +38,40 @@
     background: transparent;
     color: inherit;
     border: none;
-    font-family: inherit;
     padding: 0;
     cursor: pointer;
 }
-.barra-superior .bar-boton:hover { background: #000; color: #fff; }
+.barra-superior .barra-boton:hover {
+    background: color-mix(in srgb, currentColor 9%, transparent);
+}
+.barra-superior .barra-boton:active {
+    background: color-mix(in srgb, currentColor 5%, transparent);
+}
+.barra-superior .barra-boton:disabled {
+    opacity: 0.35;
+    cursor: default;
+}
+.barra-superior .barra-boton .ic {
+    width: 16px;
+    height: 16px;
+}
 
-.barra-superior .barra-centro {
+/* Marca a la izquierda del centro: ocupa el hueco y arrastra. */
+.barra-superior .barra-marca {
     flex: 1;
     display: flex;
     align-items: center;
-    justify-content: center;
     min-width: 0;
-}
-
-.barra-superior .barra-marca {
+    padding: 0 var(--sp-sm);
     font-size: var(--sm);
     opacity: 0.55;
     overflow: hidden;
-    text-overflow: ellipsis;
     white-space: nowrap;
     /* El texto no intercepta el gesto de arrastre. */
     pointer-events: none;
+}
+
+.barra-superior .barra-nombre {
+    overflow: hidden;
+    text-overflow: ellipsis;
 }

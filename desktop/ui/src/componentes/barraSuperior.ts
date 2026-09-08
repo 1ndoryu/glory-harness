@@ -1,90 +1,107 @@
 // ============================================================
 // Barra superior global (089A-3, referencia Synara
-// `apps/web/src/components/DesktopWindowControls.tsx` + `ChatHeader.tsx`).
-// Ocupa todo el ancho por encima de sidebar/paneles/panel derecho
-// (primera hija de #app, 46px como la title-bar de Synara): a la izquierda
-// los toggles globales (sidebar, panel derecho, visor —mudados desde la
-// cabecera del principal—), en el centro la marca (zona libre de arrastre)
-// y a la derecha la botonera de ventana estilo caption de Synara.
-// Arrastre + botonera solo bajo Tauri (`esEntornoTauri`); en web la barra
-// queda con solo los toggles (siguen los nativos del navegador).
+// `apps/web/src/components/SidebarHeaderNavigationControls.tsx` y
+// `AppNavigationButtons.tsx`).
+// Orden fiel a Synara, de izquierda a derecha: toggle de la lista,
+// atrás, adelante … marca … toggle del panel derecho y botonera de
+// ventana (min, max/restaurar, cerrar, orden Paseo).
+// Todos los iconos son Lucide (`iconos.ts`); la botonera conserva el
+// estilo caption nativo (46px, planos, cerrar hover #c42b1c).
+// La barra es la zona arrastrable de la ventana; arrastre + botonera
+// solo bajo Tauri (en web la marca ocupa el centro y no hay botonera).
+// Sin botón de visor: es redundante (decisión del usuario 08-09).
+// Atrás/adelante replican la navegación por historial de Synara; su
+// lógica queda pendiente (roadmap) y arrancan deshabilitados.
 // ============================================================
 
 import '../estilos/barraSuperior.css';
+import { esEntornoTauri } from '../tauri/real';
 import { icono } from './iconos';
 import { el } from '../util/dom';
-import { esEntornoTauri } from '../tauri/real';
 import { crearControlesVentana, hacerArrastrable } from './ventana';
-
-export interface BarraSuperior {
-  raiz: HTMLElement;
-  /** [089A-3] Refleja la lista visible/oculta en el toggle izquierdo. */
-  setSidebarAbierta(abierta: boolean): void;
-  /** [089A-3] Refleja el panel derecho visible/oculto en su toggle. */
-  setPanelDerechoAbierto(abierto: boolean): void;
-}
 
 export interface BarraSuperiorOpciones {
   /** Alterna la lista de conversaciones (sidebar). */
-  onToggleSidebar?: () => void;
-  /** Alterna el panel derecho (tabs). */
-  onTogglePanelDerecho?: () => void;
-  /** Abre el tab Visor del panel derecho. */
-  onAbrirVisor?: () => void;
+  onAlternarSidebar(): void;
+  /** Atrás en el historial (pendiente: misma lógica que Synara). */
+  onAtras(): void;
+  /** Adelante en el historial (pendiente: misma lógica que Synara). */
+  onAdelante(): void;
+  /** Muestra/oculta el panel derecho. */
+  onAlternarPanelDerecho(): void;
+}
+
+export interface BarraSuperior {
+  raiz: HTMLElement;
+  /** Icono del toggle según esté abierta la lista (cerrar/abrir). */
+  setSidebarAbierta(abierta: boolean): void;
+  /** Icono del toggle según esté visible el panel derecho. */
+  setPanelDerechoAbierto(abierto: boolean): void;
+  /** Habilita atrás/adelante (pendiente: siempre false hasta el historial). */
+  setPuedeNavegar(atras: boolean, adelante: boolean): void;
+}
+
+/** Botón de la barra (Lucide, monocromo). */
+function botonBarra(
+  iconoAbierto: 'panel-izq-cerrar' | 'panel-izq-abrir' | 'flecha-izq' | 'flecha-der' | 'panel-der-cerrar' | 'panel-der-abrir',
+  etiqueta: string,
+  alPulsar: () => void,
+): HTMLButtonElement {
+  const btn = el('button', 'barra-boton') as HTMLButtonElement;
+  btn.type = 'button';
+  btn.title = etiqueta;
+  btn.setAttribute('aria-label', etiqueta);
+  btn.appendChild(icono(iconoAbierto));
+  btn.addEventListener('click', alPulsar);
+  return btn;
 }
 
 export function montarBarraSuperior(opts: BarraSuperiorOpciones): BarraSuperior {
   const barra = el('div', 'barra-superior');
-  barra.id = 'barra-superior';
-  barra.setAttribute('role', 'banner');
+  barra.setAttribute('aria-label', 'barra superior');
 
-  const grupo = el('div', 'barra-grupo');
-  grupo.setAttribute('aria-label', 'controles globales');
+  // ---- Grupo izquierdo (orden Synara): lista, atrás, adelante ----
+  const grupoIzq = el('div', 'barra-grupo');
+  const btnSidebar = botonBarra('panel-izq-cerrar', 'ocultar lista de conversaciones', () =>
+    opts.onAlternarSidebar(),
+  );
+  grupoIzq.appendChild(btnSidebar);
+  const btnAtras = botonBarra('flecha-izq', 'atrás', () => opts.onAtras());
+  const btnAdelante = botonBarra('flecha-der', 'adelante', () => opts.onAdelante());
+  // Pendiente (roadmap): sin historial aún, deshabilitados como en Synara
+  // cuando no hay a dónde ir (`canGoBack`/`canGoForward`).
+  btnAtras.disabled = true;
+  btnAdelante.disabled = true;
+  grupoIzq.appendChild(btnAtras);
+  grupoIzq.appendChild(btnAdelante);
+  barra.appendChild(grupoIzq);
 
-  const btnSidebar = el('button', 'bar-boton') as HTMLButtonElement;
-  btnSidebar.type = 'button';
-  btnSidebar.title = 'ocultar lista de conversaciones';
-  btnSidebar.setAttribute('aria-label', 'ocultar lista de conversaciones');
-  btnSidebar.appendChild(icono('panel-izq-cerrar'));
-  btnSidebar.addEventListener('click', () => opts.onToggleSidebar?.());
-  grupo.appendChild(btnSidebar);
+  // ---- Marca (zona central, arrastrable) ----
+  const marca = el('div', 'barra-marca');
+  const nombre = el('span', 'barra-nombre');
+  nombre.textContent = 'glory-harness';
+  marca.appendChild(nombre);
+  barra.appendChild(marca);
 
-  const btnDerecho = el('button', 'bar-boton') as HTMLButtonElement;
-  btnDerecho.type = 'button';
-  btnDerecho.title = 'mostrar panel derecho';
-  btnDerecho.setAttribute('aria-label', 'mostrar panel derecho');
-  btnDerecho.appendChild(icono('panel-der-abrir'));
-  btnDerecho.addEventListener('click', () => opts.onTogglePanelDerecho?.());
-  grupo.appendChild(btnDerecho);
-
-  if (opts.onAbrirVisor) {
-    const btnVisor = el('button', 'bar-boton') as HTMLButtonElement;
-    btnVisor.type = 'button';
-    btnVisor.title = 'visor de archivo y cambios';
-    btnVisor.setAttribute('aria-label', 'visor de archivo y cambios');
-    btnVisor.appendChild(icono('archivo'));
-    btnVisor.addEventListener('click', () => opts.onAbrirVisor?.());
-    grupo.appendChild(btnVisor);
-  }
-
-  // Centro libre: marca + zona de arrastre de la ventana.
-  const centro = el('div', 'barra-centro');
-  const marca = el('span', 'barra-marca');
-  marca.textContent = 'glory-harness';
-  centro.appendChild(marca);
-
-  barra.appendChild(grupo);
-  barra.appendChild(centro);
+  // ---- Grupo derecho: toggle del panel derecho + botonera ----
+  const grupoDer = el('div', 'barra-grupo');
+  const btnDerecho = botonBarra('panel-der-abrir', 'mostrar panel derecho', () =>
+    opts.onAlternarPanelDerecho(),
+  );
+  grupoDer.appendChild(btnDerecho);
+  barra.appendChild(grupoDer);
 
   if (esEntornoTauri()) {
     hacerArrastrable(barra);
-    barra.appendChild(crearControlesVentana());
+    grupoDer.appendChild(crearControlesVentana());
   }
 
   return {
     raiz: barra,
     setSidebarAbierta(abierta: boolean) {
-      btnSidebar.replaceChildren(icono(abierta ? 'panel-izq-cerrar' : 'panel-izq-abrir'));
+      btnSidebar.replaceChildren(
+        icono(abierta ? 'panel-izq-cerrar' : 'panel-izq-abrir'),
+      );
       const etiqueta = abierta
         ? 'ocultar lista de conversaciones'
         : 'mostrar lista de conversaciones';
@@ -92,10 +109,16 @@ export function montarBarraSuperior(opts: BarraSuperiorOpciones): BarraSuperior 
       btnSidebar.setAttribute('aria-label', etiqueta);
     },
     setPanelDerechoAbierto(abierto: boolean) {
-      btnDerecho.replaceChildren(icono(abierto ? 'panel-der-cerrar' : 'panel-der-abrir'));
+      btnDerecho.replaceChildren(
+        icono(abierto ? 'panel-der-cerrar' : 'panel-der-abrir'),
+      );
       const etiqueta = abierto ? 'ocultar panel derecho' : 'mostrar panel derecho';
       btnDerecho.title = etiqueta;
       btnDerecho.setAttribute('aria-label', etiqueta);
+    },
+    setPuedeNavegar(atras: boolean, adelante: boolean) {
+      btnAtras.disabled = !atras;
+      btnAdelante.disabled = !adelante;
     },
   };
 }

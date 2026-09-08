@@ -1,8 +1,8 @@
 /* ============================================================
    Botonera caption de ventana (089A-3, referencia Synara
    `DesktopWindowControls.tsx`): 46px de ancho por botón y alto
-   completo de la barra superior, planos (sin radio ni borde), glifo
-   centrado. Cerrar con hover rojo Synara #c42b1c (excepción explícita
+   completo de la barra superior, planos (sin radio ni borde), icono
+   Lucide centrado (16px). Cerrar con hover rojo Synara #c42b1c (excepción explícita
    a "sin rojo hover" pedida por el usuario en 089A-3).
    ============================================================ */
 
@@ -44,8 +44,7 @@
 .barra-superior .caption-boton.ven-cerrar:hover { background: #c42b1c; color: #fff; }
 .barra-superior .caption-boton.ven-cerrar:active { background: #b9281b; color: #fff; }
 
-.barra-superior .caption-glifo {
-    font-family: "Segoe Fluent Icons", "Segoe MDL2 Assets", sans-serif;
-    font-size: 10px;
-    line-height: 1;
+.barra-superior .caption-boton .ic {
+    width: 16px;
+    height: 16px;
 }

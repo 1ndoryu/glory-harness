@@ -1,0 +1,73 @@
+/* ============================================================
+   Inicio del panel derecho (089A-4, referencia Synara
+   `RightDockLauncher` en `RightDock.tsx`): pantalla de opciones
+   centrada que ocupa el panel cuando no hay tabs (icono + etiqueta,
+   full-width). Monocromo estricto, todo Lucide.
+   ============================================================ */
+
+.panel-inicio {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 0;
+    overflow-y: auto;
+    padding: var(--sp-md);
+}
+
+.panel-inicio[hidden] {
+    display: none;
+}
+
+.panel-inicio .inicio-lista {
+    display: flex;
+    flex-direction: column;
+    gap: var(--sp-xs);
+    width: 100%;
+    max-width: 280px;
+}
+
+.panel-inicio .inicio-opcion {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-sm);
+    width: 100%;
+    padding: var(--sp-sm) var(--sp-md);
+    background: transparent;
+    color: inherit;
+    border: 1px solid transparent;
+    cursor: pointer;
+    font-size: var(--sm);
+    text-align: left;
+}
+
+.panel-inicio .inicio-opcion:hover {
+    background: color-mix(in srgb, currentColor 7%, transparent);
+    border-color: var(--borde);
+}
+
+.panel-inicio .inicio-opcion:active {
+    background: color-mix(in srgb, currentColor 4%, transparent);
+}
+
+.panel-inicio .inicio-opcion:disabled {
+    opacity: 0.35;
+    cursor: default;
+}
+
+.panel-inicio .inicio-opcion:disabled:hover {
+    background: transparent;
+    border-color: transparent;
+}
+
+.panel-inicio .inicio-opcion .ic {
+    width: 16px;
+    height: 16px;
+    flex: none;
+}
+
+.panel-inicio .inicio-etiqueta {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}

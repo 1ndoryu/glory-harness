@@ -5,27 +5,17 @@
 // Orden: minimizar, maximizar/restaurar (dinámico según
 // `isMaximized()`), cerrar. Estilo caption nativo Windows como Synara:
 // botones de 46px de ancho y alto completo de la barra, planos (sin
-// radio ni borde), glifo centrado con "Segoe Fluent Icons" (Windows 11)
-// y fallback a "Segoe MDL2 Assets" (Windows 10). Solo visual bajo
-// Tauri: `barraSuperior.ts` los monta únicamente cuando hay
-// `__TAURI__`; en web no se montan (siguen los nativos).
+// radio ni borde). Iconos 100% Lucide (`iconos.ts`, decisión 08-09).
+// Solo visual bajo Tauri: `barraSuperior.ts` los monta únicamente
+// cuando hay `__TAURI__`; en web no se montan (siguen los nativos).
 // El cableado usa import dinámico de `@tauri-apps/api/window` para
 // no romper el bundle web; si falla, los botones quedan
-// deshabilitados en vez de fallar en silencio.
+// deshabilitados con aviso en consola (nunca mudos).
 // ============================================================
 
 import '../estilos/ventana.css';
+import { icono } from './iconos';
 import { el } from '../util/dom';
-
-// Glifos caption nativos Windows (Synara): minimizar (E921),
-// maximizar (E922), restaurar (E923, cuadrados solapados) y
-// cerrar (E8BB).
-const GLIFOS_VENTANA = {
-  minimizar: '',
-  maximizar: '',
-  restaurar: '',
-  cerrar: '',
-} as const;
 
 /** Ventana Tauri precargada (el import dinámico no bloquea el bundle web). */
 let ventanaFutura: Promise<{ startDragging(): Promise<void> }> | null = null;
@@ -69,7 +59,7 @@ export function crearControlesVentana(): HTMLElement {
   grupo.setAttribute('aria-label', 'controles de la ventana');
 
   const btnMin = botonVentana('minimizar', 'minimizar ventana');
-  const { boton: btnMax, glifo: glifoMax } = botonVentanaMax();
+  const btnMax = botonVentana('maximizar', 'maximizar ventana');
   const btnCerrar = botonVentana('cerrar', 'cerrar ventana');
   btnCerrar.classList.add('ven-cerrar');
   grupo.appendChild(btnMin);
@@ -85,7 +75,8 @@ export function crearControlesVentana(): HTMLElement {
         ventana
           .isMaximized()
           .then((max) => {
-            glifoMax.textContent = GLIFOS_VENTANA[max ? 'restaurar' : 'maximizar'];
+            const nombre = max ? 'restaurar' : 'maximizar';
+            btnMax.replaceChildren(icono(nombre));
             const etiqueta = max ? 'restaurar ventana' : 'maximizar ventana';
             btnMax.title = etiqueta;
             btnMax.setAttribute('aria-label', etiqueta);
@@ -117,30 +108,17 @@ export function crearControlesVentana(): HTMLElement {
   return grupo;
 }
 
-/** Botón caption con glifo Segoe (minimizar / cerrar). */
-function botonVentana(tipo: 'minimizar' | 'cerrar', etiqueta: string): HTMLButtonElement {
+/** Botón caption con icono Lucide (minimizar / maximizar / cerrar). */
+function botonVentana(
+  nombre: 'minimizar' | 'maximizar' | 'cerrar',
+  etiqueta: string,
+): HTMLButtonElement {
   const btn = el('button', 'caption-boton') as HTMLButtonElement;
   btn.type = 'button';
   btn.title = etiqueta;
   btn.setAttribute('aria-label', etiqueta);
-  const glifo = el('span', 'caption-glifo');
-  glifo.setAttribute('aria-hidden', 'true');
-  glifo.textContent = GLIFOS_VENTANA[tipo];
-  btn.appendChild(glifo);
+  btn.appendChild(icono(nombre === 'cerrar' ? 'x' : nombre));
   return btn;
-}
-
-/** Botón caption de maximizar/restaurar (expone su glifo para el refresco). */
-function botonVentanaMax(): { boton: HTMLButtonElement; glifo: HTMLElement } {
-  const btn = el('button', 'caption-boton') as HTMLButtonElement;
-  btn.type = 'button';
-  btn.title = 'maximizar ventana';
-  btn.setAttribute('aria-label', 'maximizar ventana');
-  const glifo = el('span', 'caption-glifo');
-  glifo.setAttribute('aria-hidden', 'true');
-  glifo.textContent = GLIFOS_VENTANA.maximizar;
-  btn.appendChild(glifo);
-  return { boton: btn, glifo };
 }
 
 function deshabilitar(btn: HTMLButtonElement): void {

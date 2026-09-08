@@ -60,16 +60,22 @@ paneles.id = 'paneles';
 // Los callbacks existen como declaraciones hoisted más abajo; solo se
 // invocan en runtime (clic), cuando todo ya está definido.
 const barra = montarBarraSuperior({
-  onToggleSidebar() {
+  onAlternarSidebar() {
     alternarSidebar();
   },
-  onTogglePanelDerecho() {
+  // [089A-3] Atrás/adelante replican la navegación por historial de Synara;
+  // lógica pendiente (roadmap): arrancan deshabilitados.
+  onAtras() {
+    /* pendiente: historial de la app */
+  },
+  onAdelante() {
+    /* pendiente: historial de la app */
+  },
+  onAlternarPanelDerecho() {
     alternarPanelDerecho();
   },
-  onAbrirVisor() {
-    abrirVisor();
-  },
 });
+barra.setPuedeNavegar(false, false);
 
 // ---------- Estado compartido M1 (runtime único) ----------
 let modeloActual: ModeloSeleccionado = MODELO_INICIAL;
@@ -236,6 +242,8 @@ function activarPanel(panel: PanelChat | null): void {
   // [069A-7] `null` = borrador (sin conversación): deselecciona la sidebar.
   if (id) sidebar.seleccionar(id);
   else sidebar.seleccionar('');
+  // [089A-4] Gating del inicio: "Chat lateral" solo con conversación activa.
+  panelDerecho.fijarInicioChatDisponible(id != null);
 }
 
 function hayTurnoGlobal(): boolean {
@@ -1059,6 +1067,8 @@ const panelDerecho = montarPanelDerecho({
     cerrarLateral();
     cerrarNavegador();
     panelDerecho.cerrarTab('visor');
+    // [089A-4] El × global oculta el panel (no deja el inicio a la vista).
+    ocultarPanelDerecho();
   },
   onCambioTab(id) {
     // La webview hija es nativa: no respeta `hidden`. Al salir de su tab
@@ -1070,6 +1080,15 @@ const panelDerecho = montarPanelDerecho({
         .catch(() => {});
     } else {
       void invoke('navegador_mostrar', { visible: false }).catch(() => {});
+    }
+  },
+  // [089A-4] El usuario eligió una opción del inicio (panel sin tabs).
+  onElegirInicio(opcion) {
+    if (opcion === 'navegador') abrirNavegador();
+    else if (opcion === 'visor') abrirVisor();
+    else {
+      const id = panelActivo()?.conversaId;
+      if (id) abrirEnLateral(id);
     }
   },
 });
@@ -1109,18 +1128,18 @@ function ocultarPanelDerecho(): void {
   pintarToggleDerecho();
 }
 
-/** Alterna el panel derecho (botón siempre visible de la cabecera). Sin
- * tabs, abre el visor para que el botón siempre haga algo visible. */
+/** Alterna el panel derecho (toggle de la barra superior). Sin tabs
+ * muestra el inicio para elegir contenido (089A-4, estilo Synara). */
 function alternarPanelDerecho(): void {
   if (panelDerechoVisible) ocultarPanelDerecho();
-  else if (panelDerecho.hayTabs()) asegurarPanelDerecho();
-  else abrirVisor();
+  else asegurarPanelDerecho();
 }
 
-/** Quita el panel derecho (y su grip) si ya no tiene tabs. */
+/** Sin tabs el panel se queda mostrando el inicio (089A-4): ya no se
+ * desmonta al cerrar la última tab (el × global y el toggle lo ocultan). */
 function cerrarPanelDerechoSiVacio(): void {
   if (panelDerecho.hayTabs()) return;
-  ocultarPanelDerecho();
+  /* el inicio ocupa el panel; nada que desmontar */
 }
 
 /** Reposiciona la webview hija sobre su contenedor (tras mostrar su tab). */
