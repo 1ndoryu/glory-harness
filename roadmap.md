@@ -198,6 +198,18 @@ Orden propuesto (dependencias de abajo arriba):
       historial de la app para atrás/adelante (misma lógica que Synara,
       hoy deshabilitados) y Terminal/Files/Source control como opciones del
       inicio cuando existan esos paneles.
+- [x] **089A-7 — Dividir `core/src/herramientas/tools_archivo.rs`** (08-09,
+      HECHO como parte de 089A-8): `ToolContentSearch` extraída a
+      `core/src/herramientas/content_search.rs`; `tools_archivo.rs`
+      1342→~830 líneas. Evidencia: `Agente/completados/tareas-2026-09-08.md`
+      (entrada 089A-8).
+- [x] **089A-8 — `content_search` integrado 100% (tgrep-core compilado, sin
+      depender del sistema)** (08-09, HECHO): motor in-process con `tgrep-core`
+      (git tag v1.0.5). Índice persistente por workspace + manifiesto de
+      frescura, verificación con `regex` + `sandbox.leer` (secretos excluidos),
+      smart-case, timeout 180 s, fallback local con aviso. Supera a la v1 por
+      `GLORY_TGREP_BIN` (código eliminado). Evidencia:
+      `Agente/completados/tareas-2026-09-08.md`; gate 089A-8 PASS 0/0/0.
 
 > **Hecho (04-09, correcciones del primer `tauri dev`):** los 7 hallazgos del primer arranque
 > real quedaron corregidos (H1–H7, bloque 039A-1). Detalle en

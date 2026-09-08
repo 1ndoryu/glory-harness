@@ -19,3 +19,8 @@ reqwest = { version = "0.12", default-features = false, features = ["json", "rus
 tracing = "0.1"
 futures-util = { version = "0.3", features = ["sink"] }
 utoipa = "4"
+regex = "1"
+# [089A-6] Motor de búsqueda indexada compilado dentro del binario: cero
+# dependencia del sistema (ni binario externo ni variable de entorno). El
+# tag fija la versión legible; Cargo.lock pinnea el sha exacto del commit.
+tgrep-core = { git = "https://github.com/microsoft/tgrep.git", tag = "v1.0.5" }

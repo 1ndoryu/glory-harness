@@ -12,7 +12,8 @@ use crate::aprobacion::{PeticionAprobacion, RespuestaAprobacion};
 use crate::error::{Error, Result};
 use crate::permiso::{es_tool_propuesta, permiso_por_modo, resolver_permiso, Permiso};
 use crate::ports::{
-    AgentPersistence, McpProveedor, NavegadorPort, ProviderPort, WebFetchProvider, WebSearchProvider,
+    AgentPersistence, McpProveedor, NavegadorPort, ProviderPort, WebFetchProvider,
+    WebSearchProvider,
 };
 use crate::pregunta::PreguntaPendiente;
 use crate::regla::{categorias_core, Clasificador, ReglaPermiso};
@@ -655,7 +656,7 @@ mod tests {
      * cada una. */
     #[test]
     fn descripciones_ricas_sin_escapes_rotos() {
-        let descripciones: [(&str, &'static str); 7] = [
+        let descripciones: [(&str, &'static str); 8] = [
             (
                 "file_read",
                 crate::tools_archivo::ToolFileRead.descripcion(),
@@ -671,6 +672,10 @@ mod tests {
             (
                 "file_search",
                 crate::tools_archivo::ToolFileSearch.descripcion(),
+            ),
+            (
+                "content_search",
+                crate::content_search::ToolContentSearch.descripcion(),
             ),
             ("web_search", crate::tools_web::ToolWebSearch.descripcion()),
             ("todo", crate::todo::ToolTodo.descripcion()),

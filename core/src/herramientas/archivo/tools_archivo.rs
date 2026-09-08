@@ -377,7 +377,7 @@ fn buscar_recursivo(
 }
 
 /// Soporte mínimo de glob: `*.rs` → termina en .rs; `main*` → empieza por main.
-fn glob_simple(patron: &str, nombre: &str) -> bool {
+pub(crate) fn glob_simple(patron: &str, nombre: &str) -> bool {
     if let Some(resto) = patron.strip_prefix("*.") {
         return nombre.ends_with(&format!(".{resto}"));
     }
@@ -392,7 +392,7 @@ fn glob_simple(patron: &str, nombre: &str) -> bool {
 
 /// Obtiene el sandbox del contexto. El runtime lo inyecta en el contexto de
 /// las tools cuando AGENTE_MODO=local; si no hay sandbox (prod), error claro.
-fn obtener_sandbox<'a>(ctx: &'a AgentToolContext<'a>) -> Result<&'a SandboxArchivos> {
+pub(crate) fn obtener_sandbox<'a>(ctx: &'a AgentToolContext<'a>) -> Result<&'a SandboxArchivos> {
     ctx.sandbox_archivos
         .as_ref()
         .map(|s| s.as_ref())
@@ -420,6 +420,9 @@ pub fn registrar_tools_archivo(
     registry.registrar(Box::new(ToolFileWrite));
     registry.registrar(Box::new(ToolFilePatch));
     registry.registrar(Box::new(ToolFileSearch));
+    /* [089A-6] Búsqueda por contenido (índice tgrep integrado + fallback
+     * local; vive en `content_search.rs`). */
+    registry.registrar(Box::new(super::content_search::ToolContentSearch));
     /* [Bloque 3, F7] El mapa necesita la raíz del workspace: mismo
      * fail-closed (solo con sandbox local). */
     crate::repo_map::registrar_tool_repo_map(registry);
@@ -454,12 +457,15 @@ mod tests {
         assert!(ids.contains(&"file_write"));
         assert!(ids.contains(&"file_patch"));
         assert!(ids.contains(&"file_search"));
+        /* [089A-6] content_search viaja con las tools de archivo. */
+        assert!(ids.contains(&"content_search"));
         /* [Bloque 3, F7] repo_map viaja con las tools de archivo. */
         assert!(ids.contains(&"repo_map"));
         /* write/patch son efecto; read/search/map no. */
         assert!(registry.tiene_efecto("file_write"));
         assert!(registry.tiene_efecto("file_patch"));
         assert!(!registry.tiene_efecto("file_read"));
+        assert!(!registry.tiene_efecto("content_search"));
         assert!(!registry.tiene_efecto("repo_map"));
     }
 

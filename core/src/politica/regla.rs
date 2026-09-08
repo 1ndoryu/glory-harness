@@ -214,6 +214,9 @@ pub fn categorias_core() -> Vec<(&'static str, &'static str, Option<Clasificador
     vec![
         ("file_read", CAT_LECTURA, Some(clasificar_lectura)),
         ("file_search", CAT_LECTURA, None),
+        /* [089A-6] `content_search` es lectura acotada al workspace (igual
+         * que `file_search`): categoría lectura, sin clasificador. */
+        ("content_search", CAT_LECTURA, None),
         /* [Bloque 3, F7] `repo_map` es solo lectura sobre el workspace local
          * ya acotado por el sandbox: categoría lectura, sin clasificador. */
         ("repo_map", CAT_LECTURA, None),
