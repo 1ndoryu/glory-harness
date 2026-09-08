@@ -18,6 +18,57 @@ import { el } from '../util/dom';
 
 // ---------- Aplicar un resultado al cuadro (.resultado) ----------
 
+/** Escapa texto antes de insertarlo como HTML (contenido de archivo/diff). */
+function escaparHtml(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+/** Convierte el resumen y el diff en HTML legible: resumen capitalizado,
+ * rótulo con el conteo real y una línea por clase (add/del/ctx) para que el
+ * CSS atenúe el contexto y resalte los cambios. */
+export function formatearResultadoHerramienta(resumen: string, diff?: string | null): string {
+  const texto = resumen.trim();
+  const encabezado = texto ? texto[0].toUpperCase() + texto.slice(1) : '';
+  if (!diff?.trim()) {
+    return `<span class="resumen">${escaparHtml(encabezado)}</span>`;
+  }
+
+  let añadidas = 0;
+  let eliminadas = 0;
+  const cuerpo: string[] = [];
+  for (const linea of diff.split('\n')) {
+    if (linea.startsWith('@@')) continue; // cabecera de hunk: sin valor para la UI
+    let clase = 'ctx';
+    let contenido = linea;
+    if (linea.startsWith('+')) {
+      clase = 'add';
+      contenido = linea.slice(1);
+      añadidas += 1;
+    } else if (linea.startsWith('-')) {
+      clase = 'del';
+      contenido = linea.slice(1);
+      eliminadas += 1;
+    } else if (linea.startsWith(' ')) {
+      contenido = linea.slice(1);
+    } else if (linea.trimStart().startsWith('…')) {
+      clase = 'elididas';
+    }
+    cuerpo.push(`<span class="${clase}">${escaparHtml(contenido)}</span>`);
+  }
+
+  if (añadidas + eliminadas === 0) {
+    return `<span class="resumen">${escaparHtml(encabezado)}</span>`;
+  }
+  const conteo: string[] = [];
+  if (añadidas > 0) conteo.push(`${añadidas} añadida${añadidas === 1 ? '' : 's'}`);
+  if (eliminadas > 0) conteo.push(`${eliminadas} eliminada${eliminadas === 1 ? '' : 's'}`);
+  return [
+    `<span class="resumen">${escaparHtml(encabezado)}</span>`,
+    `<span class="rotulo-cambios">Cambios (${conteo.join(', ')}):</span>`,
+    cuerpo.join(''),
+  ].join('\n');
+}
+
 function aplicarResultado(nodo: HTMLElement, r: ResultadoHerramienta): void {
   if (r.tipo === 'html') nodo.innerHTML = r.html;
   else nodo.textContent = r.texto;

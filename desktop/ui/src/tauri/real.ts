@@ -12,6 +12,7 @@ import {
   crearAvisoSistema,
   crearHerramientaViva,
   crearMensajeAsistenteVivo,
+  formatearResultadoHerramienta,
   crearMensajeUsuario,
   crearTarjetaAprobacion,
   type AsistenteVivo,
@@ -305,6 +306,81 @@ const RESPUESTA: Record<DecisionAprobacion, string> = {
   denegar: 'rechazar',
 };
 
+type ArgumentosTool = Record<string, unknown>;
+
+function argumentosDeTool(argumentos: unknown): ArgumentosTool | null {
+  return argumentos && typeof argumentos === 'object' && !Array.isArray(argumentos)
+    ? argumentos as ArgumentosTool
+    : null;
+}
+
+function rutaDeArgumentos(argumentos: unknown): string | null {
+  const objeto = argumentosDeTool(argumentos);
+  const ruta = objeto?.ruta;
+  return typeof ruta === 'string' && ruta.trim() ? ruta : null;
+}
+
+function textoDeArgumento(argumentos: unknown, clave: string, max = 72): string | null {
+  const valor = argumentosDeTool(argumentos)?.[clave];
+  if (typeof valor !== 'string' || !valor.trim()) return null;
+  const texto = valor.trim().replace(/\s+/g, ' ');
+  return texto.length > max ? `${texto.slice(0, max - 1)}…` : texto;
+}
+
+function rangoDeLectura(argumentos: unknown): string {
+  const objeto = argumentosDeTool(argumentos);
+  const inicio = objeto?.offset_linea;
+  const limite = objeto?.limite_lineas;
+  if (
+    typeof inicio === 'number' && Number.isInteger(inicio) && inicio >= 1 &&
+    typeof limite === 'number' && Number.isInteger(limite) && limite >= 1
+  ) {
+    return `líneas ${inicio}-${inicio + limite - 1}`;
+  }
+  if (typeof inicio === 'number' && Number.isInteger(inicio) && inicio >= 1) {
+    return `desde línea ${inicio}`;
+  }
+  return 'archivo completo';
+}
+
+export function descripcionDeTool(tool: string, argumentos?: unknown): string {
+  const ruta = rutaDeArgumentos(argumentos);
+  switch (tool) {
+    case 'file_write':
+      return ruta ? `Modificando ${ruta} · archivo completo` : 'Modificando archivo completo';
+    case 'file_patch':
+      return ruta ? `Modificando ${ruta} · líneas modificadas` : 'Modificando archivo · líneas modificadas';
+    case 'file_read':
+      return ruta ? `Leyendo ${ruta} · ${rangoDeLectura(argumentos)}` : `Leyendo archivo · ${rangoDeLectura(argumentos)}`;
+    case 'file_search': {
+      const patron = textoDeArgumento(argumentos, 'patron');
+      return patron ? `Buscando archivos: ${patron}` : 'Buscando archivos';
+    }
+    case 'web_search': {
+      const consulta = textoDeArgumento(argumentos, 'query');
+      return consulta ? `Buscando en la web: ${consulta}` : 'Buscando en la web';
+    }
+    case 'web_fetch': {
+      const url = textoDeArgumento(argumentos, 'url');
+      return url ? `Leyendo web: ${url}` : 'Leyendo página web';
+    }
+    case 'comando':
+      return 'Ejecutando comando';
+    case 'comando_status':
+      return 'Consultando comando';
+    case 'comando_matar':
+      return 'Deteniendo comando';
+    case 'navegador_reflejo':
+      return 'Usando navegador';
+    case 'task':
+      return 'Ejecutando tarea';
+    case 'todo':
+      return 'Actualizando tareas';
+    default:
+      return `Ejecutando ${tool.replaceAll('_', ' ')}`;
+  }
+}
+
 function iconoDeTool(tool: string): IconoNombre {
   if (tool.startsWith('file_')) return 'archivo';
   if (tool === 'web_search') return 'globo';
@@ -377,7 +453,7 @@ export function crearAdaptadorReal(hooks: HooksAdaptador = {}, transporte: Trans
         break;
       }
       case 'tool_start': {
-        herramienta = crearHerramientaViva(iconoDeTool(ev.tool), ev.tool);
+        herramienta = crearHerramientaViva(iconoDeTool(ev.tool), descripcionDeTool(ev.tool, ev.argumentos));
         herramienta.ejecutando();
         mensajes?.appendChild(herramienta.raiz);
         bajarScroll();
@@ -385,13 +461,15 @@ export function crearAdaptadorReal(hooks: HooksAdaptador = {}, transporte: Trans
         break;
       }
       case 'tool_result': {
-        const detalle = ev.diff ? `${ev.resumen}\n${ev.diff.slice(0, 600)}` : ev.resumen;
+        const dif = ev.diff?.slice(0, 600);
         if (herramienta) {
-          if (ev.ok) herramienta.completada('ok', { tipo: 'texto', texto: detalle });
-          else herramienta.errored('falló', { tipo: 'texto', texto: detalle });
+          const detalle = formatearResultadoHerramienta(ev.resumen, dif);
+          if (ev.ok) herramienta.completada('ok', { tipo: 'html', html: detalle });
+          else herramienta.errored('falló', { tipo: 'html', html: detalle });
           herramienta = null;
         } else {
-          aviso(`${ev.tool} → ${ev.ok ? 'ok' : 'falló'}`, '', detalle);
+          // Sin bloque de herramienta: aviso en texto plano (crearAvisoSistema usa textContent).
+          aviso(`${ev.tool} → ${ev.ok ? 'ok' : 'falló'}`, '', dif ? `${ev.resumen}\n${dif}` : ev.resumen);
         }
         break;
       }
@@ -431,12 +509,6 @@ export function crearAdaptadorReal(hooks: HooksAdaptador = {}, transporte: Trans
       case 'plan_propuesto':
         aviso(`propuesta del modo plan: ${ev.cambios} cambios pendientes`, 'plan', '');
         break;
-      case 'telemetria': {
-        const n = Array.isArray(ev.herramientas) ? ev.herramientas.length : 0;
-        const parciales = typeof ev.subagentes_parciales === 'number' ? ev.subagentes_parciales : 0;
-        aviso(`telemetría: ${n} tools${parciales ? ` · ${parciales} subagentes parciales` : ''}`, '', '');
-        break;
-      }
       case 'usage':
         uso.tokensPrompt += typeof ev.tokens_prompt === 'number' ? ev.tokens_prompt : 0;
         uso.tokensComplecion += typeof ev.tokens_complecion === 'number' ? ev.tokens_complecion : 0;

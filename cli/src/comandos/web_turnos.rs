@@ -110,8 +110,9 @@ pub(crate) async fn iniciar_turno(
         }
     }
 
+    let meta = sesion.meta.lock().await.clone();
     let preparacion = comun
-        .preparar_turno(conv_id, mensaje.clone(), None)
+        .preparar_turno(conv_id, mensaje.clone(), meta)
         .await
         .map_err(|e| error("turno", e.to_string()))?;
     let turno_id = preparacion.turno_id;
@@ -125,9 +126,10 @@ pub(crate) async fn iniciar_turno(
     let sesion2 = Arc::clone(&sesion);
     let user_id = comun.user_id;
     let persistencia = Arc::clone(&comun.persistencia);
+    let mensaje_fixture = preparacion.mensaje_efectivo.clone();
     let handle = tokio::spawn(async move {
         if fixture {
-            turno_fixture(&sesion2, turno_id, &mensaje).await;
+            turno_fixture(&sesion2, turno_id, &mensaje_fixture).await;
         } else {
             turno_real(&sesion2, preparacion, user_id, persistencia).await;
         }

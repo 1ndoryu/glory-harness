@@ -33,6 +33,7 @@ import {
   crearAvisoSistema,
   crearHerramienta,
   crearMensajeAsistente,
+  formatearResultadoHerramienta,
   crearMensajeUsuario,
   crearPieTurno,
 } from './mensajes';
@@ -43,6 +44,7 @@ import {
 } from './menu';
 import { crearSimulacion } from '../simulacion/simulacion';
 import {
+  descripcionDeTool,
   iconoDeTool,
   type AccionRecuperada,
   type AdaptadorReal,
@@ -461,17 +463,26 @@ export function montarPanelChat(opts: PanelChatOpciones): PanelChat {
     }
   }
 
+  function argumentosPersistidos(json: string | null): unknown {
+    if (!json) return undefined;
+    try {
+      return JSON.parse(json) as unknown;
+    } catch {
+      return undefined;
+    }
+  }
+
   /** Render de una acción recuperada → bloque `.herramienta` estático. */
   function bloqueDesdeAccion(accion: AccionRecuperada): HTMLElement {
     const meta = accion.ok ? 'ok' : 'falló';
-    const cuerpo = accion.diff ? `${accion.resumen}\n${accion.diff}` : accion.resumen;
-    const resultado: ResultadoHerramienta = { tipo: 'texto', texto: cuerpo };
+    const cuerpo = formatearResultadoHerramienta(accion.resumen, accion.diff);
+    const resultado: ResultadoHerramienta = { tipo: 'html', html: cuerpo };
     const estado: EstadoHerramienta = accion.ok
       ? { estado: 'completada', meta, resultado }
       : { estado: 'error', meta, resultado };
     return crearHerramienta({
       icono: iconoDeTool(accion.tool),
-      titulo: accion.tool,
+      titulo: descripcionDeTool(accion.tool, argumentosPersistidos(accion.argumentos_json)),
       estado,
     });
   }

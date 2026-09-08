@@ -81,22 +81,6 @@ Orden propuesto (dependencias de abajo arriba):
       `Agente/planes/plan-deuda-cero-079A-1-2026-09-07.md`. Mismo ciclo que
       069A-5 + caza de falsos positivos (con fix en Sentinel si aplica) +
       auditorías SOLID y rendimiento nuevas. F0 pendiente.
-- [x] **069A-2 — Modo web local unificado con Tauri** (v3, HECHO 06/07-09):
-      HTTP+SSE como API única; `SesionComun` compartida; adaptador TS único
-      (`Transporte` + `transporteTauri()` en `real.ts`, `crearAdaptadorApi()`
-      en `adaptadores/api.ts`); factoría en `main.ts` (Tauri→IPC,
-      `?api=`/`gh_api`/mismo origen→HTTP/SSE, ni-ni→aviso). Commits `e731c74`
-      (F2 turnos SSE+cookie), `40e47d0` (F3 datos+workspace), `8b597e7` (F4
-      adaptador), `c28e653` (F6-backend: body 256K, 16 sesiones, TTL 24h,
-      413/429/410). E2E curl 07-09: session+cookie, config, turns fixture,
-      SSE `ready`/`turn.started`/`agent.event`/`turn.finished`.       F5b embebida
-      NO justificada (evaluada con datos: sin ganancia, colisión con refactor
-      ajeno). Gate 069A-2 re-ejecutado tras fix de Sentinel (repineado a
-      `6baf87c` con regla `axum-ruta-sintaxis-rs` version-aware): 11 falsos
-      positivos eliminados (13→2 errores); quedan 2 `broadcast-mutex`
-      (diseño SSE consciente, sin contención posible) + deuda ajena. Doc:
-      `Agente/documentacion/modo-web-2026-09-07.md`. Plan v3:
-      `Agente/planes/plan-web-real-069A-2.md`.
 - [x] **069A-4 — Memoria de aprendizaje fases 1–5** (B3-F8b): HECHO 06-09
       (ver `Agente/completados/tareas-2026-09-06.md`).
 - [x] **069A-1 — Navegador interno visible completo**: F1+F2 (WebView2 child, comandos IPC,
@@ -183,11 +167,22 @@ Orden propuesto (dependencias de abajo arriba):
 
 ## Planes activos
 
+- `Agente/planes/plan-deuda-cero-079A-1-2026-09-07.md` (079A-1) — **abierto**:
+  clasificar y resolver la deuda actual de Sentinel con evidencia; el gate actual
+  sigue FAIL y no se cierra por una suposición.
+- `Agente/planes/plan-web-real-069A-2.md` (069A-2) — **cerrado con observaciones**:
+  implementación y meta web verificadas contra el binario reconstruido; quedan
+  observaciones del gate y no se reabre F5b sin nueva justificación.
+- **069A-6** no tiene plan activo: permanece bloqueada por decisión de producto sobre
+  el comportamiento ante iframes rechazados por CSP/X-Frame-Options.
+
+## Historial de planes cerrados
+
 - `Agente/planes/plan-glory-harness-desktop-2026-09-03.md` (039A-1) — **cerrado 06-09**; las
   fases F1–F6 y el Bloque A (backend + cableado + panel meta real) están cerrados; los 7
   hallazgos del primer `tauri dev` quedaron corregidos (H1–H7) y el E2E en la ventana
   Tauri real quedó Todo OK con gate 039A-3 PASS.
-- `Agente/planes/plan-glory-harness-ux-turno-2026-09-04.md` (039A-3) — **activo, EN EJECUCIÓN**
+- `Agente/planes/plan-glory-harness-ux-turno-2026-09-04.md` (039A-3) — **cerrado 06-09**; el bloque P1–P6, P6b, el backend de contexto y el E2E Tauri real quedaron verificados. El detalle histórico siguiente conserva la evidencia de cada fase.
   (04-09): bloque completo aprobado (P1-P6). P1 (pie de turno + persistir uso/modelo real)
   HECHO (mock + type-check + cargo check). P2 (editar/volver a punto: rewind transaccional por
   `rowid` + menú por mensaje) HECHO (unit + type-check + build + mock; commit `039A-3 (P2)`).

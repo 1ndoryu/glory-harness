@@ -133,13 +133,25 @@
     background: #fff;
     color: #000;
 }
+/* Un resultado vacío no aporta información ni debe dejar un rectángulo vacío;
+   al recibir texto, `:empty` deja de coincidir y el cuadro reaparece. */
+.resultado:empty { display: none; }
 .herramienta .resultado pre { overflow-x: auto; }
 /* el razonamiento es pensamiento interno: el texto va algo más tenue que un resultado */
 .razonamiento .resultado { opacity: 0.75; }
-/* cambio visible: líneas eliminadas con '-' y añadidas con '+' (sin fondos) */
-.herramienta .resultado .del { opacity: 0.45; }
-.herramienta .resultado .del::before { content: '-'; }
-.herramienta .resultado .add::before { content: '+'; }
+/* resultado de herramientas: las líneas sin cambios (contexto) van más
+   tenues para que las añadidas (+) y eliminadas (-) destaquen, sin colores. */
+.herramienta .resultado .resumen,
+.herramienta .resultado .rotulo-cambios { display: block; white-space: pre-wrap; }
+.herramienta .resultado .rotulo-cambios { opacity: 0.6; }
+.herramienta .resultado .add,
+.herramienta .resultado .del,
+.herramienta .resultado .ctx,
+.herramienta .resultado .elididas { display: block; white-space: pre-wrap; }
+.herramienta .resultado .ctx,
+.herramienta .resultado .elididas { opacity: 0.45; padding-left: 2ch; }
+.herramienta .resultado .del::before { content: '- '; }
+.herramienta .resultado .add::before { content: '+ '; }
 
 /* ---------- Tarjeta de aprobación ---------- */
 .aprobacion { border: 1px solid var(--borde); }

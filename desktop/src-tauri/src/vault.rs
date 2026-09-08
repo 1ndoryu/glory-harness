@@ -82,10 +82,7 @@ pub struct ContextoTurnoVault {
 pub fn sha256_hex(datos: &[u8]) -> String {
     let mut h = Sha256::new();
     h.update(datos);
-    h.finalize()
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect()
+    h.finalize().iter().map(|b| format!("{b:02x}")).collect()
 }
 
 /// Defensa en profundidad para las rutas que salen del índice del vault:
@@ -508,8 +505,8 @@ pub struct ResultadoRestauracion {
 mod tests {
     use super::*;
     use glory_harness_core::sandbox::SandboxArchivos;
-    use std::sync::Arc;
     use std::sync::atomic::{AtomicU64, Ordering};
+    use std::sync::Arc;
 
     static CONTADOR_TMP: AtomicU64 = AtomicU64::new(0);
 
@@ -587,7 +584,10 @@ mod tests {
         assert_eq!(r.omitidos.len(), 1);
         assert_eq!(r.omitidos[0].estado, "cambio_externo");
         // No se tocó el archivo.
-        assert_eq!(fs::read_to_string(dir.join("a.txt")).unwrap(), "editado a mano");
+        assert_eq!(
+            fs::read_to_string(dir.join("a.txt")).unwrap(),
+            "editado a mano"
+        );
     }
 
     /// Fixture 3: archivo >1MB (el previo se guarda y restaura COMPLETO, sin
@@ -607,7 +607,11 @@ mod tests {
         let r = vault.restaurar_tramo(&turnos);
         assert_eq!(r.restaurados.len(), 1, "esperado 1 restaurado: {:?}", r);
         let bytes = fs::read(dir.join("grande.txt")).unwrap();
-        assert_eq!(bytes.len(), 1_500_000, "el previo debe restaurarse COMPLETO");
+        assert_eq!(
+            bytes.len(),
+            1_500_000,
+            "el previo debe restaurarse COMPLETO"
+        );
         assert_eq!(bytes, grande.as_bytes());
     }
 

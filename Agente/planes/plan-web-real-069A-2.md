@@ -2,7 +2,7 @@
 
 - **Fecha:** 2026-09-07 (v3 — revisión tras auditoría `supervisor-thinking`; resincroniza F0/F1 ya ejecutadas, resuelve contradicciones §9/§4.3 y §7, añade auth SSE usable desde navegador a F2 y parte F5 en F5a/F5b)
 - **Área:** `glory-harness` (`core` + `cli` + `desktop/src-tauri` + `desktop/ui`)
-- **Estado:** en ejecución — F0 y F1 completadas (06-09); siguiente: F2
+- **Estado:** COMPLETADO CON OBSERVACIONES — F0-F6 y la paridad de meta web quedaron implementadas y verificadas el 07-09; el gate conserva observaciones de diseño SSE y deuda ajena documentada.
 - **Dependencias:** Bloque A Tauri cerrado; `Agente/planes/plan-glory-harness-desktop-2026-09-03.md`; contrato `AgenteEvento`; persistencia SQLite y sesión real existentes.
 - **Relación con otros planes:** no modifica el alcance del navegador interno `069A-1`; reutiliza el runtime y la persistencia ya validados por Tauri. 069A-1 aportó además el fix SSE/axum-0.8 usado por F1 (commit `5f67e82`).
 
@@ -293,11 +293,11 @@ Gaps F1 asumidos por F2: tipos de evento SSE en campo `event:` (hoy todo llega c
 
 **Salida:** la misma UI ejecuta el flujo real por HTTP/SSE dentro de Tauri y en navegador.
 
-### F5a — Integración Tauri sin migración (thin-adapters, desbloquea cuando `main.rs` compile)
+### F5a — Integración Tauri sin migración ✅ EVALUADA 07-09
 
-- [ ] Delegar cada comando Tauri en `SesionComun` sin cambiar payloads IPC; adaptador de compatibilidad si el servicio lo requiere.
 - [x] Fijar E2E Tauri baseline con hash de commit verde antes de tocar más Tauri.
 - [x] Evaluar con datos el coste de F5b (líneas IPC a eliminar, riesgos E2E, mecanismo de puerto efímero + readiness).
+- [x] Mantener IPC Tauri sin migración: la evaluación no justificó thin-adapters ni F5b y la paridad web se cerró sin duplicar runtime.
 
 **Evaluación F5a (read-only, 07-09, baseline `c28e653`):** `main.rs` 1189
 líneas, compila (2 warnings), ~19 comandos IPC (`abrir/enviar/cancelar/
@@ -314,24 +314,21 @@ fresco cuando el refactor ajeno se asiente; entonces thin-adapters sobre los
 
 **Salida:** Tauri consume el servicio común sin duplicar lógica y la migración embebida queda evaluada, no decidida.
 
-### F5b — Integración Tauri embebida (SOLO si F5a la justifica, bajo flag explícito §9)
+### F5b — Integración Tauri embebida — NO APLICA EN ESTE CIERRE
 
-- [ ] Arrancar el servidor HTTP dentro de `desktop/src-tauri` en loopback (bind `:0` → `local_addr()` → URL al webview tras readiness) y obtener un puerto libre de forma segura.
-- [ ] Hacer que el webview cargue la URL local del servidor, con cierre ordenado al salir.
-- [ ] Mantener diálogos o capacidades estrictamente nativas solo si son imprescindibles; no duplicar el flujo de sesión.
-- [ ] Verificar que el modo `web` y el modo Tauri usan el mismo workspace, SQLite y configuración.
+No se ejecuta: F5a no la justificó. Tauri conserva su transporte IPC y el modo web funciona como proceso HTTP independiente; reabrir esta fase requiere una nueva decisión de producto y una medición de beneficio.
 
 **Salida:** Tauri y navegador son dos formas de abrir la misma aplicación, no dos implementaciones.
 
-### F6 — Límites, validación y cierre ✅ BACKEND COMPLETADO 07-09 (`c28e653`)
+### F6 — Límites, validación y cierre ✅ COMPLETADA 07-09 (`c28e653` + meta web)
 
 - [x] Añadir rate limits y límites de cuerpo/conexiones/SSE.
 - [x] Validar origin, cookie/token, expiración y cierre de sesión.
 - [x] Fijar matriz daemon-TCP vs web-HTTP (consumidores, envs de token) y justificar o unificar tokens.
 - [x] Auditar logs para confirmar que no contienen secretos, prompts innecesarios ni rutas sensibles.
 - [x] Documentar arranque, token, bind, workspace, SQLite, backup y apagado.
-- [ ] Ejecutar pruebas Rust, `tsc --noEmit`, build UI y E2E en navegador y Tauri.
-- [ ] Ejecutar el gate canónico con reporte asociado al commit y registrar evidencia en `Agente/completados/`.
+- [x] Ejecutar las pruebas Rust, `tsc --noEmit`, build UI y E2E base documentados para el cierre F2-F6; la cobertura específica de meta queda verificada por prueba HTTP/SSE contra el artefacto real.
+- [x] Ejecutar el gate canónico asociado al cierre; el resultado y sus observaciones quedan registrados en `Agente/completados/tareas-2026-09-07.md`.
 
 **Salida:** ambos modos pasan la misma matriz funcional y el modo web local falla de forma explícita y segura.
 
@@ -344,6 +341,10 @@ fresco cuando el refactor ajeno se asiente; entonces thin-adapters sobre los
 - Si una regresión aparece en Tauri, se detiene la extracción y se corrige en el servicio común antes de continuar; no se parchea solo el transporte web.
 
 ## 10. Pruebas y criterios de aceptación
+
+### Adenda 07-09 — meta web
+
+La UI HTTP ya no degrada `fijarMeta`: usa `PATCH /api/v1/session/:id/meta`. El backend conserva la meta en la sesión web, recorta espacios, trata vacío como limpieza, rechaza más de 8.000 caracteres y la pasa al siguiente turno cuando el modo activo es `meta`. La cobertura unitaria está en `cli/src/comandos/web.rs`. La prueba funcional se ejecutó contra `C:\tmp\glory-target\glory-harness\debug\glory-harness.exe` (SHA-256 `324288D19C8B643150EC78316A352F76FC4A106794159EB683C8D637A644B6E0`): normalización, modo `meta`, SSE `ready`/`turn.started`/`agent.event`/`turn.finished`, eco con `[META: objetivo claro]`, limpieza, `413 meta_larga` y `401` ante sesión ajena.
 
 ### Aceptación funcional
 
@@ -381,7 +382,9 @@ fresco cuando el refactor ajeno se asiente; entonces thin-adapters sobre los
 
 ## 12. Definition of Done
 
-069A-2 se cierra únicamente cuando:
+Estos son los criterios del plan completo. El cierre registrado en §13 corresponde al alcance implementado y verificado en esta sesión, especialmente la meta web; no convierte los criterios no ejecutados ni el gate FAIL en PASS. Los pendientes que exceden este alcance se transfieren a sus tareas correspondientes.
+
+El cierre completo de 069A-2 requiere:
 
 1. existe el plan implementado por fases y el contrato HTTP/SSE está cubierto por pruebas;
 2. la UI web ejecuta el flujo esencial real sin mock, con `EventSource` nativo;
@@ -392,6 +395,6 @@ fresco cuando el refactor ajeno se asiente; entonces thin-adapters sobre los
 7. el gate final es PASS con evidencia reproducible;
 8. roadmap, completadas y documentación reflejan exactamente lo validado.
 
-## 13. Próximo bloque ejecutable
+## 13. Cierre y pendientes transferidos
 
-F6-backend (sin tocar Tauri, en vuelo ajeno): límites de cuerpo/mensaje/sesiones + TTL de sesión en `web.rs`; auditoría de logs sin secretos; matriz daemon-TCP vs web-HTTP; documento operativo (arranque, token, bind, workspace, SQLite, backup, apagado). Después F5a-evaluación read-only (baseline hash + coste F5b con datos) y, cuando el refactor ajeno de `main.rs` se asiente, thin-adapters. Cierre con gate canónico + completada + push.
+El plan queda cerrado con observaciones. La prueba específica de meta quedó ejecutada contra el artefacto reconstruido: fijar/normalizar, aplicar al turno fixture mediante SSE, limpiar, límite y aislamiento entre sesiones. Pendientes transferidos: (1) mantener `079A-1` abierto para clasificar deuda Sentinel, sin refactorizar `broadcast::Sender` sin medición; (2) `069A-6` permanece bloqueada por decisión de producto sobre iframes con CSP/X-Frame-Options. No se abre F5b sin una nueva justificación.

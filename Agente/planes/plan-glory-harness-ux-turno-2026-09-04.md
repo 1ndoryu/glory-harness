@@ -1,7 +1,7 @@
 ---
 Fecha: 2026-09-04
 ID: 039A-3
-Estado: EN EJECUCIÓN — bloque completo aprobado por el usuario ("empieza con el plan,
+Estado: CERRADO 06-09 — bloque completo aprobado por el usuario ("empieza con el plan,
 completalo todo", 04-09). 039A-3a + 039A-3b (P1-P6). P1 HECHO (persistir uso real + pie de
 turno, con retoques visuales del usuario: botón copiar icono sin borde, sin línea separadora,
 sin palabras "modelo"/"contexto", opacidad 0.6). P2 HECHO (editar/volver a punto: rewind
@@ -578,7 +578,7 @@ ocultar la lista no, solo para mostrar, se oculta automáticamente si se reduce 
 - [ ] `npm run type-check` + `npm run build` (desktop/ui) limpios.
 - [ ] `cargo test --workspace` (core/cli) verde (el hook de respaldo es opcional/no-op → no rompe
       a task).
-- [ ] Gate Sentinel del bloque (039A-3) PASS con reporte.
+- [x] Gate Sentinel del bloque (039A-3) PASS con reporte; evidencia final en `Agente/completados/tareas-2026-09-06.md`.
 - [ ] Verificación funcional: mock de navegador (pie de turno, editar/volver a punto, ⋯, sidebar
       colapsable, indicador circular, config 150k) y `tauri dev` (2 chats, rewind real, respaldo
       de archivos real con fixture).

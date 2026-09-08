@@ -65,8 +65,9 @@ export function crearTransporteApi(base: string, hooks: HooksAdaptador = {}): Tr
     const cabeceras: Record<string, string> = { 'Content-Type': 'application/json' };
     // La sesión opaca autoriza; el maestro SOLO crea sesiones (§5.2/§7).
     if (ruta === '/api/v1/session') {
-      if (!maestro) throw new Error('falta el token maestro (?token=...) para abrir sesión');
-      cabeceras['Authorization'] = `Bearer ${maestro}`;
+      // Modo local tokenless: el backend solo lo permite en loopback. Si hay
+      // token configurado, sigue siendo obligatorio para crear la sesión.
+      if (maestro) cabeceras['Authorization'] = `Bearer ${maestro}`;
     } else if (sid) {
       cabeceras['Authorization'] = `Bearer ${sid}`;
     }
@@ -329,8 +330,14 @@ export function crearTransporteApi(base: string, hooks: HooksAdaptador = {}): Tr
       ),
     // [069A-Proyectos] Extraída a función compartida para workspaceActivarsPorRuta.
     fijarWorkspace: async (ruta) => fijarWorkspaceImpl(ruta),
-    fijarMeta: () =>
-      Promise.reject(new Error('la meta no disponible en modo web (fase 069A-2)')),
+    fijarMeta: async (meta) => {
+      const r = await http<{ ok: boolean; meta: string | null }>(
+        'PATCH',
+        `/api/v1/session/${sid}/meta`,
+        { meta },
+      );
+      return r.meta;
+    },
     // [069A-Proyectos] HTTP workspaces
     workspacesListar: async () => {
       const r = await http<{ ok: boolean; workspaces: Workspace[]; activa: Workspace | null }>(

@@ -13,6 +13,7 @@
 //! | `POST /api/v1/session` (Bearer master)          | Crear sesión + cookie  |
 //! | `DELETE /api/v1/session/:id`                    | Cerrar sesión          |
 //! | `GET /api/v1/session/:id/events`                | SSE (cookie o Bearer)  |
+//! | `PATCH /api/v1/session/:id/meta`                | Fijar/limpiar meta     |
 //! | `POST /api/v1/session/:id/turns`                | Iniciar turno (F2)     |
 //! | `POST /api/v1/session/:id/turns/:tid/cancel`    | Cancelar turno (F2)    |
 //! | `POST /api/v1/session/:id/approvals/:aid`       | Responder aprobación   |
@@ -46,22 +47,13 @@ use uuid::Uuid;
 
 use crate::servicio::{OpcionesSesion, SesionComun};
 
-/// Token maestro: solo crea sesiones. Nunca autoriza nada más.
-fn token_desde_env() -> String {
+/// Token maestro opcional: solo crea sesiones. Nunca autoriza nada más.
+/// Sin token configurado, `web` funciona en modo local tokenless; `run` lo
+/// limita a loopback para que esa comodidad no exponga una API sin auth.
+fn token_desde_env() -> Option<String> {
     match std::env::var("GLORY_HARNESS_WEB_TOKEN") {
-        Ok(t) if !t.trim().is_empty() => t,
-        _ => {
-            let generado = Uuid::new_v4().to_string();
-            /* [069A-2 v3 §7] Excepción única: impresión a stderr del token
-             * temporal en first-run loopback (el usuario local lo necesita);
-             * prohibido en logs persistentes. */
-            eprintln!(
-                "[glory-harness web] AVISO: GLORY_HARNESS_WEB_TOKEN no definido;\
-                 se ha generado un token temporal: {generado}\n\
-                 Configúralo en el entorno para sesiones persistentes."
-            );
-            generado
-        }
+        Ok(t) if !t.trim().is_empty() => Some(t),
+        _ => None,
     }
 }
 
@@ -75,7 +67,8 @@ pub(crate) const BODY_MAX_BYTES: usize = 256 * 1024;
 pub(crate) const MAX_SESIONES: usize = 16;
 /// TTL de sesión en segundos (24 h, igual que `Max-Age` de la cookie).
 pub(crate) const SESION_TTL_SECS: u64 = 86_400;
-
+/// Límite de la meta para evitar payloads grandes y mantener el contrato del UI.
+pub(crate) const MAX_META_CHARS: usize = 8_000;
 /// Turno en curso: id + tarea para abortar al cancelar/cerrar.
 pub(crate) struct TurnoActivo {
     pub(crate) id: Uuid,
@@ -92,6 +85,8 @@ pub(crate) struct SesionWeb {
     pub(crate) conversacion_id: Mutex<Option<Uuid>>,
     /// Canal broadcast con el JSON de cable `{"event":..,"data":..}` compacto.
     pub(crate) tx: broadcast::Sender<String>,
+    /// Objetivo vigente del modo `meta`, equivalente al estado IPC de Tauri.
+    pub(crate) meta: Mutex<Option<String>>,
     pub(crate) turno: Mutex<Option<TurnoActivo>>,
     /// [069A-2 F6] Creación para TTL (las sesiones no son eternas aunque el
     /// proceso viva días; el cierre explícito sigue siendo `DELETE`).
@@ -99,7 +94,8 @@ pub(crate) struct SesionWeb {
 }
 
 pub(crate) struct AppState {
-    pub(crate) token: String,
+    /// `None` = modo local tokenless; el servidor solo debe bindear loopback.
+    pub(crate) token: Option<String>,
     pub(crate) sesiones: Mutex<HashMap<String, Arc<SesionWeb>>>,
     pub(crate) fixture: bool,
 }
@@ -120,7 +116,7 @@ impl IntoResponse for ApiError {
             "origen" => StatusCode::FORBIDDEN,
             "no_encontrado" | "sin_turno" => StatusCode::NOT_FOUND,
             "turno_activo" => StatusCode::CONFLICT,
-            "mensaje_largo" => StatusCode::PAYLOAD_TOO_LARGE,
+            "mensaje_largo" | "meta_larga" => StatusCode::PAYLOAD_TOO_LARGE,
             "demasiadas_sesiones" => StatusCode::TOO_MANY_REQUESTS,
             "sesion_expirada" => StatusCode::GONE,
             _ => StatusCode::BAD_REQUEST,
@@ -178,7 +174,7 @@ fn cookie_sesion(headers: &HeaderMap) -> Option<String> {
 
 async fn credencial(headers: &HeaderMap, state: &AppState) -> Option<Credencial> {
     if let Some(t) = bearer(headers) {
-        if t == state.token {
+        if state.token.as_deref() == Some(t) {
             return Some(Credencial::Maestra);
         }
         if Uuid::parse_str(t).is_ok() && state.sesiones.lock().await.contains_key(t) {
@@ -247,6 +243,9 @@ pub(crate) async fn autorizar_sesion(
         Credencial::Sesion(s) => (s, false),
         Credencial::SesionCookie(s) => (s, true),
     };
+    if sid != id_ruta {
+        return Err(error("no_autorizado", "sesión no autorizada"));
+    }
     if !origen_valido(headers, por_cookie, metodo) {
         return Err(error("origen", "origen no permitido para esta mutación"));
     }
@@ -289,9 +288,10 @@ async fn crear_sesion(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
 ) -> Result<Response, ApiError> {
-    match credencial(&headers, &state).await {
-        Some(Credencial::Maestra) => {}
-        _ => return Err(error("no_autorizado", "token inválido o ausente")),
+    let autorizado = state.token.is_none()
+        || matches!(credencial(&headers, &state).await, Some(Credencial::Maestra));
+    if !autorizado {
+        return Err(error("no_autorizado", "token inválido o ausente"));
     }
 
     let (comun, apertura) = SesionComun::abrir(OpcionesSesion::default())
@@ -319,6 +319,7 @@ async fn crear_sesion(
         comun: Mutex::new(comun),
         conversacion_id: Mutex::new(conversacion.as_ref().map(|c| c.id)),
         tx,
+        meta: Mutex::new(None),
         turno: Mutex::new(None),
         creada: Instant::now(),
     });
@@ -349,6 +350,33 @@ async fn crear_sesion(
     let cookie =
         format!("{COOKIE_SESION}={session_id}; HttpOnly; SameSite=Lax; Path=/; Max-Age=86400");
     Ok((StatusCode::OK, [(header::SET_COOKIE, cookie)], cuerpo).into_response())
+}
+
+/// `PATCH /api/v1/session/:id/meta` — fija o limpia la meta de la sesión.
+#[derive(Debug, serde::Deserialize)]
+pub(crate) struct ActualizarMeta {
+    pub(crate) meta: Option<String>,
+}
+
+pub(crate) async fn actualizar_meta(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Json(peticion): Json<ActualizarMeta>,
+) -> Result<Json<Value>, ApiError> {
+    let (sesion, _) = autorizar_sesion(&headers, &Method::PATCH, &state, &id).await?;
+    let normalizada = peticion
+        .meta
+        .map(|m| m.trim().to_string())
+        .filter(|m| !m.is_empty());
+    if normalizada
+        .as_ref()
+        .is_some_and(|m| m.chars().count() > MAX_META_CHARS)
+    {
+        return Err(error("meta_larga", "meta demasiado larga (máx. 8000 caracteres)"));
+    }
+    *sesion.meta.lock().await = normalizada.clone();
+    Ok(Json(serde_json::json!({ "ok": true, "meta": normalizada })))
 }
 
 /// `DELETE /api/v1/session/:id` — cancela el turno activo y cierra.
@@ -436,6 +464,10 @@ pub(crate) fn router(state: Arc<AppState>) -> Router {
         .route("/api/v1/session/{id}", delete(cerrar_sesion))
         .route("/api/v1/session/{id}/events", get(eventos_sse))
         .route(
+            "/api/v1/session/{id}/meta",
+            patch(actualizar_meta),
+        )
+        .route(
             "/api/v1/session/{id}/turns",
             post(super::web_turnos::iniciar_turno),
         )
@@ -492,6 +524,7 @@ pub(crate) fn router(state: Arc<AppState>) -> Router {
 /// `--fixture` (turnos sintéticos sin proveedor).
 pub async fn run(puerto: u16, ui_dir: Option<String>, fixture: bool) -> std::process::ExitCode {
     let token = token_desde_env();
+    let tokenless = token.is_none();
 
     let state = Arc::new(AppState {
         token,
@@ -508,12 +541,19 @@ pub async fn run(puerto: u16, ui_dir: Option<String>, fixture: bool) -> std::pro
         app = app.fallback_service(serve_dir);
     }
 
-    // [fix C8] Bind a 0.0.0.0 (todas las interfaces, IPv4 + dual-stack
-    // según plataforma) para que localhost (::1) y 127.0.0.1 funcionen
-    // sin conflictos con procesos zombies en FIN_WAIT_2.
-    let addr = SocketAddr::from(([0, 0, 0, 0], puerto));
+    // Sin token, bind loopback: el acceso tokenless es solo para el usuario
+    // local. Con token explícito se puede servir en todas las interfaces.
+    let addr = if tokenless {
+        SocketAddr::from(([127, 0, 0, 1], puerto))
+    } else {
+        SocketAddr::from(([0, 0, 0, 0], puerto))
+    };
     eprintln!("[glory-harness web] escuchando en http://{addr}");
-    eprintln!("[glory-harness web] autenticación: Bearer token en GLORY_HARNESS_WEB_TOKEN");
+    if tokenless {
+        eprintln!("[glory-harness web] modo local: sin token, solo loopback");
+    } else {
+        eprintln!("[glory-harness web] autenticación: Bearer token en GLORY_HARNESS_WEB_TOKEN");
+    }
 
     let listener = match tokio::net::TcpListener::bind(addr).await {
         Ok(l) => l,
@@ -541,7 +581,7 @@ pub(crate) mod tests {
     /// Estado de prueba con token maestro conocido (sin fixture).
     pub(crate) fn state_test() -> Arc<AppState> {
         Arc::new(AppState {
-            token: "test-token".into(),
+            token: Some("test-token".into()),
             sesiones: Mutex::new(HashMap::new()),
             fixture: true,
         })
@@ -571,6 +611,7 @@ pub(crate) mod tests {
             conversacion_id: Mutex::new(Some(apertura.conversacion.id)),
             comun: Mutex::new(comun),
             tx,
+            meta: Mutex::new(None),
             turno: Mutex::new(None),
             creada: Instant::now(),
         });
@@ -611,6 +652,7 @@ pub(crate) mod tests {
             conversacion_id: Mutex::new(conversacion_id),
             comun: Mutex::new(comun),
             tx,
+            meta: Mutex::new(None),
             turno: Mutex::new(None),
             creada: Instant::now(),
         });
@@ -639,6 +681,88 @@ pub(crate) mod tests {
             serde_json::from_slice(&axum::body::to_bytes(res.into_body(), 1024).await.unwrap())
                 .unwrap();
         assert_eq!(body["ok"], true);
+    }
+
+    fn state_local() -> Arc<AppState> {
+        Arc::new(AppState {
+            token: None,
+            sesiones: Mutex::new(HashMap::new()),
+            fixture: true,
+        })
+    }
+
+    #[tokio::test]
+    async fn crear_sesion_sin_token_en_modo_local_devuelve_200() {
+        let app = router(state_local());
+        let res = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/session")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn meta_web_se_fija_y_se_normaliza() {
+        let state = state_test();
+        let (sid, sesion) = sesion_memoria(&state).await;
+        let app = router(Arc::clone(&state));
+        let res = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::PATCH)
+                    .uri(format!("/api/v1/session/{sid}/meta"))
+                    .header(header::AUTHORIZATION, format!("Bearer {sid}"))
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(r#"{"meta":"  objetivo claro  "}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        assert_eq!(sesion.meta.lock().await.as_deref(), Some("objetivo claro"));
+    }
+
+    #[tokio::test]
+    async fn meta_web_rechaza_exceso_y_sesion_ajena() {
+        let state = state_test();
+        let (sid, _) = sesion_memoria(&state).await;
+        let app = router(Arc::clone(&state));
+        let larga = "x".repeat(MAX_META_CHARS + 1);
+        let res = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::PATCH)
+                    .uri(format!("/api/v1/session/{sid}/meta"))
+                    .header(header::AUTHORIZATION, format!("Bearer {sid}"))
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(serde_json::json!({ "meta": larga }).to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::PAYLOAD_TOO_LARGE);
+
+        let app2 = router(Arc::clone(&state));
+        let res2 = app2
+            .oneshot(
+                Request::builder()
+                    .method(Method::PATCH)
+                    .uri(format!("/api/v1/session/{sid}/meta"))
+                    .header(header::AUTHORIZATION, "Bearer 00000000-0000-0000-0000-000000000000")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(r#"{"meta":"ajena"}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res2.status(), StatusCode::UNAUTHORIZED);
     }
 
     #[tokio::test]
@@ -729,6 +853,7 @@ pub(crate) mod tests {
                 conversacion_id: Mutex::new(Some(apertura.conversacion.id)),
                 comun: Mutex::new(comun),
                 tx,
+                meta: Mutex::new(None),
                 turno: Mutex::new(None),
                 creada: vieja,
             }),

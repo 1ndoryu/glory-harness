@@ -550,3 +550,54 @@ fn titulo_auto_desde_mensaje(mensaje: &str) -> String {
         out
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn meta_solo_se_aplica_en_modo_meta() {
+        let persistencia = PersistenciaSqlite::en_memoria().expect("BD en memoria");
+        let (sesion_autonoma, apertura_autonoma) = SesionComun::abrir_con_persistencia(
+            OpcionesSesion {
+                modo: Some("autonomo".into()),
+                ..OpcionesSesion::default()
+            },
+            persistencia,
+            None,
+        )
+        .expect("abrir sesión autónoma");
+        let turno_autonomo = sesion_autonoma
+            .preparar_turno(
+                apertura_autonoma.conversacion.id,
+                "mensaje de prueba".into(),
+                Some("no debe aplicarse".into()),
+            )
+            .await
+            .expect("preparar turno autónomo");
+        assert_eq!(turno_autonomo.mensaje_efectivo, "mensaje de prueba");
+
+        let persistencia = PersistenciaSqlite::en_memoria().expect("BD en memoria");
+        let (sesion_meta, apertura_meta) = SesionComun::abrir_con_persistencia(
+            OpcionesSesion {
+                modo: Some("meta".into()),
+                ..OpcionesSesion::default()
+            },
+            persistencia,
+            None,
+        )
+        .expect("abrir sesión meta");
+        let turno_meta = sesion_meta
+            .preparar_turno(
+                apertura_meta.conversacion.id,
+                "mensaje de prueba".into(),
+                Some("sí debe aplicarse".into()),
+            )
+            .await
+            .expect("preparar turno meta");
+        assert_eq!(
+            turno_meta.mensaje_efectivo,
+            "[META: sí debe aplicarse]\nmensaje de prueba"
+        );
+    }
+}

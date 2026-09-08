@@ -632,6 +632,9 @@ function crearPanel(
           if (id) sidebar.seleccionar(id);
           else sidebar.seleccionar('');
         }
+        // El panel meta no forma parte del borrador inicial: aparece al
+        // escribir el primer mensaje o al cargar una conversación real.
+        sincronizarPanelMeta();
       },
     },
     onAcciones(rect) {
@@ -701,9 +704,15 @@ function crearPanel(
   });
 
   if (tipo === 'principal') {
-    // PanelMeta global DENTRO de la entrada del principal, antes de .caja.
+    // El panel meta comparte la entrada principal, pero queda después del
+    // selector de workspace. Además permanece oculto hasta que el primer
+    // mensaje cree una conversación real; así el borrador inicial solo ocupa
+    // el selector y la caja, sin solapamientos.
     const entradaRaiz = panel.raiz.querySelector<HTMLElement>('.entrada');
-    if (entradaRaiz) entradaRaiz.insertBefore(panelMeta.raiz, entradaRaiz.firstChild);
+    const selectorWorkspace = entradaRaiz?.querySelector('.selector-workspace-box');
+    if (entradaRaiz && selectorWorkspace) {
+      entradaRaiz.insertBefore(panelMeta.raiz, selectorWorkspace.nextSibling);
+    }
   }
 
   panelesRegistrados.push(panel);
@@ -890,9 +899,11 @@ function restaurarLateralAncho(): void {
 }
 
 function sincronizarPanelMeta(): void {
-  const hayMeta = panelMeta.getMeta().trim().length > 0;
-  const visible = hayMeta || modoActual === 'meta';
-  panelMeta.mostrar(visible);
+  // La meta solo es editable y aplicable en ese modo. Mantener el panel
+  // oculto fuera de `meta` evita sugerir que un turno autónomo la ejecutará;
+  // el backend también la ignora fuera de ese modo como segunda barrera.
+  const hayConversacion = panelesRegistrados.some((p) => p.conversaId !== null);
+  panelMeta.mostrar(modoActual === 'meta' && hayConversacion);
 }
 
 // ---------- Modal ----------
@@ -1237,6 +1248,7 @@ if (USA_REAL) {
         modoActual = modoG;
         panelesRegistrados.forEach((p) => p.setModo(modoActual));
         modal.asignarValor('modo', modoActual);
+        sincronizarPanelMeta();
       }
       if (razG && RAZONAMIENTO_ETIQUETA[razG]) {
         razonamientoActual = razG;
