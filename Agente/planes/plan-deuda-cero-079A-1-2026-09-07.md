@@ -140,3 +140,9 @@ F7/F8 → F9.
 privados del padre — los 6 errores eran símbolos movidos (cualificar
 `sesion::`/`conversaciones::` + `pub(super)`); structs en firmas de comandos
 Tauri-pub(crate) exigen `pub(super)` (E0451).
+**F7/F8 hechos** (`ca8ff55`: `auditoria-solid-2026-09-07.md`,
+`auditoria-rendimiento-2026-09-07.md`; cero cambios de comportamiento;
+1 deuda agendada: `leer_max_ventana` huérfana).
+Todo pusheado hasta `ca8ff55`. **Solo queda F1** (bloqueada: `web.rs` con
+`M` ajeno) **y F9** (cierre 0/0/0 + tests + clippy + E2E + roadmap/
+completada + archivar plan).
