@@ -45,11 +45,6 @@ impl DifusionSse {
         (id, rx)
     }
 
-    /// Da de baja un suscriptor (id desconocido = no-op).
-    pub(crate) fn desuscribir(&mut self, id: u64) {
-        self.suscriptores.remove(&id);
-    }
-
     /// Emite el cable a todos los suscriptores (best-effort: lector lento o
     /// caído pierde el cable y se poda; nunca bloquea ni falla).
     pub(crate) fn emitir(&mut self, cable: String) {
@@ -91,12 +86,9 @@ mod pruebas {
     #[test]
     fn receptor_caido_se_poda() {
         let mut d = DifusionSse::nueva();
-        let (id, rx) = d.suscribir();
+        let (_, rx) = d.suscribir();
         drop(rx);
         d.emitir("cable".to_string());
-        assert_eq!(d.suscriptores_vivos(), 0);
-        // Desuscribir un id podado es no-op.
-        d.desuscribir(id);
         assert_eq!(d.suscriptores_vivos(), 0);
     }
 }
