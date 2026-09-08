@@ -600,4 +600,33 @@ mod tests {
             "[META: sí debe aplicarse]\nmensaje de prueba"
         );
     }
+
+    /// [079A-1 post-F7] Ventana del desktop (default 150k, sin tocar el
+    /// default del core 128k): valor persistido o default ante
+    /// basura/bajo-piso; antes duplicada en el desktop (`pruebas.rs`,
+    /// eliminada: 0 llamadas prod, la vía real es `resolver_opciones`).
+    #[test]
+    fn ventana_sin_config_usa_default_desktop() {
+        let p = PersistenciaSqlite::en_memoria().expect("bd en memoria");
+        assert_eq!(leer_max_ventana(&p).expect("lee"), Some(150_000));
+    }
+
+    #[test]
+    fn ventana_respeta_valor_persistido() {
+        let p = PersistenciaSqlite::en_memoria().expect("bd en memoria");
+        p.config_guardar("contexto_max_ventana", "200000")
+            .expect("guarda");
+        assert_eq!(leer_max_ventana(&p).expect("lee"), Some(200_000));
+    }
+
+    #[test]
+    fn ventana_basura_o_bajo_piso_cae_al_default() {
+        let p = PersistenciaSqlite::en_memoria().expect("bd en memoria");
+        p.config_guardar("contexto_max_ventana", "no-numero")
+            .expect("guarda");
+        assert_eq!(leer_max_ventana(&p).expect("lee"), Some(150_000));
+        p.config_guardar("contexto_max_ventana", "5")
+            .expect("guarda");
+        assert_eq!(leer_max_ventana(&p).expect("lee"), Some(150_000));
+    }
 }

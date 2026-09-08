@@ -33,7 +33,6 @@ use uuid::Uuid;
 
 mod conversaciones;
 mod navegador;
-mod pruebas;
 mod sesion;
 mod turno;
 mod vault;
