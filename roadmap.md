@@ -75,12 +75,9 @@ Orden propuesto (dependencias de abajo arriba):
       nueva se transfiere al próximo plan de deuda (pendiente de crear tras
       tabla). Plan archivado en `Agente/planes/completados/`. No se reclama
       0/0/0.
-- [ ] **079A-1 — Deuda cero Sentinel, segunda vuelta** (full 0/0/0): 2E/10W/1I
-      (broadcast-mutex ×2, directorio-abarrotado, funcion-larga ×4,
-      limite-lineas ×4+nivel-2, params ×1). Plan:
-      `Agente/planes/plan-deuda-cero-079A-1-2026-09-07.md`. Mismo ciclo que
-      069A-5 + caza de falsos positivos (con fix en Sentinel si aplica) +
-      auditorías SOLID y rendimiento nuevas. F0 pendiente.
+- [x] **079A-1 — Deuda cero Sentinel, segunda vuelta**: HECHO 07-09, gate
+      full PASS 0/0/0 (ver `Agente/completados/tareas-2026-09-07.md`). Plan
+      archivado en `Agente/planes/completados/`.
 - [x] **069A-4 — Memoria de aprendizaje fases 1–5** (B3-F8b): HECHO 06-09
       (ver `Agente/completados/tareas-2026-09-06.md`).
 - [x] **069A-1 — Navegador interno visible completo**: F1+F2 (WebView2 child, comandos IPC,
@@ -167,9 +164,8 @@ Orden propuesto (dependencias de abajo arriba):
 
 ## Planes activos
 
-- `Agente/planes/plan-deuda-cero-079A-1-2026-09-07.md` (079A-1) — **abierto**:
-  clasificar y resolver la deuda actual de Sentinel con evidencia; el gate actual
-  sigue FAIL y no se cierra por una suposición.
+- `Agente/planes/completados/plan-deuda-cero-079A-1-2026-09-07.md` (079A-1) —
+  **cerrado 07-09** con gate full PASS 0/0/0.
 - `Agente/planes/plan-web-real-069A-2.md` (069A-2) — **cerrado con observaciones**:
   implementación y meta web verificadas contra el binario reconstruido; quedan
   observaciones del gate y no se reabre F5b sin nueva justificación.
