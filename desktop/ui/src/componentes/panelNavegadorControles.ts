@@ -98,7 +98,7 @@ export function crearControlesNav(idP: string, esTauri: boolean): NodosNav {
   // dentro del contenedor. Nace en blanco; la URL la pone el usuario.
   let iframe: HTMLIFrameElement | null = null;
   if (!esTauri) {
-    iframe = document.createElement('iframe');
+    iframe = el('iframe') as HTMLIFrameElement;
     iframe.className = 'nav-iframe';
     iframe.src = 'about:blank';
     // Sin sandbox: muchos sitios (buscadores, youtube...) rompen con

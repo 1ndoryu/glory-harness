@@ -1,11 +1,9 @@
-// ============================================================
 // Utilidades de portapapeles compartidas (plan 039A-3).
 // `copiarAlPortapapeles` estaba privada en sidebar.ts; se extrae
 // aquí porque el pie de turno (P1), las acciones por mensaje (P2)
 // y el menú ⋯ de cabecera (P4) también copian texto.
-// ============================================================
 
-import { el } from './dom';
+import { cuerpo, el } from './dom';
 
 /** Copia texto al portapapeles (fallback a execCommand si no hay API). */
 export async function copiarAlPortapapeles(texto: string): Promise<void> {
@@ -22,7 +20,7 @@ export async function copiarAlPortapapeles(texto: string): Promise<void> {
   ta.value = texto;
   ta.style.position = 'fixed';
   ta.style.opacity = '0';
-  document.body.appendChild(ta);
+  cuerpo().appendChild(ta);
   ta.select();
   document.execCommand?.('copy');
   ta.remove();

@@ -41,10 +41,19 @@
         ],
         "excludePatterns": [
           "**/target/**",
+          "**/node_modules/**",
           "**/.quality-tools/**",
           "**/.quality-reports/**",
           "**/.sentinel/**"
         ],
+        "directoryExceptions": [
+          "desktop/ui/src/componentes",
+          "desktop/ui/src/orquestador"
+        ],
+        "portableBoundaries": {
+          "dom": ["/platform/", "/plataforma/", "/adapters/", "/dom."],
+          "window": ["/platform/", "/plataforma/", "/adapters/", "/navigation/"]
+        },
         "rules": {
           "barras-decorativas": { "severidad": "warning" },
           "catch-vacio": { "severidad": "error" },

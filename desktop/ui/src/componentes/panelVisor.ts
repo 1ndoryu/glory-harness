@@ -1,11 +1,9 @@
-// ============================================================
 // Visor de archivo y cambios (089A-2): vive como tab del panel
 // derecho. Pestaña Archivo: contenido real del workspace vía
 // comando `leer_archivo` (Tauri). Pestaña Cambios: diffs de las
 // tools file_write/file_patch de la conversación (los registra el
 // orquestador con `registrarCambio`). Sin backend disponible los
 // errores se muestran en el propio visor, nunca en silencio.
-// ============================================================
 
 import '../estilos/visor.css';
 import { el } from '../util/dom';

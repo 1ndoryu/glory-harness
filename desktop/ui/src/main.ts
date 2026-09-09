@@ -1,4 +1,3 @@
-// ============================================================
 // Punto de entrada del front de glory-harness desktop (plan 039A-3).
 // ORQUESTADOR DELGADO: posee los elementos de layout NO duplicables
 // (sidebar + grip + #paneles + modal + panelMeta global M1) y delega
@@ -7,7 +6,6 @@
 // (modelo/modo/razonamiento + turno global) vive aquí y se inyecta por
 // `deps`; el panel que lanza un turno es el destino (payloads sin
 // panel_id, ver backend 045f7e1).
-// ============================================================
 
 import './estilos/index.css';
 
@@ -29,7 +27,8 @@ import { crearSimulacion } from './simulacion/simulacion';
 import { crearAdaptadorReal, esEntornoTauri } from './tauri/real';
 import { crearAdaptadorApi } from './adaptadores/api';
 import type { HooksAdaptador } from './tauri/real';
-import { el } from './util/dom';
+import { cuerpo as cuerpoDocumento, el, porId } from './util/dom';
+import { alRedimensionar } from './plataforma/ventana';
 import {
   abrirAccionesPanel,
   abrirChatLateralVacio,
@@ -47,7 +46,7 @@ import {
 } from './orquestador/entorno';
 import { type PersistenciaDeps } from './orquestador/persistencia';
 
-const raizApp = document.getElementById('app');
+const raizApp = porId('app');
 if (!raizApp) throw new Error('falta #app');
 
 // ---------- Layout raíz ----------
@@ -66,6 +65,8 @@ paneles.id = 'paneles';
 const barra = montarVistaBarra({
   alternarSidebar: () => alternarSidebar(),
   alternarPanelDerecho: () => alternarPanelDerecho(),
+  // `avisoGlobal` es declaración de función (hoisted): referencia directa segura.
+  avisar: avisoGlobal,
 });
 
 // ---------- Estado compartido M1 (runtime único) ----------
@@ -206,7 +207,7 @@ const grip = barraLateral.grip;
 const alternarSidebar = barraLateral.alternarSidebar;
 
 // Escucha resize para el auto-ocultado de la lista por ancho mínimo.
-window.addEventListener('resize', () => barraLateral.pintarSidebar());
+alRedimensionar(() => barraLateral.pintarSidebar());
 
 // ---------- Modal (config + nuevo proyecto + estado vista) ----------
 /* Vive en `orquestador/vistaModal`. Se crea aquí (antes de la fábrica de
@@ -352,8 +353,7 @@ const depsLaterales: LateralesDeps = {
 };
 
 // ---------- Montaje del DOM ----------
-cuerpo.appendChild(sidebar.raiz);
-cuerpo.appendChild(grip);
+cuerpo.append(sidebar.raiz, grip);
 paneles.appendChild(principal.raiz);
 cuerpo.appendChild(paneles);
 // [089A-2] El navegador vive detached hasta abrir su tab del panel derecho
@@ -368,11 +368,11 @@ app.appendChild(cuerpo);
  * `orquestador/arranque` y se ejecuta al final del fichero. */
 
 // Añade las capas globales fuera de #app (hermanas del layout).
-document.body.appendChild(toastGlobal.raiz);
-document.body.appendChild(todoVistaModal.modal.raiz);
+cuerpoDocumento().appendChild(toastGlobal.raiz);
+cuerpoDocumento().appendChild(todoVistaModal.modal.raiz);
 
 // [069A-Proyectos] Modal "Nuevo proyecto" autocontenido (en vistaModal).
-document.body.appendChild(todoVistaModal.modalProyecto.raiz);
+cuerpoDocumento().appendChild(todoVistaModal.modalProyecto.raiz);
 
 // ---------- Arranque: estado inicial + sesión + última conversación ----------
 ejecutarArranque({

@@ -1,4 +1,3 @@
-// ============================================================
 // Controles de ventana propios (089A-1 + 089A-3, referencias Paseo
 // `packages/app/src/components/desktop/window-controls.tsx` y Synara
 // `apps/web/src/components/DesktopWindowControls.tsx`).
@@ -10,8 +9,7 @@
 // cuando hay `__TAURI__`; en web no se montan (siguen los nativos).
 // El cableado usa import dinámico de `@tauri-apps/api/window` para
 // no romper el bundle web; si falla, los botones quedan
-// deshabilitados con aviso en consola (nunca mudos).
-// ============================================================
+// deshabilitados y el arrastre avisa por `onError` (nunca mudos).
 
 import '../estilos/ventana.css';
 import { icono } from './iconos';
@@ -34,10 +32,10 @@ function ventana(): Promise<{ startDragging(): Promise<void> }> {
  * inputs y enlaces no arrastran (siguen clicando).
  * El módulo de ventana se precarga al montar (no en el primer mousedown):
  * `startDragging()` debe despacharse dentro del gesto del ratón y la
- * primera carga diferida llegaría tarde. El fallo se avisa por consola
- * (nunca mudo) para diagnosticar permisos/capabilities.
+ * primera carga diferida llegaría tarde. El fallo se notifica por el
+ * callback `onError` (nunca mudo) para diagnosticar permisos/capabilities.
  */
-export function hacerArrastrable(zona: HTMLElement): void {
+export function hacerArrastrable(zona: HTMLElement, onError?: (detalle: string) => void): void {
   zona.setAttribute('data-tauri-drag-region', '');
   // Precarga inmediata: cuando el usuario pulse, el módulo ya está listo.
   void ventana().catch(() => {});
@@ -48,7 +46,7 @@ export function hacerArrastrable(zona: HTMLElement): void {
     void ventana()
       .then((v) => v.startDragging())
       .catch((err) => {
-        console.warn('[ventana] startDragging falló (revisa capabilities window):', err);
+        onError?.(`startDragging falló (revisa capabilities window): ${String(err)}`);
       });
   });
 }

@@ -1,10 +1,8 @@
-// ============================================================
 // Esquema declarativo de opciones de configuración (centro único).
 // Cada opción describe el control con que se edita y su valor.
 // Los formularios se construyen a partir de estas definiciones
 // (ver componentes/formulario.ts), de modo que añadir una opción
 // nueva es añadir una entrada aquí — sin tocar el DOM del modal.
-// ============================================================
 
 export type TipoControl =
   | 'texto'

@@ -1,4 +1,3 @@
-// ============================================================
 // Fábrica de panel de chat (plan 039A-3, P5 — S3b).
 // Encapsula UN `.chat` completo y duplicable: cabecera + mensajes
 // + entrada (+ acciones por mensaje y por cabecera). Cada instancia
@@ -11,7 +10,6 @@
 // (modelo/modo/razonamiento) y el panelMeta viven en el orquestador
 // y se inyectan por `deps`; el panel que lanza un turno es el que
 // recibe los eventos (el adaptador real es compartido).
-// ============================================================
 
 import { montarCabeceraChat, type CabeceraChat } from './cabecera';
 import {

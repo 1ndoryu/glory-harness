@@ -1,9 +1,7 @@
-// ============================================================
 // Modal "Nuevo proyecto" (069A-Proyectos): nombre + carpeta.
 // NO reutiliza modal.ts (config): es un modal autocontenido con
 // botón de guardar explícito. Desktop: picker nativo para la
 // carpeta vía `elegir_carpeta_proyecto`. Web: input texto.
-// ============================================================
 
 import { esEntornoTauri } from '../tauri/real';
 import { icono } from './iconos';

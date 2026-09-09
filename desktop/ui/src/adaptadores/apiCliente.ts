@@ -5,9 +5,10 @@ import type {
   HooksAdaptador,
   InfoSesion,
 } from '../tauri/real';
+import { parametroUrl } from '../plataforma/ventana';
 
 function tokenMaestro(): string {
-  return new URLSearchParams(window.location.search).get('token') ?? '';
+  return parametroUrl('token') ?? '';
 }
 
 function errorHttp(ruta: string, estado: number, cuerpo: string): Error {

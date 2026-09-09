@@ -1,11 +1,9 @@
-// ============================================================
 // Selector de área de trabajo (menú contextual, mismo estilo que
 // .menu-ctx). Botón con el nombre del proyecto activo; al
 // pulsarlo abre un menú contextual con cada workspace registrado.
 // SIEMPRE hay un workspace activo (el agente trabaja siempre en
 // algún área). Se usa dentro del cuadro centrado del composer
 // cuando la conversación es nueva.
-// ============================================================
 
 import type { Workspace } from '../dominio/tipos';
 import { icono } from './iconos';

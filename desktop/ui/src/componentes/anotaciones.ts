@@ -1,4 +1,3 @@
-// ============================================================
 // Anotaciones sobre el navegador (plan 069A-1, F4).
 //
 // [Riesgo documentado] El HWND nativo de la webview child
@@ -13,9 +12,10 @@
 //   b) Resaltado CDP momentáneo mediante
 //      `Runtime.evaluate` con highlight/outline — implementado.
 //   c) Capa via SetHostObject+JS (futuro).
-// ============================================================
 
 import { invoke } from '@tauri-apps/api/core';
+import { el } from '../util/dom';
+import { codigoResaltar } from '../plataforma/webview';
 
 // ---------- Tipos ----------
 
@@ -46,7 +46,7 @@ const COLOR_DEFAULT = '#ff0000';
 // ---------- Fábrica ----------
 
 export function crearAnotacionesUI(ancho = 800, alto = 600): AnotacionesUI {
-  const canvas = document.createElement('canvas');
+  const canvas = el('canvas');
   canvas.width = ancho;
   canvas.height = alto;
   canvas.className = 'nav-anotaciones';
@@ -105,13 +105,7 @@ export async function resaltarElementoCDP(
 ): Promise<void> {
   try {
     await invoke('navegador_js', {
-      codigo: `(function(){
-        var e=document.querySelector(${JSON.stringify(selector)});
-        if(!e)return;
-        e.style.outline='2px solid red';
-        e.style.outlineOffset='-1px';
-        setTimeout(function(){e.style.outline='';e.style.outlineOffset=''},${duracionMs});
-      })()`,
+      codigo: codigoResaltar(selector, duracionMs),
     });
   } catch {
     // silencioso: el resaltado es una mejora visual, no crítica

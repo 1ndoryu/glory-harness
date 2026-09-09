@@ -1,11 +1,9 @@
-// ============================================================
 // Panel derecho con tabs (089A-2, referencia Synara): chats laterales,
 // Files, Git local y Navegador conviven como pestañas. Files incluye su
 // propio visor dividido, así que no existe una tab de visor independiente.
 // Los ids son dinámicos: 'navegador' y 'chat:<id>'. Cada tab con cierre
 // propio cierra solo su pestaña. Sin tabs muestra el inicio: pantalla de
 // opciones centrada al estilo `RightDockLauncher` de Synara.
-// ============================================================
 
 import '../estilos/tabs.css';
 import '../estilos/launcher.css';

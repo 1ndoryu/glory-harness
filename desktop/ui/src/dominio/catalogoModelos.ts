@@ -1,6 +1,4 @@
-// ============================================================
 // Catálogo de proveedores/modelos (port 1:1 del mockup).
-// ============================================================
 
 import type { ModeloSeleccionado, ProveedorModelo } from './tipos';
 

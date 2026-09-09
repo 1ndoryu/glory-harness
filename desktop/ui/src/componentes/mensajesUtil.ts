@@ -1,6 +1,7 @@
 /* Utilidades de render seguro de `mensajes`: escape HTML, formato de
  * resultados de herramienta, inserción HTML saneada y aplicación. */
 import type { ResultadoHerramienta } from '../dominio/tipos';
+import { el } from '../util/dom';
 
 function escaparHtml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -81,11 +82,11 @@ export function ponerHtmlSeguro(nodo: HTMLElement, html: string): void {
     const elem = hijo as Element;
     const etiqueta = elem.tagName.toLowerCase();
     if (etiqueta === 'br') {
-      destino.appendChild(document.createElement('br'));
+      destino.appendChild(el('br'));
       return;
     }
     if (etiqueta === 'span') {
-      const s = document.createElement('span');
+      const s = el('span');
       const clase = elem.getAttribute('class') ?? '';
       if (clase && esClaseSegura(clase)) s.className = clase;
       for (const nieto of Array.from(elem.childNodes)) importar(nieto, s);

@@ -1,4 +1,3 @@
-// ============================================================
 // Sidebar: botones de acción + lista de conversaciones + pie
 // (configuración). Port 1:1 del mockup. La selección de
 // conversación es visual; las acciones del menú contextual
@@ -6,7 +5,6 @@
 // estado local y notifican al llamador (sin backend aún). El
 // menú contextual REUTILIZA la mecánica compartida de menu.ts
 // (la misma del selector de modelo y del modo de ejecución).
-// ============================================================
 
 import type { Conversacion, Workspace } from '../dominio/tipos';
 import { icono } from './iconos';

@@ -5,7 +5,8 @@
  * (modal, modalProyecto, navegador, principal, laterales) solo se invocan
  * desde eventos de UI posteriores al montaje, fuera de la TDZ. */
 
-import { el } from '../util/dom';
+import { el, marcarCuerpo } from '../util/dom';
+import { anchoVentana, seguirPuntero } from '../plataforma/ventana';
 import { montarSidebar, type Sidebar } from '../componentes/sidebar';
 import type { BarraSuperior } from '../componentes/barraSuperior';
 import type { Conversacion, Workspace } from '../dominio/tipos';
@@ -266,16 +267,17 @@ export function montarBarraLateral(deps: BarraLateralDeps): BarraLateral {
     grip.addEventListener('mousedown', (e) => {
       e.preventDefault();
       arrastrando = true;
-      document.body.classList.add('redimensionando-sidebar');
+      marcarCuerpo('redimensionando-sidebar', true);
     });
-    window.addEventListener('mousemove', (e) => {
-      if (!arrastrando) return;
-      cuerpo.style.setProperty('--sidebar-ancho', `${anchoArrastre(e.clientX)}px`);
-    });
-    window.addEventListener('mouseup', () => {
-      if (!arrastrando) return;
-      arrastrando = false;
-      document.body.classList.remove('redimensionando-sidebar');
+    seguirPuntero(
+      (e) => {
+        if (!arrastrando) return;
+        cuerpo.style.setProperty('--sidebar-ancho', `${anchoArrastre(e.clientX)}px`);
+      },
+      () => {
+        if (!arrastrando) return;
+        arrastrando = false;
+        marcarCuerpo('redimensionando-sidebar', false);
       const ancho = Math.round(
         parseFloat(getComputedStyle(cuerpo).getPropertyValue('--sidebar-ancho')) || 260,
       );
@@ -306,7 +308,7 @@ export function montarBarraLateral(deps: BarraLateralDeps): BarraLateral {
   function ventanaAngosta(): boolean {
     // [039A-3 P6b] Auto-ocultado de la lista: por debajo de un ancho mínimo de
     // ventana la sidebar ya no cabe junto al chat y se oculta sola.
-    return window.innerWidth < UMBRAL_AUTO_SIDEBAR;
+    return anchoVentana() < UMBRAL_AUTO_SIDEBAR;
   }
 
   // Aplica el estado efectivo (preferencia + auto-ocultado por ancho).

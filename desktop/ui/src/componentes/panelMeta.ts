@@ -1,4 +1,3 @@
-// ============================================================
 // Panel meta REAL (plan 039A-1 §10.5.2): sustituye al boceto 03-09.
 // Misma fila única (meta + estado · tiempo · tokens + play/pausa) y
 // mismo montaje DENTRO de #entrada, pero sin simulación: la meta la
@@ -6,7 +5,6 @@
 // mide el turno en curso y los tokens son los del núcleo (`usage`).
 // La pausa detiene el turno (`cancelar_turno`); reanudar reenvía el
 // último mensaje como turno nuevo (el abortado no se puede continuar).
-// ============================================================
 
 import { el } from '../util/dom';
 import { ponerIcono } from './iconos';

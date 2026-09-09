@@ -1,6 +1,4 @@
-// ============================================================
 // Conversaciones de ejemplo (port 1:1 de la sidebar del mockup).
-// ============================================================
 
 import type { Conversacion } from '../dominio/tipos';
 

@@ -1,11 +1,9 @@
-// ============================================================
 // Modal de configuración — sin cabecera ni pie.
 // Las opciones se definen de forma centralizada en
 // dominio/opciones.ts y se renderizan con componentes/formulario.ts.
 // Los cambios se aplican al vuelo (guardado automático): no hay
 // botones "guardar cambios"/"cancelar"; se cierra con click fuera
 // del diálogo o con Escape.
-// ============================================================
 
 import { FORMULARIO_CONFIGURACION, OPCIONES_MODELO } from '../dominio/opciones';
 import type { ModeloSeleccionado, ProveedorModelo } from '../dominio/tipos';
@@ -85,9 +83,9 @@ export function montarModalConfiguracion(opts: ModalOpciones): ModalConfiguracio
 
   // guardado automático: todo cambio se notifica al vuelo
   function notificarCambio(id: string, valor: string | boolean): void {
-    // TODO(backend): persistir el valor vía IPC/Tauri cuando exista.
-    // De momento queda en memoria, en el DOM (control actualizado) y se
-    // propaga al dueño (main.ts) para sincronizar la vista.
+    // Persistencia real: el dueño (main.ts) guarda vía `configGuardar` del
+    // adaptador. Aquí el valor queda en memoria, en el DOM (control
+    // actualizado) y se propaga al dueño para sincronizar la vista.
     opts.onCambio?.(id, valor);
   }
 

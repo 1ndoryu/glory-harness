@@ -9,6 +9,7 @@ import { el } from '../util/dom';
 import { esEntornoTauri } from '../tauri/real';
 import { crearControlesNav } from './panelNavegadorControles';
 import { crearSeleccionNav } from './panelNavegadorSeleccion';
+import { codigoHistorialAdelante, codigoHistorialAtras } from '../plataforma/webview';
 import { MAX_LOG } from './panelNavegadorTipos';
 import type {
   AccionNavegador,
@@ -202,7 +203,7 @@ export function montarPanelNavegador(opts: PanelNavegadorOpciones = {}): PanelNa
         seleccion.apagar();
         if (esTauri) {
           // CDP: Runtime.evaluate con history.back()
-          await invoke('navegador_js', { codigo: 'window.history.back()' });
+          await invoke('navegador_js', { codigo: codigoHistorialAtras() });
         } else {
           // [069A-2 fix] El historial del iframe se controla desde el padre.
           iframe?.contentWindow?.history.back();
@@ -219,7 +220,7 @@ export function montarPanelNavegador(opts: PanelNavegadorOpciones = {}): PanelNa
       try {
         seleccion.apagar();
         if (esTauri) {
-          await invoke('navegador_js', { codigo: 'window.history.forward()' });
+          await invoke('navegador_js', { codigo: codigoHistorialAdelante() });
         } else {
           // [069A-2 fix] El historial del iframe se controla desde el padre.
           iframe?.contentWindow?.history.forward();

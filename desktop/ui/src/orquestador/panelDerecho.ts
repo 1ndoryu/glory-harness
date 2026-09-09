@@ -6,7 +6,8 @@
  * y solo se invocan desde eventos de UI, fuera de la TDZ. */
 
 import { invoke } from '@tauri-apps/api/core';
-import { el } from '../util/dom';
+import { el, marcarCuerpo, porId } from '../util/dom';
+import { seguirPuntero } from '../plataforma/ventana';
 import { montarPanelDerecho, type PanelDerecho } from '../componentes/panelDerecho';
 import { montarPanelFiles, type PanelFiles } from '../componentes/panelFiles';
 import { montarPanelGit, type PanelGit } from '../componentes/panelGit';
@@ -73,24 +74,25 @@ export function montarPanelDerechoTodo(deps: PanelDerechoDeps): PanelDerechoTodo
     g.addEventListener('mousedown', (e) => {
       e.preventDefault();
       arrastrando = true;
-      document.body.classList.add('redimensionando-lateral');
+      marcarCuerpo('redimensionando-lateral', true);
     });
-    window.addEventListener('mousemove', (e) => {
-      if (!arrastrando) return;
-      const rect = deps.cuerpo.getBoundingClientRect();
-      // El panel derecho está ANCLADO al borde derecho de #cuerpo: su ancho
-      // es la distancia del cursor hasta el borde derecho (igual que antes
-      // con el lateral en #paneles).
-      const ancho = rect.right - e.clientX;
-      const MIN = 260;
-      const MAX = Math.round(rect.width * 0.7);
-      const clampeado = Math.min(MAX, Math.max(MIN, Math.round(ancho)));
-      aplicarPanelDerechoAncho(clampeado);
-    });
-    window.addEventListener('mouseup', () => {
-      if (!arrastrando) return;
-      arrastrando = false;
-      document.body.classList.remove('redimensionando-lateral');
+    seguirPuntero(
+      (e) => {
+        if (!arrastrando) return;
+        const rect = deps.cuerpo.getBoundingClientRect();
+        // El panel derecho está ANCLADO al borde derecho de #cuerpo: su ancho
+        // es la distancia del cursor hasta el borde derecho (igual que antes
+        // con el lateral en #paneles).
+        const ancho = rect.right - e.clientX;
+        const MIN = 260;
+        const MAX = Math.round(rect.width * 0.7);
+        const clampeado = Math.min(MAX, Math.max(MIN, Math.round(ancho)));
+        aplicarPanelDerechoAncho(clampeado);
+      },
+      () => {
+        if (!arrastrando) return;
+        arrastrando = false;
+        marcarCuerpo('redimensionando-lateral', false);
       if (anchoPanelDerechoFijado !== null) {
         guardarSidebar(deps.persistencia, CLAVE_LATERAL_ANCHO, String(anchoPanelDerechoFijado));
       }
@@ -210,7 +212,7 @@ export function montarPanelDerechoTodo(deps: PanelDerechoDeps): PanelDerechoTodo
 
   // Reposiciona la webview hija sobre su contenedor (tras mostrar su tab).
   function reposicionarWebview(): void {
-    const contenedor = document.getElementById('navegador-webview-contenedor');
+    const contenedor = porId('navegador-webview-contenedor');
     if (!contenedor) return;
     const r = contenedor.getBoundingClientRect();
     if (r.width < 2 || r.height < 2) return;

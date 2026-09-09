@@ -1,4 +1,3 @@
-// ============================================================
 // Transporte HTTP/SSE del modo web (plan 069A-2, F4): la misma superficie
 // `AdaptadorReal` sobre `glory-harness web`. El render vive una sola vez en
 // `tauri/real.ts`; aquí solo viaja: fetch + EventSource con cookie.
@@ -6,7 +5,6 @@
 // la UI compilada) o del webview Tauri→localhost; la cookie `gh_sesion`
 // (HttpOnly, SameSite=Lax) autoriza el SSE que EventSource no puede firmar.
 // El token maestro viaja en `?token=` (solo memoria, nunca localStorage).
-// ============================================================
 
 import {
   crearAdaptadorReal,

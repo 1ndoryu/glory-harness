@@ -1,9 +1,7 @@
-// ============================================================
 // Historial de ejemplo de la conversación activa (port 1:1 del
 // mockup: estados que el boceto debe revisar). Cuando llegue el
 // backend real, esta función se sustituye por el historial
 // persistido.
-// ============================================================
 
 import type { Bloque } from '../dominio/tipos';
 

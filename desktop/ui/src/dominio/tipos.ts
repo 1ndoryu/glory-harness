@@ -1,8 +1,6 @@
-// ============================================================
 // Tipos del dominio UI (port del mockup del plan 039A-1).
 // Sin lógica de backend: modelan lo que la vista necesita
 // renderizar y lo que la capa de simulación emite.
-// ============================================================
 
 /** Proveedor con su catálogo de modelos (mismo espíritu que task). */
 export interface ProveedorModelo {

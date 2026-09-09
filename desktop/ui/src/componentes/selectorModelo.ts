@@ -1,4 +1,3 @@
-// ============================================================
 // Selector de modelo reutilizable (menú contextual doble:
 // proveedor → modelo). Lo usan la barra de entrada (#entrada)
 // y el modal de configuración para editar "Proveedor / modelo".
@@ -6,12 +5,12 @@
 // los demás .menu-ctx, para no quedar recortado por contenedores
 // con overflow. Variante "campo" = caja con borde (modal);
 // variante "barra" = botón sin borde de la entrada.
-// ============================================================
 
 import type { ModeloSeleccionado, ProveedorModelo } from '../dominio/tipos';
 import { icono } from './iconos';
 import { el } from '../util/dom';
 import { abrirMenuContextual, cerrarMenuActual, crearItemMenu } from './menu';
+import { altoVentana, anchoVentana } from '../plataforma/ventana';
 
 export type VarianteSelector = 'barra' | 'modal';
 
@@ -104,8 +103,8 @@ export function montarSelectorModelo(opts: SelectorModeloOpciones): SelectorMode
 
         // ---- anclar cada submenú a la fila de su proveedor (con vuelco) ----
         const margen = 8;
-        const vw = window.innerWidth;
-        const vh = window.innerHeight;
+        const vw = anchoVentana();
+        const vh = altoVentana();
         const ocultarSub = (sub: HTMLElement) => {
           sub.style.display = 'none';
           sub.style.top = '';

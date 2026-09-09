@@ -1,7 +1,5 @@
-// ============================================================
 // Iconos Lucide en línea (monocromo). Port 1:1 de ico()/IC_* del
 // mockup. Devuelve SVG en línea con la clase .ic[.ic-xs].
-// ============================================================
 
 import type { IconoNombre } from '../dominio/tipos';
 

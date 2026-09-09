@@ -1,7 +1,17 @@
 /* Indicador circular de contexto de la entrada: arco SVG según
  * `ocupacion_pct` + menú hover con el detalle de la ventana. */
 import type { EstadoContexto } from './entrada';
-import { el } from '../util/dom';
+import { cuerpo, el } from '../util/dom';
+import {
+  alDesenfocar,
+  alDesplazar,
+  alRedimensionar,
+  altoVentana,
+  anchoVentana,
+  finDesenfocar,
+  finDesplazar,
+  finRedimension,
+} from '../plataforma/ventana';
 
 export interface IndicadorContexto {
   indicador: HTMLButtonElement;
@@ -127,8 +137,8 @@ export function crearIndicadorContexto(): IndicadorContexto {
   /** Posiciona el detalle junto al indicador, con vuelco al viewport. */
   function posicionarDetalle(d: HTMLElement, rect: DOMRect): void {
     const margen = 8;
-    const vw = window.innerWidth;
-    const vh = window.innerHeight;
+    const vw = anchoVentana();
+    const vh = altoVentana();
     const altura = d.offsetHeight;
     const ancho = d.offsetWidth;
     const espacioAbajo = vh - rect.bottom - margen;
@@ -158,9 +168,9 @@ export function crearIndicadorContexto(): IndicadorContexto {
     detalleCtx = null;
     document.removeEventListener('click', alClicFueraDetalle, true);
     document.removeEventListener('keydown', alTeclaDetalle, true);
-    window.removeEventListener('resize', alCambioLayoutDetalle);
-    window.removeEventListener('scroll', alCambioLayoutDetalle, true);
-    window.removeEventListener('blur', alCambioLayoutDetalle);
+    finRedimension(alCambioLayoutDetalle);
+    finDesplazar(alCambioLayoutDetalle);
+    finDesenfocar(alCambioLayoutDetalle);
   }
 
   /** Abre el pequeño menú de detalle bajo el círculo (hover/enfoque). */
@@ -169,14 +179,14 @@ export function crearIndicadorContexto(): IndicadorContexto {
     const d = el('div', 'ctx-detalle');
     d.style.visibility = 'hidden';
     construirDetalle(d);
-    document.body.appendChild(d);
+    cuerpo().appendChild(d);
     posicionarDetalle(d, indicador.getBoundingClientRect());
     detalleCtx = d;
     document.addEventListener('click', alClicFueraDetalle, true);
     document.addEventListener('keydown', alTeclaDetalle, true);
-    window.addEventListener('resize', alCambioLayoutDetalle);
-    window.addEventListener('scroll', alCambioLayoutDetalle, true);
-    window.addEventListener('blur', alCambioLayoutDetalle);
+    alRedimensionar(alCambioLayoutDetalle);
+    alDesplazar(alCambioLayoutDetalle);
+    alDesenfocar(alCambioLayoutDetalle);
     d.style.visibility = '';
   }
 

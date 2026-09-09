@@ -1,6 +1,7 @@
 /* Entorno de ejecución (extraído de main.ts [089A-16 F1b]): detecta
  * dónde corre la UI (Tauri IPC / web HTTP-SSE / sin backend) y aporta
  * constantes puras. Sin dependencias del orquestador. */
+import { leerMemoriaLocal, parametroUrl, protocolo } from '../plataforma/ventana';
 
 export const CLAVE_TEMA_OSCURO = 'temaOscuro';
 
@@ -24,16 +25,17 @@ export interface Entorno {
  * `?token=` aporta el maestro (solo memoria); la sesión viaja en cookie. */
 export function detectarBaseApi(esTauri: boolean): string | null {
   if (esTauri) return null;
-  const q = new URLSearchParams(window.location.search).get('api');
+  const q = parametroUrl('api');
   if (q) return q.replace(/\/$/, '');
   try {
-    const g = window.localStorage.getItem('gh_api');
+    const g = leerMemoriaLocal('gh_api');
     if (g) return g.replace(/\/$/, '');
   } catch {
     /* sin localStorage */
   }
   // UI servida por `glory-harness web`: el backend existe trivialmente.
-  if (window.location.protocol === 'http:' || window.location.protocol === 'https:') return '';
+  const p = protocolo();
+  if (p === 'http:' || p === 'https:') return '';
   return null;
 }
 

@@ -7,6 +7,7 @@ import { montarBarraSuperior, type BarraSuperior } from '../componentes/barraSup
 export interface VistaBarraDeps {
   alternarSidebar: () => void;
   alternarPanelDerecho: () => void;
+  avisar: (texto: string, meta: string, detalle: string) => void;
 }
 
 export function montarVistaBarra(deps: VistaBarraDeps): BarraSuperior {
@@ -19,13 +20,16 @@ export function montarVistaBarra(deps: VistaBarraDeps): BarraSuperior {
     // [089A-3] Atrás/adelante replican la navegación por historial de Synara;
     // lógica pendiente (roadmap): arrancan deshabilitados.
     onAtras() {
-      /* pendiente: historial de la app */
+      /* historial de la app (089A-5, en roadmap) */
     },
     onAdelante() {
-      /* pendiente: historial de la app */
+      /* historial de la app (089A-5, en roadmap) */
     },
     onAlternarPanelDerecho() {
       deps.alternarPanelDerecho();
+    },
+    onErrorVentana(detalle) {
+      deps.avisar('Ventana: arrastre no disponible', 'ventana', detalle);
     },
   });
   barra.setPuedeNavegar(false, false);

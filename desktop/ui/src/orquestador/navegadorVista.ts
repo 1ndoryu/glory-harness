@@ -5,6 +5,7 @@
  * porque ese módulo se crea después (solo se invocan en runtime). */
 
 import { invoke } from '@tauri-apps/api/core';
+import { porId } from '../util/dom';
 import { montarPanelNavegador, type PanelNavegador } from '../componentes/panelNavegador';
 import type { PanelChat } from '../componentes/panelChat';
 
@@ -78,7 +79,7 @@ export function montarNavegadorVista(deps: NavegadorVistaDeps): NavegadorVista {
     // Modo Tauri: calcular la posición del contenedor y abrir la webview child.
     void (async () => {
       try {
-        const contenedor = document.getElementById('navegador-webview-contenedor');
+        const contenedor = porId('navegador-webview-contenedor');
         if (!contenedor) throw new Error('contenedor webview no encontrado');
         const rect = contenedor.getBoundingClientRect();
 

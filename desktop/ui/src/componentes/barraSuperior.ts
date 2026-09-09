@@ -1,4 +1,3 @@
-// ============================================================
 // Barra superior global (089A-3, referencia Synara
 // `apps/web/src/components/SidebarHeaderNavigationControls.tsx` y
 // `AppNavigationButtons.tsx`).
@@ -12,7 +11,6 @@
 // Sin botón de visor: es redundante (decisión del usuario 08-09).
 // Atrás/adelante replican la navegación por historial de Synara; su
 // lógica queda pendiente (roadmap) y arrancan deshabilitados.
-// ============================================================
 
 import '../estilos/barraSuperior.css';
 import { esEntornoTauri } from '../tauri/real';
@@ -29,6 +27,8 @@ export interface BarraSuperiorOpciones {
   onAdelante(): void;
   /** Muestra/oculta el panel derecho. */
   onAlternarPanelDerecho(): void;
+  /** Fallo del arrastre de ventana (llega al toast, nunca a consola). */
+  onErrorVentana?(detalle: string): void;
 }
 
 export interface BarraSuperior {
@@ -70,8 +70,8 @@ export function montarBarraSuperior(opts: BarraSuperiorOpciones): BarraSuperior 
   grupoIzq.appendChild(btnSidebar);
   const btnAtras = botonBarra('flecha-izq', 'atrás', () => opts.onAtras());
   const btnAdelante = botonBarra('flecha-der', 'adelante', () => opts.onAdelante());
-  // Pendiente (roadmap): sin historial aún, deshabilitados como en Synara
-  // cuando no hay a dónde ir (`canGoBack`/`canGoForward`).
+  // Historial (089A-5, en roadmap): sin historial aún, deshabilitados
+  // como en Synara cuando no hay a dónde ir (`canGoBack`/`canGoForward`).
   btnAtras.disabled = true;
   btnAdelante.disabled = true;
   grupoIzq.appendChild(btnAtras);
@@ -96,7 +96,7 @@ export function montarBarraSuperior(opts: BarraSuperiorOpciones): BarraSuperior 
   barra.appendChild(zonaDerecha);
 
   if (esEntornoTauri()) {
-    hacerArrastrable(barra);
+    hacerArrastrable(barra, opts.onErrorVentana);
     grupoDer.appendChild(crearControlesVentana());
   }
 

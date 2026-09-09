@@ -1,4 +1,3 @@
-// ============================================================
 // Simulación local desmontable. Cuando llegue el backend real
 // (Tauri + contrato AgenteEvento vía IPC), esta capa se sustituye
 // por un adaptador que consume eventos; la UI de bloques no cambia.
@@ -7,7 +6,6 @@
 // (streaming), emite dos mensajes, ejecuta file_search (ok) y
 // propone file_patch → tarjeta de aprobación (o ejecución directa
 // en modo autónomo). Enter dispara un turno; el botón detiene.
-// ============================================================
 
 import type { ResultadoHerramienta } from '../dominio/tipos';
 import {

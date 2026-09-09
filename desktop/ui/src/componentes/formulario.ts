@@ -1,12 +1,10 @@
-// ============================================================
 // Renderizador genérico de formularios a partir del esquema
 // centralizado (dominio/opciones.ts). Sin cabecera ni pie:
 // cada control aplica su cambio al vuelo (guardado automático).
-// ============================================================
 
 import type { GrupoOpciones, OpcionControl } from '../dominio/opciones';
 import { icono } from './iconos';
-import { el } from '../util/dom';
+import { el, vaciar } from '../util/dom';
 
 export interface FormularioApi {
   raiz: HTMLElement;
@@ -37,7 +35,7 @@ function controlBooleano(op: OpcionControl, alCambio: (v: boolean) => void): HTM
     op.valor = nuevo;
     caja.title = nuevo ? 'activado' : 'desactivado';
     if (nuevo) caja.appendChild(icono('check'));
-    else caja.innerHTML = '';
+    else vaciar(caja);
     alCambio(nuevo);
   });
   return caja;

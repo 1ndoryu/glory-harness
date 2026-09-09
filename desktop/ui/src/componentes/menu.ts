@@ -1,4 +1,3 @@
-// ============================================================
 // Menú contextual compartido (.menu-ctx). Mecánica ÚNICA para
 // todos los menús de la app (selector de modelo, modo de
 // ejecución, acciones de conversación): ítems monocromo, anclado
@@ -7,10 +6,17 @@
 // crearItemMenu() para cada fila y abrirMenuContextual() para
 // abrir. El menú se ancla a document.body (posición fixed) para
 // no quedar recortado por contenedores con overflow.
-// ============================================================
 
 import { icono } from './iconos';
-import { el } from '../util/dom';
+import { cuerpo, el } from '../util/dom';
+import {
+  alDesenfocar,
+  alRedimensionar,
+  altoVentana,
+  anchoVentana,
+  finDesenfocar,
+  finRedimension,
+} from '../plataforma/ventana';
 
 export interface ItemMenuOpciones {
   texto: string;
@@ -77,11 +83,11 @@ export function abrirMenuContextual(opts: {
   const m = el('div', 'menu-ctx');
   m.style.visibility = 'hidden'; // se mide y posiciona antes de pintar (sin parpadeo)
   opts.construir(m);
-  document.body.appendChild(m);
+  cuerpo().appendChild(m);
 
   const margen = 8;
-  const vw = window.innerWidth;
-  const vh = window.innerHeight;
+  const vw = anchoVentana();
+  const vh = altoVentana();
   const altura = m.offsetHeight;
   const ancho = m.offsetWidth;
 
@@ -104,8 +110,8 @@ export function abrirMenuContextual(opts: {
     m.remove();
     document.removeEventListener('click', alClic, true);
     document.removeEventListener('keydown', alTecla, true);
-    window.removeEventListener('resize', alRedimension);
-    window.removeEventListener('blur', alDesenfocar);
+    finRedimension(alRedimension);
+    finDesenfocar(alPerderFoco);
     if (vivo === manejador) vivo = null;
   };
   const manejador: MenuVivo = { cerrar: quitar };
@@ -121,15 +127,15 @@ export function abrirMenuContextual(opts: {
   function alRedimension(): void {
     quitar();
   }
-  function alDesenfocar(): void {
+  function alPerderFoco(): void {
     quitar();
   }
 
   // capture para cerrar también clics que otros menús dejan pasar
   document.addEventListener('click', alClic, true);
   document.addEventListener('keydown', alTecla, true);
-  window.addEventListener('resize', alRedimension);
-  window.addEventListener('blur', alDesenfocar);
+  alRedimensionar(alRedimension);
+  alDesenfocar(alPerderFoco);
 
   m.style.visibility = '';
 }

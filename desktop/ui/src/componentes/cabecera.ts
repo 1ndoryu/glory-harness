@@ -1,4 +1,3 @@
-// ============================================================
 // Cabecera del chat (título de la conversación activa + acciones).
 // [039A-3 P4] Añade el botón ⋯ (menú de acciones de la conversación,
 // reutilizando menu.ts) y el botón de colapsar/expandir la sidebar
@@ -9,7 +8,6 @@
 // en el panel principal; un panel lateral monta en su lugar el botón ×
 // de cierre (`cerrable: true`). Los ids internos se sustituyen por un
 // prefijo por instancia (`idPrefijo`) para no colisionar entre paneles.
-// ============================================================
 
 import { icono } from './iconos';
 import { el } from '../util/dom';
