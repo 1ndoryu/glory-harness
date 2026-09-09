@@ -12,18 +12,17 @@
 import './estilos/index.css';
 
 import { CONVERSACIONES } from './datos/conversaciones';
-import { historialEjemplo } from './datos/historialEjemplo';
 import { MODELO_INICIAL, PROVEEDORES } from './dominio/catalogoModelos';
 import type { Conversacion, Workspace } from './dominio/tipos';
 
 import { montarVistaModal } from './orquestador/vistaModal';
+import { ejecutarArranque } from './orquestador/arranque';
 import './estilos/modalProyecto.css';
 import { montarPanelMeta } from './componentes/panelMeta';
 import type { PanelChat } from './componentes/panelChat';
 import { montarBarraSuperior } from './componentes/barraSuperior';
 import { montarNavegadorVista } from './orquestador/navegadorVista';
 import { montarPanelDerechoTodo } from './orquestador/panelDerecho';
-import { renderizarBloque } from './componentes/mensajes';
 
 import { crearSimulacion } from './simulacion/simulacion';
 import { crearAdaptadorReal, esEntornoTauri } from './tauri/real';
@@ -37,7 +36,7 @@ import {
   type LateralesDeps,
 } from './orquestador/laterales';
 import { crearPanel, type CrearPanelDeps } from './orquestador/crearPanel';
-import { montarBarraLateral, CLAVE_ANCHO, CLAVE_COLAPSADA } from './orquestador/barraLateral';
+import { montarBarraLateral } from './orquestador/barraLateral';
 import {
   CLAVE_TEMA_OSCURO,
   RAZONAMIENTO_ETIQUETA,
@@ -45,7 +44,7 @@ import {
   opcionesArranque,
   resolverEntorno,
 } from './orquestador/entorno';
-import { leerSidebar, type PersistenciaDeps } from './orquestador/persistencia';
+import { type PersistenciaDeps } from './orquestador/persistencia';
 
 const raizApp = document.getElementById('app');
 if (!raizApp) throw new Error('falta #app');
@@ -516,57 +515,8 @@ cuerpo.appendChild(paneles);
 app.appendChild(barra.raiz);
 app.appendChild(cuerpo);
 
-// Estado inicial de la sidebar (ancho/colapso persistidos + selección).
-function pintarEstadoInicial(): void {
-  const ancho = leerSidebar(depsPersistencia, CLAVE_ANCHO);
-  if (ancho) {
-    const n = Number(ancho);
-    if (Number.isFinite(n)) cuerpo.style.setProperty('--sidebar-ancho', `${Math.round(n)}px`);
-  }
-  const col = leerSidebar(depsPersistencia, CLAVE_COLAPSADA);
-  barraLateral.fijarAbierta(col !== '1');
-  barraLateral.pintarSidebar();
-}
-pintarEstadoInicial();
-// [089A-2] El toggle derecho arranca en "mostrar" (panel oculto, sin tabs).
-pintarToggleDerecho();
-
-// Recalcular alturas del textarea tras montar al DOM.
-panelesRegistrados.forEach((p) => p.medir());
-panelMeta.medir();
-sincronizarPanelMeta();
-
-// Reloj del turno (panelMeta global): refleja el turno del panel que lanzó.
-window.setInterval(() => {
-  if (!USA_REAL || !turnoGlobal) return;
-  const p = panelActivo();
-  const inicio = p?.getInicioTurno() ?? null;
-  if (inicio === null) return;
-  panelMeta.setTiempo((Date.now() - inicio) / 1000);
-  const u = adaptador.usoUltimoTurno();
-  panelMeta.setTokens(u.tokensPrompt + u.tokensComplecion);
-}, 1000);
-
-// ---------- Historial inicial (mock) ----------
-if (USA_MOCK) {
-  historialEjemplo().forEach((bloque) => {
-    principal.mensajes.appendChild(renderizarBloque(bloque));
-  });
-  // La primera conversación activa queda como conversaId del principal
-  // (para el ⋯ de cabecera y la selección de la sidebar).
-  const candidata = conversaciones.find((c) => !c.archivada);
-  if (candidata) {
-    void principal.cargarConversacion(candidata.id);
-    sidebar.seleccionar(candidata.id);
-  }
-  activarPanel(principal);
-} else if (USA_REAL) {
-  principal.avisoLocal(
-    'Sesión real del núcleo (sin simulación)',
-    MODO_TEXTO,
-    'escribe y envía',
-  );
-}
+/* El arranque (estado inicial, reloj, historial, sesión real) vive en
+ * `orquestador/arranque` y se ejecuta al final del fichero. */
 
 // Añade las capas globales fuera de #app (hermanas del layout).
 document.body.appendChild(toastGlobal.raiz);
@@ -575,58 +525,30 @@ document.body.appendChild(todoVistaModal.modal.raiz);
 // [069A-Proyectos] Modal "Nuevo proyecto" autocontenido (en vistaModal).
 document.body.appendChild(todoVistaModal.modalProyecto.raiz);
 
-// ---------- Arranque real: sesión + lista + última conversación ----------
-if (USA_REAL) {
-  void (async () => {
-    try {
-      await adaptador.asegurarSesion(opcionesArranque());
-      const [provG, modG, modoG, razG, anchoG, colG, ctxG, temaG] = await Promise.all([
-        adaptador.sesion.configLeer('proveedor'),
-        adaptador.sesion.configLeer('modelo'),
-        adaptador.sesion.configLeer('modo'),
-        adaptador.sesion.configLeer('nivelRazonamiento'),
-        adaptador.sesion.configLeer(CLAVE_ANCHO),
-        adaptador.sesion.configLeer(CLAVE_COLAPSADA),
-        adaptador.sesion.configLeer('contexto_max_ventana'),
-        adaptador.sesion.configLeer(CLAVE_TEMA_OSCURO),
-      ]);
-      if (anchoG) {
-        const n = Number(anchoG);
-        if (Number.isFinite(n)) cuerpo.style.setProperty('--sidebar-ancho', `${Math.round(n)}px`);
-      }
-      if (colG) {
-        barraLateral.fijarAbierta(colG !== '1');
-        barraLateral.pintarSidebar();
-      }
-      todoVistaModal.aplicarSesionGuardada({
-        proveedor: provG,
-        modelo: modG,
-        modo: modoG,
-        razonamiento: razG,
-        contextoMaxVentana: ctxG,
-        temaOscuro: temaG,
-      });
-      sincronizarPanelMeta();
-      await resincronizarSidebar();
-      // [069A-7] Recargar con historial → carga la última conversación real
-      // (decisión A). Con 0 conversaciones → el principal queda en BORRADOR
-      // (create-on-write): NO se crea fila, NO se llama al backend.
-      const candidatas = conversaciones.filter((c) => !c.archivada);
-      const primera = candidatas[0];
-      if (primera) {
-        await principal.cargarConversacion(primera.id);
-      } else {
-        principal.ponerBorrador();
-      }
-      activarPanel(principal);
-    } catch (e: unknown) {
-      principal.avisoLocal(
-        `el backend no arrancó: ${String(e)}`,
-        MODO_TEXTO,
-        BASE_API !== null && !USA_TAURI
-          ? 'revisa ?api= y ?token= y recarga'
-          : 'puedes escribir igual (reintenta al enviar)',
-      );
-    }
-  })();
-}
+// ---------- Arranque: estado inicial + sesión + última conversación ----------
+ejecutarArranque({
+  cuerpo,
+  persistencia: depsPersistencia,
+  barraLateral,
+  pintarToggleDerecho,
+  paneles: panelesRegistrados,
+  panelMeta,
+  usaReal: USA_REAL,
+  usaMock: USA_MOCK,
+  usaTauri: USA_TAURI,
+  baseApi: BASE_API,
+  modoTexto: MODO_TEXTO,
+  hayTurno: hayTurnoGlobal,
+  panelActivo,
+  usoUltimoTurno: () => adaptador.usoUltimoTurno(),
+  asegurarSesion: () => adaptador.asegurarSesion(opcionesArranque()),
+  configLeer: (id) => adaptador.sesion.configLeer(id),
+  aplicarSesionGuardada: (sesion) => todoVistaModal.aplicarSesionGuardada(sesion),
+  sincronizarPanelMeta,
+  resincronizarSidebar,
+  claveTemaOscuro: CLAVE_TEMA_OSCURO,
+  getConversaciones: () => conversaciones,
+  principal,
+  seleccionarSidebar: (id) => sidebar.seleccionar(id),
+  activarPanel,
+});
