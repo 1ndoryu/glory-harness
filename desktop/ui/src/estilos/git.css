@@ -31,6 +31,7 @@
     cursor: pointer;
 }
 .git-accion .ic { width: 14px; height: 14px; }
+.git-recargar { border: 0; }
 .git-accion:hover,
 .git-accion:focus-visible { background: color-mix(in srgb, var(--texto) 8%, var(--fondo)); }
 

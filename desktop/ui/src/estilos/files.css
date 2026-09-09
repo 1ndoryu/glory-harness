@@ -24,6 +24,7 @@
 }
 .files-accion .ic,
 .git-accion .ic { width: 14px; height: 14px; }
+.files-recargar { border: 0; }
 .files-accion:hover,
 .files-accion:focus-visible,
 .git-accion:hover,

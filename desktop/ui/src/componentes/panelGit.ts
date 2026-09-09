@@ -43,7 +43,7 @@ export function montarPanelGit(opts: {
   const cabecera = el('div', 'git-cabecera');
   const titulo = el('span', 'git-titulo');
   titulo.textContent = 'Git local';
-  const recargar = el('button', 'git-accion') as HTMLButtonElement;
+  const recargar = el('button', 'git-accion git-recargar') as HTMLButtonElement;
   recargar.type = 'button';
   recargar.title = 'Recargar estado Git';
   recargar.setAttribute('aria-label', 'Recargar estado Git');

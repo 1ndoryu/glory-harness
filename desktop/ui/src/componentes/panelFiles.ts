@@ -42,7 +42,7 @@ export function montarPanelFiles(opts: {
   input.type = 'search';
   input.placeholder = 'buscar archivos…';
   input.setAttribute('aria-label', 'buscar archivos por nombre');
-  const recargar = el('button', 'files-accion') as HTMLButtonElement;
+  const recargar = el('button', 'files-accion files-recargar') as HTMLButtonElement;
   recargar.type = 'button';
   recargar.title = 'Recargar workspace';
   recargar.setAttribute('aria-label', 'Recargar workspace');
