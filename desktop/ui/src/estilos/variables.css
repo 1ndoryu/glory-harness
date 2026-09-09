@@ -27,6 +27,9 @@
     --sp-sm: 10px;
     --sp-md: 16px;
     --sp-lg: 24px;
+    /* [089A-9 fix] Altura única de las cabeceras de panel (chat, files,
+       git): alinea la fila superior cuando el panel derecho está abierto. */
+    --alto-cabecera: 46px;
 }
 
 html { font-size: 13px; }

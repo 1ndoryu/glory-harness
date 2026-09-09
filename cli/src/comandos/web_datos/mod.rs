@@ -7,6 +7,8 @@
 mod areas;
 mod configuracion;
 mod conversaciones;
+mod files;
+mod git;
 #[cfg(test)]
 mod pruebas;
 
@@ -19,6 +21,8 @@ pub(crate) use conversaciones::{
     cargar_conversacion, crear_conversacion, eliminar_conversacion, listar_conversaciones,
     parchear_conversacion,
 };
+pub(crate) use files::{files_buscar, files_info, files_leer, files_listar};
+pub(crate) use git::git_estado;
 
 use std::sync::Arc;
 

@@ -524,6 +524,28 @@ pub(crate) fn router(state: Arc<AppState>) -> Router {
             patch(super::web_datos::renombrar_workspace)
                 .delete(super::web_datos::eliminar_workspace),
         )
+        // [089A-10] Files y Git del workspace activo (modo web): GET de solo
+        // lectura sobre la raíz de la sesión; sin watcher (ponytail).
+        .route(
+            "/api/v1/session/{id}/files/info",
+            get(super::web_datos::files_info),
+        )
+        .route(
+            "/api/v1/session/{id}/files/listar",
+            get(super::web_datos::files_listar),
+        )
+        .route(
+            "/api/v1/session/{id}/files/leer",
+            get(super::web_datos::files_leer),
+        )
+        .route(
+            "/api/v1/session/{id}/files/buscar",
+            get(super::web_datos::files_buscar),
+        )
+        .route(
+            "/api/v1/session/{id}/git/estado",
+            get(super::web_datos::git_estado),
+        )
         // [069A-2 F6] Tope de cuerpo por petición (axum trae 2 MiB por
         // defecto; 256 KiB cubre mensaje/config/workspace de sobra).
         .layer(RequestBodyLimitLayer::new(BODY_MAX_BYTES))

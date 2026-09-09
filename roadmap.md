@@ -198,6 +198,20 @@ Orden propuesto (dependencias de abajo arriba):
       historial de la app para atrás/adelante (misma lógica que Synara,
       hoy deshabilitados) y Terminal/Files/Source control como opciones del
       inicio cuando existan esos paneles.
+- [x] **089A-10 — Files y Git en el modo web (08-09, HECHO 08-09)**: el servidor
+      `glory-harness web` no expone endpoints de filesystem/Git (solo Tauri
+      IPC), así que en el navegador Files/Git mostraban "no está disponible en
+      el modo web". Portar la lógica pura de
+      `desktop/src-tauri/src/filesystem.rs` + `git.rs` a endpoints HTTP de
+      `cli` (`web_datos/files.rs` + `web_datos/git.rs`, raíz resuelta desde
+      `comun.workspace`): `GET .../files/info`, `.../files/listar`,
+      `.../files/leer`, `.../files/buscar` y `.../git/estado`; y cablear los 5
+      stubs de `api.ts` (`workspaceInfo/ListarEntrada/LeerArchivo/Buscar/
+      GitEstado`) a esas rutas + habilitar el visor web (`leerArchivo`). Sin
+      watcher (ponytail, igual que 089A-9). Verificación: navegador real sobre
+      `--fixture`. Evidencia: `Agente/completados/tareas-2026-09-08.md`
+      (entrada 089A-10); gate 089A-10 PASS 0/0/0 (14 archivos); 91 tests lib
+      del crate `cli` en verde (incluye `parsea_status_porcelain_nul`).
 - [x] **089A-7 — Dividir `core/src/herramientas/tools_archivo.rs`** (08-09,
       HECHO como parte de 089A-8): `ToolContentSearch` extraída a
       `core/src/herramientas/content_search.rs`; `tools_archivo.rs`

@@ -16,6 +16,10 @@
     display: flex;
     align-items: stretch;
     flex: none;
+    /* [089A-9 fix] Misma altura que .cabecera-chat/.files-cabecera/
+       .git-cabecera (--alto-cabecera): el Visor abre como tab del dock y su
+       barra de subtabs debe quedar alineada con la cabecera del chat. */
+    height: var(--alto-cabecera);
     border-bottom: 1px solid var(--borde);
 }
 

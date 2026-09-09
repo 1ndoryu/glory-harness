@@ -1087,7 +1087,9 @@ let navegadorAbierto = false;
 // Chat lateral, Navegador y Visor conviven como tabs (antes el navegador
 // y el lateral se excluían). El grip del navegador desaparece: el panel
 // derecho trae su grip único (ancho persistido en la clave de siempre).
-const visor = montarPanelVisor({ leerArchivo: USA_TAURI ? adaptador.sesion.filesystem.leer : undefined });
+// [089A-10] En modo real (Tauri o web) el backend puede leer archivos del
+// workspace activo; solo el mock no ofrece lectura (leerArchivo=undefined).
+const visor = montarPanelVisor({ leerArchivo: USA_REAL ? adaptador.sesion.filesystem.leer : undefined });
 const files = montarPanelFiles({
   transporte: adaptador.sesion.filesystem,
   abrirArchivo(ruta) {

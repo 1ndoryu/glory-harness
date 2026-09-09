@@ -17,6 +17,13 @@
     border-bottom: 1px solid var(--borde);
 }
 
+/* [089A-9 fix] Altura fija común: coincide con .cabecera-chat y .git-cabecera
+   (--alto-cabecera) para alinear la fila superior con el dock abierto. */
+.files-cabecera {
+    height: var(--alto-cabecera);
+    padding: 0 var(--sp-sm);
+}
+
 .files-titulo {
     flex: 1;
     font-size: var(--sm);
@@ -26,7 +33,11 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    padding: var(--sp-xs);
+    /* [089A-9 fix] Botón cuadrado de 24px (mismo tamaño que .cab-boton de la
+       cabecera de chat): la cabecera centra el contenido en --alto-cabecera. */
+    width: 24px;
+    height: 24px;
+    padding: 0;
     color: var(--texto);
     background: transparent;
     border: 1px solid var(--borde);

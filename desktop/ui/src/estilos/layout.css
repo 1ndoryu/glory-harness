@@ -276,7 +276,10 @@
 
 .cabecera-chat {
     border-bottom: 1px solid var(--borde);
-    padding: var(--sp-sm) var(--sp-md);
+    /* [089A-9 fix] Altura fija común (--alto-cabecera): igual que Files/Git,
+       para que la fila de cabeceras quede alineada con el dock abierto. */
+    height: var(--alto-cabecera);
+    padding: 0 var(--sp-md);
     display: flex;
     align-items: center;
     /* [039A-3 P6b retoque 6] El gap era --sp-md (16px): demasiada separación

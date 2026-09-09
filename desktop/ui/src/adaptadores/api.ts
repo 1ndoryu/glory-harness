@@ -20,7 +20,7 @@ import {
   type Transporte,
 } from '../tauri/real';
 import type { EstadoGit } from '../componentes/panelGit';
-import type { Workspace } from '../dominio/tipos';
+import type { ListadoWorkspace, ResultadoBusqueda, Workspace } from '../dominio/tipos';
 
 /** Claves que viven en el servidor; el resto cae a localStorage (igual que
  * el mock): la superficie configLeer/Guardar no cambia. */
@@ -386,21 +386,34 @@ export function crearTransporteApi(base: string, hooks: HooksAdaptador = {}): Tr
       );
       return r.eliminada;
     },
-    workspaceInfo: async () => {
-      throw new Error('Files requiere la aplicación de escritorio local');
+    workspaceInfo: async () =>
+      http<{ ruta: string; nombre: string }>(
+        'GET',
+        `/api/v1/session/${sid}/files/info`,
+      ),
+    workspaceListarEntrada: async (ruta, profundidad) => {
+      // [089A-10] El backend limita profundidad a 0..=3; el panel Files usa
+      // profundidad 1 para la raíz (carpetas expandibles) y 0 para el resto.
+      const nivel = profundidad && profundidad > 0 ? `&profundidad=${profundidad}` : '';
+      return http<ListadoWorkspace>(
+        'GET',
+        `/api/v1/session/${sid}/files/listar?ruta=${encodeURIComponent(ruta)}${nivel}`,
+      );
     },
-    workspaceListarEntrada: async () => {
-      throw new Error('Files no está disponible en el modo web');
+    workspaceLeerArchivo: async (ruta) =>
+      http<{ ruta: string; lineas: number; contenido: string }>(
+        'GET',
+        `/api/v1/session/${sid}/files/leer?ruta=${encodeURIComponent(ruta)}`,
+      ),
+    workspaceBuscar: async (consulta, ruta) => {
+      const extra = ruta ? `&ruta=${encodeURIComponent(ruta)}` : '';
+      return http<ResultadoBusqueda>(
+        'GET',
+        `/api/v1/session/${sid}/files/buscar?consulta=${encodeURIComponent(consulta)}${extra}`,
+      );
     },
-    workspaceLeerArchivo: async () => {
-      throw new Error('la lectura local no está disponible en el modo web');
-    },
-    workspaceBuscar: async () => {
-      throw new Error('la búsqueda local no está disponible en el modo web');
-    },
-    workspaceGitEstado: async (): Promise<EstadoGit> => {
-      throw new Error('Git local no está disponible en el modo web');
-    },
+    workspaceGitEstado: async (): Promise<EstadoGit> =>
+      http<EstadoGit>('GET', `/api/v1/session/${sid}/git/estado`),
   };
 }
 
