@@ -4,7 +4,7 @@
 //! `git.exe` (sin commit/push/pull/merge/rebase); el cwd se resuelve en el
 //! backend desde `comun.workspace` y la salida está acotada.
 
-use std::path::Path;
+use std::path::{Component, Path};
 use std::process::Stdio;
 use std::sync::Arc;
 use std::time::Duration;
@@ -23,6 +23,7 @@ use crate::servicio::SesionComun;
 
 const GIT_TIMEOUT: Duration = Duration::from_secs(5);
 const MAX_OUTPUT_BYTES: usize = 1024 * 1024;
+const MAX_UNTRACKED_FILES: usize = 256;
 
 /// [089A-9] Entrada del estado Git (`estado` = 2 primeros chars porcelain).
 #[derive(Debug, Serialize, Clone)]
@@ -39,6 +40,8 @@ pub(crate) struct EstadoGit {
     pub diff: String,
     pub truncado: bool,
     pub mensaje: Option<String>,
+    pub diff_unstaged: Option<String>,
+    pub diff_staged: Option<String>,
 }
 
 struct ResultadoProceso {
@@ -56,7 +59,11 @@ pub(crate) async fn git_estado(
 ) -> Result<Json<EstadoGit>, ApiError> {
     let (_, comun) = sesion_y_comun(&headers, &Method::GET, &state, &id).await?;
     let raiz = raiz_activa(&comun)?;
-    let status = ejecutar_git(&raiz, &["status", "--porcelain=v1", "-z"]).await?;
+    let status = ejecutar_git(
+        &raiz,
+        &["status", "--porcelain=v1", "--untracked-files=all", "-z"],
+    )
+    .await?;
     if status.codigo != Some(0) {
         let mensaje = texto(&status.error);
         if mensaje.contains("not a git repository") || mensaje.contains("no es un repositorio git")
@@ -68,6 +75,8 @@ pub(crate) async fn git_estado(
                 diff: String::new(),
                 truncado: false,
                 mensaje: Some("el workspace no es un repositorio Git".to_string()),
+                diff_unstaged: None,
+                diff_staged: None,
             }));
         }
         return Err(error(
@@ -80,19 +89,95 @@ pub(crate) async fn git_estado(
         ));
     }
 
-    let diff = ejecutar_git(&raiz, &["diff", "--no-ext-diff", "--unified=3"]).await?;
-    if diff.codigo != Some(0) {
-        return Err(error("git_diff_fallo", texto(&diff.error)));
+    let diff_unstaged = ejecutar_git(&raiz, &["diff", "--no-ext-diff", "--unified=3"]).await?;
+    let diff_staged =
+        ejecutar_git(&raiz, &["diff", "--no-ext-diff", "--unified=3", "--cached"]).await?;
+    let presupuesto_untracked = MAX_OUTPUT_BYTES.saturating_sub(diff_unstaged.salida.len());
+    let untracked = archivos_no_rastreados(&raiz, &status.salida, presupuesto_untracked).await?;
+    if diff_unstaged.codigo != Some(0) {
+        return Err(error("git_diff_fallo", texto(&diff_unstaged.error)));
+    }
+    if diff_staged.codigo != Some(0) {
+        return Err(error("git_diff_cached_fallo", texto(&diff_staged.error)));
     }
 
     Ok(Json(EstadoGit {
         aplicable: true,
         raiz: Some(raiz.to_string_lossy().replace('\\', "/")),
         entradas: parsear_status(&status.salida),
-        diff: texto(&diff.salida),
-        truncado: status.truncado || diff.truncado,
+        diff: format!("{}{}", texto(&diff_unstaged.salida), untracked.diff),
+        truncado: status.truncado
+            || diff_unstaged.truncado
+            || diff_staged.truncado
+            || untracked.truncado,
         mensaje: None,
+        diff_unstaged: Some(format!(
+            "{}{}",
+            texto(&diff_unstaged.salida),
+            untracked.diff
+        )),
+        diff_staged: Some(texto(&diff_staged.salida)),
     }))
+}
+
+struct UntrackedDiff {
+    diff: String,
+    truncado: bool,
+}
+
+async fn archivos_no_rastreados(
+    raiz: &Path,
+    status: &[u8],
+    max_bytes: usize,
+) -> Result<UntrackedDiff, ApiError> {
+    let mut diff = String::new();
+    let mut truncado = false;
+    let mut archivos = 0;
+    for registro in status
+        .split(|byte| *byte == 0)
+        .filter(|registro| registro.starts_with(b"?? "))
+    {
+        if archivos >= MAX_UNTRACKED_FILES {
+            truncado = true;
+            break;
+        }
+        let ruta = String::from_utf8_lossy(&registro[3..]).replace('\\', "/");
+        if ruta.ends_with('/') || !ruta_valida(&ruta) {
+            continue;
+        }
+        archivos += 1;
+        let argumentos = [
+            "diff",
+            "--no-ext-diff",
+            "--no-index",
+            "--unified=3",
+            "/dev/null",
+            ruta.as_str(),
+        ];
+        let resultado = ejecutar_git(raiz, &argumentos).await?;
+        if resultado.codigo != Some(1) {
+            return Err(error("git_diff_untracked_fallo", texto(&resultado.error)));
+        }
+        let disponible = max_bytes.saturating_sub(diff.len());
+        if resultado.salida.len() > disponible {
+            diff.push_str(&String::from_utf8_lossy(&resultado.salida[..disponible]));
+            truncado = true;
+            break;
+        }
+        diff.push_str(&texto(&resultado.salida));
+        if resultado.truncado {
+            truncado = true;
+            break;
+        }
+    }
+    Ok(UntrackedDiff { diff, truncado })
+}
+
+fn ruta_valida(ruta: &str) -> bool {
+    !ruta.is_empty()
+        && Path::new(ruta)
+            .components()
+            .all(|componente| matches!(componente, Component::Normal(_)))
 }
 
 fn raiz_activa(comun: &SesionComun) -> Result<std::path::PathBuf, ApiError> {

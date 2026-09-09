@@ -1,6 +1,13 @@
 import '../estilos/git.css';
 import { el } from '../util/dom';
 import { icono } from './iconos';
+import {
+  pintarDiff,
+  separarEntradas,
+  sumarCambios,
+  type ArchivoGit,
+  type GrupoGit,
+} from './gitDiff';
 
 export interface EntradaGit {
   estado: string;
@@ -11,9 +18,12 @@ export interface EstadoGit {
   aplicable: boolean;
   raiz: string | null;
   entradas: EntradaGit[];
+  /** Compatibilidad con el endpoint anterior: diff unstaged combinado. */
   diff: string;
   truncado: boolean;
   mensaje: string | null;
+  diff_unstaged?: string | null;
+  diff_staged?: string | null;
 }
 
 export interface GitTransport {
@@ -40,37 +50,115 @@ export function montarPanelGit(opts: {
   recargar.appendChild(icono('recargar'));
   cabecera.append(titulo, recargar);
 
+  const contenido = el('div', 'git-contenido');
   const lista = el('div', 'git-lista');
   lista.setAttribute('role', 'list');
-  const diff = el('pre', 'git-diff');
-  raiz.append(cabecera, lista, diff);
+  const diff = el('div', 'git-diff');
+  diff.hidden = true;
+  contenido.append(lista, diff);
+  raiz.append(cabecera, contenido);
 
   let secuencia = 0;
+  let seleccion: { grupo: GrupoGit; ruta: string } | null = null;
 
   function pintar(resultado: EstadoGit): void {
     lista.replaceChildren();
-    diff.textContent = resultado.diff;
+    diff.replaceChildren();
+    diff.hidden = true;
+
     if (!resultado.aplicable) {
-      diff.textContent = '';
       const vacio = el('div', 'git-vacio');
       vacio.textContent = resultado.mensaje ?? 'Git no aplicable en este workspace';
       lista.appendChild(vacio);
       return;
     }
-    if (resultado.entradas.length === 0) {
+
+    const datos = separarEntradas(
+      resultado.entradas,
+      resultado.diff_staged ?? '',
+      resultado.diff_unstaged ?? resultado.diff ?? '',
+    );
+    const seleccionAnterior = seleccion;
+    const archivoAnterior = seleccionAnterior
+      ? datos[seleccionAnterior.grupo].find((archivo) => archivo.ruta === seleccionAnterior.ruta)
+      : undefined;
+
+    if (datos.staged.length === 0 && datos.changes.length === 0) {
       const vacio = el('div', 'git-vacio');
       vacio.textContent = 'sin cambios';
       lista.appendChild(vacio);
+      return;
     }
-    for (const entrada of resultado.entradas) {
-      const fila = el('div', 'git-entrada');
+
+    lista.appendChild(crearSeccion('Staged', 'staged', datos.staged));
+    lista.appendChild(crearSeccion('Changes', 'changes', datos.changes));
+
+    if (archivoAnterior && seleccionAnterior) {
+      pintarSeleccion(archivoAnterior, seleccionAnterior.grupo);
+    } else {
+      seleccion = null;
+    }
+  }
+
+  function crearSeccion(titulo: string, grupo: GrupoGit, archivos: ArchivoGit[]): HTMLElement {
+    const seccion = el('section', `git-seccion git-seccion-${grupo}`);
+    const cabeceraSeccion = el('div', 'git-seccion-cabecera');
+    const nombre = el('span', 'git-seccion-titulo');
+    nombre.textContent = titulo;
+    const contador = el('span', 'git-seccion-contador');
+    contador.textContent = String(archivos.length);
+    const estadistica = sumarCambios(archivos);
+    const stat = el('span', 'git-seccion-estadistica');
+    stat.append(
+      crearStat('+', estadistica.adiciones, 'git-adiciones'),
+      crearStat('−', estadistica.eliminaciones, 'git-eliminaciones'),
+    );
+    cabeceraSeccion.append(nombre, contador, stat);
+    seccion.appendChild(cabeceraSeccion);
+
+    if (archivos.length === 0) {
+      const vacio = el('div', 'git-seccion-vacia');
+      vacio.textContent = grupo === 'staged' ? 'sin cambios preparados' : 'sin cambios';
+      seccion.appendChild(vacio);
+      return seccion;
+    }
+
+    const filas = el('div', 'git-seccion-lista');
+    for (const archivo of archivos) {
+      const fila = el('button', 'git-entrada') as HTMLButtonElement;
+      fila.type = 'button';
+      fila.setAttribute('role', 'listitem');
+      fila.dataset.grupo = grupo;
+      fila.dataset.ruta = archivo.ruta;
+      fila.classList.toggle('seleccionada', seleccion?.grupo === grupo && seleccion.ruta === archivo.ruta);
+      fila.title = archivo.ruta;
       const codigo = el('span', 'git-codigo');
-      codigo.textContent = entrada.estado;
+      codigo.textContent = estadoVisible(archivo.estado, grupo);
       const ruta = el('span', 'git-ruta');
-      ruta.textContent = entrada.ruta;
-      fila.append(codigo, ruta);
-      lista.appendChild(fila);
+      ruta.textContent = archivo.ruta;
+      const statArchivo = el('span', 'git-entrada-estadistica');
+      statArchivo.append(
+        crearStat('+', archivo.adiciones, 'git-adiciones'),
+        crearStat('−', archivo.eliminaciones, 'git-eliminaciones'),
+      );
+      fila.append(codigo, ruta, statArchivo);
+      fila.addEventListener('click', () => pintarSeleccion(archivo, grupo));
+      filas.appendChild(fila);
     }
+    seccion.appendChild(filas);
+    return seccion;
+  }
+
+  function pintarSeleccion(archivo: ArchivoGit, grupo: GrupoGit): void {
+    seleccion = { grupo, ruta: archivo.ruta };
+    pintarDiff(diff, archivo);
+    diff.hidden = false;
+    lista.querySelectorAll<HTMLButtonElement>('.git-entrada').forEach((fila) => {
+      fila.classList.toggle(
+        'seleccionada',
+        fila.dataset.grupo === grupo && fila.dataset.ruta === archivo.ruta,
+      );
+    });
   }
 
   async function cargar(): Promise<void> {
@@ -82,11 +170,25 @@ export function montarPanelGit(opts: {
     } catch (error: unknown) {
       if (id !== secuencia) return;
       lista.replaceChildren();
-      diff.textContent = '';
+      diff.replaceChildren();
+      diff.hidden = true;
       opts.onError?.('no se pudo consultar Git', String(error));
     }
   }
 
   recargar.addEventListener('click', () => void cargar());
   return { raiz, recargar: () => void cargar() };
+}
+
+function crearStat(marca: string, cantidad: number, clase: string): HTMLElement {
+  const nodo = el('span', clase);
+  nodo.textContent = `${marca}${cantidad}`;
+  return nodo;
+}
+
+function estadoVisible(estado: string, grupo: GrupoGit): string {
+  const indice = estado[0] ?? ' ';
+  const trabajo = estado[1] ?? ' ';
+  if (estado === '??') return '?';
+  return grupo === 'staged' ? indice : trabajo;
 }

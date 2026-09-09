@@ -138,6 +138,13 @@ Orden propuesto (dependencias de abajo arriba):
       mensaje. El modo web local acepta sesión sin token y limita el bind a
       loopback cuando no hay `GLORY_HARNESS_WEB_TOKEN`. Evidencia en
       `Agente/completados/tareas-2026-09-07.md`.
+- [x] **089A-17 — Git local estilo Synara: staged, changes y diff seleccionado** (09-09):
+      El panel Git separa `Staged` y `Changes`, muestra estadísticas por archivo,
+      mantiene el diff oculto hasta seleccionar una fila y renderiza un único
+      archivo con ruta, hunks y números de línea. Tauri y HTTP entregan
+      `diff_staged`/`diff_unstaged`, incluidos archivos `??` con límite combinado
+      de 1 MiB; la selección usa grupo+ruta. Gate `089A-2` PASS 0E/0W/0I.
+      Evidencia en `Agente/completados/tareas-2026-09-09.md`.
 - [ ] **089A-1 — Controles de ventana propios estilo Paseo** (08-09, en curso):
       Quitar botones nativos (`decorations: false` en `tauri.conf.json`) e
       integrar minimizar/maximizar-restaurar/cerrar propios en la cabecera del
