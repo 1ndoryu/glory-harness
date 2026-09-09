@@ -12,7 +12,9 @@
 .panel-navegador {
     display: flex;
     flex-direction: column;
-    border-left: 1px solid var(--borde);
+    /* El divisor izquierdo lo pinta `.panel-derecho`; duplicarlo aquí crea
+       una línea de 2 px cuando el navegador vive dentro de una tab. */
+    border-left: none;
     background: var(--fondo);
     color: var(--texto);
     font-size: var(--sm);
@@ -153,7 +155,6 @@ body.redimensionando-navegador {
 
 /* Log de acciones del agente */
 .nav-log {
-    border-top: 1px solid var(--borde);
     display: flex;
     flex-direction: column;
     max-height: 180px;
