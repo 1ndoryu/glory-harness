@@ -6,119 +6,38 @@
 // re-render), igual que hacía el boceto.
 // ============================================================
 
-import type {
-  Bloque,
-  DecisionAprobacion,
-  EstadoHerramienta,
-  IconoNombre,
-  ResultadoHerramienta,
-} from '../dominio/tipos';
-import { icono, ponerIcono } from './iconos';
+import type { Bloque } from '../dominio/tipos';
+import { icono } from './iconos';
 import { el } from '../util/dom';
+import {
+  crearAvisoSistema,
+  crearHerramienta,
+  crearRazonamientoCerrado,
+  crearRazonamientoVivo,
+} from './mensajesBloques';
 
-// ---------- Aplicar un resultado al cuadro (.resultado) ----------
-
-/** Escapa texto antes de insertarlo como HTML (contenido de archivo/diff). */
-function escaparHtml(s: string): string {
-  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-}
-
-/** Convierte el resumen y el diff en HTML legible: resumen capitalizado,
- * rótulo con el conteo real y una línea por clase (add/del/ctx) para que el
- * CSS atenúe el contexto y resalte los cambios. */
-export function formatearResultadoHerramienta(resumen: string, diff?: string | null): string {
-  const texto = resumen.trim();
-  const encabezado = texto ? texto[0].toUpperCase() + texto.slice(1) : '';
-  if (!diff?.trim()) {
-    return `<span class="resumen">${escaparHtml(encabezado)}</span>`;
-  }
-
-  let añadidas = 0;
-  let eliminadas = 0;
-  const cuerpo: string[] = [];
-  for (const linea of diff.split('\n')) {
-    if (linea.startsWith('@@')) continue; // cabecera de hunk: sin valor para la UI
-    let clase = 'ctx';
-    let contenido = linea;
-    if (linea.startsWith('+')) {
-      clase = 'add';
-      contenido = linea.slice(1);
-      añadidas += 1;
-    } else if (linea.startsWith('-')) {
-      clase = 'del';
-      contenido = linea.slice(1);
-      eliminadas += 1;
-    } else if (linea.startsWith(' ')) {
-      contenido = linea.slice(1);
-    } else if (linea.trimStart().startsWith('…')) {
-      clase = 'elididas';
-    }
-    cuerpo.push(`<span class="${clase}">${escaparHtml(contenido)}</span>`);
-  }
-
-  if (añadidas + eliminadas === 0) {
-    return `<span class="resumen">${escaparHtml(encabezado)}</span>`;
-  }
-  const conteo = [
-    eliminadas > 0 ? `-${eliminadas}` : '',
-    añadidas > 0 ? `+${añadidas}` : '',
-  ].filter(Boolean).join(' ');
-  return [
-    `<span class="resumen">${escaparHtml(encabezado)}</span>`,
-    `<span class="rotulo-cambios">${conteo}</span>`,
-    cuerpo.join(''),
-  ].join('\n');
-}
-
-// ---------- HTML seguro (sin innerHTML) ----------
-
-/**
- * [089A-16] Inserta el HTML de diffs sin sink innerHTML. Los productores
- * (`formatearResultadoHerramienta`, `diffAuto`, `diffTarjetaHtml`) solo
- * emiten texto escapado + `<span class="…">` + `<br>`; todo lo demás se
- * degrada a texto. Sin atributos salvo `class` saneada, sin eventos.
- */
-export function ponerHtmlSeguro(nodo: HTMLElement, html: string): void {
-  while (nodo.firstChild) nodo.removeChild(nodo.firstChild);
-  const doc = new DOMParser().parseFromString(`<div>${html}</div>`, 'text/html');
-  const raiz = doc.body.firstElementChild;
-  if (!raiz) {
-    nodo.textContent = html;
-    return;
-  }
-  function esClaseSegura(clase: string): boolean {
-    return /^[A-Za-z0-9 _-]+$/.test(clase);
-  }
-  function importar(hijo: ChildNode, destino: Node): void {
-    if (hijo.nodeType === 3) {
-      destino.appendChild(document.createTextNode(hijo.textContent ?? ''));
-      return;
-    }
-    if (hijo.nodeType !== 1) return;
-    const elem = hijo as Element;
-    const etiqueta = elem.tagName.toLowerCase();
-    if (etiqueta === 'br') {
-      destino.appendChild(document.createElement('br'));
-      return;
-    }
-    if (etiqueta === 'span') {
-      const s = document.createElement('span');
-      const clase = elem.getAttribute('class') ?? '';
-      if (clase && esClaseSegura(clase)) s.className = clase;
-      for (const nieto of Array.from(elem.childNodes)) importar(nieto, s);
-      destino.appendChild(s);
-      return;
-    }
-    // Fail-closed: cualquier otra etiqueta se degrada a su texto.
-    destino.appendChild(document.createTextNode(elem.textContent ?? ''));
-  }
-  for (const hijo of Array.from(raiz.childNodes)) importar(hijo, nodo);
-}
-
-function aplicarResultado(nodo: HTMLElement, r: ResultadoHerramienta): void {
-  if (r.tipo === 'html') ponerHtmlSeguro(nodo, r.html);
-  else nodo.textContent = r.texto;
-}
+// Re-exports de compatibilidad: los bloques viven en `mensajesBloques` y
+// las utilidades en `mensajesUtil`; se re-exportan para no romper
+// `simulacion`, `panelChat` ni `tauri/real`.
+export {
+  crearAvisoSistema,
+  crearHerramienta,
+  crearHerramientaViva,
+  crearRazonamientoCerrado,
+  crearRazonamientoVivo,
+  crearTarjetaAprobacion,
+} from './mensajesBloques';
+export type {
+  AccionAviso,
+  HerramientaViva,
+  RazonamientoVivo,
+  TarjetaAprobacionViva,
+} from './mensajesBloques';
+export {
+  aplicarResultado,
+  formatearResultadoHerramienta,
+  ponerHtmlSeguro,
+} from './mensajesUtil';
 
 // ---------- Mensajes ----------
 
@@ -175,240 +94,6 @@ export function crearMensajeAsistenteVivo(textoInicial: string): AsistenteVivo {
   nodo.appendChild(cursor);
   raiz.appendChild(nodo);
   return { raiz, nodo, cursor };
-}
-
-// ---------- Razonamiento ----------
-
-export interface RazonamientoVivo {
-  raiz: HTMLElement;
-  nodoResultado: HTMLElement;
-  nodoMeta: HTMLElement;
-  /** Quita el spinner y fija el meta final (p. ej. '1.4 s'). */
-  terminar(meta: string): void;
-}
-
-function baseRazonamiento(abierto: boolean): RazonamientoVivo {
-  const raiz = el('details', 'razonamiento');
-  if (abierto) raiz.open = true;
-  const sum = el('summary');
-  sum.appendChild(icono('cerebro'));
-  const texto = el('span', 'texto');
-  texto.textContent = 'Razonando';
-  sum.appendChild(texto);
-  const nodoMeta = el('span', 'meta');
-  sum.appendChild(nodoMeta);
-  const nodoResultado = el('div', 'resultado');
-  raiz.appendChild(sum);
-  raiz.appendChild(nodoResultado);
-  return {
-    raiz,
-    nodoResultado,
-    nodoMeta,
-    terminar(meta: string) {
-      nodoMeta.textContent = meta;
-    },
-  };
-}
-
-/** Razonamiento cerrado del historial (meta fijo, p. ej. '1.6 s'). */
-export function crearRazonamientoCerrado(texto: string, meta: string): HTMLElement {
-  const r = baseRazonamiento(false);
-  r.nodoResultado.textContent = texto;
-  r.nodoMeta.textContent = meta;
-  return r.raiz;
-}
-
-/** Razonamiento vivo: abierto con spinner mientras el texto fluye. */
-export function crearRazonamientoVivo(): RazonamientoVivo {
-  const r = baseRazonamiento(true);
-  ponerIcono(r.nodoMeta, 'spin', true, 'ic-spin');
-  return r;
-}
-
-// ---------- Herramienta ----------
-
-export interface HerramientaViva {
-  raiz: HTMLElement;
-  nodoMeta: HTMLElement;
-  nodoResultado: HTMLElement;
-  ejecutando(): void;
-  completada(meta: string, resultado: ResultadoHerramienta): void;
-  errored(meta: string, resultado: ResultadoHerramienta): void;
-}
-
-function baseHerramienta(iconoNombre: IconoNombre, titulo: string): HerramientaViva {
-  const raiz = el('details', 'herramienta');
-  const sum = el('summary');
-  sum.appendChild(icono(iconoNombre));
-  const texto = el('span', 'texto');
-  texto.textContent = titulo;
-  sum.appendChild(texto);
-  const nodoMeta = el('span', 'meta');
-  sum.appendChild(nodoMeta);
-  const nodoResultado = el('div', 'resultado');
-  raiz.appendChild(sum);
-  raiz.appendChild(nodoResultado);
-
-  function limpiarMeta(): void {
-    raiz.classList.remove('ejecutando', 'error');
-  }
-
-  return {
-    raiz,
-    nodoMeta,
-    nodoResultado,
-    ejecutando() {
-      raiz.classList.add('ejecutando');
-      ponerIcono(nodoMeta, 'spin', true, 'ic-spin');
-    },
-    completada(meta: string, resultado: ResultadoHerramienta) {
-      limpiarMeta();
-      nodoMeta.textContent = meta;
-      aplicarResultado(nodoResultado, resultado);
-    },
-    errored(_meta: string, resultado: ResultadoHerramienta) {
-      limpiarMeta();
-      // el error se distingue por su icono de fallo en el meta
-      ponerIcono(nodoMeta, 'x-circulo', true);
-      aplicarResultado(nodoResultado, resultado);
-    },
-  };
-}
-
-/** Render estático según el estado (historial). */
-export function crearHerramienta(opts: {
-  icono: IconoNombre;
-  titulo: string;
-  estado: EstadoHerramienta;
-}): HTMLElement {
-  const h = baseHerramienta(opts.icono, opts.titulo);
-  const e = opts.estado;
-  if (e.estado === 'ejecutando') h.ejecutando();
-  else if (e.estado === 'completada') h.completada(e.meta, e.resultado);
-  else h.errored(e.meta, e.resultado);
-  return h.raiz;
-}
-
-/** Herramienta mutable para la simulación (ejecutando → completada). */
-export function crearHerramientaViva(iconoNombre: IconoNombre, titulo: string): HerramientaViva {
-  return baseHerramienta(iconoNombre, titulo);
-}
-
-// ---------- Aviso de sistema ----------
-
-/**
- * Opción de acción de un aviso ([039A-3 P3]): botón en la fila del aviso
- * (p. ej. "restaurar archivos") que dispara `onClick` y cierra el aviso
- * (el resultado de la acción se muestra en un aviso nuevo, no aquí).
- */
-export interface AccionAviso {
-  texto: string;
-  onClick: () => void;
-}
-
-export function crearAvisoSistema(texto: string, meta: string, detalle: string, accion?: AccionAviso): HTMLElement {
-  const raiz = el('details', 'aviso-sistema');
-  const sum = el('summary');
-  sum.appendChild(icono('terminal', true));
-  const t = el('span', 'texto');
-  t.textContent = texto;
-  sum.appendChild(t);
-  if (accion) {
-    const b = el('button', 'aviso-accion') as HTMLButtonElement;
-    b.type = 'button';
-    b.textContent = accion.texto;
-    b.addEventListener('click', (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      accion.onClick();
-    });
-    sum.appendChild(b);
-  }
-  const m = el('span', 'meta');
-  m.textContent = meta;
-  sum.appendChild(m);
-  const det = el('div', 'resultado');
-  det.textContent = detalle;
-  raiz.appendChild(sum);
-  raiz.appendChild(det);
-  return raiz;
-}
-
-// ---------- Tarjeta de aprobación ----------
-
-export interface TarjetaAprobacionViva {
-  raiz: HTMLElement;
-  nodoEstado: HTMLElement;
-  nodoArgs: HTMLElement;
-  /** Texto del estado (p. ej. 'aprobada · ejecutando…'). */
-  ponerEstado(texto: string): void;
-  /** HTML de args (diff con .del/.add). */
-  ponerArgsHtml(html: string): void;
-  quitarAcciones(): void;
-  marcarDenegada(): void;
-}
-
-/** Construye la tarjeta y enruta los 3 botones a onDecidir. */
-export function crearTarjetaAprobacion(opts: {
-  titulo: string;
-  argsTexto: string;
-  onDecidir: (decision: DecisionAprobacion, tarjeta: TarjetaAprobacionViva) => void;
-}): TarjetaAprobacionViva {
-  const raiz = el('div', 'aprobacion');
-
-  const cab = el('div', 'cab');
-  cab.appendChild(icono('lapiz', true));
-  const nombre = el('span', 'nombre');
-  nombre.textContent = opts.titulo;
-  cab.appendChild(nombre);
-  const estado = el('span', 'estado');
-  estado.textContent = 'requiere aprobación · política ask';
-  cab.appendChild(estado);
-
-  const args = el('div', 'args');
-  args.textContent = opts.argsTexto;
-
-  const acciones = el('div', 'acciones');
-  const bAprobar = el('button', 'btn primario');
-  bAprobar.type = 'button';
-  bAprobar.textContent = 'Aprobar';
-  const bPermitir = el('button', 'btn');
-  bPermitir.type = 'button';
-  bPermitir.textContent = 'Permitir siempre';
-  const bDenegar = el('button', 'btn');
-  bDenegar.type = 'button';
-  bDenegar.textContent = 'Denegar';
-  acciones.appendChild(bAprobar);
-  acciones.appendChild(bPermitir);
-  acciones.appendChild(bDenegar);
-
-  raiz.appendChild(cab);
-  raiz.appendChild(args);
-  raiz.appendChild(acciones);
-
-  const tarjeta: TarjetaAprobacionViva = {
-    raiz,
-    nodoEstado: estado,
-    nodoArgs: args,
-    ponerEstado(texto: string) {
-      estado.textContent = texto;
-    },
-    ponerArgsHtml(html: string) {
-      ponerHtmlSeguro(args, html);
-    },
-    quitarAcciones() {
-      acciones.remove();
-    },
-    marcarDenegada() {
-      raiz.classList.add('denegada');
-    },
-  };
-
-  bAprobar.onclick = () => opts.onDecidir('aprobar', tarjeta);
-  bPermitir.onclick = () => opts.onDecidir('permitir', tarjeta);
-  bDenegar.onclick = () => opts.onDecidir('denegar', tarjeta);
-
-  return tarjeta;
 }
 
 // ---------- Render estático por tipo (historial) ----------
