@@ -14,11 +14,9 @@ import './estilos/index.css';
 import { CONVERSACIONES } from './datos/conversaciones';
 import { historialEjemplo } from './datos/historialEjemplo';
 import { MODELO_INICIAL, PROVEEDORES } from './dominio/catalogoModelos';
-import type { Conversacion, ModeloSeleccionado, Workspace } from './dominio/tipos';
+import type { Conversacion, Workspace } from './dominio/tipos';
 
-import type { ModoEjecucion } from './componentes/entrada';
-import { montarModalConfiguracion } from './componentes/modal';
-import { montarModalProyecto } from './componentes/modalProyecto';
+import { montarVistaModal } from './orquestador/vistaModal';
 import './estilos/modalProyecto.css';
 import { montarPanelMeta } from './componentes/panelMeta';
 import type { PanelChat } from './componentes/panelChat';
@@ -28,7 +26,6 @@ import { montarPanelDerechoTodo } from './orquestador/panelDerecho';
 import { renderizarBloque } from './componentes/mensajes';
 
 import { crearSimulacion } from './simulacion/simulacion';
-import { invoke } from '@tauri-apps/api/core';
 import { crearAdaptadorReal, esEntornoTauri } from './tauri/real';
 import { crearAdaptadorApi } from './adaptadores/api';
 import type { HooksAdaptador, InfoSesion, UsoTurno } from './tauri/real';
@@ -86,9 +83,8 @@ const barra = montarBarraSuperior({
 barra.setPuedeNavegar(false, false);
 
 // ---------- Estado compartido M1 (runtime único) ----------
-let modeloActual: ModeloSeleccionado = MODELO_INICIAL;
-let modoActual: ModoEjecucion = 'predeterminado';
-let razonamientoActual = 'medium';
+/* El estado vista (modelo/modo/razonamiento) vive en `orquestador/vistaModal`
+ * (`todoVistaModal.estado`, creado más abajo); aquí solo quedan flags. */
 // Flag global: algún panel tiene turno en curso (M1: solo uno a la vez).
 let turnoGlobal = false;
 // Panel que envió el último mensaje (para el play/reanudar del panelMeta).
@@ -155,7 +151,7 @@ const hooksAdaptador: HooksAdaptador = {
   onSesion(info: InfoSesion) {
     sincronizarModeloDesdeSesion(info);
     const ws = info.workspace;
-    if (ws && ws !== '<desconocido>') modal.asignarValor('workspace', ws);
+    if (ws && ws !== '<desconocido>') todoVistaModal.modal.asignarValor('workspace', ws);
     // [069A-Proyectos] Tras cambiar de workspace (proyecto), refrescar
     // la lista de proyectos + conversaciones. No esperar si falla.
     if (USA_REAL) {
@@ -264,10 +260,11 @@ function sincronizarModeloDesdeSesion(info: InfoSesion): void {
   if (corte < 0) return;
   const proveedor = info.modelo.slice(0, corte);
   const modelo = info.modelo.slice(corte + 1);
-  if (proveedor === modeloActual.proveedor && modelo === modeloActual.modelo) return;
-  modeloActual = { proveedor, modelo, nombre: modelo };
-  panelesRegistrados.forEach((p) => p.setModelo(modeloActual));
-  modal.setModelo(modeloActual);
+  const estadoVista = todoVistaModal.estado;
+  if (proveedor === estadoVista.modelo.proveedor && modelo === estadoVista.modelo.modelo) return;
+  estadoVista.modelo = { proveedor, modelo, nombre: modelo };
+  panelesRegistrados.forEach((p) => p.setModelo(estadoVista.modelo));
+  todoVistaModal.modal.setModelo(estadoVista.modelo);
 }
 
 async function resincronizarSidebar(): Promise<void> {
@@ -341,8 +338,8 @@ const barraLateral = montarBarraLateral({
   avisar: avisoGlobal,
   resincronizarSidebar,
   abrirEnLateral: (id) => abrirEnLateral(depsLaterales, id),
-  abrirConfig: () => modal.abrir(),
-  abrirModalProyecto: () => modalProyecto.abrir(),
+  abrirConfig: () => todoVistaModal.modal.abrir(),
+  abrirModalProyecto: () => todoVistaModal.modalProyecto.abrir(),
   alternarNavegador: () => {
     if (todoNavegador.estaAbierto()) todoNavegador.cerrarNavegador();
     else todoNavegador.abrirNavegador();
@@ -361,50 +358,39 @@ function sincronizarPanelMeta(): void {
   // oculto fuera de `meta` evita sugerir que un turno autónomo la ejecutará;
   // el backend también la ignora fuera de ese modo como segunda barrera.
   const hayConversacion = panelesRegistrados.some((p) => p.conversaId !== null);
-  panelMeta.mostrar(modoActual === 'meta' && hayConversacion);
+  panelMeta.mostrar(todoVistaModal.estado.modo === 'meta' && hayConversacion);
 }
 
-// ---------- Modal ----------
-const modal = montarModalConfiguracion({
-  modelo: modeloActual,
+// ---------- Modal (config + nuevo proyecto + estado vista) ----------
+/* Vive en `orquestador/vistaModal`. Se crea aquí (antes de la fábrica de
+ * paneles) porque `depsCrearPanel` comparte su `estado`; los usos previos
+ * (`sincronizarModeloDesdeSesion`, `onSesion`, sidebar) son cierres de
+ * runtime, fuera de la TDZ. */
+const todoVistaModal = montarVistaModal({
+  modeloInicial: MODELO_INICIAL,
+  modoInicial: 'predeterminado',
+  razonamientoInicial: 'medium',
   proveedores: PROVEEDORES,
-  modo: modoActual,
-  razonamiento: razonamientoActual,
-  onCambio(id, valor) {
-    if (id === 'modo') {
-      modoActual = valor as ModoEjecucion;
-      panelesRegistrados.forEach((p) => p.setModo(modoActual));
-      sincronizarPanelMeta();
-    } else if (id === 'nivelRazonamiento') {
-      razonamientoActual = String(valor);
-      panelesRegistrados.forEach((p) => p.setRazonamiento(razonamientoActual));
-    } else if (id === 'contexto_max_ventana') {
-      // [039A-3 P6] La ventana se persiste vía configGuardar (abajo); el
-      // backend la consumirá al construir la sesión (inyección de
-      // `contexto.max_ventana`, pendiente de P6 backend). No hay estado local
-      // que actualizar: la fuente para el indicador es el ContextoDetalle.
-    } else if (id === CLAVE_TEMA_OSCURO) {
-      aplicarTemaOscuro(valor === true || valor === 'true');
-    }
-    if (
-      USA_REAL &&
-      (id === 'modo' || id === 'nivelRazonamiento' || id === 'contexto_max_ventana' || id === CLAVE_TEMA_OSCURO)
-    ) {
-      void adaptador.sesion
-        .configGuardar(id, valor === true ? '1' : String(valor))
-        .catch((e: unknown) => avisoGlobal(`no se pudo guardar ${id}: ${String(e)}`, '', ''));
-    }
+  claveTemaOscuro: CLAVE_TEMA_OSCURO,
+  etiquetasRazonamiento: RAZONAMIENTO_ETIQUETA,
+  paneles: panelesRegistrados,
+  usaReal: USA_REAL,
+  usaTauri: USA_TAURI,
+  sincronizarPanelMeta,
+  aplicarTemaOscuro,
+  configGuardar: (id, valor) => adaptador.sesion.configGuardar(id, valor),
+  configGuardarModelo: async (nuevo) => {
+    await adaptador.sesion.configGuardar('proveedor', nuevo.proveedor);
+    await adaptador.sesion.configGuardar('modelo', nuevo.modelo);
   },
-  onModeloCambiado(nuevo) {
-    modeloActual = nuevo;
-    panelesRegistrados.forEach((p) => p.setModelo(nuevo));
-    if (USA_REAL) {
-      void adaptador.sesion
-        .configGuardar('proveedor', nuevo.proveedor)
-        .then(() => adaptador.sesion.configGuardar('modelo', nuevo.modelo))
-        .catch((e: unknown) => avisoGlobal(`no se pudo guardar el modelo: ${String(e)}`, '', ''));
-    }
+  guardarProyecto: async (nombre, ruta) => {
+    if (!USA_REAL) return;
+    await adaptador.sesion.workspaces.guardarProyecto(nombre, ruta);
   },
+  hayTurno: hayTurnoGlobal,
+  avisar: avisoGlobal,
+  ponerBorradorPrincipal: () => principal.ponerBorrador(),
+  activarPrincipal: () => activarPanel(principal),
 });
 
 /* Deps de la fábrica de paneles. `abrirAcciones` cierra sobre `depsLaterales`
@@ -418,20 +404,20 @@ const depsCrearPanel: CrearPanelDeps = {
   usaMock: USA_MOCK,
   panelMeta,
   sidebar,
-  modal,
+  modal: todoVistaModal.modal,
   proveedores: PROVEEDORES,
   getConversaciones: () => conversaciones,
-  getModelo: () => modeloActual,
+  getModelo: () => todoVistaModal.estado.modelo,
   setModelo: (m) => {
-    modeloActual = m;
+    todoVistaModal.estado.modelo = m;
   },
-  getModo: () => modoActual,
+  getModo: () => todoVistaModal.estado.modo,
   setModo: (m) => {
-    modoActual = m;
+    todoVistaModal.estado.modo = m;
   },
-  getRazonamiento: () => razonamientoActual,
+  getRazonamiento: () => todoVistaModal.estado.razonamiento,
   setRazonamiento: (r) => {
-    razonamientoActual = r;
+    todoVistaModal.estado.razonamiento = r;
   },
   getProyectos: () => proyectos,
   getProyectoActivoId: () => proyectoActivo?.id ?? null,
@@ -584,30 +570,10 @@ if (USA_MOCK) {
 
 // Añade las capas globales fuera de #app (hermanas del layout).
 document.body.appendChild(toastGlobal.raiz);
-document.body.appendChild(modal.raiz);
+document.body.appendChild(todoVistaModal.modal.raiz);
 
-// [069A-Proyectos] Modal "Nuevo proyecto" autocontenido.
-const modalProyecto = montarModalProyecto({
-  invoke: USA_TAURI ? invoke : undefined,
-  onGuardar(nombre, ruta) {
-    if (!USA_REAL) return;
-    void (async () => {
-      try {
-        if (turnoGlobal) {
-          avisoGlobal('hay un turno en curso', '', 'espera a que termine para crear un proyecto');
-          return;
-        }
-        await adaptador.sesion.workspaces.guardarProyecto(nombre, ruta);
-        // onSesion / refrescarProyectos refrescarán sidebar + lista.
-        principal.ponerBorrador();
-        activarPanel(principal);
-      } catch (e: unknown) {
-        avisoGlobal(`no se pudo crear el proyecto: ${String(e)}`, '', '');
-      }
-    })();
-  },
-});
-document.body.appendChild(modalProyecto.raiz);
+// [069A-Proyectos] Modal "Nuevo proyecto" autocontenido (en vistaModal).
+document.body.appendChild(todoVistaModal.modalProyecto.raiz);
 
 // ---------- Arranque real: sesión + lista + última conversación ----------
 if (USA_REAL) {
@@ -632,37 +598,14 @@ if (USA_REAL) {
         barraLateral.fijarAbierta(colG !== '1');
         barraLateral.pintarSidebar();
       }
-      if (modG) {
-        modeloActual = {
-          proveedor: provG ?? modeloActual.proveedor,
-          modelo: modG,
-          nombre: modG,
-        };
-        panelesRegistrados.forEach((p) => p.setModelo(modeloActual));
-        modal.setModelo(modeloActual);
-      }
-      if (modoG === 'predeterminado' || modoG === 'meta' || modoG === 'autonomo') {
-        modoActual = modoG;
-        panelesRegistrados.forEach((p) => p.setModo(modoActual));
-        modal.asignarValor('modo', modoActual);
-        sincronizarPanelMeta();
-      }
-      if (razG && RAZONAMIENTO_ETIQUETA[razG]) {
-        razonamientoActual = razG;
-        panelesRegistrados.forEach((p) => p.setRazonamiento(razG));
-        modal.asignarValor('nivelRazonamiento', razG);
-      }
-      // [039A-3 P6] Restaura la ventana de contexto persistida en el modal
-      // (el backend la lee de config al construir la sesión; aquí solo se
-      // refleja el valor guardado en el control del panel Contexto).
-      if (ctxG && Number(ctxG) > 0) {
-        modal.asignarValor('contexto_max_ventana', ctxG);
-      }
-      if (temaG !== null) {
-        const activo = temaG === '1' || temaG === 'true';
-        aplicarTemaOscuro(activo);
-        modal.asignarValor(CLAVE_TEMA_OSCURO, activo);
-      }
+      todoVistaModal.aplicarSesionGuardada({
+        proveedor: provG,
+        modelo: modG,
+        modo: modoG,
+        razonamiento: razG,
+        contextoMaxVentana: ctxG,
+        temaOscuro: temaG,
+      });
       sincronizarPanelMeta();
       await resincronizarSidebar();
       // [069A-7] Recargar con historial → carga la última conversación real
