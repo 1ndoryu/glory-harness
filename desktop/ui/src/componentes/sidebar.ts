@@ -10,14 +10,9 @@
 
 import type { Conversacion, Workspace } from '../dominio/tipos';
 import { icono } from './iconos';
-import {
-  abrirMenuContextual,
-  cerrarMenuActual,
-  crearItemMenu,
-  crearSeparadorMenu,
-} from './menu';
+import { cerrarMenuActual } from './menu';
 import { el } from '../util/dom';
-import { copiarAlPortapapeles } from '../util/portapapeles';
+import { crearCeldaConv, empezarRenombrarConv, type CeldaConvDeps } from './sidebarCeldas';
 
 export interface Sidebar {
   raiz: HTMLElement;
@@ -149,6 +144,20 @@ export function montarSidebar(opts: SidebarOpciones): Sidebar {
 
   const celdas = new Map<string, HTMLDivElement>();
   let activaId: string | null = null;
+  // Las celdas viven en `sidebarCeldas`; las acciones que mutan estado local
+  // (`seleccionar`, `alternarArchivado`, `eliminar`) se inyectan por deps
+  // (declaraciones function = hoisted, seguras aquí).
+  const depsCeldas: CeldaConvDeps = {
+    onSeleccionar: opts.onSeleccionar,
+    onRenombrar: opts.onRenombrar,
+    onArchivar: opts.onArchivar,
+    onEliminar: opts.onEliminar,
+    puedeAbrirLateral: opts.puedeAbrirLateral,
+    onAbrirEnLateral: opts.onAbrirEnLateral,
+    seleccionar,
+    alternarArchivado,
+    eliminar,
+  };
   // `conversaciones` es una copia local mutable que la sidebar reordena
   // (activar/archivar/eliminar); el llamador recibe los cambios por callbacks.
 
@@ -161,33 +170,7 @@ export function montarSidebar(opts: SidebarOpciones): Sidebar {
 
   /** Convierte el título en un input inline para renombrar. */
   function empezarRenombrar(conv: Conversacion, celda: HTMLDivElement): void {
-    cerrarMenuActual();
-    const t = celda.querySelector<HTMLElement>('.t');
-    if (!t) return;
-    const input = el('input') as HTMLInputElement;
-    input.type = 'text';
-    input.className = 't renombrar';
-    input.value = conv.titulo;
-    celda.replaceChild(input, t);
-
-    const fin = (guardar: boolean) => {
-      const nuevo = input.value.trim();
-      if (guardar && nuevo && nuevo !== conv.titulo) {
-        conv.titulo = nuevo;
-        opts.onRenombrar(conv.id, nuevo);
-      }
-      const t2 = el('div', 't');
-      t2.textContent = conv.titulo;
-      if (input.parentNode === celda) celda.replaceChild(t2, input);
-    };
-    input.addEventListener('keydown', (e) => {
-      e.stopPropagation();
-      if (e.key === 'Enter') fin(true);
-      else if (e.key === 'Escape') fin(false);
-    });
-    input.addEventListener('blur', () => fin(true));
-    input.focus();
-    input.select();
+    empezarRenombrarConv(depsCeldas, conv, celda);
   }
 
   /** [039A-3 P4] Archiva/desarchiva por id (acción compartida: ⋯ de fila y de
@@ -219,104 +202,9 @@ export function montarSidebar(opts: SidebarOpciones): Sidebar {
     if (conv && celda) empezarRenombrar(conv, celda);
   }
 
-  /** Crea una celda .conv con su menú contextual (misma mecánica que el modelo). */
+  /** Crea una celda .conv (vive en `sidebarCeldas`). */
   function crearCelda(conv: Conversacion, dentroDeProyecto = false): HTMLDivElement {
-    const d = el(
-      'div',
-      'conv' + (conv.archivada ? ' archivada' : '') + (dentroDeProyecto ? ' conv-proyecto' : ''),
-    );
-    if (!conv.archivada && conv.seleccionada) d.classList.add('sel');
-    d.dataset.id = conv.id;
-    const t = el('div', 't');
-    t.textContent = conv.titulo;
-    d.appendChild(t);
-
-    // botón "⋯" (visible solo al hover) para descubrir el menú sin clic derecho
-    const btnMas = el('button', 'conv-mas') as HTMLButtonElement;
-    btnMas.type = 'button';
-    btnMas.title = 'acciones de conversación';
-    btnMas.setAttribute('aria-label', 'acciones de conversación');
-    btnMas.appendChild(icono('mas-horizontal', true));
-    d.appendChild(btnMas);
-
-    function abrirMenu(ancla: HTMLElement, e?: MouseEvent): void {
-      // si se está renombrando esta fila, el menú no aplica
-      const rect = ancla.getBoundingClientRect();
-      abrirMenuContextual({
-        rect: e
-          ? new DOMRect(e.clientX, e.clientY, 0, 0)
-          : new DOMRect(rect.left, rect.bottom, rect.width, 0),
-        construir(m) {
-          m.appendChild(
-            crearItemMenu({
-              texto: 'Cambiar nombre',
-              onClick() {
-                empezarRenombrar(conv, d);
-              },
-            }),
-          );
-          m.appendChild(
-            crearItemMenu({
-              texto: conv.archivada ? 'Desarchivar' : 'Archivar',
-              onClick() {
-                alternarArchivado(conv.id);
-              },
-            }),
-          );
-          m.appendChild(
-            crearItemMenu({
-              texto: 'Copiar ID',
-              onClick() {
-                cerrarMenuActual();
-                void copiarAlPortapapeles(conv.id);
-              },
-            }),
-          );
-          // [039A-3 P5] "Abrir en panel lateral" (D4): solo se ofrece si el
-          // orquestador lo permite (<2 chats y ancho suficiente).
-          if (opts.puedeAbrirLateral?.() && opts.onAbrirEnLateral) {
-            m.appendChild(crearSeparadorMenu());
-            m.appendChild(
-              crearItemMenu({
-                texto: 'Abrir en panel lateral',
-                onClick() {
-                  cerrarMenuActual();
-                  opts.onAbrirEnLateral?.(conv.id);
-                },
-              }),
-            );
-          }
-          m.appendChild(crearSeparadorMenu());
-          m.appendChild(
-            crearItemMenu({
-              texto: 'Eliminar',
-              onClick() {
-                eliminar(conv.id);
-              },
-            }),
-          );
-        },
-      });
-    }
-
-    // clic izquierdo = activar conversación (pero no en el botón ⋯)
-    d.addEventListener('click', (e) => {
-      if (e.target === btnMas) return;
-      opts.onSeleccionar(conv.id);
-      seleccionar(conv.id);
-    });
-    // clic derecho sobre la fila = menú en el cursor
-    d.addEventListener('contextmenu', (e) => {
-      e.preventDefault();
-      abrirMenu(d, e);
-    });
-    // botón ⋯ = menú bajo el botón
-    btnMas.addEventListener('click', (e) => {
-      e.stopPropagation();
-      abrirMenu(btnMas);
-    });
-
-    return d;
+    return crearCeldaConv(depsCeldas, conv, dentroDeProyecto);
   }
 
   function añadirGrupoProyecto(proyecto: Workspace, grupo: Conversacion[]): void {
