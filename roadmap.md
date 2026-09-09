@@ -198,6 +198,24 @@ Orden propuesto (dependencias de abajo arriba):
       historial de la app para atrás/adelante (misma lógica que Synara,
       hoy deshabilitados) y Terminal/Files/Source control como opciones del
       inicio cuando existan esos paneles.
+- [x] **089A-13 — Gate cubre frontend TS + Tauri en VarSense** (09-09,
+      HECHO): el gate solo analizaba `.rs` de `core`/`cli` (herencia de fase 0);
+      añadidos `desktop/ui/src/**/*.ts` a `sentinel.config.json` y
+      `desktop/src-tauri/src/**/*.rs` + `desktop/ui/src/**/*.ts` a
+      `varsense.config.json`. Verificado: gate 089A-13 ve el TS (FAIL con
+      14 errores + 116 warnings + 7 info, todo deuda real del frontend).
+      Evidencia: `.quality-reports/check/089A-13/latest.md` (+ `sentinel.json`
+      con ubicaciones).
+- [ ] **089A-14 — Sanear hallazgos TS del gate (deuda revelada por 089A-13)**
+      (09-09, pendiente): 14 errores (`innerHTML` ×10 en
+      `entrada/mensajes/iconos/panelMeta/dom`: riesgo XSS; `catch` vacío ×3 en
+      `panelNavegador.ts:423,491,521`; `main.ts` 1182 ef. triplica el límite
+      300 de componentes) + 116 warnings (62 `barras-decorativas`, 22
+      `window-reference` y 19 `dom-access` fuera de plataforma, 8
+      `limite-lineas`, 3 interfaces grandes, 1 `console`, 1 dir) + 7 info
+      (3 interfaces + 4 `todo-pendiente`). Detalle por fichero en
+      `.quality-reports/check/089A-13/sentinel.json`. OJO: el árbol queda en
+      rojo hasta sanearlo.
 - [x] **089A-12 — Files estilo Synara: árbol + visor integrado** (09-09,
       HECHO): Files es un único pane dividido (árbol a la izquierda y preview
       a la derecha al seleccionar un archivo); se eliminaron `21 entradas`,

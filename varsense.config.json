@@ -2,7 +2,9 @@
   "variableFiles": [],
   "includePatterns": [
     "core/src/**/*.rs",
-    "cli/src/**/*.rs"
+    "cli/src/**/*.rs",
+    "desktop/src-tauri/src/**/*.rs",
+    "desktop/ui/src/**/*.ts"
   ],
   "excludePatterns": [
     "**/node_modules/**",

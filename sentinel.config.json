@@ -28,6 +28,7 @@
       "config": {
         "includePatterns": [
           "**/*.rs",
+          "desktop/ui/src/**/*.ts",
           "Cargo.toml",
           "Cargo.lock"
         ],
