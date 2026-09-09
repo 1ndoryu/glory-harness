@@ -16,13 +16,12 @@ import { historialEjemplo } from './datos/historialEjemplo';
 import { MODELO_INICIAL, PROVEEDORES } from './dominio/catalogoModelos';
 import type { Conversacion, ModeloSeleccionado, Workspace } from './dominio/tipos';
 
-import { montarSidebar } from './componentes/sidebar';
 import type { ModoEjecucion } from './componentes/entrada';
 import { montarModalConfiguracion } from './componentes/modal';
 import { montarModalProyecto } from './componentes/modalProyecto';
 import './estilos/modalProyecto.css';
 import { montarPanelMeta } from './componentes/panelMeta';
-import { montarPanelChat, type PanelChat } from './componentes/panelChat';
+import type { PanelChat } from './componentes/panelChat';
 import { montarBarraSuperior } from './componentes/barraSuperior';
 import { montarPanelNavegador } from './componentes/panelNavegador';
 import { montarPanelDerecho } from './componentes/panelDerecho';
@@ -30,12 +29,6 @@ import { montarPanelFiles } from './componentes/panelFiles';
 import { montarPanelGit } from './componentes/panelGit';
 import { montarToastGlobal, type ToastGlobal } from './componentes/toastGlobal';
 import { renderizarBloque } from './componentes/mensajes';
-import {
-  abrirMenuContextual,
-  cerrarMenuActual,
-  crearItemMenu,
-  crearSeparadorMenu,
-} from './componentes/menu';
 
 import { crearSimulacion } from './simulacion/simulacion';
 import { invoke } from '@tauri-apps/api/core';
@@ -43,7 +36,22 @@ import { crearAdaptadorReal, esEntornoTauri } from './tauri/real';
 import { crearAdaptadorApi } from './adaptadores/api';
 import type { HooksAdaptador, InfoSesion, UsoTurno } from './tauri/real';
 import { el } from './util/dom';
-import { copiarAlPortapapeles } from './util/portapapeles';
+import {
+  abrirAccionesPanel,
+  abrirChatLateralVacio,
+  abrirEnLateral,
+  type LateralesDeps,
+} from './orquestador/laterales';
+import { crearPanel, type CrearPanelDeps } from './orquestador/crearPanel';
+import { montarBarraLateral, CLAVE_ANCHO, CLAVE_COLAPSADA } from './orquestador/barraLateral';
+import {
+  CLAVE_TEMA_OSCURO,
+  RAZONAMIENTO_ETIQUETA,
+  aplicarTemaOscuro,
+  opcionesArranque,
+  resolverEntorno,
+} from './orquestador/entorno';
+import { guardarSidebar, leerSidebar, type PersistenciaDeps } from './orquestador/persistencia';
 
 const raizApp = document.getElementById('app');
 if (!raizApp) throw new Error('falta #app');
@@ -89,40 +97,14 @@ let turnoGlobal = false;
 // Panel que envió el último mensaje (para el play/reanudar del panelMeta).
 let panelUltimoEnvio: PanelChat | null = null;
 
-const RAZONAMIENTO_ETIQUETA: Record<string, string> = {
-  low: 'Bajo',
-  medium: 'Medio',
-  high: 'Alto',
-};
+const ent = resolverEntorno(esEntornoTauri());
+const USA_TAURI = ent.usaTauri;
+const BASE_API = ent.baseApi;
+const USA_REAL = ent.usaReal;
+const USA_MOCK = ent.usaMock;
+const MODO_TEXTO = ent.modoTexto;
 
 const simulacion = crearSimulacion();
-/** [069A-2 F4] Factoría simple: Tauri → IPC; `?api=`/`gh_api`/origen http
- * → adaptador HTTP/SSE; sin backend → mock o maqueta con aviso claro.
- * `?token=` aporta el maestro (solo memoria); la sesión viaja en cookie. */
-function detectarBaseApi(): string | null {
-  const q = new URLSearchParams(window.location.search).get('api');
-  if (q) return q.replace(/\/$/, '');
-  try {
-    const g = window.localStorage.getItem('gh_api');
-    if (g) return g.replace(/\/$/, '');
-  } catch {
-    /* sin localStorage */
-  }
-  // UI servida por `glory-harness web`: el backend existe trivialmente.
-  if (window.location.protocol === 'http:' || window.location.protocol === 'https:') return '';
-  return null;
-}
-const USA_TAURI = esEntornoTauri();
-const BASE_API = USA_TAURI ? null : detectarBaseApi();
-const USA_REAL = USA_TAURI || BASE_API !== null;
-const USA_MOCK = !USA_REAL && import.meta.env.VITE_MOCK === '1';
-const MODO_TEXTO = USA_TAURI ? 'tauri in-process' : BASE_API !== null ? `web (${BASE_API || 'mismo origen'})` : 'sin backend';
-const CLAVE_TEMA_OSCURO = 'temaOscuro';
-
-function aplicarTemaOscuro(activo: boolean): void {
-  if (activo) document.documentElement.dataset.tema = 'oscuro';
-  else delete document.documentElement.dataset.tema;
-}
 
 // Lista de conversaciones (fuente para la sidebar y el ⋯ de cabecera).
 let conversaciones: Conversacion[] = USA_REAL
@@ -328,633 +310,54 @@ async function refrescarProyectos(): Promise<void> {
   }
 }
 
-/** Renombra en la lista local + títulos de paneles + backend. */
-async function renombrarEnLista(id: string, titulo: string): Promise<void> {
-  const conv = conversaciones.find((c) => c.id === id);
-  if (conv) conv.titulo = titulo;
-  panelesRegistrados.forEach((p) => {
-    if (p.conversaId === id) p.ponerTitulo(titulo);
-  });
-  sidebar.sustituir(conversaciones);
-  if (!USA_REAL) return;
-  try {
-    const ok = await adaptador.sesion.renombrar(id, titulo);
-    if (!ok) {
-      avisoGlobal('el backend no renombró (id ajeno o inexistente)', '', '');
-      await resincronizarSidebar();
-    }
-  } catch (e: unknown) {
-    avisoGlobal(`no se pudo renombrar: ${String(e)}`, '', '');
-    await resincronizarSidebar();
-  }
-}
-
-/** ¿Se puede ofrecer "Abrir en lateral"? (multi-chat: hasta 8 laterales en
- * tabs; el ancho ya no limita porque comparten el panel derecho). */
-const MAX_LATERALES = 8;
-function puedeAbrirLateral(): boolean {
-  return panelesRegistrados.filter((p) => p.tipo === 'lateral').length < MAX_LATERALES;
-}
-
-/** Abre/activa un lateral en su propia tab `chat:<id>` (multi-chat). Si la
- * conversación ya está abierta, solo se activa su tab. */
-let contadorLaterales = 0;
-function abrirEnLateral(id: string): void {
-  const tabId = `chat:${id}`;
-  const yaAbierto = panelesRegistrados.find(
-    (p) => p.tipo === 'lateral' && p.raiz.dataset.tabId === tabId,
-  );
-  if (yaAbierto) {
-    asegurarPanelDerecho();
-    panelDerecho.activarTab(tabId);
-    activarPanel(yaAbierto);
-    yaAbierto.enfocarEntrada();
-    return;
-  }
-  if (!puedeAbrirLateral()) {
-    avisoGlobal('demasiados laterales abiertos', '', 'cierra alguna tab del panel derecho');
-    return;
-  }
-  contadorLaterales += 1;
-  const titulo = conversaciones.find((c) => c.id === id)?.titulo ?? 'Chat';
-  const lateral = crearPanel('lateral', `lateral-${contadorLaterales}`, {
-    onCerrar() {
-      cerrarLateral(tabId);
-    },
-  });
-  lateral.raiz.dataset.tabId = tabId;
-  // [089A-2] El lateral vive como tab del panel derecho (convive con
-  // Files, Git, navegador y otros chats). Sin grip propio: el panel
-  // derecho trae su grip único.
-  asegurarPanelDerecho();
-  panelDerecho.abrirTab(tabId, titulo, lateral.raiz, () => cerrarLateral(tabId));
-  // [039A-3 retoque] El textarea del lateral nace con height 0px porque el
-  // `medir()` de montarEntrada corre en el constructor, antes de estar en el
-  // DOM (scrollHeight 0). Al montar el panel ya se puede medir: recalcula la
-  // altura del input (si no, el área de escritura del lateral queda invisible).
-  lateral.medir();
-  // Carga la conversación elegida en el lateral y lo enfoca.
-  void (async () => {
-    await lateral.cargarConversacion(id);
-    activarPanel(lateral);
-  })();
-}
-
-/** Abre un lateral nuevo sin cargar la conversación enfocada. */
-function abrirChatLateralVacio(): void {
-  if (!puedeAbrirLateral()) {
-    avisoGlobal('demasiados laterales abiertos', '', 'cierra alguna tab del panel derecho');
-    return;
-  }
-  contadorLaterales += 1;
-  const tabId = `chat:nuevo-${contadorLaterales}`;
-  const lateral = crearPanel('lateral', `lateral-${contadorLaterales}`, {
-    onCerrar() {
-      cerrarLateral(tabId);
-    },
-  });
-  lateral.raiz.dataset.tabId = tabId;
-  lateral.ponerBorrador();
-  asegurarPanelDerecho();
-  panelDerecho.abrirTab(tabId, 'Nueva conversación', lateral.raiz, () => cerrarLateral(tabId));
-  lateral.medir();
-  activarPanel(lateral);
-  lateral.enfocarEntrada();
-}
-
-/** Cierra un lateral (`tabId`) o todos (el principal permanece). */
-function cerrarLateral(tabId?: string): void {
-  const victimas = panelesRegistrados.filter(
-    (p) => p.tipo === 'lateral' && (!tabId || p.raiz.dataset.tabId === tabId),
-  );
-  if (victimas.length === 0) return;
-  const habiaActivo = victimas.some((p) => p === panelActivo());
-  victimas.forEach((p) => {
-    const idx = panelesRegistrados.indexOf(p);
-    if (idx >= 0) panelesRegistrados.splice(idx, 1);
-    const tid = p.raiz.dataset.tabId;
-    if (tid) panelDerecho.cerrarTab(tid);
-  });
-  // [089A-2] Desmonta sus tabs; si no quedan tabs se oculta el panel derecho
-  // (con su grip). El nodo lo conserva el panel hasta reabrirlo.
-  cerrarPanelDerechoSiVacio();
-  if (habiaActivo) {
-    const principal = panelesRegistrados.find((p) => p.tipo === 'principal');
-    if (principal) {
-      activarPanel(principal);
-      principal.enfocarEntrada();
-    }
-  }
-}
-
-/** Menú ⋯ de la cabecera de un panel (sobre la conversación de ESE panel). */
-function abrirAccionesPanel(panel: PanelChat, rect: DOMRect): void {
-  const id = panel.conversaId;
-  const conv = conversaciones.find((c) => c.id === id);
-  if (!conv) {
-    avisoGlobal('no hay conversación activa', '', 'abre una conversación desde la lista');
-    return;
-  }
-  abrirMenuContextual({
-    rect,
-    construir(m) {
-      m.appendChild(
-        crearItemMenu({
-          texto: 'Cambiar nombre',
-          onClick() {
-            cerrarMenuActual();
-            // Renombrar inline en la cabecera de ESTE panel.
-            panel.empezarRenombrarCabecera(conv.titulo, (nuevo) => {
-              void renombrarEnLista(conv.id, nuevo);
-            });
-          },
-        }),
-      );
-      m.appendChild(
-        crearItemMenu({
-          texto: conv.archivada ? 'Desarchivar' : 'Archivar',
-          onClick() {
-            sidebar.archivarConversacion(conv.id);
-          },
-        }),
-      );
-      m.appendChild(
-        crearItemMenu({
-          texto: 'Copiar ID',
-          onClick() {
-            cerrarMenuActual();
-            void copiarAlPortapapeles(conv.id);
-          },
-        }),
-      );
-      // [039A-3 P5] "Abrir en panel lateral" desde el ⋯ del principal.
-      if (puedeAbrirLateral() && panel.tipo === 'principal') {
-        m.appendChild(crearSeparadorMenu());
-        m.appendChild(
-          crearItemMenu({
-            texto: 'Abrir en panel lateral',
-            onClick() {
-              cerrarMenuActual();
-              abrirEnLateral(conv.id);
-            },
-          }),
-        );
-      }
-      m.appendChild(crearSeparadorMenu());
-      m.appendChild(
-        crearItemMenu({
-          texto: 'Eliminar',
-          onClick() {
-            sidebar.eliminarConversacion(conv.id);
-          },
-        }),
-      );
-    },
-  });
-}
+// Persistencia de preferencias: se resuelve contra el adaptador una vez
+// creado (las llamadas son todas en runtime, tras el montaje).
+const depsPersistencia: PersistenciaDeps = {
+  usaReal: USA_REAL,
+  usaTauri: USA_TAURI,
+  guardarConfig: (clave, valor) => adaptador.sesion.configGuardar(clave, valor),
+  avisar: (texto) => avisoGlobal(texto, '', ''),
+};
 
 // ---------- Sidebar ----------
-const sidebar = montarSidebar({
-  conversaciones,
-  proyectos,
-  proyectoActivo,
-  onSeleccionar(id) {
-    // La sidebar carga la conversación en el panel ENFOCADO.
-    const panel = panelActivo();
-    if (!panel) return;
-    if (USA_MOCK) {
-      panel.ponerTitulo(conversaciones.find((c) => c.id === id)?.titulo ?? 'Sin conversación');
-      void panel.cargarConversacion(id);
-      activarPanel(panel);
-      return;
-    }
-    void (async () => {
-      await panel.cargarConversacion(id);
-      activarPanel(panel);
-    })();
+/* La sidebar vive en `orquestador/barraLateral` (montaje, grip,
+ * auto-ocultado, renombrado). Los cierres sobre modal, modalProyecto,
+ * navegador, principal y laterales son de runtime (eventos de UI). */
+const barraLateral = montarBarraLateral({
+  cuerpo,
+  barra,
+  adaptador,
+  usaReal: USA_REAL,
+  usaMock: USA_MOCK,
+  persistencia: depsPersistencia,
+  conversacionesIniciales: conversaciones,
+  proyectosIniciales: proyectos,
+  proyectoActivoInicial: proyectoActivo,
+  getConversaciones: () => conversaciones,
+  setConversaciones: (c) => {
+    conversaciones = c;
   },
-  onRenombrar(id, titulo) {
-    void renombrarEnLista(id, titulo);
-  },
-  onArchivar(id, archivada) {
-    const conv = conversaciones.find((c) => c.id === id);
-    if (conv) conv.archivada = archivada;
-    if (!USA_REAL) return;
-    void (async () => {
-      try {
-        const ok = await adaptador.sesion.archivar(id, archivada);
-        if (!ok) {
-          avisoGlobal('el backend no archivó (id ajeno o inexistente)', '', '');
-          await resincronizarSidebar();
-        }
-      } catch (e: unknown) {
-        avisoGlobal(`no se pudo archivar: ${String(e)}`, '', '');
-        await resincronizarSidebar();
-      }
-    })();
-  },
-  onEliminar(id) {
-    // Quitar de la lista local y repintar.
-    conversaciones = conversaciones.filter((c) => c.id !== id);
-    sidebar.sustituir(conversaciones);
-    if (!USA_REAL) {
-      // En mock: si algún panel mostraba el id, muéstrale otra o límpialo.
-      const resto = conversaciones.find((c) => !c.archivada);
-      panelesRegistrados.forEach((p) => {
-        if (p.conversaId === id) {
-          if (resto) void p.cargarConversacion(resto.id);
-          else {
-            p.limpiar();
-            p.ponerTitulo('Sin conversación');
-          }
-        }
-      });
-      return;
-    }
-    void (async () => {
-      try {
-        const actual = await adaptador.sesion.eliminar(id, panelActivo()?.tipo);
-        await resincronizarSidebar();
-        // [069A-7] Si algún panel mostraba el id eliminado: si el backend
-        // devolvió una conversación (quedaba otra), se carga; si `null`
-        // (no quedó ninguna), el panel pasa a BORRADOR sin fila fantasma.
-        panelesRegistrados.forEach((p) => {
-          if (p.conversaId === id) {
-            if (actual) void p.cargarConversacion(actual.id);
-            else p.ponerBorrador();
-          }
-        });
-      } catch (e: unknown) {
-        avisoGlobal(`no se pudo eliminar: ${String(e)}`, '', '');
-        await resincronizarSidebar();
-      }
-    })();
-  },
-  onAccionNav(accion) {
-    if (accion === 'nueva') {
-      // [069A-7] "Nueva conversación" = borrador local (sin fila): la fila
-      // se crea al escribir el primer mensaje (create-on-write). En mock se
-      // mantiene la semántica histórica (crea una conversación local).
-      if (USA_REAL) {
-        const panel = panelActivo();
-        if (panel) {
-          panel.ponerBorrador();
-          activarPanel(panel);
-        }
-        return;
-      }
-      void (async () => {
-        const n = conversaciones.length + 1;
-        const nueva: Conversacion = {
-          id: `local-${Date.now()}`,
-          titulo: `Conversación ${n}`,
-        };
-        conversaciones = [nueva, ...conversaciones];
-        sidebar.sustituir(conversaciones);
-        const panel = panelActivo();
-        if (panel) {
-          panel.limpiar();
-          panel.ponerTitulo(nueva.titulo);
-          await panel.cargarConversacion(nueva.id);
-          activarPanel(panel);
-          sidebar.seleccionar(nueva.id);
-        }
-      })();
-      return;
-    }
-    const nombre =
-      accion === 'agente'
-        ? 'Agentes'
-        : accion === 'flujo'
-          ? 'Flujo'
-          : accion === 'complementos'
-            ? 'Complementos'
-            : accion;
-    if (accion === 'navegador') {
-      if (navegadorAbierto) {
-        cerrarNavegador();
-      } else {
-        abrirNavegador();
-      }
-      return;
-    }
-    panelActivo()?.avisoLocal(
-      `${nombre}: próximamente`,
-      'sin backend',
-      `${nombre} no está disponible en esta versión.`,
-    );
-  },
-  puedeAbrirLateral,
-  onAbrirEnLateral(id) {
-    abrirEnLateral(id);
-  },
-  /** [069A-Proyectos] Abre el modal para crear un nuevo proyecto. */
-  onCrearProyecto() {
-    modalProyecto.abrir();
-  },
-  /** [069A-Proyectos] Cambia el proyecto activo por ruta. */
-  onSeleccionarProyecto(ruta: string) {
-    if (!USA_REAL) return;
-    void (async () => {
-      try {
-        // No permitir si hay turno en curso.
-        if (turnoGlobal) {
-          avisoGlobal('hay un turno en curso', '', 'espera a que termine antes de cambiar de proyecto');
-          return;
-        }
-        await adaptador.sesion.workspaces.activarPorRuta(ruta);
-        // onSesion / refrescarProyectos refrescarán sidebar + lista.
-        // El panel principal pasa a borrador (sin conversación del otro proyecto).
-        principal.ponerBorrador();
-        activarPanel(principal);
-      } catch (e: unknown) {
-        avisoGlobal(`no se pudo cambiar de proyecto: ${String(e)}`, '', '');
-      }
-    })();
-  },
+  getTurnoGlobal: () => turnoGlobal,
+  paneles: panelesRegistrados,
+  panelActivo,
+  activarPanel,
+  avisar: avisoGlobal,
+  resincronizarSidebar,
+  abrirEnLateral: (id) => abrirEnLateral(depsLaterales, id),
   abrirConfig: () => modal.abrir(),
+  abrirModalProyecto: () => modalProyecto.abrir(),
+  alternarNavegador: () => {
+    if (navegadorAbierto) cerrarNavegador();
+    else abrirNavegador();
+  },
+  getPrincipal: () => principal,
 });
-
-/** Construcción de un panel. El principal recibe los PROVEEDORES (selector
- * de modelo) y el panelMeta global montado DENTRO de su entrada (único M1).
- * [039A-3 P6b] El lateral también recibe PROVEEDORES (misma entrada completa,
- * con modelo/modo/razonamiento compartidos M1); no tiene panelMeta propio. */
-function crearPanel(
-  tipo: 'principal' | 'lateral',
-  idPrefijo: string,
-  opts: { onCerrar?: () => void } = {},
-): PanelChat {
-  const panel = montarPanelChat({
-    tipo,
-    idPrefijo,
-    proveedores: PROVEEDORES,
-    deps: {
-      adaptador,
-      simulacion,
-      usaReal: USA_REAL,
-      usaMock: USA_MOCK,
-      panelMeta,
-      sidebar,
-      conversaciones: () => conversaciones,
-      getModelo: () => modeloActual,
-      getModo: () => modoActual,
-      getRazonamiento: () => razonamientoActual,
-      getWorkspaces: () => proyectos,
-      getWorkspaceSeleccionadoId: () => proyectoActivo?.id ?? null,
-      prepararWorkspaceSeleccionado: async () => {
-        // No-op: la activación se delega al callback.
-      },
-      onWorkspaceCambiado(id) {
-        // Siempre hay un workspace activo (el agente trabaja en algún
-        // área). Si id es null no se hace nada (fallback al activo actual).
-        if (id === null) return;
-        const ws = proyectos.find((p) => p.id === id);
-        if (!ws) return;
-        if (turnoGlobal) return;
-        void (async () => {
-          try {
-            await adaptador.sesion.workspaces.activarPorRuta(ws.ruta);
-            // onSesion refrescará sidebar + lista.
-            principal.ponerBorrador();
-            activarPanel(principal);
-          } catch (e: unknown) {
-            avisoGlobal(`no se pudo cambiar de proyecto: ${String(e)}`, '', '');
-          }
-        })();
-      },
-      hayTurnoGlobal,
-      notificarTurnoInicio,
-      notificarTurnoFin,
-      registrarUltimoEnvio,
-      resincronizarSidebar,
-      onConversacionCambio(id) {
-        // Al cambiar la conversación del panel ENFOCADO, la sidebar lo marca.
-        // [069A-7] `null` (borrador) → deselecciona la lista.
-        if (panelActivo() === panel) {
-          if (id) sidebar.seleccionar(id);
-          else sidebar.seleccionar('');
-        }
-        // El panel meta no forma parte del borrador inicial: aparece al
-        // escribir el primer mensaje o al cargar una conversación real.
-        sincronizarPanelMeta();
-      },
-    },
-    onAcciones(rect) {
-      // Menú ⋯ de la cabecera de ESTE panel.
-      abrirAccionesPanel(panel, rect);
-    },
-    onCerrar: opts.onCerrar,
-    onToggleSidebar() {
-      // [089A-2] El botón de la cabecera alterna la lista (mostrar/ocultar).
-      alternarSidebar();
-    },
-    // [089A-2] Toggle del panel derecho (solo el principal lo muestra).
-    onTogglePanelDerecho: tipo === 'principal' ? () => alternarPanelDerecho() : undefined,
-    onModeloCambiado(nuevo) {
-      modeloActual = nuevo;
-      // [039A-3 P6b] Propaga a TODOS los paneles (ambos son completos y
-      // comparten el runtime M1): el selector del panel que cambió ya está
-      // actualizado; el resto se sincroniza aquí.
-      panelesRegistrados.forEach((p) => p.setModelo(nuevo));
-      modal.setModelo(nuevo);
-      if (USA_REAL) {
-        void adaptador.sesion
-          .configGuardar('proveedor', nuevo.proveedor)
-          .then(() => adaptador.sesion.configGuardar('modelo', nuevo.modelo))
-          .catch((e: unknown) => avisoGlobal(`no se pudo guardar el modelo: ${String(e)}`, '', ''));
-      }
-    },
-    onModoCambiado(nuevo) {
-      modoActual = nuevo;
-      // [039A-3 P6b] Sincroniza el modo en ambos paneles (M1 compartido).
-      panelesRegistrados.forEach((p) => p.setModo(nuevo));
-      modal.asignarValor('modo', nuevo);
-      if (USA_REAL) {
-        void adaptador.sesion
-          .configGuardar('modo', nuevo)
-          .catch((e: unknown) => avisoGlobal(`no se pudo guardar el modo: ${String(e)}`, '', ''));
-      }
-      sincronizarPanelMeta();
-    },
-    onRazonamientoCambiado(nuevo) {
-      razonamientoActual = nuevo;
-      // [039A-3 P6b] Sincroniza el razonamiento en ambos paneles (M1).
-      panelesRegistrados.forEach((p) => p.setRazonamiento(nuevo));
-      modal.asignarValor('nivelRazonamiento', nuevo);
-      if (USA_REAL) {
-        void adaptador.sesion
-          .configGuardar('nivelRazonamiento', nuevo)
-          .catch((e: unknown) =>
-            avisoGlobal(`no se pudo guardar el razonamiento: ${String(e)}`, '', ''),
-          );
-      }
-    },
-    onWorkspaceCambiado(id) {
-      // Siempre hay un workspace activo. Si id es null, no se hace nada.
-      if (id === null) return;
-      const ws = proyectos.find((p) => p.id === id);
-      if (!ws) return;
-      if (turnoGlobal) return;
-      void (async () => {
-        try {
-          await adaptador.sesion.workspaces.activarPorRuta(ws.ruta);
-          principal.ponerBorrador();
-          activarPanel(principal);
-        } catch (e: unknown) {
-          avisoGlobal(`no se pudo cambiar de proyecto: ${String(e)}`, '', '');
-        }
-      })();
-    },
-  });
-
-  if (tipo === 'principal') {
-    // El panel meta comparte la entrada principal, pero queda después del
-    // selector de workspace. Además permanece oculto hasta que el primer
-    // mensaje cree una conversación real; así el borrador inicial solo ocupa
-    // el selector y la caja, sin solapamientos.
-    const entradaRaiz = panel.raiz.querySelector<HTMLElement>('.entrada');
-    const selectorWorkspace = entradaRaiz?.querySelector('.selector-workspace-box');
-    if (entradaRaiz && selectorWorkspace) {
-      entradaRaiz.insertBefore(panelMeta.raiz, selectorWorkspace.nextSibling);
-    }
-  }
-
-  panelesRegistrados.push(panel);
-  return panel;
-}
-
-// ---------- Grip de redimensionado de la sidebar ----------
-const grip = el('div', 'sidebar-grip');
-grip.setAttribute('aria-hidden', 'true');
-let sidebarAbierta = true;
-const CLAVE_ANCHO = 'sidebar_ancho';
-const CLAVE_COLAPSADA = 'sidebar_colapsada';
-{
-  // [039A-3 P4] La sidebar se redimensiona entre MIN y MAX arrastrando el grip.
-  // [039A-3 P6b retoque] Si se arrastra hasta dejar el ancho por debajo de
-  // UMBRAL_COLAPSO, al soltar la lista se COLAPSA del todo (desaparece) en vez
-  // de quedarse clavada en MIN. No hay botón manual de ocultar: este gesto de
-  // arrastre hasta el borde es la forma de cerrarla, y el botón "mostrar
-  // lista" de la cabecera la vuelve a abrir (a ANCHO_REABRIR).
-  const MIN = 180;
-  const MAX = 420;
-  const UMBRAL_COLAPSO = 100;
-  const ANCHO_REABRIR = 260;
-  let arrastrando = false;
-  function anchoArrastre(clientX: number): number {
-    const izquierda = cuerpo.getBoundingClientRect().left;
-    // En vivo se permite encoger hasta el umbral; el colapso total se decide
-    // al soltar (si colapsase en vivo perderíamos el grip a mitad de gesto).
-    return Math.min(MAX, Math.max(UMBRAL_COLAPSO, Math.round(clientX - izquierda)));
-  }
-  grip.addEventListener('mousedown', (e) => {
-    e.preventDefault();
-    arrastrando = true;
-    document.body.classList.add('redimensionando-sidebar');
-  });
-  window.addEventListener('mousemove', (e) => {
-    if (!arrastrando) return;
-    cuerpo.style.setProperty('--sidebar-ancho', `${anchoArrastre(e.clientX)}px`);
-  });
-  window.addEventListener('mouseup', () => {
-    if (!arrastrando) return;
-    arrastrando = false;
-    document.body.classList.remove('redimensionando-sidebar');
-    const ancho = Math.round(
-      parseFloat(getComputedStyle(cuerpo).getPropertyValue('--sidebar-ancho')) || 260,
-    );
-    if (ancho <= UMBRAL_COLAPSO) {
-      // Arrastrado hasta el borde → colapsar la lista: oculta sidebar y grip,
-      // deja el chat a ancho completo y muestra el botón "mostrar lista".
-      sidebarAbierta = false;
-      aplicarSidebar();
-      cuerpo.style.setProperty('--sidebar-ancho', `${ANCHO_REABRIR}px`);
-      guardarSidebar(CLAVE_ANCHO, String(ANCHO_REABRIR));
-      guardarSidebar(CLAVE_COLAPSADA, '1');
-    } else {
-      cuerpo.style.setProperty('--sidebar-ancho', `${Math.max(MIN, ancho)}px`);
-      guardarSidebar(CLAVE_ANCHO, String(Math.max(MIN, ancho)));
-      guardarSidebar(CLAVE_COLAPSADA, '0');
-    }
-  });
-}
-
-function guardarSidebar(clave: string, valor: string): void {
-  if (USA_REAL) {
-    void adaptador.sesion
-      .configGuardar(clave, valor)
-      .catch((e: unknown) => avisoGlobal(`no se pudo guardar ${clave}: ${String(e)}`, '', ''));
-  } else {
-    try {
-      window.localStorage.setItem(clave, valor);
-    } catch {
-      /* sin persistencia local */
-    }
-  }
-}
-function leerSidebar(clave: string): string | null {
-  // El modo web usa localStorage para estas claves; Tauri las restaura por IPC
-  // cuando termina de abrir la sesión persistida en SQLite.
-  if (USA_TAURI) return null;
-  try {
-    return window.localStorage.getItem(clave);
-  } catch {
-    return null;
-  }
-}
-
-// [039A-3 P6b] La lista de conversaciones NO se oculta con un botón manual:
-// se oculta sola si la ventana se reduce por debajo de un ancho mínimo
-// (auto), y el botón de la cabecera solo sirve para MOSTRARLA (forzar) si
-// quedó oculta por ese auto-ocultado. `sidebarForzada` recuerda que el
-// usuario pidió verla aunque la ventana sea angosta; al ensanchar se resetea.
-const UMBRAL_AUTO_SIDEBAR = 720;
-let sidebarForzada = false;
-
-/** ¿La ventana es tan angosta que la lista no debe ocupar espacio? */
-function ventanaAngosta(): boolean {
-  // [039A-3 P6b] Auto-ocultado de la lista: por debajo de un ancho mínimo de
-  // ventana la sidebar ya no cabe junto al chat y se oculta sola.
-  return window.innerWidth < UMBRAL_AUTO_SIDEBAR;
-}
-
-/** Aplica el estado efectivo (preferencia + auto-ocultado por ancho). */
-function aplicarSidebar(): void {
-  const angosta = ventanaAngosta();
-  if (!angosta) sidebarForzada = false;
-  const visible = sidebarAbierta && (!angosta || sidebarForzada);
-  cuerpo.classList.toggle('sidebar-colapsada', !visible);
-  panelesRegistrados.forEach((p) => p.setSidebarAbierta(visible));
-  // [089A-3] Espejo en la barra superior global (la cabecera ya no tiene
-  // el toggle; su setter es no-op).
-  barra.setSidebarAbierta(visible);
-}
-function pintarSidebar(): void {
-  aplicarSidebar();
-}
-/** El botón de la cabecera SOLO muestra la lista (nunca la oculta). */
-function mostrarSidebar(): void {
-  sidebarAbierta = true;
-  if (ventanaAngosta()) sidebarForzada = true;
-  aplicarSidebar();
-  guardarSidebar(CLAVE_COLAPSADA, '0');
-}
-/** [089A-2] Oculta la lista (manual; el auto-ocultado por ancho sigue). */
-function ocultarSidebar(): void {
-  sidebarAbierta = false;
-  sidebarForzada = false;
-  aplicarSidebar();
-  guardarSidebar(CLAVE_COLAPSADA, '1');
-}
-/** [089A-2] Alterna la lista (botón siempre visible de la cabecera). */
-function alternarSidebar(): void {
-  const visible = !cuerpo.classList.contains('sidebar-colapsada');
-  if (visible) ocultarSidebar();
-  else mostrarSidebar();
-}
+const sidebar = barraLateral.sidebar;
+const grip = barraLateral.grip;
+const alternarSidebar = barraLateral.alternarSidebar;
 
 // Escucha resize para el auto-ocultado de la lista por ancho mínimo.
-window.addEventListener('resize', () => aplicarSidebar());
+window.addEventListener('resize', () => barraLateral.pintarSidebar());
 
 // ---------- Grip de redimensionado del panel derecho (tabs) ----------
 // [089A-2] Divisor vertical arrastrable entre #paneles y el panel derecho.
@@ -998,7 +401,7 @@ function crearGripPanelDerecho(): HTMLElement {
     arrastrando = false;
     document.body.classList.remove('redimensionando-lateral');
     if (anchoPanelDerechoFijado !== null) {
-      guardarSidebar(CLAVE_LATERAL_ANCHO, String(anchoPanelDerechoFijado));
+      guardarSidebar(depsPersistencia, CLAVE_LATERAL_ANCHO, String(anchoPanelDerechoFijado));
     }
   });
   return g;
@@ -1007,7 +410,7 @@ function crearGripPanelDerecho(): HTMLElement {
 // Al abrir el panel derecho se restaura el ancho persistido (si cabe en el
 // 70% disponible).
 function restaurarPanelDerechoAncho(): void {
-  const base = leerSidebar(CLAVE_LATERAL_ANCHO);
+  const base = leerSidebar(depsPersistencia, CLAVE_LATERAL_ANCHO);
   const anchoCuerpo = medirAnchoCuerpo();
   const MAX = Math.round(anchoCuerpo * 0.7);
   let px = Math.round(anchoCuerpo * 0.5); // parte de la mitad
@@ -1069,8 +472,51 @@ const modal = montarModalConfiguracion({
   },
 });
 
+/* Deps de la fábrica de paneles. `abrirAcciones` cierra sobre `depsLaterales`
+ * y `getPrincipal` sobre `principal` (ambos declarados más abajo): solo se
+ * invocan desde eventos de UI posteriores al arranque, fuera de la TDZ. */
+const depsCrearPanel: CrearPanelDeps = {
+  paneles: panelesRegistrados,
+  adaptador,
+  simulacion,
+  usaReal: USA_REAL,
+  usaMock: USA_MOCK,
+  panelMeta,
+  sidebar,
+  modal,
+  proveedores: PROVEEDORES,
+  getConversaciones: () => conversaciones,
+  getModelo: () => modeloActual,
+  setModelo: (m) => {
+    modeloActual = m;
+  },
+  getModo: () => modoActual,
+  setModo: (m) => {
+    modoActual = m;
+  },
+  getRazonamiento: () => razonamientoActual,
+  setRazonamiento: (r) => {
+    razonamientoActual = r;
+  },
+  getProyectos: () => proyectos,
+  getProyectoActivoId: () => proyectoActivo?.id ?? null,
+  getPrincipal: () => principal,
+  hayTurnoGlobal,
+  notificarTurnoInicio,
+  notificarTurnoFin,
+  registrarUltimoEnvio,
+  panelActivo,
+  activarPanel,
+  resincronizarSidebar,
+  sincronizarPanelMeta,
+  avisar: avisoGlobal,
+  alternarSidebar,
+  alternarPanelDerecho,
+  abrirAcciones: (panel, rect) => abrirAccionesPanel(depsLaterales, panel, rect),
+};
+
 // ---------- Panel principal ----------
-const principal = crearPanel('principal', 'principal');
+const principal = crearPanel(depsCrearPanel, 'principal', 'principal');
 
 // ---------- Navegador interno (069A-1 F3 / 069A-2 fix web) ----------
 // [069A-2 fix] En Tauri el panel pilota la webview child (IPC); en modo web,
@@ -1130,7 +576,7 @@ const panelDerecho = montarPanelDerecho({
     if (opcion === 'files') abrirFiles();
     else if (opcion === 'git') abrirGit();
     else if (opcion === 'navegador') abrirNavegador();
-    else abrirChatLateralVacio();
+    else abrirChatLateralVacio(depsLaterales);
   },
 });
 // La barra de tabs comparte la barra superior; el panel derecho conserva
@@ -1143,6 +589,23 @@ onCambioWorkspace(() => {
   if (panelDerecho.tiene('files')) files.recargar();
   if (panelDerecho.tiene('git')) git.recargar();
 });
+
+// Dependencias de los laterales: se resuelven aquí porque el panel derecho,
+// la sidebar y la fábrica de paneles ya existen; los usos anteriores son
+// cierres de runtime (clic), cuando todo ya está definido.
+const depsLaterales: LateralesDeps = {
+  paneles: panelesRegistrados,
+  getConversaciones: () => conversaciones,
+  crearPanel: (tipo, idPrefijo, opts) => crearPanel(depsCrearPanel, tipo, idPrefijo, opts),
+  activarPanel,
+  panelActivo,
+  asegurarPanelDerecho,
+  cerrarPanelDerechoSiVacio,
+  panelDerecho,
+  sidebar,
+  avisar: (texto, meta, detalle) => avisoGlobal(texto, meta, detalle),
+  renombrarEnLista: (id, titulo) => barraLateral.renombrarEnLista(id, titulo),
+};
 
 /** Visibilidad del panel derecho (independiente de sus tabs: ocultar no
  * destruye; las tabs y sus nodos vivos se conservan). Arranca oculto. */
@@ -1329,14 +792,14 @@ app.appendChild(cuerpo);
 
 // Estado inicial de la sidebar (ancho/colapso persistidos + selección).
 function pintarEstadoInicial(): void {
-  const ancho = leerSidebar(CLAVE_ANCHO);
+  const ancho = leerSidebar(depsPersistencia, CLAVE_ANCHO);
   if (ancho) {
     const n = Number(ancho);
     if (Number.isFinite(n)) cuerpo.style.setProperty('--sidebar-ancho', `${Math.round(n)}px`);
   }
-  const col = leerSidebar(CLAVE_COLAPSADA);
-  sidebarAbierta = col !== '1';
-  pintarSidebar();
+  const col = leerSidebar(depsPersistencia, CLAVE_COLAPSADA);
+  barraLateral.fijarAbierta(col !== '1');
+  barraLateral.pintarSidebar();
 }
 pintarEstadoInicial();
 // [089A-2] El toggle derecho arranca en "mostrar" (panel oculto, sin tabs).
@@ -1426,8 +889,8 @@ if (USA_REAL) {
         if (Number.isFinite(n)) cuerpo.style.setProperty('--sidebar-ancho', `${Math.round(n)}px`);
       }
       if (colG) {
-        sidebarAbierta = colG !== '1';
-        pintarSidebar();
+        barraLateral.fijarAbierta(colG !== '1');
+        barraLateral.pintarSidebar();
       }
       if (modG) {
         modeloActual = {
@@ -1483,16 +946,4 @@ if (USA_REAL) {
       );
     }
   })();
-}
-
-/** Opciones de turno para `asegurarSesion` en el arranque real.
- * Campos vacíos significan "resolver desde la configuración persistida";
- * enviar los defaults aquí sobrescribiría la configuración guardada. */
-function opcionesArranque() {
-  return {
-    proveedor: '',
-    modelo: '',
-    modo: '',
-    razonamiento: '',
-  };
 }
