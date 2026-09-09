@@ -2,6 +2,15 @@
   "schemaVersion": 1,
   "stages": [
     {
+      "name": "coverage",
+      "executable": "node",
+      "args": ["scripts/quality/sentinel-coverage.mjs", "{reportPath}"],
+      "reportPath": "coverage.json",
+      "expectedSchemaVersion": "1",
+      "timeoutMs": 60000,
+      "cwd": "."
+    },
+    {
       "name": "sentinel",
       "executable": "node",
       "args": ["scripts/quality/sentinel-stage.mjs", "{reportPath}"],

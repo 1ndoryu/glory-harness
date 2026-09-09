@@ -29,8 +29,15 @@
         "includePatterns": [
           "**/*.rs",
           "desktop/ui/src/**/*.ts",
+          "desktop/ui/vite.config.ts",
+          "**/*.mjs",
           "Cargo.toml",
-          "Cargo.lock"
+          "Cargo.lock",
+          "package.json",
+          "core/Cargo.toml",
+          "cli/Cargo.toml",
+          "desktop/src-tauri/Cargo.toml",
+          "desktop/ui/package.json"
         ],
         "excludePatterns": [
           "**/target/**",

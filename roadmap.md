@@ -214,8 +214,31 @@ Orden propuesto (dependencias de abajo arriba):
       `window-reference` y 19 `dom-access` fuera de plataforma, 8
       `limite-lineas`, 3 interfaces grandes, 1 `console`, 1 dir) + 7 info
       (3 interfaces + 4 `todo-pendiente`). Detalle por fichero en
-      `.quality-reports/check/089A-13/sentinel.json`. OJO: el árbol queda en
-      rojo hasta sanearlo.
+       `.quality-reports/check/089A-13/sentinel.json`. OJO: el árbol queda en
+       rojo hasta sanearlo.
+- [x] **089A-15 — Gate con cobertura por defecto (nada fuente fuera en silencio)**
+      (09-09, HECHO): etapa `coverage`
+      (`scripts/quality/sentinel-coverage.mjs`, primera del gate, fail-closed)
+      que cruza `git ls-files` contra los includes de ambas configs; gate
+      089A-15: coverage PASS 0/0/0 (165 analizables cubiertas, 35 visibles en
+      sidecar). Sondas `--files-from` probaron la semántica real del motor
+      (nombres sin glob = solo raíz, `src/**/*.ts` excluye `vite.config.ts`,
+      css nunca se analiza) y se añadieron patrones explícitos
+      (`core/cli/tauri Cargo.toml`, ambos `package.json`,
+      `desktop/ui/vite.config.ts`, `**/*.mjs`, todos verificados total=1 en
+      el motor). Evidencia: `.quality-reports/check/089A-15/`.
+- [ ] **089A-16 — Saneamiento total del gate (cero deuda tras 089A-15)**
+      (09-09, EN CURSO, otro agente en pausa): dejar el gate
+      full en PASS 0/0/0 con `coverage` verde. Fase 1 errores TS (XSS
+      `innerHTML` ×10, `catch` vacíos ×3, partir `main.ts` 1182/300); fase 2
+      warnings TS por lotes (62 barras, 22 `window-reference` + 19
+      `dom-access` con verificación dual web/app, 8 `limite-lineas`,
+      interfaces, `console`/`dir`, 7 info con dueño); fase 3 warnings Rust
+      preexistentes (318A + `navegador/reflejo.rs`, con válvula de descope a
+      tarea hija si un servicio nivel-2 exige rediseño). Precondición:
+      re-generar el gate al arrancar y reparto de ficheros con el otro agente
+      (sus 11 ficheros tocan el mismo TS/Tauri). Plan en
+      `Agente/planes/plan-089A-16-saneamiento-total-gate-2026-09-09.md`.
 - [x] **089A-12 — Files estilo Synara: árbol + visor integrado** (09-09,
       HECHO): Files es un único pane dividido (árbol a la izquierda y preview
       a la derecha al seleccionar un archivo); se eliminaron `21 entradas`,
