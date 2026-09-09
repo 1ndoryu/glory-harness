@@ -15,7 +15,7 @@ import type {
   ProveedorModelo,
   Workspace,
 } from '../dominio/tipos';
-import { icono, iconoHtml } from './iconos';
+import { icono, ponerIcono } from './iconos';
 import { abrirMenuContextual, cerrarMenuActual, crearItemMenu } from './menu';
 import { montarSelectorModelo } from './selectorModelo';
 import { montarSelectorWorkspace } from './selectorWorkspace';
@@ -582,11 +582,11 @@ export function montarEntrada(opts: EntradaOpciones): Entrada {
   // ---------- botón enviar/detener ----------
   function pintarBotonEnviar(): void {
     if (corriendo) {
-      btnEnviar.innerHTML = iconoHtml('detener', true);
+      ponerIcono(btnEnviar, 'detener', true);
       btnEnviar.title = 'detener';
       btnEnviar.setAttribute('aria-label', 'detener');
     } else {
-      btnEnviar.innerHTML = iconoHtml('flecha-arriba', true);
+      ponerIcono(btnEnviar, 'flecha-arriba', true);
       btnEnviar.title = 'enviar';
       btnEnviar.setAttribute('aria-label', 'enviar');
     }

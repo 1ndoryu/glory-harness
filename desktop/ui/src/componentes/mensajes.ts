@@ -13,7 +13,7 @@ import type {
   IconoNombre,
   ResultadoHerramienta,
 } from '../dominio/tipos';
-import { icono, iconoHtml, spinnerHtml } from './iconos';
+import { icono, ponerIcono } from './iconos';
 import { el } from '../util/dom';
 
 // ---------- Aplicar un resultado al cuadro (.resultado) ----------
@@ -70,8 +70,53 @@ export function formatearResultadoHerramienta(resumen: string, diff?: string | n
   ].join('\n');
 }
 
+// ---------- HTML seguro (sin innerHTML) ----------
+
+/**
+ * [089A-16] Inserta el HTML de diffs sin sink innerHTML. Los productores
+ * (`formatearResultadoHerramienta`, `diffAuto`, `diffTarjetaHtml`) solo
+ * emiten texto escapado + `<span class="…">` + `<br>`; todo lo demás se
+ * degrada a texto. Sin atributos salvo `class` saneada, sin eventos.
+ */
+export function ponerHtmlSeguro(nodo: HTMLElement, html: string): void {
+  while (nodo.firstChild) nodo.removeChild(nodo.firstChild);
+  const doc = new DOMParser().parseFromString(`<div>${html}</div>`, 'text/html');
+  const raiz = doc.body.firstElementChild;
+  if (!raiz) {
+    nodo.textContent = html;
+    return;
+  }
+  function esClaseSegura(clase: string): boolean {
+    return /^[A-Za-z0-9 _-]+$/.test(clase);
+  }
+  function importar(hijo: ChildNode, destino: Node): void {
+    if (hijo.nodeType === 3) {
+      destino.appendChild(document.createTextNode(hijo.textContent ?? ''));
+      return;
+    }
+    if (hijo.nodeType !== 1) return;
+    const elem = hijo as Element;
+    const etiqueta = elem.tagName.toLowerCase();
+    if (etiqueta === 'br') {
+      destino.appendChild(document.createElement('br'));
+      return;
+    }
+    if (etiqueta === 'span') {
+      const s = document.createElement('span');
+      const clase = elem.getAttribute('class') ?? '';
+      if (clase && esClaseSegura(clase)) s.className = clase;
+      for (const nieto of Array.from(elem.childNodes)) importar(nieto, s);
+      destino.appendChild(s);
+      return;
+    }
+    // Fail-closed: cualquier otra etiqueta se degrada a su texto.
+    destino.appendChild(document.createTextNode(elem.textContent ?? ''));
+  }
+  for (const hijo of Array.from(raiz.childNodes)) importar(hijo, nodo);
+}
+
 function aplicarResultado(nodo: HTMLElement, r: ResultadoHerramienta): void {
-  if (r.tipo === 'html') nodo.innerHTML = r.html;
+  if (r.tipo === 'html') ponerHtmlSeguro(nodo, r.html);
   else nodo.textContent = r.texto;
 }
 
@@ -176,7 +221,7 @@ export function crearRazonamientoCerrado(texto: string, meta: string): HTMLEleme
 /** Razonamiento vivo: abierto con spinner mientras el texto fluye. */
 export function crearRazonamientoVivo(): RazonamientoVivo {
   const r = baseRazonamiento(true);
-  r.nodoMeta.innerHTML = spinnerHtml(true);
+  ponerIcono(r.nodoMeta, 'spin', true, 'ic-spin');
   return r;
 }
 
@@ -214,7 +259,7 @@ function baseHerramienta(iconoNombre: IconoNombre, titulo: string): HerramientaV
     nodoResultado,
     ejecutando() {
       raiz.classList.add('ejecutando');
-      nodoMeta.innerHTML = spinnerHtml(true);
+      ponerIcono(nodoMeta, 'spin', true, 'ic-spin');
     },
     completada(meta: string, resultado: ResultadoHerramienta) {
       limpiarMeta();
@@ -224,7 +269,7 @@ function baseHerramienta(iconoNombre: IconoNombre, titulo: string): HerramientaV
     errored(_meta: string, resultado: ResultadoHerramienta) {
       limpiarMeta();
       // el error se distingue por su icono de fallo en el meta
-      nodoMeta.innerHTML = iconoHtml('x-circulo', true);
+      ponerIcono(nodoMeta, 'x-circulo', true);
       aplicarResultado(nodoResultado, resultado);
     },
   };
@@ -349,7 +394,7 @@ export function crearTarjetaAprobacion(opts: {
       estado.textContent = texto;
     },
     ponerArgsHtml(html: string) {
-      args.innerHTML = html;
+      ponerHtmlSeguro(args, html);
     },
     quitarAcciones() {
       acciones.remove();

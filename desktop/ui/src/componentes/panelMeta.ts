@@ -9,7 +9,7 @@
 // ============================================================
 
 import { el } from '../util/dom';
-import { iconoHtml } from './iconos';
+import { ponerIcono } from './iconos';
 
 /** Estado visible: inactivo (sin turno) · corriendo · pausado. */
 export type EstadoMeta = 'inactivo' | 'corriendo' | 'pausado';
@@ -37,9 +37,6 @@ export interface PanelMetaOpciones {
   /** Reanudar: reenvía el último mensaje como turno nuevo. */
   onReanudar: () => void;
 }
-
-const ICONO_PAUSA = iconoHtml('pausa', true);
-const ICONO_PLAY = iconoHtml('reproducir', true);
 
 const ETIQUETA_ESTADO: Record<EstadoMeta, string> = {
   inactivo: 'inactivo',
@@ -117,7 +114,7 @@ export function montarPanelMeta(opts: PanelMetaOpciones): PanelMeta {
     raiz.classList.toggle('pausado', estadoActual === 'pausado');
     raiz.classList.toggle('inactivo', estadoActual === 'inactivo');
     const esPausa = estadoActual === 'corriendo';
-    btnPlay.innerHTML = esPausa ? ICONO_PAUSA : ICONO_PLAY;
+    ponerIcono(btnPlay, esPausa ? 'pausa' : 'reproducir', true);
     btnPlay.setAttribute('aria-label', esPausa ? 'pausar' : 'reanudar');
     btnPlay.title = esPausa ? 'pausar' : 'reanudar';
   }

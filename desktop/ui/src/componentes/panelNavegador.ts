@@ -421,7 +421,7 @@ export function montarPanelNavegador(opts: PanelNavegadorOpciones = {}): PanelNa
   const SCRIPT_SELECCION_ACTIVAR = `(() => {
     if (window.__ghSelActivo__) return 'modo seleccion ya activo';
     var limpiarPrevio = window.__ghSelLimpia__;
-    if (typeof limpiarPrevio === 'function') { try { limpiarPrevio(); } catch (_e) {} }
+    if (typeof limpiarPrevio === 'function') { try { limpiarPrevio(); } catch (_e) { window.__ghSelError__ = String((_e && _e.message) || _e); } }
     var estilo = document.getElementById('gh-sel-estilo');
     if (!estilo) {
       estilo = document.createElement('style');
@@ -489,7 +489,7 @@ export function montarPanelNavegador(opts: PanelNavegadorOpciones = {}): PanelNa
         pagina: location.href
       });
       var limpia = window.__ghSelLimpia__;
-      if (typeof limpia === 'function') { try { limpia(); } catch (_e2) {} }
+      if (typeof limpia === 'function') { try { limpia(); } catch (_e2) { window.__ghSelError__ = String((_e2 && _e2.message) || _e2); } }
     };
     var limpiar = function () {
       window.__ghSelActivo__ = false;
@@ -519,7 +519,7 @@ export function montarPanelNavegador(opts: PanelNavegadorOpciones = {}): PanelNa
   /** Limpia el modo selección dentro de la página (si sigue inyectado). */
   const SCRIPT_SELECCION_LIMPIAR = `(() => {
     var l = window.__ghSelLimpia__;
-    if (typeof l === 'function') { try { l(); } catch (_e) {} return 'limpiado'; }
+    if (typeof l === 'function') { try { l(); } catch (_e) { window.__ghSelError__ = String((_e && _e.message) || _e); } return 'limpiado'; }
     return 'sin modo activo';
   })()`;
 

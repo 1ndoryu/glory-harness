@@ -82,13 +82,34 @@ const TRAZOS: Record<IconoNombre, string> = {
 };
 
 /** Crea un SVG de icono. `pequeno` añade .ic-xs (11px). */
-export function icono(nombre: IconoNombre, pequeno = false): SVGSVGElement {
+export function icono(nombre: IconoNombre, pequeno = false, extraClase = ''): SVGSVGElement {
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
   svg.setAttribute('viewBox', '0 0 24 24');
   svg.setAttribute('aria-hidden', 'true');
-  svg.setAttribute('class', 'ic' + (pequeno ? ' ic-xs' : ''));
-  svg.innerHTML = TRAZOS[nombre];
+  svg.setAttribute('class', 'ic' + (pequeno ? ' ic-xs' : '') + (extraClase ? ' ' + extraClase : ''));
+  // [089A-16] Sin innerHTML: los trazos son constantes del módulo y se
+  // injertan parseando como SVG/XML (no HTML) e importando los nodos.
+  const doc = new DOMParser().parseFromString(
+    `<svg xmlns="http://www.w3.org/2000/svg">${TRAZOS[nombre]}</svg>`,
+    'image/svg+xml',
+  );
+  const raiz = doc.documentElement;
+  if (raiz.querySelector('parsererror')) throw new Error('trazo icono inválido: ' + nombre);
+  for (const hijo of Array.from(raiz.childNodes)) {
+    svg.appendChild(document.importNode(hijo, true));
+  }
   return svg;
+}
+
+/** Vacía el contenedor e inserta el icono como nodos (sin innerHTML). */
+export function ponerIcono(
+  contenedor: HTMLElement,
+  nombre: IconoNombre,
+  pequeno = false,
+  extraClase = '',
+): void {
+  while (contenedor.firstChild) contenedor.removeChild(contenedor.firstChild);
+  contenedor.appendChild(icono(nombre, pequeno, extraClase));
 }
 
 /** HTML en línea (para innerHTML cuando se construye markup en runtime). */

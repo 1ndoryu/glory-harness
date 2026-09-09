@@ -4,15 +4,14 @@
 // del mockup a TS seguro.
 // ============================================================
 
-/** Crea un elemento. `cls` opcional, `html` opcional (innerHTML). */
+/** Crea un elemento. `cls` opcional. Sin sink HTML: el contenido se fija
+ * con textContent/appendChild en cada llamada (regla innerhtml-variable). */
 export function el<K extends keyof HTMLElementTagNameMap>(
   tag: K,
   cls?: string,
-  html?: string,
 ): HTMLElementTagNameMap[K] {
   const e = document.createElement(tag);
   if (cls) e.className = cls;
-  if (html !== undefined) e.innerHTML = html;
   return e;
 }
 
