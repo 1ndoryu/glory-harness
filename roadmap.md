@@ -239,6 +239,12 @@ Orden propuesto (dependencias de abajo arriba):
       re-generar el gate al arrancar y reparto de ficheros con el otro agente
       (sus 11 ficheros tocan el mismo TS/Tauri). Plan en
       `Agente/planes/plan-089A-16-saneamiento-total-gate-2026-09-09.md`.
+      Avance F2 (09-09): sidebar→`sidebarCeldas.ts` (319), api→`apiCliente.ts`
+      (301), mensajes→`mensajesUtil.ts`+`mensajesBloques.ts` (184),
+      entrada 753→353 (275 ef.)→`entradaContexto.ts`+`entradaBarras.ts`+
+      `entradaTipos.ts` (commits `b9822a4`, `d3a365e`, `10f5ffa`, `fc4b953`,
+      `4021539`; gates F2* PASS 0E/117W/13I). Quedan: `panelChat` 752,
+      `panelNavegador` 573, `tauri/real` 710.
 - [x] **089A-12 — Files estilo Synara: árbol + visor integrado** (09-09,
       HECHO): Files es un único pane dividido (árbol a la izquierda y preview
       a la derecha al seleccionar un archivo); se eliminaron `21 entradas`,
