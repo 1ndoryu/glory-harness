@@ -1,7 +1,6 @@
 # Plan 089A-16 — Saneamiento total del gate (cero deuda tras 089A-15)
 
-> ID roadmap: **089A-16** · Fecha: 2026-09-09 · Estado: activo (plan, bloqueado
-> hasta completar 089A-15)
+> ID roadmap: **089A-16** · Fecha: 2026-09-09 · Estado: HECHO (gate full PASS 0/0/0, 09-09)
 > Origen: 089A-13 reveló 14 errores + 116 warnings + 7 info en el frontend TS;
 > el gate además arrastra warnings Rust preexistentes (serie 318A + 16 en
 > `navegador/reflejo.rs`). Objetivo final: gate full **PASS 0/0/0** con la

@@ -227,26 +227,15 @@ Orden propuesto (dependencias de abajo arriba):
       (`core/cli/tauri Cargo.toml`, ambos `package.json`,
       `desktop/ui/vite.config.ts`, `**/*.mjs`, todos verificados total=1 en
       el motor). Evidencia: `.quality-reports/check/089A-15/`.
-- [ ] **089A-16 — Saneamiento total del gate (cero deuda tras 089A-15)**
-      (09-09, EN CURSO, otro agente en pausa): dejar el gate
-      full en PASS 0/0/0 con `coverage` verde. Fase 1 errores TS (XSS
-      `innerHTML` ×10, `catch` vacíos ×3, partir `main.ts` 1182/300); fase 2
-      warnings TS por lotes (62 barras, 22 `window-reference` + 19
-      `dom-access` con verificación dual web/app, 8 `limite-lineas`,
-      interfaces, `console`/`dir`, 7 info con dueño); fase 3 warnings Rust
-      preexistentes (318A + `navegador/reflejo.rs`, con válvula de descope a
-      tarea hija si un servicio nivel-2 exige rediseño). Precondición:
-      re-generar el gate al arrancar y reparto de ficheros con el otro agente
-      (sus 11 ficheros tocan el mismo TS/Tauri). Plan en
-      `Agente/planes/plan-089A-16-saneamiento-total-gate-2026-09-09.md`.
-      Avance F2 (09-09): sidebar→`sidebarCeldas.ts` (319), api→`apiCliente.ts`
-      (301), mensajes→`mensajesUtil.ts`+`mensajesBloques.ts` (184),
-      entrada 753→353 (275 ef.)→`entradaContexto.ts`+`entradaBarras.ts`+
-       `entradaTipos.ts` (commits `b9822a4`, `d3a365e`, `10f5ffa`, `fc4b953`,
-       `4021539`; gates F2* PASS 0E/117W/13I). panelChat 752→283 (tipos 162 +
-       historial 198 + acciones 160 + carga 167 + turno 203; commit `a2b2ffb`;
-       gate `089A-16-F2PANELCHAT` PASS 0E/115W/13I, `tsc` EXIT 0). Quedan:
-       `panelNavegador` 573, `tauri/real` 710.
+- [x] **089A-16 — Saneamiento total del gate (cero deuda tras 089A-15)**
+      (09-09, HECHO): gate full **PASS 0/0/0** con `coverage` verde.
+      F2-resto (`edbc8d9`, boundary DOM/window + barrels puros, gate
+      F2RESTO 0E/0W/10I) + B-ISP (`f292869`, 10 interfaces por `extends`,
+      gates BISP/BISP2 0E/0W/0I) + F3 (`caec783`, cero warnings Rust,
+      clippy 0 + tests 363 OK) + cierre (`tsc` EXIT 0, `vite build` OK).
+      Evidencia: `Agente/completados/tareas-2026-09-09.md` (entrada
+      089A-16); reportes `.quality-reports/check/089A-16*/`. Pendiente:
+      re-gate `unwrap-produccion-rs`.
 - [x] **089A-12 — Files estilo Synara: árbol + visor integrado** (09-09,
       HECHO): Files es un único pane dividido (árbol a la izquierda y preview
       a la derecha al seleccionar un archivo); se eliminaron `21 entradas`,
