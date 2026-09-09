@@ -1,23 +1,14 @@
 .panel-files {
     display: flex;
+    flex: 1;
     flex-direction: column;
     min-height: 0;
-    flex: 1;
+    height: 100%;
+    box-sizing: border-box;
     background: var(--fondo);
     color: var(--texto);
 }
 
-.files-cabecera {
-    display: flex;
-    align-items: center;
-    gap: var(--sp-xs);
-    flex: none;
-    height: var(--alto-cabecera);
-    padding: 0 var(--sp-sm);
-    border-bottom: 1px solid var(--borde);
-}
-
-.files-titulo { flex: 1; font-size: var(--sm); }
 .files-accion,
 .git-accion {
     display: inline-flex;
@@ -40,23 +31,31 @@
 
 .files-contenido {
     display: flex;
-    flex: 1;
-    min-height: 0;
+    flex: 1 1 auto;
+    align-items: stretch;
     min-width: 0;
+    min-height: 0;
+    height: 100%;
+    box-sizing: border-box;
 }
 
 .files-explorador {
     display: flex;
     flex: 0 0 42%;
     flex-direction: column;
+    align-self: stretch;
     min-width: 150px;
     min-height: 0;
+    height: 100%;
+    box-sizing: border-box;
     border-right: 1px solid var(--borde);
 }
 
 .files-busqueda {
     display: flex;
     flex: none;
+    align-items: center;
+    gap: var(--sp-xs);
     padding: var(--sp-sm);
     border-bottom: 1px solid var(--borde);
 }
@@ -111,10 +110,13 @@
 
 .files-visor {
     display: flex;
-    flex: 1;
+    flex: 1 1 auto;
     flex-direction: column;
+    align-self: stretch;
     min-width: 0;
     min-height: 0;
+    height: 100%;
+    box-sizing: border-box;
 }
 .files-visor-cabecera {
     display: flex;

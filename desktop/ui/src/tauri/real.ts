@@ -246,6 +246,7 @@ export interface Transporte {
   workspaceInfo(): Promise<{ ruta: string; nombre: string }>;
   workspaceListarEntrada(ruta: string, profundidad?: number): Promise<ListadoWorkspace>;
   workspaceLeerArchivo(ruta: string): Promise<{ ruta: string; lineas: number; contenido: string }>;
+  workspaceAbrirCon(ruta: string): Promise<void>;
   workspaceBuscar(consulta: string, ruta?: string): Promise<ResultadoBusqueda>;
   workspaceGitEstado(): Promise<import('../componentes/panelGit').EstadoGit>;
 }
@@ -325,6 +326,8 @@ export function transporteTauri(): Transporte {
       invoke<{ ruta: string; lineas: number; contenido: string }>('workspace_leer_archivo', {
         rutaRelativa: ruta,
       }),
+    workspaceAbrirCon: (ruta) =>
+      invoke<void>('workspace_abrir_con', { rutaRelativa: ruta }),
     workspaceBuscar: (consulta, ruta) =>
       invoke<ResultadoBusqueda>('workspace_buscar', {
         consulta,
@@ -841,6 +844,9 @@ export function crearAdaptadorReal(hooks: HooksAdaptador = {}, transporte: Trans
         },
         async leer(ruta: string): Promise<{ ruta: string; lineas: number; contenido: string }> {
           return transporte.workspaceLeerArchivo(ruta);
+        },
+        async abrirCon(ruta: string): Promise<void> {
+          return transporte.workspaceAbrirCon(ruta);
         },
         async buscar(consulta: string, ruta?: string): Promise<ResultadoBusqueda> {
           return transporte.workspaceBuscar(consulta, ruta);

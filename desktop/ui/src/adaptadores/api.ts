@@ -405,6 +405,9 @@ export function crearTransporteApi(base: string, hooks: HooksAdaptador = {}): Tr
         'GET',
         `/api/v1/session/${sid}/files/leer?ruta=${encodeURIComponent(ruta)}`,
       ),
+    workspaceAbrirCon: async () => {
+      throw new Error('abrir archivos con otra aplicación no está disponible en modo web');
+    },
     workspaceBuscar: async (consulta, ruta) => {
       const extra = ruta ? `&ruta=${encodeURIComponent(ruta)}` : '';
       return http<ResultadoBusqueda>(

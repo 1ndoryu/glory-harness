@@ -11,6 +11,8 @@ use std::cmp::Ordering;
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 use tauri::State;
+use windows::core::PCWSTR;
+use windows::Win32::UI::Shell::{SHOpenWithDialog, OPENASINFO, OAIF_EXEC};
 
 use super::{area_activa, sesion_actual, Estado, Sesion};
 
@@ -108,6 +110,24 @@ pub(crate) fn workspace_leer_archivo(
     let raiz = raiz_activa(&sesion)?;
     let archivo = resolver_existente(&raiz, &ruta_relativa, false)?;
     leer_archivo_limitado(&raiz, &archivo, limite_bytes.unwrap_or(MAX_FILE_BYTES))
+}
+
+#[tauri::command]
+pub(crate) fn workspace_abrir_con(
+    estado: State<'_, Estado>,
+    ruta_relativa: String,
+) -> Result<(), ErrorFilesystem> {
+    let sesion = sesion_actual(&estado).map_err(|e| ErrorFilesystem::new("sesion", e, None))?;
+    let raiz = raiz_activa(&sesion)?;
+    let archivo = resolver_existente(&raiz, &ruta_relativa, false)?;
+    let ruta = archivo.to_string_lossy().encode_utf16().chain(std::iter::once(0)).collect::<Vec<_>>();
+    let info = OPENASINFO {
+        pcszFile: PCWSTR(ruta.as_ptr()),
+        pcszClass: PCWSTR::null(),
+        oaifInFlags: OAIF_EXEC,
+    };
+    unsafe { SHOpenWithDialog(None, &info) }
+        .map_err(|e| ErrorFilesystem::new("apertura_no_disponible", e.to_string(), Some(&archivo)))
 }
 
 #[tauri::command]

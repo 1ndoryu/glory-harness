@@ -184,6 +184,7 @@ export type IconoNombre =
   | 'recargar'
   | 'camara'
   | 'seleccionar'
+  | 'abrir'
   | 'minimizar'
   | 'maximizar'
   | 'restaurar';

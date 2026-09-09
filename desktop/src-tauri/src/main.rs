@@ -484,6 +484,7 @@ fn main() {
             filesystem::workspace_info,
             filesystem::workspace_listar_entrada,
             filesystem::workspace_leer_archivo,
+            filesystem::workspace_abrir_con,
             filesystem::workspace_buscar,
             git::workspace_git_estado,
             navegador::comandos::navegador_abrir,
