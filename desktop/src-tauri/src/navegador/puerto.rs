@@ -18,45 +18,25 @@ use super::comandos::{
 // ---------------------------------------------------------------------------
 
 /// Adaptador Tauri del puerto `NavegadorPort`.
-
 ///
-
 /// Cada método delega al `AppHandle` para despachar al hilo principal y
-
 /// consulta el estado global del navegador (webview + COM). Como Tauri exige
-
 /// que todo acceso a la webview viva en el hilo de UI, los métodos COM usan
-
 /// `run_on_main_thread` vía las funciones del submódulo `webview2`.
-
 ///
-
 /// ## Afinidad de hilo
-
 ///
-
 /// `Abir` y `cerrar` usan `crear_webview_hija` / `EstadoNavegador.webview`
-
 /// directamente (async Tauri). Las operaciones COM delegadas
-
 /// (`capturar`, `js`, `cdp`) se resuelven internamente en `webview2::*`,
-
 /// que ya toman `AppHandle`. `click`, `rellenar`, `snapshot` y `navegar`
-
 /// se implementan sobre `navegador_js` / `wv.navigate`, ambos seguros para
-
 /// cross-thread porque usan `AppHandle` + `run_on_main_thread` o el comando
-
 /// async directo.
-
 ///
-
 /// El `AppHandle` se clona al crear el struct (es un Arc interno) y todas
-
 /// las operaciones reciben `&self`: el handle se conserva inmutablemente.
-
 #[derive(Clone)]
-
 pub struct NavegadorTauri {
     app: AppHandle,
 }

@@ -400,7 +400,10 @@ mod tests {
         ] {
             registry.registrar(Box::new(StubTool {
                 id,
-                efecto: !matches!(id, "file_read" | "file_search" | "content_search" | "web_search"),
+                efecto: !matches!(
+                    id,
+                    "file_read" | "file_search" | "content_search" | "web_search"
+                ),
             }));
         }
         registrar_tool_task(&mut registry);

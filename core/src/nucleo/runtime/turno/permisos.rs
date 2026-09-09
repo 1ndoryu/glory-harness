@@ -266,7 +266,13 @@ impl AgentRuntime {
                 r.diff.clone(),
                 r.evento_extra.clone(),
             ),
-            Err(error) => (false, format!("Error: {error}"), "error".to_string(), None, None),
+            Err(error) => (
+                false,
+                format!("Error: {error}"),
+                "error".to_string(),
+                None,
+                None,
+            ),
         };
         estado.tools_ejecutadas += 1;
         /* [318A-15 F0] Telemetría: uso/fallo/duración de la tool (el timeout

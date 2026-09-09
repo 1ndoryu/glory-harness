@@ -56,6 +56,99 @@ mod win {
         }
     }
 
+    /// Captura PNG en el hilo de UI y devuelve el base64 (o el fallo COM).
+    fn vista_previa(core: ICoreWebView2) -> Resultado<Resultado<String>> {
+        let stream = unsafe { CreateStreamOnHGlobal(HGLOBAL::default(), true) }
+            .map_err(|error| format!("no se pudo crear el stream: {error}"))?;
+        let slot: ResultadoCompartido<String> = Arc::new(std::sync::Mutex::new(None));
+        let slot_cb = slot.clone();
+        let stream_cb = stream.clone();
+        let espera = CapturePreviewCompletedHandler::wait_for_async_operation(
+            Box::new(move |handler| unsafe {
+                core.CapturePreview(
+                    COREWEBVIEW2_CAPTURE_PREVIEW_IMAGE_FORMAT_PNG,
+                    &stream,
+                    &handler,
+                )
+                .map_err(webview2_com::Error::WindowsError)
+            }),
+            Box::new(move |status| {
+                let resultado = match status {
+                    Ok(()) => leer_stream(&stream_cb)
+                        .map(|bytes| base64::engine::general_purpose::STANDARD.encode(bytes)),
+                    Err(error) => Err(format!("CapturePreview falló: {error}")),
+                };
+                guardar(&slot_cb, resultado);
+                Ok(())
+            }),
+        );
+        if let Err(error) = espera {
+            guardar(&slot, Err(format!("CapturePreview no inició: {error}")));
+        }
+        Ok(tomar(slot))
+    }
+
+    /// Ejecuta JavaScript en el hilo de UI y devuelve su resultado.
+    fn invocar_script(core: ICoreWebView2, codigo: String) -> Resultado<Resultado<String>> {
+        let slot: ResultadoCompartido<String> = Arc::new(std::sync::Mutex::new(None));
+        let slot_cb = slot.clone();
+        let espera = ExecuteScriptCompletedHandler::wait_for_async_operation(
+            Box::new(move |handler| unsafe {
+                let js = CoTaskMemPWSTR::from(codigo.as_str());
+                core.ExecuteScript(*js.as_ref().as_pcwstr(), &handler)
+                    .map_err(webview2_com::Error::WindowsError)
+            }),
+            Box::new(move |status, resultado| {
+                guardar(
+                    &slot_cb,
+                    status
+                        .map(|_| resultado)
+                        .map_err(|error| format!("ExecuteScript falló: {error}")),
+                );
+                Ok(())
+            }),
+        );
+        if let Err(error) = espera {
+            guardar(&slot, Err(format!("ExecuteScript no inició: {error}")));
+        }
+        Ok(tomar(slot))
+    }
+
+    /// Invoca un método CDP en el hilo de UI y devuelve su resultado.
+    fn invocar_cdp(
+        core: ICoreWebView2,
+        metodo: String,
+        params: String,
+    ) -> Resultado<Resultado<String>> {
+        let slot: ResultadoCompartido<String> = Arc::new(std::sync::Mutex::new(None));
+        let slot_cb = slot.clone();
+        let espera = CallDevToolsProtocolMethodCompletedHandler::wait_for_async_operation(
+            Box::new(move |handler| unsafe {
+                let m = CoTaskMemPWSTR::from(metodo.as_str());
+                let p = CoTaskMemPWSTR::from(params.as_str());
+                core.CallDevToolsProtocolMethod(
+                    *m.as_ref().as_pcwstr(),
+                    *p.as_ref().as_pcwstr(),
+                    &handler,
+                )
+                .map_err(webview2_com::Error::WindowsError)
+            }),
+            Box::new(move |status, resultado| {
+                guardar(
+                    &slot_cb,
+                    status
+                        .map(|_| resultado)
+                        .map_err(|error| format!("CDP falló: {error}")),
+                );
+                Ok(())
+            }),
+        );
+        if let Err(error) = espera {
+            guardar(&slot, Err(format!("CDP no inició: {error}")));
+        }
+        Ok(tomar(slot))
+    }
+
     fn leer_stream(stream: &IStream) -> Resultado<Vec<u8>> {
         let mut longitud = 0_u64;
         unsafe {
@@ -130,37 +223,7 @@ mod win {
                     return;
                 }
             };
-            let resultado = (|| {
-                let stream = unsafe { CreateStreamOnHGlobal(HGLOBAL::default(), true) }
-                    .map_err(|error| format!("no se pudo crear el stream: {error}"))?;
-                let slot: ResultadoCompartido<String> = Arc::new(std::sync::Mutex::new(None));
-                let slot_cb = slot.clone();
-                let stream_cb = stream.clone();
-                let espera = CapturePreviewCompletedHandler::wait_for_async_operation(
-                    Box::new(move |handler| unsafe {
-                        core.CapturePreview(
-                            COREWEBVIEW2_CAPTURE_PREVIEW_IMAGE_FORMAT_PNG,
-                            &stream,
-                            &handler,
-                        )
-                        .map_err(webview2_com::Error::WindowsError)
-                    }),
-                    Box::new(move |status| {
-                        let resultado = match status {
-                            Ok(()) => leer_stream(&stream_cb).map(|bytes| {
-                                base64::engine::general_purpose::STANDARD.encode(bytes)
-                            }),
-                            Err(error) => Err(format!("CapturePreview falló: {error}")),
-                        };
-                        guardar(&slot_cb, resultado);
-                        Ok(())
-                    }),
-                );
-                if let Err(error) = espera {
-                    guardar(&slot, Err(format!("CapturePreview no inició: {error}")));
-                }
-                Ok(tomar(slot))
-            })();
+            let resultado = vista_previa(core);
             let _ = tx.send(resultado.flatten());
         })
         .map_err(|error| format!("run_on_main_thread falló: {error}"))?;
@@ -181,30 +244,7 @@ mod win {
                     return;
                 }
             };
-            let resultado = (|| {
-                let slot: ResultadoCompartido<String> = Arc::new(std::sync::Mutex::new(None));
-                let slot_cb = slot.clone();
-                let espera = ExecuteScriptCompletedHandler::wait_for_async_operation(
-                    Box::new(move |handler| unsafe {
-                        let js = CoTaskMemPWSTR::from(codigo.as_str());
-                        core.ExecuteScript(*js.as_ref().as_pcwstr(), &handler)
-                            .map_err(webview2_com::Error::WindowsError)
-                    }),
-                    Box::new(move |status, resultado| {
-                        guardar(
-                            &slot_cb,
-                            status
-                                .map(|_| resultado)
-                                .map_err(|error| format!("ExecuteScript falló: {error}")),
-                        );
-                        Ok(())
-                    }),
-                );
-                if let Err(error) = espera {
-                    guardar(&slot, Err(format!("ExecuteScript no inició: {error}")));
-                }
-                Ok(tomar(slot))
-            })();
+            let resultado = invocar_script(core, codigo);
             let _ = tx.send(resultado.flatten());
         })
         .map_err(|error| format!("run_on_main_thread falló: {error}"))?;
@@ -225,35 +265,7 @@ mod win {
                     return;
                 }
             };
-            let resultado = (|| {
-                let slot: ResultadoCompartido<String> = Arc::new(std::sync::Mutex::new(None));
-                let slot_cb = slot.clone();
-                let espera = CallDevToolsProtocolMethodCompletedHandler::wait_for_async_operation(
-                    Box::new(move |handler| unsafe {
-                        let m = CoTaskMemPWSTR::from(metodo.as_str());
-                        let p = CoTaskMemPWSTR::from(params.as_str());
-                        core.CallDevToolsProtocolMethod(
-                            *m.as_ref().as_pcwstr(),
-                            *p.as_ref().as_pcwstr(),
-                            &handler,
-                        )
-                        .map_err(webview2_com::Error::WindowsError)
-                    }),
-                    Box::new(move |status, resultado| {
-                        guardar(
-                            &slot_cb,
-                            status
-                                .map(|_| resultado)
-                                .map_err(|error| format!("CDP falló: {error}")),
-                        );
-                        Ok(())
-                    }),
-                );
-                if let Err(error) = espera {
-                    guardar(&slot, Err(format!("CDP no inició: {error}")));
-                }
-                Ok(tomar(slot))
-            })();
+            let resultado = invocar_cdp(core, metodo, params);
             let _ = tx.send(resultado.flatten());
         })
         .map_err(|error| format!("run_on_main_thread falló: {error}"))?;

@@ -123,7 +123,10 @@ pub(crate) async fn files_listar(
         ruta: relativa(&raiz, &dir),
         entradas,
         truncado,
-        excluidas: EXCLUDED_DIRECTORIES.iter().map(|s| (*s).to_string()).collect(),
+        excluidas: EXCLUDED_DIRECTORIES
+            .iter()
+            .map(|s| (*s).to_string())
+            .collect(),
     }))
 }
 
@@ -141,7 +144,11 @@ pub(crate) async fn files_leer(
     let (_, comun) = sesion_y_comun(&headers, &Method::GET, &state, &id).await?;
     let raiz = raiz_activa(&comun)?;
     let archivo = resolver_existente(&raiz, &ruta, false)?;
-    Ok(Json(leer_archivo_limitado(&raiz, &archivo, MAX_FILE_BYTES)?))
+    Ok(Json(leer_archivo_limitado(
+        &raiz,
+        &archivo,
+        MAX_FILE_BYTES,
+    )?))
 }
 
 /// `GET /api/v1/session/{id}/files/buscar?consulta=…&ruta=…`
@@ -169,7 +176,7 @@ pub(crate) async fn files_buscar(
             .map_err(|e| error_io("listar_no_disponible", e, Some(&directorio)))?
             .collect::<Result<Vec<_>, _>>()
             .map_err(|e| error_io("listar_no_disponible", e, Some(&directorio)))?;
-        hijos.sort_by(|a, b| nombre_de(&a.path()).cmp(&nombre_de(&b.path())));
+        hijos.sort_by_key(|a| nombre_de(&a.path()));
         for hijo in hijos {
             let path = hijo.path();
             let nombre = nombre_de(&path);
@@ -181,10 +188,7 @@ pub(crate) async fn files_buscar(
                     break;
                 }
             }
-            if entrada.tipo == "directorio"
-                && !entrada.ignorado
-                && profundidad < MAX_SEARCH_DEPTH
-            {
+            if entrada.tipo == "directorio" && !entrada.ignorado && profundidad < MAX_SEARCH_DEPTH {
                 pendientes.push((path, profundidad + 1));
             }
         }
@@ -193,12 +197,15 @@ pub(crate) async fn files_buscar(
         }
     }
 
-    entradas.sort_by(|a, b| a.ruta.to_lowercase().cmp(&b.ruta.to_lowercase()));
+    entradas.sort_by_key(|a| a.ruta.to_lowercase());
     Ok(Json(ResultadoBusqueda {
         consulta,
         entradas,
         truncado,
-        excluidas: EXCLUDED_DIRECTORIES.iter().map(|s| (*s).to_string()).collect(),
+        excluidas: EXCLUDED_DIRECTORIES
+            .iter()
+            .map(|s| (*s).to_string())
+            .collect(),
     }))
 }
 
@@ -206,14 +213,21 @@ pub(crate) async fn files_buscar(
 
 /// Resuelve la raíz canónica del workspace activo de la sesión web.
 fn raiz_activa(comun: &SesionComun) -> Result<PathBuf, ApiError> {
-    let workspace = area_activa(comun)?
-        .ok_or_else(|| error("workspace_no_configurado", "elige un workspace antes de explorar archivos"))?;
+    let workspace = area_activa(comun)?.ok_or_else(|| {
+        error(
+            "workspace_no_configurado",
+            "elige un workspace antes de explorar archivos",
+        )
+    })?;
     let raiz = PathBuf::from(workspace.ruta);
     let raiz = raiz
         .canonicalize()
         .map_err(|e| error_io("workspace_invalido", e, Some(&raiz)))?;
     if !raiz.is_dir() {
-        return Err(error("workspace_invalido", "el workspace activo no es una carpeta"));
+        return Err(error(
+            "workspace_invalido",
+            "el workspace activo no es una carpeta",
+        ));
     }
     Ok(raiz)
 }
@@ -230,7 +244,11 @@ fn info_raiz(raiz: &Path) -> WorkspaceInfo {
     }
 }
 
-fn resolver_existente(raiz: &Path, ruta: &str, debe_ser_directorio: bool) -> Result<PathBuf, ApiError> {
+fn resolver_existente(
+    raiz: &Path,
+    ruta: &str,
+    debe_ser_directorio: bool,
+) -> Result<PathBuf, ApiError> {
     let ruta = ruta.trim();
     let path = Path::new(ruta);
     if path.is_absolute() || path.components().any(|c| matches!(c, Component::ParentDir)) {
@@ -242,7 +260,11 @@ fn resolver_existente(raiz: &Path, ruta: &str, debe_ser_directorio: bool) -> Res
     let raiz = raiz
         .canonicalize()
         .map_err(|e| error_io("workspace_invalido", e, Some(raiz)))?;
-    let objetivo = if ruta.is_empty() { raiz.clone() } else { raiz.join(path) };
+    let objetivo = if ruta.is_empty() {
+        raiz.clone()
+    } else {
+        raiz.join(path)
+    };
     let canon = objetivo.canonicalize().map_err(|e| {
         if e.kind() == std::io::ErrorKind::NotFound {
             error("ruta_no_encontrada", "la ruta no existe")
@@ -251,7 +273,10 @@ fn resolver_existente(raiz: &Path, ruta: &str, debe_ser_directorio: bool) -> Res
         }
     })?;
     if !canon.starts_with(&raiz) {
-        return Err(error("ruta_fuera_workspace", "la ruta queda fuera del workspace activo"));
+        return Err(error(
+            "ruta_fuera_workspace",
+            "la ruta queda fuera del workspace activo",
+        ));
     }
     if debe_ser_directorio && !canon.is_dir() {
         return Err(error("no_es_directorio", "la ruta no es una carpeta"));
@@ -287,8 +312,8 @@ fn listar_directorio(
 }
 
 fn entrada_workspace(raiz: &Path, path: &Path) -> Result<EntradaWorkspace, ApiError> {
-    let enlace = fs::symlink_metadata(path)
-        .map_err(|e| error_io("entrada_no_disponible", e, Some(path)))?;
+    let enlace =
+        fs::symlink_metadata(path).map_err(|e| error_io("entrada_no_disponible", e, Some(path)))?;
     let es_enlace = enlace.file_type().is_symlink();
     let metadata = fs::metadata(path).ok();
     let directorio = metadata.as_ref().is_some_and(|m| m.is_dir());
@@ -317,7 +342,11 @@ fn entrada_workspace(raiz: &Path, path: &Path) -> Result<EntradaWorkspace, ApiEr
     })
 }
 
-fn leer_archivo_limitado(raiz: &Path, archivo: &Path, limite_bytes: u64) -> Result<ArchivoLeidoWeb, ApiError> {
+fn leer_archivo_limitado(
+    raiz: &Path,
+    archivo: &Path,
+    limite_bytes: u64,
+) -> Result<ArchivoLeidoWeb, ApiError> {
     let limite = limite_bytes.clamp(1, MAX_FILE_BYTES);
     let tamano = fs::metadata(archivo)
         .map_err(|e| error_io("lectura_no_disponible", e, Some(archivo)))?
@@ -356,13 +385,19 @@ fn nombre_de(path: &Path) -> String {
 }
 
 fn es_excluida(path: &Path) -> bool {
-    EXCLUDED_DIRECTORIES.iter().any(|nombre| nombre_de(path) == *nombre)
+    EXCLUDED_DIRECTORIES
+        .iter()
+        .any(|nombre| nombre_de(path) == *nombre)
 }
 
 fn comparar_entradas(a: &Path, b: &Path) -> Ordering {
     let a_dir = fs::metadata(a).map(|m| m.is_dir()).unwrap_or(false);
     let b_dir = fs::metadata(b).map(|m| m.is_dir()).unwrap_or(false);
-    b_dir.cmp(&a_dir).then_with(|| nombre_de(a).to_lowercase().cmp(&nombre_de(b).to_lowercase()))
+    b_dir.cmp(&a_dir).then_with(|| {
+        nombre_de(a)
+            .to_lowercase()
+            .cmp(&nombre_de(b).to_lowercase())
+    })
 }
 
 fn error_io(codigo: &str, io: std::io::Error, ruta: Option<&Path>) -> ApiError {

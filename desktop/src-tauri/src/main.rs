@@ -32,9 +32,9 @@ use tauri::{AppHandle, Emitter, Manager, State};
 use uuid::Uuid;
 
 mod archivo;
+mod conversaciones;
 mod filesystem;
 mod git;
-mod conversaciones;
 mod navegador;
 mod sesion;
 mod turno;

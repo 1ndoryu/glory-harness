@@ -12,7 +12,7 @@ use std::fs;
 use std::path::{Component, Path, PathBuf};
 use tauri::State;
 use windows::core::PCWSTR;
-use windows::Win32::UI::Shell::{SHOpenWithDialog, OPENASINFO, OAIF_EXEC};
+use windows::Win32::UI::Shell::{SHOpenWithDialog, OAIF_EXEC, OPENASINFO};
 
 use super::{area_activa, sesion_actual, Estado, Sesion};
 
@@ -96,7 +96,10 @@ pub(crate) fn workspace_listar_entrada(
         ruta: relativa(&raiz, &dir),
         entradas,
         truncado,
-        excluidas: EXCLUDED_DIRECTORIES.iter().map(|s| (*s).to_string()).collect(),
+        excluidas: EXCLUDED_DIRECTORIES
+            .iter()
+            .map(|s| (*s).to_string())
+            .collect(),
     })
 }
 
@@ -120,7 +123,11 @@ pub(crate) fn workspace_abrir_con(
     let sesion = sesion_actual(&estado).map_err(|e| ErrorFilesystem::new("sesion", e, None))?;
     let raiz = raiz_activa(&sesion)?;
     let archivo = resolver_existente(&raiz, &ruta_relativa, false)?;
-    let ruta = archivo.to_string_lossy().encode_utf16().chain(std::iter::once(0)).collect::<Vec<_>>();
+    let ruta = archivo
+        .to_string_lossy()
+        .encode_utf16()
+        .chain(std::iter::once(0))
+        .collect::<Vec<_>>();
     let info = OPENASINFO {
         pcszFile: PCWSTR(ruta.as_ptr()),
         pcszClass: PCWSTR::null(),
@@ -139,7 +146,11 @@ pub(crate) fn workspace_buscar(
 ) -> Result<ResultadoBusqueda, ErrorFilesystem> {
     let consulta = consulta.trim().to_string();
     if consulta.is_empty() {
-        return Err(ErrorFilesystem::new("consulta_vacia", "la consulta es obligatoria", None));
+        return Err(ErrorFilesystem::new(
+            "consulta_vacia",
+            "la consulta es obligatoria",
+            None,
+        ));
     }
     let sesion = sesion_actual(&estado).map_err(|e| ErrorFilesystem::new("sesion", e, None))?;
     let raiz = raiz_activa(&sesion)?;
@@ -155,7 +166,7 @@ pub(crate) fn workspace_buscar(
             .map_err(|e| error_io("listar_no_disponible", e, Some(&directorio)))?
             .collect::<Result<Vec<_>, _>>()
             .map_err(|e| error_io("listar_no_disponible", e, Some(&directorio)))?;
-        hijos.sort_by(|a, b| nombre_de(&a.path()).cmp(&nombre_de(&b.path())));
+        hijos.sort_by_key(|a| nombre_de(&a.path()));
         for hijo in hijos {
             let path = hijo.path();
             let nombre = nombre_de(&path);
@@ -167,10 +178,7 @@ pub(crate) fn workspace_buscar(
                     break;
                 }
             }
-            if entrada.tipo == "directorio"
-                && !entrada.ignorado
-                && profundidad < MAX_SEARCH_DEPTH
-            {
+            if entrada.tipo == "directorio" && !entrada.ignorado && profundidad < MAX_SEARCH_DEPTH {
                 pendientes.push((path, profundidad + 1));
             }
         }
@@ -179,12 +187,15 @@ pub(crate) fn workspace_buscar(
         }
     }
 
-    entradas.sort_by(|a, b| a.ruta.to_lowercase().cmp(&b.ruta.to_lowercase()));
+    entradas.sort_by_key(|a| a.ruta.to_lowercase());
     Ok(ResultadoBusqueda {
         consulta,
         entradas,
         truncado,
-        excluidas: EXCLUDED_DIRECTORIES.iter().map(|s| (*s).to_string()).collect(),
+        excluidas: EXCLUDED_DIRECTORIES
+            .iter()
+            .map(|s| (*s).to_string())
+            .collect(),
     })
 }
 
@@ -224,7 +235,11 @@ fn info_raiz(raiz: &Path) -> WorkspaceInfo {
     }
 }
 
-fn resolver_existente(raiz: &Path, ruta: &str, debe_ser_directorio: bool) -> Result<PathBuf, ErrorFilesystem> {
+fn resolver_existente(
+    raiz: &Path,
+    ruta: &str,
+    debe_ser_directorio: bool,
+) -> Result<PathBuf, ErrorFilesystem> {
     let ruta = ruta.trim();
     let path = Path::new(ruta);
     if path.is_absolute() || path.components().any(|c| matches!(c, Component::ParentDir)) {
@@ -234,17 +249,21 @@ fn resolver_existente(raiz: &Path, ruta: &str, debe_ser_directorio: bool) -> Res
             Some(path),
         ));
     }
-    let raiz = raiz.canonicalize().map_err(|e| error_io("workspace_invalido", e, Some(raiz)))?;
-    let objetivo = if ruta.is_empty() { raiz.clone() } else { raiz.join(path) };
-    let canon = objetivo
+    let raiz = raiz
         .canonicalize()
-        .map_err(|e| {
-            if e.kind() == std::io::ErrorKind::NotFound {
-                ErrorFilesystem::new("ruta_no_encontrada", "la ruta no existe", Some(path))
-            } else {
-                error_io("ruta_no_disponible", e, Some(path))
-            }
-        })?;
+        .map_err(|e| error_io("workspace_invalido", e, Some(raiz)))?;
+    let objetivo = if ruta.is_empty() {
+        raiz.clone()
+    } else {
+        raiz.join(path)
+    };
+    let canon = objetivo.canonicalize().map_err(|e| {
+        if e.kind() == std::io::ErrorKind::NotFound {
+            ErrorFilesystem::new("ruta_no_encontrada", "la ruta no existe", Some(path))
+        } else {
+            error_io("ruta_no_disponible", e, Some(path))
+        }
+    })?;
     if !canon.starts_with(raiz) {
         return Err(ErrorFilesystem::new(
             "ruta_fuera_workspace",
@@ -253,10 +272,18 @@ fn resolver_existente(raiz: &Path, ruta: &str, debe_ser_directorio: bool) -> Res
         ));
     }
     if debe_ser_directorio && !canon.is_dir() {
-        return Err(ErrorFilesystem::new("no_es_directorio", "la ruta no es una carpeta", Some(path)));
+        return Err(ErrorFilesystem::new(
+            "no_es_directorio",
+            "la ruta no es una carpeta",
+            Some(path),
+        ));
     }
     if !debe_ser_directorio && canon.is_dir() {
-        return Err(ErrorFilesystem::new("no_es_archivo", "la ruta es una carpeta", Some(path)));
+        return Err(ErrorFilesystem::new(
+            "no_es_archivo",
+            "la ruta es una carpeta",
+            Some(path),
+        ));
     }
     Ok(canon)
 }
@@ -286,8 +313,8 @@ fn listar_directorio(
 }
 
 fn entrada_workspace(raiz: &Path, path: &Path) -> Result<EntradaWorkspace, ErrorFilesystem> {
-    let enlace = fs::symlink_metadata(path)
-        .map_err(|e| error_io("entrada_no_disponible", e, Some(path)))?;
+    let enlace =
+        fs::symlink_metadata(path).map_err(|e| error_io("entrada_no_disponible", e, Some(path)))?;
     let es_enlace = enlace.file_type().is_symlink();
     let metadata = fs::metadata(path).ok();
     let directorio = metadata.as_ref().is_some_and(|m| m.is_dir());
@@ -334,7 +361,11 @@ fn leer_archivo_limitado(
     }
     let contenido = fs::read_to_string(archivo).map_err(|e| {
         if e.kind() == std::io::ErrorKind::InvalidData {
-            ErrorFilesystem::new("archivo_binario", "el archivo no es texto UTF-8", Some(archivo))
+            ErrorFilesystem::new(
+                "archivo_binario",
+                "el archivo no es texto UTF-8",
+                Some(archivo),
+            )
         } else {
             error_io("lectura_no_disponible", e, Some(archivo))
         }
@@ -360,13 +391,19 @@ fn nombre_de(path: &Path) -> String {
 }
 
 fn es_excluida(path: &Path) -> bool {
-    EXCLUDED_DIRECTORIES.iter().any(|nombre| nombre_de(path) == *nombre)
+    EXCLUDED_DIRECTORIES
+        .iter()
+        .any(|nombre| nombre_de(path) == *nombre)
 }
 
 fn comparar_entradas(a: &Path, b: &Path) -> Ordering {
     let a_dir = fs::metadata(a).map(|m| m.is_dir()).unwrap_or(false);
     let b_dir = fs::metadata(b).map(|m| m.is_dir()).unwrap_or(false);
-    b_dir.cmp(&a_dir).then_with(|| nombre_de(a).to_lowercase().cmp(&nombre_de(b).to_lowercase()))
+    b_dir.cmp(&a_dir).then_with(|| {
+        nombre_de(a)
+            .to_lowercase()
+            .cmp(&nombre_de(b).to_lowercase())
+    })
 }
 
 fn error_io(codigo: &str, error: std::io::Error, ruta: Option<&Path>) -> ErrorFilesystem {
@@ -384,7 +421,8 @@ mod tests {
     use std::io::Write;
 
     fn fixture() -> (PathBuf, PathBuf) {
-        let raiz = std::env::temp_dir().join(format!("glory-harness-files-{}", uuid::Uuid::new_v4()));
+        let raiz =
+            std::env::temp_dir().join(format!("glory-harness-files-{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(raiz.join("src")).unwrap();
         let mut archivo = fs::File::create(raiz.join("src/main.rs")).unwrap();
         writeln!(archivo, "fn main() {{}}\n").unwrap();
@@ -395,8 +433,18 @@ mod tests {
     #[test]
     fn rechaza_escape_y_absoluta() {
         let (raiz, _) = fixture();
-        assert_eq!(resolver_existente(&raiz, "../secreto", false).unwrap_err().codigo, "ruta_fuera_workspace");
-        assert_eq!(resolver_existente(&raiz, &std::env::temp_dir().to_string_lossy(), true).unwrap_err().codigo, "ruta_fuera_workspace");
+        assert_eq!(
+            resolver_existente(&raiz, "../secreto", false)
+                .unwrap_err()
+                .codigo,
+            "ruta_fuera_workspace"
+        );
+        assert_eq!(
+            resolver_existente(&raiz, &std::env::temp_dir().to_string_lossy(), true)
+                .unwrap_err()
+                .codigo,
+            "ruta_fuera_workspace"
+        );
         fs::remove_dir_all(raiz).unwrap();
     }
 
@@ -414,12 +462,26 @@ mod tests {
     #[test]
     fn informa_archivo_grande_y_binario() {
         let (raiz, _) = fixture();
-        fs::write(raiz.join("grande.txt"), vec![b'x'; (MAX_FILE_BYTES + 1) as usize]).unwrap();
+        fs::write(
+            raiz.join("grande.txt"),
+            vec![b'x'; (MAX_FILE_BYTES + 1) as usize],
+        )
+        .unwrap();
         fs::write(raiz.join("dato.bin"), [0, 159, 146, 150]).unwrap();
         let grande = resolver_existente(&raiz, "grande.txt", false).unwrap();
         let binario = resolver_existente(&raiz, "dato.bin", false).unwrap();
-        assert_eq!(leer_archivo_limitado(&raiz, &grande, MAX_FILE_BYTES).unwrap_err().codigo, "archivo_demasiado_grande");
-        assert_eq!(leer_archivo_limitado(&raiz, &binario, MAX_FILE_BYTES).unwrap_err().codigo, "archivo_binario");
+        assert_eq!(
+            leer_archivo_limitado(&raiz, &grande, MAX_FILE_BYTES)
+                .unwrap_err()
+                .codigo,
+            "archivo_demasiado_grande"
+        );
+        assert_eq!(
+            leer_archivo_limitado(&raiz, &binario, MAX_FILE_BYTES)
+                .unwrap_err()
+                .codigo,
+            "archivo_binario"
+        );
         fs::remove_dir_all(raiz).unwrap();
     }
 }

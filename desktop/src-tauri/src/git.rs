@@ -47,9 +47,7 @@ struct ResultadoProceso {
 }
 
 #[tauri::command]
-pub(crate) async fn workspace_git_estado(
-    estado: State<'_, Estado>,
-) -> Result<EstadoGit, ErrorGit> {
+pub(crate) async fn workspace_git_estado(estado: State<'_, Estado>) -> Result<EstadoGit, ErrorGit> {
     let sesion = sesion_actual(&estado).map_err(|mensaje| ErrorGit {
         codigo: "sesion".to_string(),
         mensaje,
@@ -58,7 +56,8 @@ pub(crate) async fn workspace_git_estado(
     let status = ejecutar_git(&raiz, &["status", "--porcelain=v1", "-z"]).await?;
     if status.codigo != Some(0) {
         let mensaje = texto(&status.error);
-        if mensaje.contains("not a git repository") || mensaje.contains("no es un repositorio git") {
+        if mensaje.contains("not a git repository") || mensaje.contains("no es un repositorio git")
+        {
             return Ok(EstadoGit {
                 aplicable: false,
                 raiz: Some(raiz.to_string_lossy().replace('\\', "/")),
@@ -70,7 +69,11 @@ pub(crate) async fn workspace_git_estado(
         }
         return Err(ErrorGit {
             codigo: "git_status_fallo".to_string(),
-            mensaje: if mensaje.is_empty() { "git status falló".to_string() } else { mensaje },
+            mensaje: if mensaje.is_empty() {
+                "git status falló".to_string()
+            } else {
+                mensaje
+            },
         });
     }
 
@@ -93,13 +96,15 @@ pub(crate) async fn workspace_git_estado(
 }
 
 fn raiz_activa(sesion: &Sesion) -> Result<std::path::PathBuf, ErrorGit> {
-    let workspace = area_activa(sesion).map_err(|mensaje| ErrorGit {
-        codigo: "workspace_invalido".to_string(),
-        mensaje,
-    })?.ok_or_else(|| ErrorGit {
-        codigo: "workspace_no_configurado".to_string(),
-        mensaje: "elige un workspace antes de consultar Git".to_string(),
-    })?;
+    let workspace = area_activa(sesion)
+        .map_err(|mensaje| ErrorGit {
+            codigo: "workspace_invalido".to_string(),
+            mensaje,
+        })?
+        .ok_or_else(|| ErrorGit {
+            codigo: "workspace_no_configurado".to_string(),
+            mensaje: "elige un workspace antes de consultar Git".to_string(),
+        })?;
     let raiz = std::path::PathBuf::from(workspace.ruta);
     let canon = raiz.canonicalize().map_err(|e| ErrorGit {
         codigo: "workspace_invalido".to_string(),
@@ -138,7 +143,8 @@ async fn ejecutar_git(raiz: &Path, argumentos: &[&str]) -> Result<ResultadoProce
     })?;
 
     let resultado = tokio::time::timeout(GIT_TIMEOUT, async {
-        let (salida, error, estado) = tokio::join!(leer_limitado(salida), leer_limitado(error), proceso.wait());
+        let (salida, error, estado) =
+            tokio::join!(leer_limitado(salida), leer_limitado(error), proceso.wait());
         let estado = estado.map_err(|e| ErrorGit {
             codigo: "git_espera_fallo".to_string(),
             mensaje: e.to_string(),
@@ -184,7 +190,10 @@ async fn leer_limitado<R: AsyncRead + Unpin>(mut lector: R) -> (Vec<u8>, bool) {
 
 fn parsear_status(bytes: &[u8]) -> Vec<EntradaGit> {
     let mut entradas = Vec::new();
-    for registro in bytes.split(|byte| *byte == 0).filter(|registro| !registro.is_empty()) {
+    for registro in bytes
+        .split(|byte| *byte == 0)
+        .filter(|registro| !registro.is_empty())
+    {
         if registro.len() < 4 {
             continue;
         }

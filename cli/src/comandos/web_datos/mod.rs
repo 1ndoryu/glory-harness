@@ -2,7 +2,7 @@
 //!
 //! Partición de web_datos.rs (995 líneas) por dominio. Re-exporta los
 //! handlers para que comandos::web siga usando web_datos::X sin cambios.
-//! Helpers compartidos (sesion_y_comun, 	urno_en_curso, rea_activa).
+//! Helpers compartidos (sesion_y_comun, turno_en_curso, area_activa).
 
 mod areas;
 mod configuracion;

@@ -8,9 +8,7 @@ use crate::{
 use serde_json::Value;
 
 /// [079A-1 F2] Extrae un argumento string (auxiliar de `ejecutar` para el
-
 /// límite de 100 líneas efectivas del gate).
-
 pub(crate) fn arg_str<'a>(argumentos: &'a Value, clave: &str, operacion: &str) -> Result<&'a str> {
     argumentos
         .get(clave)
@@ -19,12 +17,9 @@ pub(crate) fn arg_str<'a>(argumentos: &'a Value, clave: &str, operacion: &str) -
 }
 
 /// [079A-1 F2] Familia `js`/`cdp`: ejecuta script o comando CDP.
-
 pub(crate) async fn op_script(
     navegador: &dyn NavegadorPort,
-
     operacion: &str,
-
     argumentos: &Value,
 ) -> Result<AgentToolResult> {
     if operacion == "js" {
@@ -45,12 +40,9 @@ pub(crate) async fn op_script(
 }
 
 /// [079A-1 F2] Familia DOM (`click`/`rellenar`/`snapshot`).
-
 pub(crate) async fn op_dom(
     navegador: &dyn NavegadorPort,
-
     operacion: &str,
-
     argumentos: &Value,
 ) -> Result<AgentToolResult> {
     let selector = arg_str(argumentos, "selector", operacion)?;
@@ -82,9 +74,7 @@ pub(crate) async fn op_dom(
 }
 
 /// [079A-1 F2] `capturar`: captura + evento ToolNavegador con la imagen
-
 /// base64 para que el front la muestre en el panel.
-
 pub(crate) async fn op_capturar(navegador: &dyn NavegadorPort) -> Result<AgentToolResult> {
     let base64_str = navegador.capturar().await?;
 

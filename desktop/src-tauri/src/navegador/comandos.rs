@@ -87,7 +87,8 @@ pub async fn navegador_navegar(app: AppHandle, url: String) -> Result<(), String
 
 /// Cierra la webview hija.
 #[tauri::command]
-pub async fn navegador_cerrar(app: AppHandle) -> Result<(), String> {    let estado_lock = app
+pub async fn navegador_cerrar(app: AppHandle) -> Result<(), String> {
+    let estado_lock = app
         .try_state::<std::sync::Mutex<EstadoNavegador>>()
         .ok_or_else(|| "navegador no disponible".to_string())?;
     let mut estado = estado_lock

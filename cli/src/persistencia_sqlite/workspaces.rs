@@ -28,7 +28,12 @@ impl PersistenciaSqlite {
     /// valida); el UNIQUE sobre `ruta` garantiza una sola área por carpeta.
     /// Falla con error claro si ya existe un área con esa ruta (el llamador
     /// decide si renombra/activa la existente vía `workspace_por_ruta`).
-    pub fn workspace_crear(&self, user_id: Uuid, nombre: &str, ruta: &str) -> HarnessResult<Workspace> {
+    pub fn workspace_crear(
+        &self,
+        user_id: Uuid,
+        nombre: &str,
+        ruta: &str,
+    ) -> HarnessResult<Workspace> {
         let id = Uuid::new_v4();
         let ahora = ahora_rfc3339();
         bloquear(&self.conn)
@@ -69,7 +74,10 @@ impl PersistenciaSqlite {
             .execute(
                 "UPDATE conversaciones SET workspace_id = ?1
                  WHERE user_id = ?2 AND workspace_id IS NULL",
-                params![id.as_hyphenated().to_string(), user_id.as_hyphenated().to_string()],
+                params![
+                    id.as_hyphenated().to_string(),
+                    user_id.as_hyphenated().to_string()
+                ],
             )
             .map_err(|e| Error::Persistencia(e.to_string()))?;
         Ok(n)
@@ -109,7 +117,11 @@ impl PersistenciaSqlite {
     }
 
     /// Área del usuario con esa ruta exacta (`None` si no existe).
-    pub fn workspace_por_ruta(&self, user_id: Uuid, ruta: &str) -> HarnessResult<Option<Workspace>> {
+    pub fn workspace_por_ruta(
+        &self,
+        user_id: Uuid,
+        ruta: &str,
+    ) -> HarnessResult<Option<Workspace>> {
         let conn = bloquear(&self.conn);
         let fila = conn
             .query_row(
@@ -145,7 +157,10 @@ impl PersistenciaSqlite {
             .query_row(
                 "SELECT id, nombre, ruta, creada_en FROM workspaces
                  WHERE user_id = ?1 AND id = ?2",
-                params![user_id.as_hyphenated().to_string(), id.as_hyphenated().to_string()],
+                params![
+                    user_id.as_hyphenated().to_string(),
+                    id.as_hyphenated().to_string()
+                ],
                 |f| {
                     Ok((
                         f.get::<_, String>(0)?,
@@ -169,7 +184,12 @@ impl PersistenciaSqlite {
     }
 
     /// Renombra un área propia. Devuelve `false` si no existe.
-    pub fn workspace_renombrar(&self, user_id: Uuid, id: Uuid, nombre: &str) -> HarnessResult<bool> {
+    pub fn workspace_renombrar(
+        &self,
+        user_id: Uuid,
+        id: Uuid,
+        nombre: &str,
+    ) -> HarnessResult<bool> {
         let n = bloquear(&self.conn)
             .execute(
                 "UPDATE workspaces SET nombre = ?1 WHERE id = ?2 AND user_id = ?3",
@@ -191,7 +211,10 @@ impl PersistenciaSqlite {
         let existe: bool = conn
             .query_row(
                 "SELECT 1 FROM workspaces WHERE id = ?1 AND user_id = ?2",
-                params![id.as_hyphenated().to_string(), user_id.as_hyphenated().to_string()],
+                params![
+                    id.as_hyphenated().to_string(),
+                    user_id.as_hyphenated().to_string()
+                ],
                 |_| Ok(true),
             )
             .optional()
@@ -207,7 +230,10 @@ impl PersistenciaSqlite {
         .map_err(|e| Error::Persistencia(e.to_string()))?;
         conn.execute(
             "DELETE FROM workspaces WHERE id = ?1 AND user_id = ?2",
-            params![id.as_hyphenated().to_string(), user_id.as_hyphenated().to_string()],
+            params![
+                id.as_hyphenated().to_string(),
+                user_id.as_hyphenated().to_string()
+            ],
         )
         .map_err(|e| Error::Persistencia(e.to_string()))?;
         Ok(true)
@@ -217,7 +243,6 @@ impl PersistenciaSqlite {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use glory_harness_core::AgentPersistence;
 
     #[test]
     fn crud_workspaces_y_ruta_unica() {
@@ -280,9 +305,7 @@ mod tests {
         // La conversación por defecto nace sin área; se asigna explícitamente.
         p.conversacion_asignar_workspace(user, conv, Some(w1.id))
             .expect("asignar ws");
-        assert!(p
-            .workspace_eliminar(user, w1.id)
-            .expect("eliminar A"));
+        assert!(p.workspace_eliminar(user, w1.id).expect("eliminar A"));
         let por_id_ahora = p.workspace_por_id(user, w1.id).expect("por id");
         assert!(por_id_ahora.is_none());
         // La conversación sigue, ahora sin área.
@@ -296,7 +319,9 @@ mod tests {
         // El área B sigue intacta.
         assert_eq!(p.workspaces_listar(user).expect("listar").len(), 1);
         // Eliminar inexistente → false.
-        assert!(!p.workspace_eliminar(user, Uuid::new_v4()).expect("eliminar fake"));
+        assert!(!p
+            .workspace_eliminar(user, Uuid::new_v4())
+            .expect("eliminar fake"));
 
         // Adoptar legacy: al crear la PRIMERA área del usuario, las
         // conversaciones sin área pasan a esa área (no "desaparecen").

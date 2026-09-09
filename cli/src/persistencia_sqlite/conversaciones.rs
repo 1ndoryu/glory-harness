@@ -6,7 +6,6 @@ use rusqlite::{params, OptionalExtension};
 use uuid::Uuid;
 
 use glory_harness_core::error::Error;
-use glory_harness_core::ports::{AccionAuditable, MensajePersistido, TurnoPersistido};
 use glory_harness_core::HarnessResult;
 
 use super::{
@@ -148,7 +147,7 @@ impl PersistenciaSqlite {
                 titulo,
                 archivada: archivada != 0,
                 actualizada_en: a_fecha(actualizada)?,
-                workspace_id: workspace_id.map(|s| a_uuid(s)).transpose()?,
+                workspace_id: workspace_id.map(a_uuid).transpose()?,
                 workspace_nombre,
             });
         }
@@ -512,6 +511,7 @@ impl PersistenciaSqlite {
 mod tests {
     use super::*;
     use chrono::Utc;
+    use glory_harness_core::ports::{AccionAuditable, MensajePersistido, TurnoPersistido};
     use glory_harness_core::AgentPersistence;
     use std::path::PathBuf;
 

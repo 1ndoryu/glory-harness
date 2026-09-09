@@ -62,7 +62,7 @@ pub struct ProveedorConteo {
 }
 
 /// Configuración externa para abrir una sesión.
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct OpcionesSesion {
     pub provider: Option<String>,
     pub modelo: Option<String>,
@@ -73,20 +73,6 @@ pub struct OpcionesSesion {
     /// [069A-1 F5] Puerto del navegador interno. `None` → la tool no se
     /// registra (fail-closed). Solo el escritorio inyecta un valor real.
     pub navegador: Option<Arc<dyn NavegadorPort>>,
-}
-
-impl Default for OpcionesSesion {
-    fn default() -> Self {
-        Self {
-            provider: None,
-            modelo: None,
-            dir: None,
-            modo: None,
-            razonamiento: None,
-            nueva_conversacion: false,
-            navegador: None,
-        }
-    }
 }
 
 impl std::fmt::Debug for OpcionesSesion {

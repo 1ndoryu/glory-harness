@@ -117,10 +117,12 @@ pub(crate) async fn listar_workspaces(
 
 /// [069A-Proyectos] Crea/activa un proyecto sobre la carpeta actual:
 /// 1) valida la ruta absoluta + directorio; 2) si ya hay un área con esa
-/// carpeta, la reutiliza renombrándola (idempotente); si no, crea la fila y,
-/// al ser la PRIMERA área del usuario, adopta las conversaciones sin área
-/// (legacy) para que no desaparezcan del sidebar; 3) activa la carpeta como
-/// workspace de la sesión (config + runtime) y la deja como actual.
+///    carpeta, la reutiliza renombrándola (idempotente); si no, crea la fila
+///    y, al ser la PRIMERA área del usuario, adopta las conversaciones sin
+///    área (legacy) para que no desaparezcan del sidebar; 3) activa la
+///    carpeta como workspace de la sesión (config + runtime) y la deja como
+///    actual.
+///
 /// `POST /api/v1/workspaces` — 409 con turno en curso.
 pub(crate) async fn crear_workspace(
     State(state): State<Arc<AppState>>,

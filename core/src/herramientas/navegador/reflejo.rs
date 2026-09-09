@@ -2,7 +2,6 @@
 
 use crate::{
     error::{Error, Result},
-    ports::NavegadorPort,
     tool::{AgentTool, AgentToolContext, AgentToolResult},
 };
 use async_trait::async_trait;
@@ -17,11 +16,8 @@ use super::operaciones::{arg_str, op_capturar, op_dom, op_script};
 // ---------------------------------------------------------------------------
 
 /// Tool que expone operaciones del navegador interno al agente.
-
 /// Usa un sub-campo `operacion` para distinguir la acción.
-
 /// `navegador_abrir_url`, `navegador_ejecutar_js`, `navegador_capturar`, etc.
-
 pub struct ToolNavegadorReflejo;
 
 #[async_trait]
@@ -33,34 +29,20 @@ impl AgentTool for ToolNavegadorReflejo {
 
     fn descripcion(&self) -> &str {
         "Controla el navegador interno (webview hija) para navegar, capturar, hacer \
-
-         clic, rellenar formularios y ejecutar JavaScript.\n\n\
-
-         OPERACIONES:\n\
-
-         - `abrir`: Abre el navegador en una URL (ancho/alto opcionales).\n\
-
-         - `navegar`: Navega la webview a una URL.\n\
-
-         - `capturar`: Toma una captura PNG de la webview (devuelve Base64).\n\
-
-         - `js`: Ejecuta JavaScript en la webview y devuelve el resultado.\n\
-
-         - `cdp`: Invoca un método del DevTools Protocol.\n\
-
-         - `click`: Hace clic en el primer elemento que coincide con un selector CSS.\n\
-
-         - `rellenar`: Rellena un campo de formulario (selector + valor).\n\
-
-         - `snapshot`: Toma un snapshot parcial del DOM.\n\
-
-         - `cerrar`: Cierra el navegador.\n\n\
-
-         LIMITACIONES: sin navegador abierto o sin puerto configurado → error claro,\n\
-
-         nunca éxito falso. El tamaño de código JS está limitado a 128 KB.\n\
-
-         La captura puede fallar en plataformas sin WebView2."
+        clic, rellenar formularios y ejecutar JavaScript.\n\n\
+        OPERACIONES:\n\
+        - `abrir`: Abre el navegador en una URL (ancho/alto opcionales).\n\
+        - `navegar`: Navega la webview a una URL.\n\
+        - `capturar`: Toma una captura PNG de la webview (devuelve Base64).\n\
+        - `js`: Ejecuta JavaScript en la webview y devuelve el resultado.\n\
+        - `cdp`: Invoca un método del DevTools Protocol.\n\
+        - `click`: Hace clic en el primer elemento que coincide con un selector CSS.\n\
+        - `rellenar`: Rellena un campo de formulario (selector + valor).\n\
+        - `snapshot`: Toma un snapshot parcial del DOM.\n\
+        - `cerrar`: Cierra el navegador.\n\n\
+        LIMITACIONES: sin navegador abierto o sin puerto configurado → error claro,\n\
+        nunca éxito falso. El tamaño de código JS está limitado a 128 KB.\n\
+        La captura puede fallar en plataformas sin WebView2."
     }
 
     fn schema(&self) -> Value {
@@ -227,8 +209,7 @@ impl AgentTool for ToolNavegadorReflejo {
 
             _ => Err(Error::Argumentos(format!(
                 "operación '{operacion}' no soportada. Válidas: abrir, navegar, capturar, \
-
-                 js, cdp, click, rellenar, snapshot, cerrar"
+                js, cdp, click, rellenar, snapshot, cerrar"
             ))),
         }
     }

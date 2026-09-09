@@ -59,7 +59,8 @@ pub(crate) async fn git_estado(
     let status = ejecutar_git(&raiz, &["status", "--porcelain=v1", "-z"]).await?;
     if status.codigo != Some(0) {
         let mensaje = texto(&status.error);
-        if mensaje.contains("not a git repository") || mensaje.contains("no es un repositorio git") {
+        if mensaje.contains("not a git repository") || mensaje.contains("no es un repositorio git")
+        {
             return Ok(Json(EstadoGit {
                 aplicable: false,
                 raiz: Some(raiz.to_string_lossy().replace('\\', "/")),
@@ -95,12 +96,21 @@ pub(crate) async fn git_estado(
 }
 
 fn raiz_activa(comun: &SesionComun) -> Result<std::path::PathBuf, ApiError> {
-    let workspace = area_activa(comun)?
-        .ok_or_else(|| error("workspace_no_configurado", "elige un workspace antes de consultar Git"))?;
+    let workspace = area_activa(comun)?.ok_or_else(|| {
+        error(
+            "workspace_no_configurado",
+            "elige un workspace antes de consultar Git",
+        )
+    })?;
     let raiz = std::path::PathBuf::from(workspace.ruta);
-    let canon = raiz.canonicalize().map_err(|e| error("workspace_invalido", e.to_string()))?;
+    let canon = raiz
+        .canonicalize()
+        .map_err(|e| error("workspace_invalido", e.to_string()))?;
     if !canon.is_dir() {
-        return Err(error("workspace_invalido", "el workspace activo no es una carpeta"));
+        return Err(error(
+            "workspace_invalido",
+            "el workspace activo no es una carpeta",
+        ));
     }
     Ok(canon)
 }
@@ -172,7 +182,10 @@ async fn leer_limitado<R: AsyncRead + Unpin>(mut lector: R) -> (Vec<u8>, bool) {
 
 fn parsear_status(bytes: &[u8]) -> Vec<EntradaGit> {
     let mut entradas = Vec::new();
-    for registro in bytes.split(|byte| *byte == 0).filter(|registro| !registro.is_empty()) {
+    for registro in bytes
+        .split(|byte| *byte == 0)
+        .filter(|registro| !registro.is_empty())
+    {
         if registro.len() < 4 {
             continue;
         }

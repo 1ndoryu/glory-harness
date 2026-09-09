@@ -628,8 +628,10 @@ pub(crate) mod tests {
     /// [069A-7] Representa una sesión que YA tiene una conversación anclada
     /// (la que el servicio auto-creó al abrir, conservada como actual):
     /// los tests de turnos/CRUD existentes envían sin `conversacion_id` y
-    /// dependen de que la sesión tenga una. Para el estado "borrador sin
-    /// conversación" (create-on-write) usar `sesion_memoria_borrador`.
+    /// dependen de que la sesión tenga una. El estado "borrador sin
+    /// conversación" (create-on-write) se cubre descartando la conversación
+    /// auto-creada tras abrir, igual que hace el arranque real con lista
+    /// vacía (antes en `sesion_memoria_borrador`, eliminada por no usarse).
     pub(crate) async fn sesion_memoria(state: &Arc<AppState>) -> (String, Arc<SesionWeb>) {
         let persist = crate::PersistenciaSqlite::en_memoria().expect("bd memoria");
         let (comun, apertura) = crate::servicio::SesionComun::abrir_con_persistencia(
@@ -641,44 +643,6 @@ pub(crate) mod tests {
         let sid = Uuid::new_v4().to_string();
         let sesion = Arc::new(SesionWeb {
             conversacion_id: Mutex::new(Some(apertura.conversacion.id)),
-            comun: Mutex::new(comun),
-            sse: Mutex::new(DifusionSse::nueva()),
-            meta: Mutex::new(None),
-            turno: Mutex::new(None),
-            creada: Instant::now(),
-        });
-        state
-            .sesiones
-            .lock()
-            .await
-            .insert(sid.clone(), Arc::clone(&sesion));
-        (sid, sesion)
-    }
-
-    /// [069A-7] Sesión en BD memoria en estado BORRADOR (create-on-write): si
-    /// el servicio auto-creó una "Nueva conversación" vacía (BD sin filas),
-    /// se descarta (mismo patrón que `crear_sesion`) y la sesión queda sin
-    /// conversación actual (`None`). Replica el arranque real con lista vacía.
-    pub(crate) async fn sesion_memoria_borrador(state: &Arc<AppState>) -> (String, Arc<SesionWeb>) {
-        let persist = crate::PersistenciaSqlite::en_memoria().expect("bd memoria");
-        let (comun, apertura) = crate::servicio::SesionComun::abrir_con_persistencia(
-            crate::servicio::OpcionesSesion::default(),
-            persist,
-            None,
-        )
-        .expect("abrir sesión memoria");
-        let conversacion_id = if apertura.conv_autocreada {
-            comun
-                .persistencia
-                .conversacion_eliminar(apertura.conversacion.id, comun.user_id)
-                .expect("descartar fantasma");
-            None
-        } else {
-            Some(apertura.conversacion.id)
-        };
-        let sid = Uuid::new_v4().to_string();
-        let sesion = Arc::new(SesionWeb {
-            conversacion_id: Mutex::new(conversacion_id),
             comun: Mutex::new(comun),
             sse: Mutex::new(DifusionSse::nueva()),
             meta: Mutex::new(None),

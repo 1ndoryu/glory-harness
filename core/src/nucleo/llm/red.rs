@@ -314,12 +314,10 @@ impl LlmProviderService {
         let modelo_final = routed_via
             .as_ref()
             .map(|(_, m)| m.clone())
-            .or_else(|| {
-                if modelo_real.is_empty() {
-                    None
-                } else {
-                    Some(modelo_real)
-                }
+            .or(if modelo_real.is_empty() {
+                None
+            } else {
+                Some(modelo_real)
             })
             .unwrap_or_else(|| modelo.to_string());
 
