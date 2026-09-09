@@ -83,15 +83,16 @@ export function montarPanelGit(opts: {
       ? datos[seleccionAnterior.grupo].find((archivo) => archivo.ruta === seleccionAnterior.ruta)
       : undefined;
 
-    if (datos.staged.length === 0 && datos.changes.length === 0) {
-      const vacio = el('div', 'git-vacio');
-      vacio.textContent = 'sin cambios';
-      lista.appendChild(vacio);
-      return;
-    }
+    /* Sin cambios no se pinta estado vacío: el panel queda limpio como en
+       Synara. Las secciones solo aparecen cuando contienen archivos. */
+    if (datos.staged.length === 0 && datos.changes.length === 0) return;
 
-    lista.appendChild(crearSeccion('Staged', 'staged', datos.staged));
-    lista.appendChild(crearSeccion('Changes', 'changes', datos.changes));
+    if (datos.staged.length > 0) {
+      lista.appendChild(crearSeccion('Staged', 'staged', datos.staged));
+    }
+    if (datos.changes.length > 0) {
+      lista.appendChild(crearSeccion('Changes', 'changes', datos.changes));
+    }
 
     if (archivoAnterior && seleccionAnterior) {
       pintarSeleccion(archivoAnterior, seleccionAnterior.grupo);
