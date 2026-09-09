@@ -57,7 +57,7 @@ export function montarPanelFiles(opts: {
   const visorRuta = el('span', 'files-visor-ruta');
   visorRuta.textContent = 'Selecciona un archivo para verlo';
   visorRuta.title = 'Selecciona un archivo para verlo';
-  const abrirCon = el('button', 'files-accion') as HTMLButtonElement;
+  const abrirCon = el('button', 'files-accion files-abrir') as HTMLButtonElement;
   abrirCon.type = 'button';
   abrirCon.title = 'Abrir archivo con…';
   abrirCon.setAttribute('aria-label', 'Abrir archivo con…');

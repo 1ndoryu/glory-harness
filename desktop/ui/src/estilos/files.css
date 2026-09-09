@@ -22,7 +22,8 @@
     cursor: pointer;
 }
 .files-accion .ic { width: 14px; height: 14px; }
-.files-recargar { border: 0; }
+.files-recargar,
+.files-abrir { border: 0; }
 .files-accion:hover,
 .files-accion:focus-visible { background: color-mix(in srgb, var(--texto) 8%, var(--fondo)); }
 
@@ -53,7 +54,8 @@
     flex: none;
     align-items: center;
     gap: var(--sp-xs);
-    padding: var(--sp-sm);
+    height: var(--alto-cabecera);
+    padding: 0 var(--sp-sm);
     border-bottom: 1px solid var(--borde);
 }
 
@@ -126,12 +128,14 @@
     font-size: var(--xs);
 }
 .files-visor-ruta {
+    flex: 1;
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
     opacity: .7;
 }
+.files-abrir { margin-left: auto; }
 .files-visor-aviso[hidden] { display: none; }
 .files-visor-codigo {
     flex: 1;
