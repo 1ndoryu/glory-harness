@@ -1,6 +1,5 @@
 import '../estilos/git.css';
 import { el } from '../util/dom';
-import { icono } from './iconos';
 import {
   pintarDiff,
   separarEntradas,
@@ -40,15 +39,7 @@ export function montarPanelGit(opts: {
   onError?: (texto: string, detalle?: string) => void;
 }): PanelGit {
   const raiz = el('div', 'panel-git');
-  const cabecera = el('div', 'git-cabecera');
-  const titulo = el('span', 'git-titulo');
-  titulo.textContent = 'Git local';
-  const recargar = el('button', 'git-accion git-recargar') as HTMLButtonElement;
-  recargar.type = 'button';
-  recargar.title = 'Recargar estado Git';
-  recargar.setAttribute('aria-label', 'Recargar estado Git');
-  recargar.appendChild(icono('recargar'));
-  cabecera.append(titulo, recargar);
+  const recargar = () => void cargar();
 
   const contenido = el('div', 'git-contenido');
   const lista = el('div', 'git-lista');
@@ -56,7 +47,7 @@ export function montarPanelGit(opts: {
   const diff = el('div', 'git-diff');
   diff.hidden = true;
   contenido.append(lista, diff);
-  raiz.append(cabecera, contenido);
+  raiz.append(contenido);
 
   let secuencia = 0;
   let seleccion: { grupo: GrupoGit; ruta: string } | null = null;
@@ -177,8 +168,7 @@ export function montarPanelGit(opts: {
     }
   }
 
-  recargar.addEventListener('click', () => void cargar());
-  return { raiz, recargar: () => void cargar() };
+  return { raiz, recargar };
 }
 
 function crearStat(marca: string, cantidad: number, clase: string): HTMLElement {

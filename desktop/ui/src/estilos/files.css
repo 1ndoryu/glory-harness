@@ -9,8 +9,7 @@
     color: var(--texto);
 }
 
-.files-accion,
-.git-accion {
+.files-accion {
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -22,13 +21,10 @@
     border: 1px solid var(--borde);
     cursor: pointer;
 }
-.files-accion .ic,
-.git-accion .ic { width: 14px; height: 14px; }
+.files-accion .ic { width: 14px; height: 14px; }
 .files-recargar { border: 0; }
 .files-accion:hover,
-.files-accion:focus-visible,
-.git-accion:hover,
-.git-accion:focus-visible { background: color-mix(in srgb, var(--texto) 8%, var(--fondo)); }
+.files-accion:focus-visible { background: color-mix(in srgb, var(--texto) 8%, var(--fondo)); }
 
 .files-contenido {
     display: flex;
