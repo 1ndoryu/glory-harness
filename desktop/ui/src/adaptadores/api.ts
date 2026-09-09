@@ -21,6 +21,7 @@ import {
 } from '../tauri/real';
 import type { EstadoGit } from '../componentes/panelGit';
 import type { ListadoWorkspace, ResultadoBusqueda, Workspace } from '../dominio/tipos';
+import { crearClienteApi } from './apiCliente';
 
 /** Claves que viven en el servidor; el resto cae a localStorage (igual que
  * el mock): la superficie configLeer/Guardar no cambia. */
@@ -33,146 +34,20 @@ const CLAVES_SERVIDOR = new Set([
   'workspace',
 ]);
 
-function tokenMaestro(): string {
-  return new URLSearchParams(window.location.search).get('token') ?? '';
-}
-
-function errorHttp(ruta: string, estado: number, cuerpo: string): Error {
-  let codigo = `http_${estado}`;
-  let mensaje = cuerpo.slice(0, 300);
-  try {
-    const j = JSON.parse(cuerpo) as { code?: string; message?: string };
-    if (j.code) codigo = j.code;
-    if (j.message) mensaje = j.message;
-  } catch {
-    /* cuerpo no-JSON: se usa tal cual */
-  }
-  const e = new Error(`${ruta}: ${mensaje}`);
-  (e as Error & { codigo?: string }).codigo = codigo;
-  return e;
-}
-
 export function crearTransporteApi(base: string, hooks: HooksAdaptador = {}): Transporte {
-  const maestro = tokenMaestro();
-  let sid = '';
-  let ultimoTurno: string | null = null;
-  let fuente: EventSource | null = null;
-  let ultimoInfo: InfoSesion | null = null;
-  let ultimoAviso: string | null = null;
-
-  const avisarConexion = hooks.onConexion;
-
-  async function http<T>(metodo: string, ruta: string, cuerpo?: unknown): Promise<T> {
-    const cabeceras: Record<string, string> = { 'Content-Type': 'application/json' };
-    // La sesión opaca autoriza; el maestro SOLO crea sesiones (§5.2/§7).
-    if (ruta === '/api/v1/session') {
-      // Modo local tokenless: el backend solo lo permite en loopback. Si hay
-      // token configurado, sigue siendo obligatorio para crear la sesión.
-      if (maestro) cabeceras['Authorization'] = `Bearer ${maestro}`;
-    } else if (sid) {
-      cabeceras['Authorization'] = `Bearer ${sid}`;
-    }
-    let r: Response;
-    try {
-      r = await fetch(base + ruta, {
-        method: metodo,
-        credentials: 'same-origin',
-        headers: cabeceras,
-        body: cuerpo === undefined ? undefined : JSON.stringify(cuerpo),
-      });
-    } catch (e: unknown) {
-      avisarConexion?.('error', `sin conexión con ${base}: ${String(e)}`);
-      throw new Error(`sin conexión con el backend (${base})`);
-    }
-    if (!r.ok) throw errorHttp(ruta, r.status, await r.text());
-    return (await r.json()) as T;
-  }
+  // HTTP/SSE + estado compartido (sid/turno/último info) en `apiCliente`.
+  const cliente = crearClienteApi(base, hooks);
+  const http = cliente.http;
+  const recordar = cliente.recordar;
 
   interface SesionCreada extends InfoSesion {
     session_id: string;
   }
 
-  function recordar(info: InfoSesion, aviso?: string | null): InfoSesion {
-    ultimoInfo = info;
-    if (aviso !== undefined) ultimoAviso = aviso;
-    return info;
-  }
-
-  async function componerSesion(): Promise<InfoSesion> {
-    // PATCH config devuelve solo config: se compone la InfoSesion completa.
-    const [cfg, provs] = await Promise.all([
-      http<{ config: Record<string, unknown> }>('GET', `/api/v1/session/${sid}/config`),
-      http<{ proveedores: Array<{ nombre: string; disponible: boolean }> }>(
-        'GET',
-        `/api/v1/session/${sid}/providers`,
-      ),
-    ]);
-    const c = cfg.config;
-    const info: InfoSesion = {
-      modelo: `${String(c['provider'] ?? '')}/${String(c['modelo'] ?? '')}`,
-      workspace: String(c['workspace'] ?? ultimoInfo?.workspace ?? ''),
-      proveedores: provs.proveedores.map((p) => ({ nombre: p.nombre, claves: p.disponible ? 1 : 0 })),
-      // [069A-7] Se conserva `null` si la sesión no tiene conversación
-      // (borrador create-on-write); nunca se fabrica una fila fantasma.
-      conversacion: ultimoInfo?.conversacion ?? null,
-      aviso: ultimoAviso,
-    };
-    return recordar(info);
-  }
-
-  function abrirFuente(
-    onEvento: (ev: import('../tauri/real').AgenteEvento) => void,
-    onFin: (ok: boolean, error?: string) => void,
-  ): void {
-    if (fuente) return;
-    avisarConexion?.('conectando');
-    const es = new EventSource(`${base}/api/v1/session/${sid}/events`);
-    fuente = es;
-    es.onopen = () => avisarConexion?.('en-linea');
-    es.onerror = () => avisarConexion?.('reconectando', 'el navegador reintenta solo');
-    const evento = (tipo: string, fn: (d: unknown) => void) => {
-      es.addEventListener(tipo, (e) => {
-        try {
-          fn(JSON.parse((e as MessageEvent).data) as unknown);
-        } catch {
-          /* frame corrupto: se ignora sin romper el stream */
-        }
-      });
-    };
-    evento('agent.event', (d) => onEvento(d as import('../tauri/real').AgenteEvento));
-    evento('turn.started', (d) => {
-      const t = (d as { turn_id?: string }).turn_id;
-      if (t) ultimoTurno = t;
-    });
-    evento('turn.finished', (d) => {
-      const f = d as { turn_id?: string; ok?: boolean; error?: string };
-      ultimoTurno = null;
-      onFin(f.ok === true, f.error ?? undefined);
-    });
-    evento('error', (d) => {
-      const f = (d as { code?: string; message?: string }) ?? {};
-      onEvento({ tipo: 'error', mensaje: f.message ?? f.code ?? 'error', retryable: true } as never);
-    });
-  }
-
-  /** [069A-Proyectos] Extraído para reuso en workspaceActivarsPorRuta. */
-  async function fijarWorkspaceImpl(ruta: string): Promise<InfoSesion> {
-    const r = await http<{ workspace: string }>('POST', `/api/v1/session/${sid}/workspace`, {
-      ruta,
-    });
-    const base_info: InfoSesion = ultimoInfo ?? {
-      modelo: '/',
-      workspace: r.workspace,
-      proveedores: [],
-      conversacion: null,
-    };
-    return recordar({ ...base_info, workspace: r.workspace });
-  }
-
   return {
     abrirSesion: async (_opts: OpcionesTurno) => {
       const creada = await http<SesionCreada>('POST', '/api/v1/session');
-      sid = creada.session_id;
+      cliente.setSid(creada.session_id);
       return recordar({
         modelo: creada.modelo,
         workspace: creada.workspace,
@@ -187,22 +62,22 @@ export function crearTransporteApi(base: string, hooks: HooksAdaptador = {}): Tr
       if (opts.modelo) parche['modelo'] = opts.modelo;
       if (opts.modo) parche['modo'] = opts.modo;
       if (opts.razonamiento) parche['razonamiento'] = opts.razonamiento;
-      await http('PATCH', `/api/v1/session/${sid}/config`, parche);
-      return componerSesion();
+      await http('PATCH', `/api/v1/session/${cliente.getSid()}/config`, parche);
+      return cliente.componerSesion();
     },
     enviarTurno: async (mensaje, _panelId) => {
-      const r = await http<{ turn_id: string }>('POST', `/api/v1/session/${sid}/turns`, {
+      const r = await http<{ turn_id: string }>('POST', `/api/v1/session/${cliente.getSid()}/turns`, {
         message: mensaje,
       });
-      ultimoTurno = r.turn_id;
+      cliente.setUltimoTurno(r.turn_id);
     },
     detenerTurno: (_panelId) => {
-      if (!ultimoTurno) return;
-      const tid = ultimoTurno;
-      void http('POST', `/api/v1/session/${sid}/turns/${tid}/cancel`).catch(() => {});
+      const tid = cliente.getUltimoTurno();
+      if (!tid) return;
+      void http('POST', `/api/v1/session/${cliente.getSid()}/turns/${tid}/cancel`).catch(() => {});
     },
     responderAprobacion: async (id, respuesta) => {
-      await http('POST', `/api/v1/session/${sid}/approvals/${id}`, {
+      await http('POST', `/api/v1/session/${cliente.getSid()}/approvals/${id}`, {
         approved: respuesta !== 'rechazar',
         siempre: respuesta === 'siempre' ? true : undefined,
       });
@@ -211,12 +86,12 @@ export function crearTransporteApi(base: string, hooks: HooksAdaptador = {}): Tr
     // HTTP resuelve aprobaciones en vivo durante el turno: nunca reenvía.
     requiereReenvioTrasAprobar: () => false,
     escucharTurno: async (onEvento, onFin) => {
-      abrirFuente(onEvento, onFin);
+      cliente.abrirFuente(onEvento, onFin);
     },
     convNueva: async (titulo) => {
       const r = await http<{ conversacion: InfoConversacion }>(
         'POST',
-        `/api/v1/session/${sid}/conversations`,
+        `/api/v1/session/${cliente.getSid()}/conversations`,
         titulo ? { titulo } : {},
       );
       return r.conversacion;
@@ -224,21 +99,21 @@ export function crearTransporteApi(base: string, hooks: HooksAdaptador = {}): Tr
     convListar: async () => {
       const r = await http<{ conversaciones: InfoConversacion[] }>(
         'GET',
-        `/api/v1/session/${sid}/conversations`,
+        `/api/v1/session/${cliente.getSid()}/conversations`,
       );
       return r.conversaciones;
     },
     convCargar: async (id) => {
       const r = await http<CargaConversacion>(
         'GET',
-        `/api/v1/session/${sid}/conversations/${id}/messages`,
+        `/api/v1/session/${cliente.getSid()}/conversations/${id}/messages`,
       );
       return { ...r, archivos_tramo: [] };
     },
     convRenombrar: async (id, titulo) => {
       const r = await http<{ ok: boolean }>(
         'PATCH',
-        `/api/v1/session/${sid}/conversations/${id}`,
+        `/api/v1/session/${cliente.getSid()}/conversations/${id}`,
         { titulo },
       );
       return r.ok;
@@ -246,7 +121,7 @@ export function crearTransporteApi(base: string, hooks: HooksAdaptador = {}): Tr
     convArchivar: async (id, archivada) => {
       const r = await http<{ ok: boolean }>(
         'PATCH',
-        `/api/v1/session/${sid}/conversations/${id}`,
+        `/api/v1/session/${cliente.getSid()}/conversations/${id}`,
         { archivada },
       );
       return r.ok;
@@ -254,7 +129,7 @@ export function crearTransporteApi(base: string, hooks: HooksAdaptador = {}): Tr
     convEliminar: async (id) => {
       const r = await http<{ actual: InfoConversacion | null }>(
         'DELETE',
-        `/api/v1/session/${sid}/conversations/${id}`,
+        `/api/v1/session/${cliente.getSid()}/conversations/${id}`,
       );
       return r.actual;
     },
@@ -265,7 +140,7 @@ export function crearTransporteApi(base: string, hooks: HooksAdaptador = {}): Tr
     leerProveedores: async () => {
       const r = await http<{ proveedores: Array<{ nombre: string; disponible: boolean }> }>(
         'GET',
-        `/api/v1/session/${sid}/providers`,
+        `/api/v1/session/${cliente.getSid()}/providers`,
       );
       return r.proveedores.map(
         (p): ProveedorInfo => ({ id: p.nombre, modelos: [], claves: p.disponible ? 1 : 0 }),
@@ -280,12 +155,12 @@ export function crearTransporteApi(base: string, hooks: HooksAdaptador = {}): Tr
         }
       }
       if (clave === 'workspace') {
-        const r = await http<{ workspace: string }>('GET', `/api/v1/session/${sid}/workspace`);
+        const r = await http<{ workspace: string }>('GET', `/api/v1/session/${cliente.getSid()}/workspace`);
         return r.workspace;
       }
       const r = await http<{ config: Record<string, unknown> }>(
         'GET',
-        `/api/v1/session/${sid}/config`,
+        `/api/v1/session/${cliente.getSid()}/config`,
       );
       const c = r.config;
       switch (clave) {
@@ -313,7 +188,7 @@ export function crearTransporteApi(base: string, hooks: HooksAdaptador = {}): Tr
         return;
       }
       if (clave === 'workspace') {
-        await http('POST', `/api/v1/session/${sid}/workspace`, { ruta: valor });
+        await http('POST', `/api/v1/session/${cliente.getSid()}/workspace`, { ruta: valor });
         return;
       }
       const parche: Record<string, unknown> = {};
@@ -323,18 +198,18 @@ export function crearTransporteApi(base: string, hooks: HooksAdaptador = {}): Tr
        * `proveedor` (clave del front en español). */
       else if (clave === 'proveedor') parche['provider'] = valor;
       else parche[clave] = valor;
-      await http('PATCH', `/api/v1/session/${sid}/config`, parche);
+      await http('PATCH', `/api/v1/session/${cliente.getSid()}/config`, parche);
     },
     elegirWorkspace: () =>
       Promise.reject(
         new Error('en modo web la ruta se fija con fijarWorkspace (campo de texto)'),
       ),
     // [069A-Proyectos] Extraída a función compartida para workspaceActivarsPorRuta.
-    fijarWorkspace: async (ruta) => fijarWorkspaceImpl(ruta),
+    fijarWorkspace: async (ruta) => cliente.fijarWorkspaceImpl(ruta),
     fijarMeta: async (meta) => {
       const r = await http<{ ok: boolean; meta: string | null }>(
         'PATCH',
-        `/api/v1/session/${sid}/meta`,
+        `/api/v1/session/${cliente.getSid()}/meta`,
         { meta },
       );
       return r.meta;
@@ -343,7 +218,7 @@ export function crearTransporteApi(base: string, hooks: HooksAdaptador = {}): Tr
     workspacesListar: async () => {
       const r = await http<{ ok: boolean; workspaces: Workspace[]; activa: Workspace | null }>(
         'GET',
-        `/api/v1/session/${sid}/workspaces`,
+        `/api/v1/session/${cliente.getSid()}/workspaces`,
       );
       return { workspaces: r.workspaces, activa: r.activa };
     },
@@ -351,10 +226,10 @@ export function crearTransporteApi(base: string, hooks: HooksAdaptador = {}): Tr
       // Web: POST /workspaces crea la fila + POST /workspace la activa
       const creada = await http<{ ok: boolean; activa: Workspace; creada: Workspace; workspace: string }>(
         'POST',
-        `/api/v1/session/${sid}/workspaces`,
+        `/api/v1/session/${cliente.getSid()}/workspaces`,
         { nombre, ruta },
       );
-      const base_info: InfoSesion = ultimoInfo ?? {
+      const base_info: InfoSesion = cliente.getUltimoInfo() ?? {
         modelo: '/',
         workspace: creada.workspace,
         proveedores: [],
@@ -369,12 +244,12 @@ export function crearTransporteApi(base: string, hooks: HooksAdaptador = {}): Tr
     },
     workspaceActivarsPorRuta: async (ruta) => {
       // Reusa fijarWorkspace (POST /workspace) que cambia la ruta activa.
-      return fijarWorkspaceImpl(ruta);
+      return cliente.fijarWorkspaceImpl(ruta);
     },
     workspaceRenombrar: async (id, nombre) => {
       const r = await http<{ ok: boolean; renombrada: boolean }>(
         'PATCH',
-        `/api/v1/session/${sid}/workspaces/${encodeURIComponent(id)}`,
+        `/api/v1/session/${cliente.getSid()}/workspaces/${encodeURIComponent(id)}`,
         { nombre },
       );
       return r.renombrada;
@@ -382,14 +257,14 @@ export function crearTransporteApi(base: string, hooks: HooksAdaptador = {}): Tr
     workspaceEliminar: async (id) => {
       const r = await http<{ ok: boolean; eliminada: boolean }>(
         'DELETE',
-        `/api/v1/session/${sid}/workspaces/${encodeURIComponent(id)}`,
+        `/api/v1/session/${cliente.getSid()}/workspaces/${encodeURIComponent(id)}`,
       );
       return r.eliminada;
     },
     workspaceInfo: async () =>
       http<{ ruta: string; nombre: string }>(
         'GET',
-        `/api/v1/session/${sid}/files/info`,
+        `/api/v1/session/${cliente.getSid()}/files/info`,
       ),
     workspaceListarEntrada: async (ruta, profundidad) => {
       // [089A-10] El backend limita profundidad a 0..=3; el panel Files usa
@@ -397,13 +272,13 @@ export function crearTransporteApi(base: string, hooks: HooksAdaptador = {}): Tr
       const nivel = profundidad && profundidad > 0 ? `&profundidad=${profundidad}` : '';
       return http<ListadoWorkspace>(
         'GET',
-        `/api/v1/session/${sid}/files/listar?ruta=${encodeURIComponent(ruta)}${nivel}`,
+        `/api/v1/session/${cliente.getSid()}/files/listar?ruta=${encodeURIComponent(ruta)}${nivel}`,
       );
     },
     workspaceLeerArchivo: async (ruta) =>
       http<{ ruta: string; lineas: number; contenido: string }>(
         'GET',
-        `/api/v1/session/${sid}/files/leer?ruta=${encodeURIComponent(ruta)}`,
+        `/api/v1/session/${cliente.getSid()}/files/leer?ruta=${encodeURIComponent(ruta)}`,
       ),
     workspaceAbrirCon: async () => {
       throw new Error('abrir archivos con otra aplicación no está disponible en modo web');
@@ -412,11 +287,11 @@ export function crearTransporteApi(base: string, hooks: HooksAdaptador = {}): Tr
       const extra = ruta ? `&ruta=${encodeURIComponent(ruta)}` : '';
       return http<ResultadoBusqueda>(
         'GET',
-        `/api/v1/session/${sid}/files/buscar?consulta=${encodeURIComponent(consulta)}${extra}`,
+        `/api/v1/session/${cliente.getSid()}/files/buscar?consulta=${encodeURIComponent(consulta)}${extra}`,
       );
     },
     workspaceGitEstado: async (): Promise<EstadoGit> =>
-      http<EstadoGit>('GET', `/api/v1/session/${sid}/git/estado`),
+      http<EstadoGit>('GET', `/api/v1/session/${cliente.getSid()}/git/estado`),
   };
 }
 
