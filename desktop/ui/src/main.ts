@@ -23,7 +23,7 @@ import './estilos/modalProyecto.css';
 import { montarPanelMeta } from './componentes/panelMeta';
 import type { PanelChat } from './componentes/panelChat';
 import { montarBarraSuperior } from './componentes/barraSuperior';
-import { montarPanelNavegador } from './componentes/panelNavegador';
+import { montarNavegadorVista } from './orquestador/navegadorVista';
 import { montarPanelDerechoTodo } from './orquestador/panelDerecho';
 import { renderizarBloque } from './componentes/mensajes';
 
@@ -344,8 +344,8 @@ const barraLateral = montarBarraLateral({
   abrirConfig: () => modal.abrir(),
   abrirModalProyecto: () => modalProyecto.abrir(),
   alternarNavegador: () => {
-    if (navegadorAbierto) cerrarNavegador();
-    else abrirNavegador();
+    if (todoNavegador.estaAbierto()) todoNavegador.cerrarNavegador();
+    else todoNavegador.abrirNavegador();
   },
   getPrincipal: () => principal,
 });
@@ -454,29 +454,24 @@ const depsCrearPanel: CrearPanelDeps = {
 // ---------- Panel principal ----------
 const principal = crearPanel(depsCrearPanel, 'principal', 'principal');
 
-// ---------- Navegador interno (069A-1 F3 / 069A-2 fix web) ----------
-// [069A-2 fix] En Tauri el panel pilota la webview child (IPC); en modo web,
-// un iframe del propio navegador. `onCerrar` sincroniza el estado del
-// orquestador (navegadorAbierto, grip, RO) cuando se cierra desde el botón
-// interno del panel, para no duplicar la lógica de cierre en dos sitios.
-const navegador = montarPanelNavegador({
-  onCerrar() {
-    cerrarNavegador();
+/* El navegador vive en `orquestador/navegadorVista`. Las piezas del panel
+ * derecho llegan como cierres perezosos (ese módulo se crea justo debajo)
+ * y solo se invocan en runtime, fuera de la TDZ. */
+const todoNavegador = montarNavegadorVista({
+  usaTauri: USA_TAURI,
+  panelActivo,
+  activarPanel,
+  avisar: avisoGlobal,
+  asegurarPanelDerecho: () => todoPanelDerecho.asegurarPanelDerecho(),
+  cerrarPanelDerechoSiVacio: () => todoPanelDerecho.cerrarPanelDerechoSiVacio(),
+  abrirTabNavegador: (raiz, onCerrar) => {
+    todoPanelDerecho.panelDerecho.abrirTab('navegador', 'Navegador', raiz, onCerrar);
   },
-  // [seleccionar] El usuario eligió un elemento de la página con el modo
-  // "seleccionar": se adjunta como badge al chat activo para que el modelo
-  // reciba el descriptor (URL + selector CSS) en el próximo mensaje.
-  onSeleccionar(elem) {
-    const panel = panelActivo();
-    if (!panel) {
-      avisoGlobal('abre un chat para recibir el elemento', '', elem.etiqueta);
-      return;
-    }
-    activarPanel(panel);
-    panel.adjuntarElemento(elem);
+  cerrarTabNavegador: () => {
+    todoPanelDerecho.panelDerecho.cerrarTab('navegador');
   },
 });
-let navegadorAbierto = false;
+const navegador = todoNavegador.navegador;
 
 /* El panel derecho vive en `orquestador/panelDerecho` (Files, Git, tabs,
  * grip de ancho, visibilidad). `abrirNavegador`/`abrirChatLateral` son
@@ -491,10 +486,10 @@ const todoPanelDerecho = montarPanelDerechoTodo({
   paneles: panelesRegistrados,
   panelActivo,
   onCambioWorkspace,
-  navegadorRaiz: navegador.raiz,
-  mostrarNavegador: (v) => navegador.mostrar(v),
-  estaNavegadorAbierto: () => navegadorAbierto,
-  abrirNavegador: () => abrirNavegador(),
+  navegadorRaiz: todoNavegador.navegador.raiz,
+  mostrarNavegador: (v) => todoNavegador.navegador.mostrar(v),
+  estaNavegadorAbierto: todoNavegador.estaAbierto,
+  abrirNavegador: todoNavegador.abrirNavegador,
   abrirChatLateral: () => abrirChatLateralVacio(depsLaterales),
 });
 const panelDerecho = todoPanelDerecho.panelDerecho;
@@ -521,94 +516,6 @@ const depsLaterales: LateralesDeps = {
   avisar: (texto, meta, detalle) => avisoGlobal(texto, meta, detalle),
   renombrarEnLista: (id, titulo) => barraLateral.renombrarEnLista(id, titulo),
 };
-
-function abrirNavegador(): void {
-  if (navegadorAbierto) return;
-  // [089A-2] El navegador vive como tab del panel derecho y convive con el
-  // chat lateral, Files y Git local.
-  navegadorAbierto = true;
-  asegurarPanelDerecho();
-  panelDerecho.abrirTab('navegador', 'Navegador', navegador.raiz, () => cerrarNavegador());
-  navegador.mostrar(true);
-
-  if (!USA_TAURI) {
-    // [069A-2 fix] Modo web: el iframe se autogestiona; solo se fija la URL
-    // inicial para que el área no quede en blanco.
-    navegador.irA('https://example.com');
-    navegador.registrarAccion({
-      herramienta: 'abrir',
-      descripcion: 'navegador iniciado en https://example.com',
-      ok: true,
-      tiempo: Date.now(),
-    });
-    return;
-  }
-
-  // Modo Tauri: calcular la posición del contenedor y abrir la webview child.
-  void (async () => {
-    try {
-      const contenedor = document.getElementById('navegador-webview-contenedor');
-      if (!contenedor) throw new Error('contenedor webview no encontrado');
-      const rect = contenedor.getBoundingClientRect();
-
-      await invoke('navegador_abrir', {
-        url: 'https://example.com',
-        ancho: Math.round(rect.width),
-        alto: Math.round(rect.height),
-        posX: Math.round(rect.left),
-        posY: Math.round(rect.top),
-      });
-      navegador.fijarURL('https://example.com');
-      navegador.registrarAccion({
-        herramienta: 'abrir',
-        descripcion: 'navegador iniciado en https://example.com',
-        ok: true,
-        tiempo: Date.now(),
-      });
-
-      // Observar cambios de tamaño/posición para reposicionar la webview
-      const ro = new ResizeObserver(() => {
-        const r = contenedor.getBoundingClientRect();
-        void invoke('navegador_posicionar', {
-          x: Math.round(r.left),
-          y: Math.round(r.top),
-          ancho: Math.round(r.width),
-          alto: Math.round(r.height),
-        }).catch(() => {});
-      });
-      ro.observe(contenedor);
-      // Guardar observer para cleanup al cerrar
-      (navegador as unknown as Record<string, unknown>).__resizeObserver = ro;
-    } catch (error) {
-      navegador.registrarAccion({
-        herramienta: 'abrir',
-        descripcion: `error: ${String(error).slice(0, 120)}`,
-        ok: false,
-        tiempo: Date.now(),
-      });
-    }
-  })();
-}
-
-function cerrarNavegador(): void {
-  if (!navegadorAbierto) return;
-  navegadorAbierto = false;
-  navegador.mostrar(false);
-  // [089A-2] Desmonta su tab; si no quedan tabs se cierra el panel derecho.
-  panelDerecho.cerrarTab('navegador');
-  cerrarPanelDerechoSiVacio();
-  // Solo en Tauri existe la webview child que cerrar; en web el iframe se
-  // vacía dentro del propio panel (btnCerrar) y aquí solo se oculta.
-  if (USA_TAURI) {
-    void invoke('navegador_cerrar').catch(() => {});
-  }
-  // Limpiar ResizeObserver (solo se crea en Tauri)
-  const ro = (navegador as unknown as Record<string, unknown>).__resizeObserver as ResizeObserver | undefined;
-  if (ro) {
-    ro.disconnect();
-    delete (navegador as unknown as Record<string, unknown>).__resizeObserver;
-  }
-}
 
 // ---------- Montaje del DOM ----------
 cuerpo.appendChild(sidebar.raiz);
