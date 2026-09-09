@@ -20,7 +20,8 @@ import { guardarSidebar, leerSidebar } from './persistencia';
 
 const CLAVE_LATERAL_ANCHO = 'lateral_ancho';
 
-export interface PanelDerechoDeps {
+/** Núcleo del panel derecho: montaje, adaptador y paneles. */
+export interface PanelDerechoNucleo {
   cuerpo: HTMLElement;
   app: HTMLElement;
   barra: BarraSuperior;
@@ -29,6 +30,10 @@ export interface PanelDerechoDeps {
   persistencia: PersistenciaDeps;
   paneles: PanelChat[];
   panelActivo: () => PanelChat | null;
+}
+
+/** Navegador embebido y aperturas delegadas. */
+export interface PanelDerechoNavegador {
   onCambioWorkspace: (accion: (ruta: string | null) => void) => void;
   navegadorRaiz: HTMLElement;
   mostrarNavegador: (visible: boolean) => void;
@@ -37,20 +42,35 @@ export interface PanelDerechoDeps {
   abrirChatLateral: () => void;
 }
 
-export interface PanelDerechoTodo {
+export interface PanelDerechoDeps
+  extends PanelDerechoNucleo, PanelDerechoNavegador {}
+
+/** Piezas montadas del panel derecho. */
+export interface PanelDerechoPiezas {
   panelDerecho: PanelDerecho;
   files: PanelFiles;
   git: PanelGit;
   toastGlobal: ToastGlobal;
+}
+
+/** Visibilidad del panel derecho (vacío = oculto). */
+export interface PanelDerechoVisibilidad {
   asegurarPanelDerecho: () => void;
   ocultarPanelDerecho: () => void;
   alternarPanelDerecho: () => void;
   cerrarPanelDerechoSiVacio: () => void;
   pintarToggleDerecho: () => void;
+}
+
+/** Aperturas delegadas (archivos, git, reposicionado del webview). */
+export interface PanelDerechoAperturas {
   abrirFiles: () => void;
   abrirGit: () => void;
   reposicionarWebview: () => void;
 }
+
+export interface PanelDerechoTodo
+  extends PanelDerechoPiezas, PanelDerechoVisibilidad, PanelDerechoAperturas {}
 
 export function montarPanelDerechoTodo(deps: PanelDerechoDeps): PanelDerechoTodo {
   // [089A-2] Divisor vertical arrastrable entre #paneles y el panel derecho.

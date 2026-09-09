@@ -25,16 +25,25 @@ export interface SesionGuardadaVista {
   temaOscuro: string | null;
 }
 
-export interface VistaModalDeps {
+/** Estado inicial del modal: modelo, modo, razonamiento y tema. */
+export interface VistaModalEstado {
   modeloInicial: ModeloSeleccionado;
   modoInicial: ModoEjecucion;
   razonamientoInicial: string;
   proveedores: ProveedorModelo[];
   claveTemaOscuro: string;
   etiquetasRazonamiento: Record<string, string>;
+}
+
+/** Entorno de ejecución que el modal consulta. */
+export interface VistaModalEntorno {
   paneles: PanelChat[];
   usaReal: boolean;
   usaTauri: boolean;
+}
+
+/** Acciones de persistencia y vista delegadas al orquestador. */
+export interface VistaModalAcciones {
   sincronizarPanelMeta: () => void;
   aplicarTemaOscuro: (activo: boolean) => void;
   configGuardar: (id: string, valor: string) => Promise<void>;
@@ -45,6 +54,9 @@ export interface VistaModalDeps {
   ponerBorradorPrincipal: () => void;
   activarPrincipal: () => void;
 }
+
+export interface VistaModalDeps
+  extends VistaModalEstado, VistaModalEntorno, VistaModalAcciones {}
 
 export interface VistaModal {
   estado: EstadoVista;

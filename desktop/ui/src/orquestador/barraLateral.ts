@@ -7,51 +7,14 @@
 
 import { el, marcarCuerpo } from '../util/dom';
 import { anchoVentana, seguirPuntero } from '../plataforma/ventana';
-import { montarSidebar, type Sidebar } from '../componentes/sidebar';
-import type { BarraSuperior } from '../componentes/barraSuperior';
-import type { Conversacion, Workspace } from '../dominio/tipos';
-import type { PanelChat } from '../componentes/panelChat';
-import type { AdaptadorReal } from '../tauri/real';
-import type { PersistenciaDeps } from './persistencia';
+import { montarSidebar } from '../componentes/sidebar';
+import type { Conversacion } from '../dominio/tipos';
+import type { BarraLateral, BarraLateralDeps } from './barraLateralTipos';
 import { guardarSidebar } from './persistencia';
 import { puedeAbrirLateralEn } from './laterales';
 
 export const CLAVE_ANCHO = 'sidebar_ancho';
 export const CLAVE_COLAPSADA = 'sidebar_colapsada';
-
-export interface BarraLateralDeps {
-  cuerpo: HTMLElement;
-  barra: BarraSuperior;
-  adaptador: AdaptadorReal;
-  usaReal: boolean;
-  usaMock: boolean;
-  persistencia: PersistenciaDeps;
-  conversacionesIniciales: Conversacion[];
-  proyectosIniciales: Workspace[];
-  proyectoActivoInicial: Workspace | null;
-  getConversaciones: () => Conversacion[];
-  setConversaciones: (c: Conversacion[]) => void;
-  getTurnoGlobal: () => boolean;
-  paneles: PanelChat[];
-  panelActivo: () => PanelChat | null;
-  activarPanel: (panel: PanelChat | null) => void;
-  avisar: (texto: string, meta: string, detalle: string) => void;
-  resincronizarSidebar: () => Promise<void>;
-  abrirEnLateral: (id: string) => void;
-  abrirConfig: () => void;
-  abrirModalProyecto: () => void;
-  alternarNavegador: () => void;
-  getPrincipal: () => PanelChat | null;
-}
-
-export interface BarraLateral {
-  sidebar: Sidebar;
-  grip: HTMLElement;
-  alternarSidebar: () => void;
-  pintarSidebar: () => void;
-  fijarAbierta: (abierta: boolean) => void;
-  renombrarEnLista: (id: string, titulo: string) => Promise<void>;
-}
 
 const UMBRAL_AUTO_SIDEBAR = 720;
 

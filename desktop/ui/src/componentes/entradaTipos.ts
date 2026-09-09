@@ -103,18 +103,27 @@ export interface Entrada {
   getElementoPendiente(): ElementoSeleccionado | null;
 }
 
-export interface EntradaOpciones {
+/** Identidad y variante de la entrada (núcleo mínimo que todo consumidor usa). */
+export interface EntradaBase {
   /** Prefijo de los ids internos (una instancia por panel). */
   idPrefijo: string;
   /** [039A-3 P5] 'completa' (default) o 'minima'. */
   variante?: VarianteEntrada;
+  modo: ModoEjecucion;
+}
+
+/** Catálogo y selección de modelo (solo variante 'completa'). */
+export interface EntradaModelo {
   /** Solo variante 'completa': catálogo de proveedores del selector. */
   proveedores?: ProveedorModelo[];
   /** Modelo inicial (obligatorio en 'completa'; se ignora en 'minima'). */
   modeloActual?: ModeloSeleccionado;
-  modo: ModoEjecucion;
-  /** [039A-1 04-09 H7] Nivel de razonamiento inicial ('low'|'medium'|'high'). */
-  razonamiento?: string;
+  /** Se invoca al elegir un modelo del menú (solo variante 'completa'). */
+  onModeloCambiado?: (modelo: ModeloSeleccionado) => void;
+}
+
+/** Envío, detención y cambios de modo/razonamiento. */
+export interface EntradaEnvio {
   /** Se invoca al enviar un mensaje.
    *  [039A-3 P2] `editandoId` trae el id del mensaje de usuario reescrito
    *  (edición), o `null` para un mensaje nuevo. El consumidor decide si
@@ -122,12 +131,16 @@ export interface EntradaOpciones {
   onEnviar: (texto: string, editandoId?: string | null) => void;
   /** Se invoca al pulsar detener durante un turno. */
   onDetener: () => void;
-  /** Se invoca al elegir un modelo del menú (solo variante 'completa'). */
-  onModeloCambiado?: (modelo: ModeloSeleccionado) => void;
   /** Se invoca al cambiar el modo de ejecución desde la barra (completa). */
   onModoCambiado?: (modo: ModoEjecucion) => void;
+  /** [039A-1 04-09 H7] Nivel de razonamiento inicial ('low'|'medium'|'high'). */
+  razonamiento?: string;
   /** [039A-1 04-09 H7] Se invoca al elegir un nivel de razonamiento (completa). */
   onRazonamientoCambiado?: (razonamiento: string) => void;
+}
+
+/** Área destino de la conversación nueva. */
+export interface EntradaArea {
   /** Áreas disponibles para la conversación nueva. */
   workspaces?: Workspace[];
   /** Área destino seleccionada; `null` = conversación sin proyecto. */
@@ -135,3 +148,6 @@ export interface EntradaOpciones {
   /** Se invoca al cambiar el área destino de la conversación nueva. */
   onWorkspaceCambiado?: (workspaceId: string | null) => void;
 }
+
+export interface EntradaOpciones
+  extends EntradaBase, EntradaModelo, EntradaEnvio, EntradaArea {}

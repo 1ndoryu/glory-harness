@@ -6,39 +6,55 @@
 import { historialEjemplo } from '../datos/historialEjemplo';
 import { renderizarBloque } from '../componentes/mensajes';
 import { CLAVE_ANCHO, CLAVE_COLAPSADA } from './barraLateral';
-import type { BarraLateral } from './barraLateral';
+import type { BarraLateral } from './barraLateralTipos';
 import type { PanelChat } from '../componentes/panelChat';
 import type { PanelMeta } from '../componentes/panelMeta';
 import type { Conversacion } from '../dominio/tipos';
 import { leerSidebar, type PersistenciaDeps } from './persistencia';
 import type { SesionGuardadaVista } from './vistaModal';
 
-export interface ArranqueDeps {
+/** Núcleo de arranque: montaje, paneles y meta. */
+export interface ArranqueNucleo {
   cuerpo: HTMLElement;
   persistencia: PersistenciaDeps;
   barraLateral: BarraLateral;
   pintarToggleDerecho: () => void;
   paneles: PanelChat[];
   panelMeta: PanelMeta;
+  principal: PanelChat;
+}
+
+/** Entorno de ejecución (real/mock, flags y tema). */
+export interface ArranqueEntorno {
   usaReal: boolean;
   usaMock: boolean;
   usaTauri: boolean;
   baseApi: string | null;
   modoTexto: string;
+  claveTemaOscuro: string;
+}
+
+/** Consultas de estado que el arranque lee. */
+export interface ArranqueConsultas {
   hayTurno: () => boolean;
   panelActivo: () => PanelChat | null;
   usoUltimoTurno: () => { tokensPrompt: number; tokensComplecion: number };
+  getConversaciones: () => Conversacion[];
+}
+
+/** Acciones de sesión y sincronización que el arranque dispara. */
+export interface ArranqueAcciones {
   asegurarSesion: () => Promise<unknown>;
   configLeer: (id: string) => Promise<string | null>;
   aplicarSesionGuardada: (sesion: SesionGuardadaVista) => void;
   sincronizarPanelMeta: () => void;
   resincronizarSidebar: () => Promise<void>;
-  claveTemaOscuro: string;
-  getConversaciones: () => Conversacion[];
-  principal: PanelChat;
   seleccionarSidebar: (id: string) => void;
   activarPanel: (panel: PanelChat | null) => void;
 }
+
+export interface ArranqueDeps
+  extends ArranqueNucleo, ArranqueEntorno, ArranqueConsultas, ArranqueAcciones {}
 
 export function ejecutarArranque(deps: ArranqueDeps): void {
   // Estado inicial de la sidebar (ancho/colapso persistidos + selección).

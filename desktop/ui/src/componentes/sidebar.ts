@@ -36,12 +36,17 @@ export interface Sidebar {
 /** Acciones de los botones superiores del nav. */
 export type AccionNav = 'nueva' | 'agente' | 'flujo' | 'complementos' | 'navegador';
 
-export interface SidebarOpciones {
+/** Datos que pinta la lista (conversaciones + proyectos). */
+export interface SidebarDatos {
   conversaciones: Conversacion[];
   /** [069A-Proyectos] Lista de proyectos registrados. */
   proyectos: Workspace[];
   /** [069A-Proyectos] Proyecto activo actual (el que filtra conversaciones). */
   proyectoActivo: Workspace | null;
+}
+
+/** Acciones sobre conversaciones (fila y ⋯). */
+export interface SidebarConversacion {
   /** Al pulsar una conversación (activa esa conversación). */
   onSeleccionar: (id: string) => void;
   /** Se invoca tras cambiar el nombre de una conversación. */
@@ -50,6 +55,10 @@ export interface SidebarOpciones {
   onArchivar: (id: string, archivada: boolean) => void;
   /** Se invoca al eliminar una conversación. */
   onEliminar: (id: string) => void;
+}
+
+/** Acciones de proyectos, panel lateral y nav superior. */
+export interface SidebarProyectoNav {
   /** [069A-Proyectos] Se invoca al pulsar el botón + de proyectos. */
   onCrearProyecto?: () => void;
   /** [069A-Proyectos] Se invoca al elegir un proyecto del menú (ruta). */
@@ -63,6 +72,9 @@ export interface SidebarOpciones {
   onAccionNav?: (accion: AccionNav) => void;
   abrirConfig: () => void;
 }
+
+export interface SidebarOpciones
+  extends SidebarDatos, SidebarConversacion, SidebarProyectoNav {}
 
 export function montarSidebar(opts: SidebarOpciones): Sidebar {
   const aside = el('aside');

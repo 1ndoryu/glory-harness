@@ -4,26 +4,42 @@
 import { icono } from './iconos';
 import { el } from '../util/dom';
 
-/** Todos los nodos que la fábrica necesita cablear. */
-export interface NodosNav {
+/** Barra de navegación: raíz, URL e historial. */
+export interface NodosNavBarra {
   raiz: HTMLElement;
   inputURL: HTMLInputElement;
   btnIr: HTMLButtonElement;
   btnAtras: HTMLButtonElement;
   btnAdelante: HTMLButtonElement;
   btnRecargar: HTMLButtonElement;
-  btnCapturar: HTMLButtonElement;
+}
+
+/** Vista embebida (webview child en Tauri, iframe reutilizable en web). */
+export interface NodosNavVista {
   btnSeleccionar: HTMLButtonElement;
   contenedor: HTMLElement;
   /** Solo existe en modo web (iframe reutilizable entre aperturas). */
   iframe: HTMLIFrameElement | null;
+}
+
+/** Área de captura de pantalla. */
+export interface NodosNavCaptura {
+  btnCapturar: HTMLButtonElement;
   capturaArea: HTMLElement;
   imgCaptura: HTMLImageElement;
   cerrarCaptura: HTMLButtonElement;
+}
+
+/** Registro de acciones y cierre del panel. */
+export interface NodosNavRegistro {
   logLista: HTMLElement;
   btnLimpiarLog: HTMLButtonElement;
   btnCerrar: HTMLButtonElement;
 }
+
+/** Todos los nodos que la fábrica necesita cablear. */
+export interface NodosNav
+  extends NodosNavBarra, NodosNavVista, NodosNavCaptura, NodosNavRegistro {}
 
 function boton(titulo: string): HTMLButtonElement {
   const b = el('button', 'nav-btn') as HTMLButtonElement;

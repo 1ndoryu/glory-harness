@@ -19,7 +19,8 @@ import type { ModalConfiguracion } from '../componentes/modal';
 import type { AdaptadorReal } from '../tauri/real';
 import { crearSimulacion } from '../simulacion/simulacion';
 
-export interface CrearPanelDeps {
+/** Núcleo de creación: adaptador, simulación, piezas UI y catálogo. */
+export interface CrearPanelNucleo {
   paneles: PanelChat[];
   adaptador: AdaptadorReal;
   simulacion: ReturnType<typeof crearSimulacion>;
@@ -29,6 +30,10 @@ export interface CrearPanelDeps {
   sidebar: Sidebar;
   modal: ModalConfiguracion;
   proveedores: ProveedorModelo[];
+}
+
+/** Estado compartido: conversaciones, modelo, modo, razonamiento y proyecto. */
+export interface CrearPanelEstado {
   getConversaciones: () => Conversacion[];
   getModelo: () => ModeloSeleccionado;
   setModelo: (m: ModeloSeleccionado) => void;
@@ -39,10 +44,18 @@ export interface CrearPanelDeps {
   getProyectos: () => Workspace[];
   getProyectoActivoId: () => string | null;
   getPrincipal: () => PanelChat | null;
+}
+
+/** Ciclo de turno global. */
+export interface CrearPanelTurno {
   hayTurnoGlobal: () => boolean;
   notificarTurnoInicio: () => void;
   notificarTurnoFin: () => void;
   registrarUltimoEnvio: (panel: PanelChat) => void;
+}
+
+/** Vista y sincronización delegadas al orquestador. */
+export interface CrearPanelVista {
   panelActivo: () => PanelChat | null;
   activarPanel: (panel: PanelChat | null) => void;
   resincronizarSidebar: () => Promise<void>;
@@ -52,6 +65,9 @@ export interface CrearPanelDeps {
   alternarPanelDerecho: () => void;
   abrirAcciones: (panel: PanelChat, rect: DOMRect) => void;
 }
+
+export interface CrearPanelDeps
+  extends CrearPanelNucleo, CrearPanelEstado, CrearPanelTurno, CrearPanelVista {}
 
 export function crearPanel(
   deps: CrearPanelDeps,

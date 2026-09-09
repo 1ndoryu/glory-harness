@@ -136,13 +136,18 @@ export interface CambioArchivoPanel {
   diff: string | null;
 }
 
-export interface PanelChatOpciones {
+/** Identidad del panel y dependencias de dominio. */
+export interface PanelChatBase {
   tipo: TipoPanel;
   /** Prefijo de ids DOM (coincide con `tipo`; p. ej. 'principal'). */
   idPrefijo: string;
   /** Catálogo de proveedores de la entrada completa (principal y lateral). */
   proveedores?: ProveedorModelo[];
   deps: DepsPanel;
+}
+
+/** Botones de la cabecera de ESTE panel. */
+export interface PanelChatCabecera {
   /** Se invoca al pulsar el botón ⋯ de la cabecera de ESTE panel. */
   onAcciones(rect: DOMRect): void;
   /** Panel lateral: se invoca al pulsar el × de cierre. */
@@ -152,11 +157,17 @@ export interface PanelChatOpciones {
   onToggleSidebar?: () => void;
   /** [089A-2] Panel principal: muestra/oculta el panel derecho. */
   onTogglePanelDerecho?: () => void;
-  /** El usuario cambió el modelo/modo/razonamiento en la barra de ESTE panel
-   * (todos los paneles son completos; el orquestador propaga M1 al resto). */
+}
+
+/** Cambios de modelo/modo/razonamiento/área hechos en la barra de ESTE panel
+ * (todos los paneles son completos; el orquestador propaga M1 al resto). */
+export interface PanelChatEstadoVista {
   onModeloCambiado?: (modelo: ModeloSeleccionado) => void;
   onModoCambiado?: (modo: ModoEjecucion) => void;
   onRazonamientoCambiado?: (razonamiento: string) => void;
   /** El usuario eligió un área de trabajo distinta para la conversación nueva. */
   onWorkspaceCambiado?: (workspaceId: string | null) => void;
 }
+
+export interface PanelChatOpciones
+  extends PanelChatBase, PanelChatCabecera, PanelChatEstadoVista {}
