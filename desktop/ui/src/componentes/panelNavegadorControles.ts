@@ -1,6 +1,6 @@
 /* DOM del panel Navegador: construye barra URL, botones, contenedor de vista
- * (webview child en Tauri, iframe reutilizable en modo web), área de captura,
- * log de acciones y botón de cierre. Sin estado ni IPC: solo nodos. */
+ * (webview child en Tauri, iframe reutilizable en modo web) y área de captura.
+ * Sin estado ni IPC: solo nodos. */
 import { icono } from './iconos';
 import { el } from '../util/dom';
 
@@ -30,16 +30,8 @@ export interface NodosNavCaptura {
   cerrarCaptura: HTMLButtonElement;
 }
 
-/** Registro de acciones y cierre del panel. */
-export interface NodosNavRegistro {
-  logLista: HTMLElement;
-  btnLimpiarLog: HTMLButtonElement;
-  btnCerrar: HTMLButtonElement;
-}
-
 /** Todos los nodos que la fábrica necesita cablear. */
-export interface NodosNav
-  extends NodosNavBarra, NodosNavVista, NodosNavCaptura, NodosNavRegistro {}
+export interface NodosNav extends NodosNavBarra, NodosNavVista, NodosNavCaptura {}
 
 function boton(titulo: string): HTMLButtonElement {
   const b = el('button', 'nav-btn') as HTMLButtonElement;
@@ -122,31 +114,10 @@ export function crearControlesNav(idP: string, esTauri: boolean): NodosNav {
     contenedor.appendChild(iframe);
   }
 
-  // Log de acciones del agente.
-  const logArea = el('div', 'nav-log');
-  const logTitulo = el('h3', 'nav-log-titulo');
-  logTitulo.textContent = 'Acciones del agente';
-  const logLista = el('ol', 'nav-log-lista');
-  logLista.id = `${idP}-log`;
-  const btnLimpiarLog = boton('Limpiar log de acciones');
-  btnLimpiarLog.textContent = 'Limpiar';
-  logArea.appendChild(logTitulo);
-  logArea.appendChild(logLista);
-  logArea.appendChild(btnLimpiarLog);
-
-  // Botón de cerrar navegador.
-  const botonCerrar = el('div', 'nav-cerrar');
-  const btnCerrar = boton('Cierra la webview y oculta el panel');
-  btnCerrar.appendChild(icono('x', true));
-  btnCerrar.appendChild(el('span')).textContent = ' Cerrar navegador';
-  botonCerrar.appendChild(btnCerrar);
-
   raiz.appendChild(barraURL);
   raiz.appendChild(botones);
   raiz.appendChild(contenedor);
   raiz.appendChild(capturaArea);
-  raiz.appendChild(logArea);
-  raiz.appendChild(botonCerrar);
 
   return {
     raiz,
@@ -162,8 +133,5 @@ export function crearControlesNav(idP: string, esTauri: boolean): NodosNav {
     capturaArea,
     imgCaptura,
     cerrarCaptura,
-    logLista,
-    btnLimpiarLog,
-    btnCerrar,
   };
 }

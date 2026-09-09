@@ -1,23 +1,17 @@
 /* Panel Navegador (plan 069A-1, F3). Fábrica duplicable que encapsula los
- * controles del navegador interno WebView2 child: barra URL, botones de
- * navegación, vista previa de captura, log de acciones del agente y modo
- * "seleccionar elemento" (placeholder F4). El DOM vive en
- * `panelNavegadorControles.ts` y la selección en `panelNavegadorSeleccion.ts`;
- * aquí quedan el estado, el IPC y el cableado de eventos. */
+ * controles del navegador interno WebView2 child: barra URL, botones,
+ * vista previa de captura y modo "seleccionar elemento" (placeholder F4).
+ * El DOM vive en `panelNavegadorControles.ts` y la selección en
+ * `panelNavegadorSeleccion.ts`; aquí quedan el estado, el IPC y el cableado
+ * de eventos. */
 import { invoke } from '@tauri-apps/api/core';
-import { el } from '../util/dom';
 import { esEntornoTauri } from '../tauri/real';
 import { crearControlesNav } from './panelNavegadorControles';
 import { crearSeleccionNav } from './panelNavegadorSeleccion';
 import { codigoHistorialAdelante, codigoHistorialAtras } from '../plataforma/webview';
-import { MAX_LOG } from './panelNavegadorTipos';
-import type {
-  AccionNavegador,
-  PanelNavegador,
-  PanelNavegadorOpciones,
-} from './panelNavegadorTipos';
+import type { PanelNavegador, PanelNavegadorOpciones } from './panelNavegadorTipos';
 
-export type { AccionNavegador, PanelNavegador, PanelNavegadorOpciones } from './panelNavegadorTipos';
+export type { PanelNavegador, PanelNavegadorOpciones } from './panelNavegadorTipos';
 
 export function montarPanelNavegador(opts: PanelNavegadorOpciones = {}): PanelNavegador {
   const idP = opts.idPrefijo ?? 'navegador';
@@ -33,25 +27,11 @@ export function montarPanelNavegador(opts: PanelNavegadorOpciones = {}): PanelNa
   const esTauri = esEntornoTauri();
 
   const n = crearControlesNav(idP, esTauri);
-  const { raiz, inputURL, contenedor, logLista, capturaArea, imgCaptura, iframe } = n;
+  const { raiz, inputURL, contenedor, capturaArea, imgCaptura, iframe } = n;
 
   // Estado interno.
   let urlActual = '';
-  let acciones: AccionNavegador[] = [];
   let ventanaAbierta = false;
-
-  function anadirAlLog(accion: AccionNavegador): void {
-    acciones.push(accion);
-    if (acciones.length > MAX_LOG) {
-      acciones = acciones.slice(acciones.length - MAX_LOG);
-    }
-    const item = el('li', 'nav-log-item');
-    item.dataset.ok = String(accion.ok);
-    const ts = new Date(accion.tiempo).toLocaleTimeString();
-    item.textContent = `[${ts}] ${accion.herramienta}: ${accion.descripcion}`;
-    logLista.appendChild(item);
-    logLista.scrollTop = logLista.scrollHeight;
-  }
 
   function actualizarCaptura(base64: string): void {
     imgCaptura.src = `data:image/png;base64,${base64}`;
@@ -62,27 +42,8 @@ export function montarPanelNavegador(opts: PanelNavegadorOpciones = {}): PanelNa
     comando: string,
     args: Record<string, unknown> = {},
   ): Promise<void> {
-    if (!ventanaAbierta) {
-      anadirAlLog({ herramienta: comando, descripcion: 'navegador cerrado', ok: false, tiempo: Date.now() });
-      return;
-    }
-    try {
-      await invoke(comando, args);
-      anadirAlLog({
-        herramienta: comando,
-        descripcion: args.url ? `navegar a ${(args.url as string).slice(0, 80)}` : comando,
-        ok: true,
-        tiempo: Date.now(),
-      });
-    } catch (error) {
-      anadirAlLog({
-        herramienta: comando,
-        descripcion: `error: ${String(error).slice(0, 120)}`,
-        ok: false,
-        tiempo: Date.now(),
-      });
-      throw error;
-    }
+    if (!ventanaAbierta) return;
+    await invoke(comando, args);
   }
 
   // [seleccionar] El modo vive en su módulo; navegar/recargar/atrás/adelante
@@ -93,8 +54,6 @@ export function montarPanelNavegador(opts: PanelNavegadorOpciones = {}): PanelNa
     ventanaAbierta: () => ventanaAbierta,
     urlActual: () => urlActual,
     onSeleccionar: opts.onSeleccionar,
-    log: (herramienta, descripcion, ok) =>
-      anadirAlLog({ herramienta, descripcion, ok, tiempo: Date.now() }),
   });
 
   /** [069A-2 fix] Completa el esquema si la URL no lo trae (modo web). */
@@ -113,12 +72,6 @@ export function montarPanelNavegador(opts: PanelNavegadorOpciones = {}): PanelNa
     urlActual = destino;
     inputURL.value = destino;
     iframe.src = destino;
-    anadirAlLog({
-      herramienta: 'navegar',
-      descripcion: `navegar a ${destino.slice(0, 80)}`,
-      ok: true,
-      tiempo: Date.now(),
-    });
   }
 
   function navegarURL(): void {
@@ -141,30 +94,11 @@ export function montarPanelNavegador(opts: PanelNavegadorOpciones = {}): PanelNa
   n.btnCapturar.addEventListener('click', () => {
     void (async () => {
       try {
-        if (!esTauri) {
-          anadirAlLog({
-            herramienta: 'capturar',
-            descripcion: 'captura solo en la app de escritorio (sin WebView2)',
-            ok: false,
-            tiempo: Date.now(),
-          });
-          return;
-        }
+        if (!esTauri) return;
         const base64 = await invoke<string>('navegador_capturar');
         actualizarCaptura(base64);
-        anadirAlLog({
-          herramienta: 'capturar',
-          descripcion: `captura PNG (${Math.round(base64.length * 0.75 / 1024)} KB estimado)`,
-          ok: true,
-          tiempo: Date.now(),
-        });
       } catch (error) {
-        anadirAlLog({
-          herramienta: 'capturar',
-          descripcion: `error: ${String(error).slice(0, 120)}`,
-          ok: false,
-          tiempo: Date.now(),
-        });
+        console.error('No se pudo capturar el navegador', error);
       }
     })();
   });
@@ -188,12 +122,6 @@ export function montarPanelNavegador(opts: PanelNavegadorOpciones = {}): PanelNa
       } else {
         iframe.src = destino;
       }
-      anadirAlLog({
-        herramienta: 'recargar',
-        descripcion: `recargar ${destino.slice(0, 80)}`,
-        ok: true,
-        tiempo: Date.now(),
-      });
     }
   });
 
@@ -208,9 +136,8 @@ export function montarPanelNavegador(opts: PanelNavegadorOpciones = {}): PanelNa
           // [069A-2 fix] El historial del iframe se controla desde el padre.
           iframe?.contentWindow?.history.back();
         }
-        anadirAlLog({ herramienta: 'atras', descripcion: 'navegar atrás', ok: true, tiempo: Date.now() });
       } catch (error) {
-        anadirAlLog({ herramienta: 'atras', descripcion: `error: ${String(error).slice(0, 120)}`, ok: false, tiempo: Date.now() });
+        console.error('No se pudo navegar atrás', error);
       }
     })();
   });
@@ -225,47 +152,15 @@ export function montarPanelNavegador(opts: PanelNavegadorOpciones = {}): PanelNa
           // [069A-2 fix] El historial del iframe se controla desde el padre.
           iframe?.contentWindow?.history.forward();
         }
-        anadirAlLog({ herramienta: 'adelante', descripcion: 'navegar adelante', ok: true, tiempo: Date.now() });
       } catch (error) {
-        anadirAlLog({ herramienta: 'adelante', descripcion: `error: ${String(error).slice(0, 120)}`, ok: false, tiempo: Date.now() });
+        console.error('No se pudo navegar adelante', error);
       }
-    })();
-  });
-
-  n.btnCerrar.addEventListener('click', () => {
-    void (async () => {
-      ventanaAbierta = false;
-      seleccion.apagar();
-      raiz.style.display = 'none';
-      if (esTauri) {
-        // Sin orquestador, esta fábrica cierra la webview ella misma; con
-        // onCerrar lo hace el orquestador (estado + IPC) para no duplicar.
-        if (!opts.onCerrar) {
-          try {
-            await invoke('navegador_cerrar');
-          } catch {
-            /* ignorar */
-          }
-        }
-        // Limpia el contenedor (la webview se cierra aparte)
-        contenedor.replaceChildren();
-      } else if (iframe) {
-        // [069A-2 fix] En web se conserva el iframe (reutilizable); se vacía.
-        iframe.src = 'about:blank';
-      }
-      anadirAlLog({ herramienta: 'cerrar', descripcion: 'navegador cerrado', ok: true, tiempo: Date.now() });
-      opts.onCerrar?.();
     })();
   });
 
   n.cerrarCaptura.addEventListener('click', () => {
     capturaArea.style.display = 'none';
     imgCaptura.src = '';
-  });
-
-  n.btnLimpiarLog.addEventListener('click', () => {
-    logLista.replaceChildren();
-    acciones = [];
   });
 
   return {
@@ -282,13 +177,6 @@ export function montarPanelNavegador(opts: PanelNavegadorOpciones = {}): PanelNa
     },
     desactivarSeleccion() {
       seleccion.apagar();
-    },
-    registrarAccion(accion: AccionNavegador) {
-      anadirAlLog(accion);
-    },
-    limpiarLog() {
-      logLista.replaceChildren();
-      acciones = [];
     },
     fijarURL(url: string) {
       urlActual = url;

@@ -28,13 +28,7 @@ export interface NavegadorVista {
 }
 
 export function montarNavegadorVista(deps: NavegadorVistaDeps): NavegadorVista {
-  // [069A-2 fix] `onCerrar` sincroniza el estado del orquestador
-  // (navegadorAbierto) cuando se cierra desde el botón interno del panel,
-  // para no duplicar la lógica de cierre en dos sitios.
   const navegador = montarPanelNavegador({
-    onCerrar() {
-      cerrarNavegador();
-    },
     // [seleccionar] El usuario eligió un elemento de la página con el modo
     // "seleccionar": se adjunta como badge al chat activo para que el modelo
     // reciba el descriptor (URL + selector CSS) en el próximo mensaje.
@@ -67,12 +61,6 @@ export function montarNavegadorVista(deps: NavegadorVistaDeps): NavegadorVista {
       // [069A-2 fix] Modo web: el iframe se autogestiona; solo se fija la URL
       // inicial para que el área no quede en blanco.
       navegador.irA('https://example.com');
-      navegador.registrarAccion({
-        herramienta: 'abrir',
-        descripcion: 'navegador iniciado en https://example.com',
-        ok: true,
-        tiempo: Date.now(),
-      });
       return;
     }
 
@@ -91,12 +79,6 @@ export function montarNavegadorVista(deps: NavegadorVistaDeps): NavegadorVista {
           posY: Math.round(rect.top),
         });
         navegador.fijarURL('https://example.com');
-        navegador.registrarAccion({
-          herramienta: 'abrir',
-          descripcion: 'navegador iniciado en https://example.com',
-          ok: true,
-          tiempo: Date.now(),
-        });
 
         // Observar cambios de tamaño/posición para reposicionar la webview
         const ro = new ResizeObserver(() => {
@@ -112,12 +94,7 @@ export function montarNavegadorVista(deps: NavegadorVistaDeps): NavegadorVista {
         // Guardar observer para cleanup al cerrar
         (navegador as unknown as Record<string, unknown>).__resizeObserver = ro;
       } catch (error) {
-        navegador.registrarAccion({
-          herramienta: 'abrir',
-          descripcion: `error: ${String(error).slice(0, 120)}`,
-          ok: false,
-          tiempo: Date.now(),
-        });
+        console.error('No se pudo abrir el navegador', error);
       }
     })();
   }
@@ -129,8 +106,8 @@ export function montarNavegadorVista(deps: NavegadorVistaDeps): NavegadorVista {
     // [089A-2] Desmonta su tab; si no quedan tabs se cierra el panel derecho.
     deps.cerrarTabNavegador();
     deps.cerrarPanelDerechoSiVacio();
-    // Solo en Tauri existe la webview child que cerrar; en web el iframe se
-    // vacía dentro del propio panel (btnCerrar) y aquí solo se oculta.
+    // Solo en Tauri existe la webview child que cerrar; en web el iframe
+    // permanece reutilizable y el panel se oculta.
     if (deps.usaTauri) {
       void invoke('navegador_cerrar').catch(() => {});
     }

@@ -49,13 +49,6 @@ export function crearGanchos(deps: GanchosDeps): HooksAdaptador {
     // incluyendo captura base64 para mostrar la imagen.
     onToolNavegador(ev) {
       const navegador = deps.getNavegador();
-      const urlPart = ev.url ? ` (${ev.url.slice(0, 60)})` : '';
-      navegador.registrarAccion({
-        herramienta: ev.accion,
-        descripcion: `${ev.descripcion}${urlPart}`,
-        ok: ev.ok,
-        tiempo: Date.now(),
-      });
       if (ev.ok && ev.url) navegador.fijarURL(ev.url);
       // [069A-1 F6] Mostrar captura base64 si viene en el evento
       if (ev.accion === 'capturar' && ev.captura_base64) {

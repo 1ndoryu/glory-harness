@@ -21,8 +21,6 @@ export interface SeleccionNavDeps {
   ventanaAbierta(): boolean;
   urlActual(): string;
   onSeleccionar?: (elem: ElementoSeleccionado) => void;
-  /** Registra una línea en el log del panel (la aporta la fábrica). */
-  log(herramienta: string, descripcion: string, ok: boolean): void;
 }
 
 export interface SeleccionNav {
@@ -69,7 +67,6 @@ export function crearSeleccionNav(d: SeleccionNavDeps): SeleccionNav {
     void (async () => {
       try {
         await invoke('navegador_js', { codigo: scriptSeleccionActivar() });
-        d.log('seleccionar', 'modo selección activo: pasa el cursor y haz clic en el elemento', true);
         if (!seleccionando) return; // se apagó mientras inyectaba
         pollSeleccion = setInterval(() => {
           void leer();
@@ -77,7 +74,7 @@ export function crearSeleccionNav(d: SeleccionNavDeps): SeleccionNav {
       } catch (error) {
         seleccionando = false;
         pintarBoton();
-        d.log('seleccionar', `error: ${String(error).slice(0, 120)}`, false);
+        console.error('No se pudo activar la selección del navegador', error);
       }
     })();
   }
@@ -110,13 +107,13 @@ export function crearSeleccionNav(d: SeleccionNavDeps): SeleccionNav {
           texto: typeof desc.texto === 'string' ? desc.texto : '',
           pagina: typeof desc.pagina === 'string' ? desc.pagina : d.urlActual(),
         };
-        d.log('seleccionar', `elemento elegido: ${elem.etiqueta} (selector ${elem.selector})`, true);
         d.onSeleccionar?.(elem);
       }
     } catch (error) {
-      // La webview pudo cerrarse o la página cambió: apagar sin ruido.
+      // La webview pudo cerrarse o la página cambió: apagar sin dejar un
+      // estado silencioso en la consola de desarrollo.
       apagar();
-      d.log('seleccionar', `se detuvo: ${String(error).slice(0, 120)}`, false);
+      console.error('Se detuvo la selección del navegador', error);
     }
   }
 
@@ -124,15 +121,14 @@ export function crearSeleccionNav(d: SeleccionNavDeps): SeleccionNav {
   function alternar(): void {
     if (seleccionando) {
       apagar();
-      d.log('seleccionar', 'modo selección cancelado', true);
       return;
     }
     if (!d.esTauri) {
-      d.log('seleccionar', 'seleccionar elemento requiere la app de escritorio (WebView2)', false);
+      console.warn('La selección de elementos requiere la app de escritorio (WebView2)');
       return;
     }
     if (!d.ventanaAbierta()) {
-      d.log('seleccionar', 'navegador cerrado', false);
+      console.warn('No se puede seleccionar un elemento con el navegador cerrado');
       return;
     }
     encender();
