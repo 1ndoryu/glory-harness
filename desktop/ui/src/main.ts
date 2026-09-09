@@ -17,6 +17,7 @@ import type { Conversacion, Workspace } from './dominio/tipos';
 
 import { montarVistaModal } from './orquestador/vistaModal';
 import { ejecutarArranque } from './orquestador/arranque';
+import { crearGanchos } from './orquestador/ganchos';
 import './estilos/modalProyecto.css';
 import { montarPanelMeta } from './componentes/panelMeta';
 import type { PanelChat } from './componentes/panelChat';
@@ -27,7 +28,7 @@ import { montarPanelDerechoTodo } from './orquestador/panelDerecho';
 import { crearSimulacion } from './simulacion/simulacion';
 import { crearAdaptadorReal, esEntornoTauri } from './tauri/real';
 import { crearAdaptadorApi } from './adaptadores/api';
-import type { HooksAdaptador, InfoSesion, UsoTurno } from './tauri/real';
+import type { HooksAdaptador, InfoSesion } from './tauri/real';
 import { el } from './util/dom';
 import {
   abrirAccionesPanel,
@@ -145,58 +146,19 @@ const panelMeta = montarPanelMeta({
 });
 
 // ---------- Backend real: adaptador (compartido). ----------
-// onSesion se ejecuta en runtime (tras montar todo); `modal` es seguro.
-const hooksAdaptador: HooksAdaptador = {
-  onSesion(info: InfoSesion) {
-    sincronizarModeloDesdeSesion(info);
-    const ws = info.workspace;
-    if (ws && ws !== '<desconocido>') todoVistaModal.modal.asignarValor('workspace', ws);
-    // [069A-Proyectos] Tras cambiar de workspace (proyecto), refrescar
-    // la lista de proyectos + conversaciones. No esperar si falla.
-    if (USA_REAL) {
-      void refrescarProyectos().then(() => resincronizarSidebar());
-    }
-  },
-  // [039A-3 P6] El `ContextoDetalle`/`usage` del backend repinta el indicador
-  // circular de TODOS los paneles con el % y la ventana real (fuente única).
-  // Seguro: se ejecuta en runtime, cuando `panelesRegistrados` ya existe.
-  onContexto(u: UsoTurno) {
-    panelesRegistrados.forEach((p) =>
-      p.setContexto({
-        pct: u.ocupacionPct,
-        maxVentana: u.maxVentana,
-        reservaSalida: u.reservaSalida,
-        totalEntrada: u.totalEntrada,
-      }),
-    );
-  },
-  // [069A-1 F6] Refleja las tools de navegador del agente en el panel UI,
-  // incluyendo captura base64 para mostrar la imagen.
-  onToolNavegador(ev) {
-    const urlPart = ev.url ? ` (${ev.url.slice(0, 60)})` : '';
-    navegador.registrarAccion({
-      herramienta: ev.accion,
-      descripcion: `${ev.descripcion}${urlPart}`,
-      ok: ev.ok,
-      tiempo: Date.now(),
-    });
-    if (ev.ok && ev.url) navegador.fijarURL(ev.url);
-    // [069A-1 F6] Mostrar captura base64 si viene en el evento
-    if (ev.accion === 'capturar' && ev.captura_base64) {
-      navegador.actualizarCaptura(ev.captura_base64);
-    }
-  },
-  // [069A-2 F4] Estado de conexión SSE (solo modo web): visible, nunca
-  // silencioso. Seguro: `avisoGlobal` solo corre en runtime.
-  onConexion(estado, detalle) {
-    if (estado !== 'en-linea') avisoGlobal(`backend web: ${estado}`, '', detalle ?? '');
-  },
-  // [089A-12] Cambios de archivos del agente → preview integrado en Files.
-  // Seguro: corre en runtime, cuando `files` ya existe.
-  onCambioArchivo(cambio) {
-    files.registrarCambio(cambio);
-  },
-};
+// Los ganchos viven en `orquestador/ganchos`; las piezas creadas más abajo
+// (modal, navegador, files) llegan como cierres perezosos de runtime.
+const hooksAdaptador: HooksAdaptador = crearGanchos({
+  usaReal: USA_REAL,
+  sincronizarModeloDesdeSesion,
+  asignarWorkspace: (ws) => todoVistaModal.modal.asignarValor('workspace', ws),
+  refrescarProyectos,
+  resincronizarSidebar,
+  paneles: () => panelesRegistrados,
+  getNavegador: () => todoNavegador.navegador,
+  avisar: avisoGlobal,
+  registrarCambioArchivo: (cambio) => files.registrarCambio(cambio),
+});
 // Tauri → IPC in-process; web (`?api=`/`gh_api`/mismo origen) → HTTP/SSE.
 // `adaptador` se usa en cierres de runtime; en modo ni-ni nunca se monta.
 const adaptador = USA_TAURI
@@ -456,8 +418,6 @@ const todoNavegador = montarNavegadorVista({
     todoPanelDerecho.panelDerecho.cerrarTab('navegador');
   },
 });
-const navegador = todoNavegador.navegador;
-
 /* El panel derecho vive en `orquestador/panelDerecho` (Files, Git, tabs,
  * grip de ancho, visibilidad). `abrirNavegador`/`abrirChatLateral` son
  * cierres de runtime sobre piezas declaradas más abajo. */
