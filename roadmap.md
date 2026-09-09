@@ -149,23 +149,22 @@ Orden propuesto (dependencias de abajo arriba):
       `startDragging()` programático; los clics en botones/inputs no arrastran).
       Referencia guardada en `area-trabajo/paseo`
       (`components/desktop/window-controls.tsx`, `titlebar-drag-region.tsx`).
-- [ ] **089A-2 — Layout Paseo: entrada flotante, toggles, tabs y visor** (08-09, en curso):
+- [ ] **089A-2 — Layout Paseo: entrada flotante, toggles, tabs y preview** (08-09, en curso):
       (a) `.mensajes` sin `max-width`/centrado (todo el ancho); `.entrada`
       flotante por encima (`absolute`, fondo sólido + borde superior) con
       reserva inferior dinámica vía `ResizeObserver` en `panelChat`.
-      (b) Botón sidebar siempre visible y alterna (mostrar/ocultar); botón
-      visor en la cabecera principal; × en la barra de tabs cierra el panel.
+      (b) Botón sidebar siempre visible y alterna (mostrar/ocultar); el
+      preview de archivos vive dentro de Files; × en la barra de tabs cierra
+      el panel.
       (c) Panel derecho con tabs (`panelDerecho.ts` + `tabs.css`): Chat
-      lateral, Navegador y Visor conviven (fin de la exclusión mutua);
+      lateral, Files, Git local y Navegador conviven; el preview pertenece
+      al pane Files y no es una tab independiente.
       grip único; comando nuevo `navegador_mostrar` (oculta la webview hija
       sin destruirla al cambiar de tab).
-      (d) Visor de archivo y cambios (`panelVisor.ts` + `visor.css` +
-      comando `leer_archivo` validado al workspace): Archivo real + Cambios
-      (hook `onCambioArchivo` en vivo + `listarCambios()` del historial).
-      Estilo Paseo estructural (tabs Archivo|Cambios, barra meta con nombre,
-      ruta en tooltip y nº de líneas, cabecera por cambio con ruta clicable);
-      monocromo estricto, sin verde/rojo. Límite v1: al cambiar de
-      conversación con el visor abierto, los cambios se refrescan al reabrirlo.
+      (d) Files integra árbol + preview de archivo (`panelFiles.ts` +
+      `files.css` + comando `leer_archivo` validado al workspace); los
+      cambios `file_write/file_patch` se reflejan en el archivo afectado.
+      No existe una tab Cambios/Visor independiente.
       (e) Toggle del panel derecho (botón siempre visible en la cabecera
       principal, espejo del izquierdo; ocultar no destruye las tabs), ×
       propio por tab y multi-chat (una tab `chat:<id>` por conversación,
@@ -190,7 +189,8 @@ Orden propuesto (dependencias de abajo arriba):
       Al abrir el panel derecho sin tabs muestra el inicio para elegir contenido
       (nuevo `estilos/launcher.css`, estado vacío en `panelDerecho.ts`): pantalla
       de opciones centrada (icono + etiqueta, full-width) al estilo
-      `RightDockLauncher` de Synara con Navegador, Visor y Chat lateral (con
+      `RightDockLauncher` de Synara con Files, Git local, Navegador y Chat
+      lateral (con
       gating: el chat solo si hay conversación activa). El × global oculta el
       panel; cerrar la última tab deja el inicio (ya no se desmonta). Referencia:
       `RightDock.tsx` + `rightDockPaneMeta.tsx` en `area-trabajo/synara`.
@@ -198,6 +198,13 @@ Orden propuesto (dependencias de abajo arriba):
       historial de la app para atrás/adelante (misma lógica que Synara,
       hoy deshabilitados) y Terminal/Files/Source control como opciones del
       inicio cuando existan esos paneles.
+- [x] **089A-12 — Files estilo Synara: árbol + visor integrado** (09-09,
+      HECHO): Files es un único pane dividido (árbol a la izquierda y preview
+      a la derecha al seleccionar un archivo); se eliminaron `21 entradas`,
+      los estados persistentes y Visor como tab/opción independiente; los
+      errores de filesystem/Git se muestran mediante toast global. Evidencia:
+      `Agente/completados/tareas-2026-09-08.md` (entrada 089A-12); build UI y
+      gate 089A-12 PASS 0/0/0.
 - [x] **089A-11 — Files/Git se recargan al cambiar de área de trabajo**
       (08-09, HECHO 08-09): al cambiar el workspace activo con la tab de
       Files/Git abierta, la lista/diffs seguían del área anterior (Files/Git

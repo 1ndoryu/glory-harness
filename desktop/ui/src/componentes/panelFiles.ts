@@ -1,6 +1,6 @@
 // ponytail: sin watcher nativo. recargar() en cada apertura + botón manual
-// cubren detección de cambios externos. Añadir `notify` (crate) + invalidación
-// diferida solo si hay quejas de datos obsoletos sin recarga manual.
+// cubren detección de cambios externos. Files sigue el patrón de Synara:
+// un único pane con árbol a la izquierda y preview del archivo a la derecha.
 
 import '../estilos/files.css';
 import { icono } from './iconos';
@@ -13,14 +13,25 @@ export interface FilesTransport {
   leer(ruta: string): Promise<{ ruta: string; lineas: number; contenido: string }>;
 }
 
+export interface CambioArchivoFiles {
+  origen: 'tool';
+  tool: 'file_write' | 'file_patch';
+  ruta: string;
+  titulo: string;
+  resumen: string;
+  diff: string | null;
+}
+
 export interface PanelFiles {
   raiz: HTMLElement;
   recargar(): void;
+  registrarCambio(cambio: CambioArchivoFiles): void;
+  sincronizarCambios(cambios: CambioArchivoFiles[]): void;
 }
 
 export function montarPanelFiles(opts: {
   transporte: FilesTransport;
-  abrirArchivo(ruta: string): void;
+  onError?: (texto: string, detalle?: string) => void;
 }): PanelFiles {
   const raiz = el('div', 'panel-files');
   const cabecera = el('div', 'files-cabecera');
@@ -33,20 +44,35 @@ export function montarPanelFiles(opts: {
   recargar.appendChild(icono('recargar'));
   cabecera.append(titulo, recargar);
 
+  const contenido = el('div', 'files-contenido');
+  const explorador = el('div', 'files-explorador');
   const busqueda = el('div', 'files-busqueda');
   const input = el('input', 'files-input') as HTMLInputElement;
   input.type = 'search';
   input.placeholder = 'buscar archivos…';
   input.setAttribute('aria-label', 'buscar archivos por nombre');
   busqueda.appendChild(input);
-
-  const estado = el('div', 'files-estado');
   const arbol = el('div', 'files-arbol');
   arbol.setAttribute('role', 'tree');
-  raiz.append(cabecera, busqueda, estado, arbol);
+  explorador.append(busqueda, arbol);
+
+  const visor = el('div', 'files-visor');
+  const visorCabecera = el('div', 'files-visor-cabecera');
+  const visorRuta = el('span', 'files-visor-ruta');
+  visorRuta.textContent = 'Selecciona un archivo para verlo';
+  visorCabecera.appendChild(visorRuta);
+  const codigo = el('div', 'files-visor-codigo');
+  const vacio = el('div', 'files-visor-vacio');
+  vacio.textContent = 'Selecciona un archivo del árbol para previsualizarlo.';
+  codigo.appendChild(vacio);
+  visor.append(visorCabecera, codigo);
+  contenido.append(explorador, visor);
+  raiz.append(cabecera, contenido);
 
   const cargadas = new Map<string, EntradaWorkspace[]>();
+  const cambios = new Map<string, CambioArchivoFiles>();
   let secuencia = 0;
+  let secuenciaLectura = 0;
 
   function errorTexto(error: unknown): string {
     if (typeof error === 'object' && error !== null && 'mensaje' in error) {
@@ -55,9 +81,52 @@ export function montarPanelFiles(opts: {
     return String(error);
   }
 
-  function pintarEstado(texto: string, clase = ''): void {
-    estado.textContent = texto;
-    estado.className = `files-estado${clase ? ` ${clase}` : ''}`;
+  function notificarError(texto: string, error: unknown): void {
+    opts.onError?.(texto, errorTexto(error));
+  }
+
+  function pintarCodigo(contenidoArchivo: string): void {
+    codigo.replaceChildren();
+    const lineas = contenidoArchivo.split('\n');
+    if (lineas.length > 2000) {
+      const pre = el('pre', 'files-visor-plano');
+      pre.textContent = contenidoArchivo;
+      codigo.appendChild(pre);
+      return;
+    }
+    const frag = document.createDocumentFragment();
+    lineas.forEach((texto, i) => {
+      const fila = el('div', 'files-visor-linea');
+      const numero = el('span', 'files-visor-numero');
+      numero.textContent = String(i + 1);
+      const textoNodo = el('span', 'files-visor-texto');
+      textoNodo.textContent = texto === '' ? ' ' : texto;
+      fila.append(numero, textoNodo);
+      frag.appendChild(fila);
+    });
+    codigo.appendChild(frag);
+  }
+
+  async function abrirArchivo(ruta: string): Promise<void> {
+    const id = ++secuenciaLectura;
+    visorRuta.textContent = ruta;
+    codigo.replaceChildren();
+    const cargando = el('div', 'files-visor-vacio');
+    cargando.textContent = 'cargando…';
+    codigo.appendChild(cargando);
+    try {
+      const resultado = await opts.transporte.leer(ruta);
+      if (id !== secuenciaLectura) return;
+      visorRuta.textContent = `${resultado.ruta} — ${resultado.lineas} líneas`;
+      pintarCodigo(resultado.contenido);
+    } catch (error: unknown) {
+      if (id !== secuenciaLectura) return;
+      codigo.replaceChildren();
+      const vacioError = el('div', 'files-visor-vacio');
+      vacioError.textContent = 'No se pudo previsualizar el archivo.';
+      codigo.appendChild(vacioError);
+      notificarError('no se pudo leer el archivo', error);
+    }
   }
 
   function fila(entrada: EntradaWorkspace, nivel: number): HTMLElement {
@@ -74,7 +143,7 @@ export function montarPanelFiles(opts: {
       boton.addEventListener('click', () => void alternarDirectorio(entrada, fila, nivel));
     } else {
       boton.appendChild(icono('archivo'));
-      boton.addEventListener('click', () => opts.abrirArchivo(entrada.ruta));
+      boton.addEventListener('click', () => void abrirArchivo(entrada.ruta));
     }
     const texto = el('span', 'files-nombre-texto');
     texto.textContent = entrada.nombre;
@@ -100,22 +169,24 @@ export function montarPanelFiles(opts: {
         nodo.appendChild(hijos);
       }
     }
+    if (entradas.length === 0) {
+      const vacioArbol = el('div', 'files-vacio');
+      vacioArbol.textContent = 'carpeta vacía';
+      contenedor.appendChild(vacioArbol);
+    }
   }
 
   async function cargarDirectorio(ruta: string, objetivo: HTMLElement, nivel: number): Promise<void> {
     const id = ++secuencia;
-    pintarEstado('cargando…', 'cargando');
     try {
       const resultado = await opts.transporte.listar(ruta, nivel === 0 ? 1 : 0);
       if (id !== secuencia) return;
       cargadas.set(ruta, resultado.entradas);
       pintarEntradas(resultado.entradas, objetivo, nivel);
-      pintarEstado(resultado.truncado ? 'lista truncada; usa búsqueda para más resultados' : `${resultado.entradas.length} entradas`);
-      if (resultado.entradas.length === 0) pintarEstado('carpeta vacía', 'vacio');
     } catch (error: unknown) {
       if (id !== secuencia) return;
       objetivo.replaceChildren();
-      pintarEstado(`no se pudo listar: ${errorTexto(error)}`, 'error');
+      notificarError('no se pudo listar el workspace', error);
     }
   }
 
@@ -123,8 +194,7 @@ export function montarPanelFiles(opts: {
     const hijos = filaNodo.querySelector<HTMLElement>(':scope > .files-hijos');
     if (hijos) {
       hijos.remove();
-      const boton = filaNodo.querySelector<HTMLButtonElement>('.files-nombre');
-      boton?.setAttribute('aria-expanded', 'false');
+      filaNodo.querySelector<HTMLButtonElement>('.files-nombre')?.setAttribute('aria-expanded', 'false');
       return;
     }
     const contenedor = el('div', 'files-hijos');
@@ -141,19 +211,15 @@ export function montarPanelFiles(opts: {
       return;
     }
     const id = ++secuencia;
-    pintarEstado('buscando…', 'cargando');
     try {
       const resultado = await opts.transporte.buscar(consulta);
       if (id !== secuencia) return;
       arbol.replaceChildren();
-      const entradas = resultado.entradas;
-      pintarEntradas(entradas, arbol, 0);
-      pintarEstado(resultado.truncado ? `${entradas.length} resultados; búsqueda truncada` : `${entradas.length} resultados`);
-      if (!entradas.length) pintarEstado('sin resultados', 'vacio');
+      pintarEntradas(resultado.entradas, arbol, 0);
     } catch (error: unknown) {
       if (id !== secuencia) return;
       arbol.replaceChildren();
-      pintarEstado(`no se pudo buscar: ${errorTexto(error)}`, 'error');
+      notificarError('no se pudo buscar en el workspace', error);
     }
   }
 
@@ -167,5 +233,20 @@ export function montarPanelFiles(opts: {
     void cargarDirectorio('', arbol, 0);
   });
 
-  return { raiz, recargar: () => { cargadas.clear(); void cargarDirectorio('', arbol, 0); } };
+  function registrarCambio(cambio: CambioArchivoFiles): void {
+    cambios.set(cambio.ruta, cambio);
+    if (cambio.ruta) void abrirArchivo(cambio.ruta);
+  }
+
+  function sincronizarCambios(anteriores: CambioArchivoFiles[]): void {
+    cambios.clear();
+    anteriores.forEach((cambio) => cambios.set(cambio.ruta, cambio));
+  }
+
+  return {
+    raiz,
+    recargar: () => { cargadas.clear(); void cargarDirectorio('', arbol, 0); },
+    registrarCambio,
+    sincronizarCambios,
+  };
 }

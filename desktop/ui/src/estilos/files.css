@@ -7,34 +7,22 @@
     color: var(--texto);
 }
 
-.files-cabecera,
-.files-busqueda {
+.files-cabecera {
     display: flex;
     align-items: center;
     gap: var(--sp-xs);
     flex: none;
-    padding: var(--sp-sm);
+    height: var(--alto-cabecera);
+    padding: 0 var(--sp-sm);
     border-bottom: 1px solid var(--borde);
 }
 
-/* [089A-9 fix] Altura fija común: coincide con .cabecera-chat y .git-cabecera
-   (--alto-cabecera) para alinear la fila superior con el dock abierto. */
-.files-cabecera {
-    height: var(--alto-cabecera);
-    padding: 0 var(--sp-sm);
-}
-
-.files-titulo {
-    flex: 1;
-    font-size: var(--sm);
-}
-
-.files-accion {
+.files-titulo { flex: 1; font-size: var(--sm); }
+.files-accion,
+.git-accion {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    /* [089A-9 fix] Botón cuadrado de 24px (mismo tamaño que .cab-boton de la
-       cabecera de chat): la cabecera centra el contenido en --alto-cabecera. */
     width: 24px;
     height: 24px;
     padding: 0;
@@ -43,9 +31,35 @@
     border: 1px solid var(--borde);
     cursor: pointer;
 }
+.files-accion .ic,
+.git-accion .ic { width: 14px; height: 14px; }
+.files-accion:hover,
+.files-accion:focus-visible,
+.git-accion:hover,
+.git-accion:focus-visible { background: color-mix(in srgb, var(--texto) 8%, var(--fondo)); }
 
-.files-accion .ic { width: 14px; height: 14px; }
-.files-accion:hover { background: color-mix(in srgb, var(--texto) 8%, var(--fondo)); }
+.files-contenido {
+    display: flex;
+    flex: 1;
+    min-height: 0;
+    min-width: 0;
+}
+
+.files-explorador {
+    display: flex;
+    flex: 0 0 42%;
+    flex-direction: column;
+    min-width: 150px;
+    min-height: 0;
+    border-right: 1px solid var(--borde);
+}
+
+.files-busqueda {
+    display: flex;
+    flex: none;
+    padding: var(--sp-sm);
+    border-bottom: 1px solid var(--borde);
+}
 
 .files-input {
     width: 100%;
@@ -57,17 +71,6 @@
     background: var(--fondo);
     border: 1px solid var(--borde);
 }
-
-.files-estado {
-    flex: none;
-    min-height: 1.4em;
-    padding: 0 var(--sp-sm);
-    font-size: var(--xs);
-    opacity: .6;
-}
-
-.files-estado.error { opacity: 1; }
-.files-estado.vacio { opacity: .55; }
 
 .files-arbol {
     flex: 1;
@@ -100,3 +103,75 @@
 .files-nombre-texto { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .files-ignorado { position: absolute; right: var(--sp-sm); font-size: var(--xs); opacity: .45; }
 .files-hijos { min-width: 0; }
+.files-vacio {
+    padding: var(--sp-md) var(--sp-sm);
+    font-size: var(--xs);
+    opacity: .6;
+}
+
+.files-visor {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+}
+.files-visor-cabecera {
+    display: flex;
+    align-items: center;
+    flex: none;
+    min-width: 0;
+    height: var(--alto-cabecera);
+    padding: 0 var(--sp-sm);
+    border-bottom: 1px solid var(--borde);
+    font-size: var(--xs);
+}
+.files-visor-ruta {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    opacity: .7;
+}
+.files-visor-aviso[hidden] { display: none; }
+.files-visor-codigo {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+    padding: var(--sp-sm) 0;
+    font-size: var(--xs);
+    line-height: 1.5;
+}
+.files-visor-vacio {
+    padding: var(--sp-md);
+    font-size: var(--xs);
+    opacity: .6;
+}
+.files-visor-linea {
+    display: flex;
+    min-width: max-content;
+    padding-right: var(--sp-md);
+}
+.files-visor-linea:hover { background: var(--texto); }
+.files-visor-linea:hover .files-visor-numero,
+.files-visor-linea:hover .files-visor-texto { color: var(--fondo); }
+.files-visor-numero {
+    flex: none;
+    width: 4ch;
+    margin-right: var(--sp-sm);
+    padding-left: var(--sp-sm);
+    text-align: right;
+    opacity: .4;
+    user-select: none;
+}
+.files-visor-texto { white-space: pre; }
+.files-visor-plano {
+    margin: 0;
+    padding: 0 var(--sp-sm);
+    font: inherit;
+    white-space: pre;
+}
+
+@media (max-width: 620px) {
+    .files-explorador { flex-basis: 48%; min-width: 120px; }
+}

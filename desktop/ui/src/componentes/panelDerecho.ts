@@ -1,15 +1,10 @@
 // ============================================================
-// Panel derecho con tabs (089A-2, referencia Paseo): chats laterales,
-// Navegador y Visor conviven como pestañas en vez de excluirse.
-// Los ids son dinámicos: 'navegador', 'visor' y 'chat:<id>' (una tab por
-// conversación lateral). Cada tab con cierre propio cierra solo su pestaña.
-// El contenido de cada tab es el nodo vivo del componente (se oculta con
-// `hidden`, no se destruye). Sin tabs muestra el inicio: pantalla de
-// opciones centrada (icono +
-// etiqueta, full-width) al estilo `RightDockLauncher` de Synara
-// (089A-4): Navegador, Visor y Chat lateral (con gating: el chat solo
-// si hay conversación activa; Terminal/Files/Source control pendientes,
-// ver roadmap). Elegir una opción abre su tab.
+// Panel derecho con tabs (089A-2, referencia Synara): chats laterales,
+// Files, Git local y Navegador conviven como pestañas. Files incluye su
+// propio visor dividido, así que no existe una tab de visor independiente.
+// Los ids son dinámicos: 'navegador' y 'chat:<id>'. Cada tab con cierre
+// propio cierra solo su pestaña. Sin tabs muestra el inicio: pantalla de
+// opciones centrada al estilo `RightDockLauncher` de Synara.
 // ============================================================
 
 import '../estilos/tabs.css';
@@ -19,7 +14,7 @@ import { icono } from './iconos';
 import { el } from '../util/dom';
 import type { IconoNombre } from '../dominio/tipos';
 
-/** Id de tab: 'files' | 'navegador' | 'visor' | 'chat:<conversaId>'. */
+/** Id de tab: 'files' | 'git' | 'navegador' | 'chat:<conversaId>'. */
 export type TabDerechaId = string;
 
 export interface PanelDerecho {
@@ -41,7 +36,7 @@ export interface PanelDerecho {
 }
 
 /** Opción del inicio (pantalla sin tabs): abre su tab correspondiente. */
-export type OpcionInicio = 'files' | 'git' | 'navegador' | 'visor' | 'chat';
+export type OpcionInicio = 'files' | 'git' | 'navegador' | 'chat';
 
 export function montarPanelDerecho(opts: {
   onCambioTab(id: TabDerechaId | null): void;
@@ -95,7 +90,6 @@ export function montarPanelDerecho(opts: {
   opcionInicio('files', 'carpeta', 'Files');
   opcionInicio('git', 'flujo', 'Git local');
   opcionInicio('navegador', 'navegador', 'Navegador');
-  opcionInicio('visor', 'archivo', 'Visor');
   // Gating como Synara: el chat lateral solo si hay conversación activa
   // (el orquestador lo habilita con `fijarInicioChatDisponible`).
   const btnChatInicio = opcionInicio('chat', 'mensaje', 'Chat lateral');
@@ -110,7 +104,6 @@ export function montarPanelDerecho(opts: {
           ['files', 'Files'],
           ['git', 'Git local'],
           ['navegador', 'Navegador'],
-          ['visor', 'Visor'],
           ...(chatLateralDisponible ? [['chat', 'Chat lateral']] : []),
         ] as Array<[OpcionInicio, string]>) {
           menu.appendChild(

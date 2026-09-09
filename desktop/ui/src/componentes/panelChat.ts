@@ -167,12 +167,11 @@ export interface PanelChat {
   /** [seleccionar] Muestra un elemento del navegador como badge pendiente en
    * la entrada de ESTE panel (se antepone al próximo mensaje enviado). */
   adjuntarElemento(elem: ElementoSeleccionado): void;
-  /** [089A-2] Cambios de archivos de la conversación cargada (historial:
-   * tools file_write/file_patch con su diff), para el tab Cambios del visor. */
+  /** Cambios de archivos de la conversación cargada para sincronizar Files. */
   listarCambios(): CambioArchivoPanel[];
 }
 
-/** [089A-2] Cambio de archivo para el visor (ruta + diff ya formateado). */
+/** Cambio de archivo de la conversación (ruta + diff ya formateado). */
 export interface CambioArchivoPanel {
   origen: 'tool';
   tool: 'file_write' | 'file_patch';
@@ -198,8 +197,6 @@ export interface PanelChatOpciones {
   onToggleSidebar?: () => void;
   /** [089A-2] Panel principal: muestra/oculta el panel derecho. */
   onTogglePanelDerecho?: () => void;
-  /** [089A-2] Panel principal: se invoca al pulsar el botón del visor. */
-  onAbrirVisor?: () => void;
   /** El usuario cambió el modelo/modo/razonamiento en la barra de ESTE panel
    * (todos los paneles son completos; el orquestador propaga M1 al resto). */
   onModeloCambiado?: (modelo: ModeloSeleccionado) => void;
@@ -228,7 +225,6 @@ export function montarPanelChat(opts: PanelChatOpciones): PanelChat {
     onToggleSidebar: tipo === 'principal' ? () => opts.onToggleSidebar?.() : undefined,
     onTogglePanelDerecho:
       tipo === 'principal' ? () => opts.onTogglePanelDerecho?.() : undefined,
-    onAbrirVisor: tipo === 'principal' ? () => opts.onAbrirVisor?.() : undefined,
     onCerrar: tipo === 'lateral' ? () => opts.onCerrar?.() : undefined,
   });
 
@@ -517,7 +513,7 @@ export function montarPanelChat(opts: PanelChatOpciones): PanelChat {
     const estado: EstadoHerramienta = accion.ok
       ? { estado: 'completada', meta, resultado }
       : { estado: 'error', meta, resultado };
-    // [089A-2] Acumula cambios de archivos para el visor.
+    // [089A-12] Conserva cambios para sincronizar el pane Files al abrirlo.
     registrarCambioHistorial(accion.tool, argumentosPersistidos(accion.argumentos_json), accion.resumen, accion.diff);
     return crearHerramienta({
       icono: iconoDeTool(accion.tool),

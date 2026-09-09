@@ -37,20 +37,16 @@
 .git-accion .ic { width: 14px; height: 14px; }
 .git-accion:hover,
 .git-accion:focus-visible { background: color-mix(in srgb, var(--texto) 8%, var(--fondo)); }
-.git-estado {
-    flex: none;
-    min-height: 1.4em;
-    padding: 0 var(--sp-sm);
-    font-size: var(--xs);
-    opacity: .6;
-}
-.git-estado.error { opacity: 1; }
-.git-estado.vacio { opacity: .55; }
 .git-lista {
     flex: none;
     max-height: 30%;
     overflow: auto;
     border-bottom: 1px solid var(--borde);
+}
+.git-vacio {
+    padding: var(--sp-md) var(--sp-sm);
+    font-size: var(--xs);
+    opacity: .6;
 }
 .git-entrada {
     display: flex;

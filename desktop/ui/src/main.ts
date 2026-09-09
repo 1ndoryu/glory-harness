@@ -26,9 +26,9 @@ import { montarPanelChat, type PanelChat } from './componentes/panelChat';
 import { montarBarraSuperior } from './componentes/barraSuperior';
 import { montarPanelNavegador } from './componentes/panelNavegador';
 import { montarPanelDerecho } from './componentes/panelDerecho';
-import { montarPanelVisor } from './componentes/panelVisor';
 import { montarPanelFiles } from './componentes/panelFiles';
 import { montarPanelGit } from './componentes/panelGit';
+import { montarToastGlobal, type ToastGlobal } from './componentes/toastGlobal';
 import { renderizarBloque } from './componentes/mensajes';
 import {
   abrirMenuContextual,
@@ -217,10 +217,10 @@ const hooksAdaptador: HooksAdaptador = {
   onConexion(estado, detalle) {
     if (estado !== 'en-linea') avisoGlobal(`backend web: ${estado}`, '', detalle ?? '');
   },
-  // [089A-2] Cambios de archivos del agente → tab Cambios del visor.
-  // Seguro: corre en runtime, cuando `visor` ya existe.
+  // [089A-12] Cambios de archivos del agente → preview integrado en Files.
+  // Seguro: corre en runtime, cuando `files` ya existe.
   onCambioArchivo(cambio) {
-    visor.registrarCambio(cambio);
+    files.registrarCambio(cambio);
   },
 };
 // Tauri → IPC in-process; web (`?api=`/`gh_api`/mismo origen) → HTTP/SSE.
@@ -383,9 +383,9 @@ function abrirEnLateral(id: string): void {
     },
   });
   lateral.raiz.dataset.tabId = tabId;
-  // [089A-2] El lateral vive como tab del panel derecho (convive con el
-  // navegador, el visor y otros chats). Sin grip propio: el panel derecho
-  // trae su grip único.
+  // [089A-2] El lateral vive como tab del panel derecho (convive con
+  // Files, Git, navegador y otros chats). Sin grip propio: el panel
+  // derecho trae su grip único.
   asegurarPanelDerecho();
   panelDerecho.abrirTab(tabId, titulo, lateral.raiz, () => cerrarLateral(tabId));
   // [039A-3 retoque] El textarea del lateral nace con height 0px porque el
@@ -750,8 +750,6 @@ function crearPanel(
     },
     // [089A-2] Toggle del panel derecho (solo el principal lo muestra).
     onTogglePanelDerecho: tipo === 'principal' ? () => alternarPanelDerecho() : undefined,
-    // [089A-2] Botón del visor (solo el principal lo muestra).
-    onAbrirVisor: tipo === 'principal' ? () => abrirVisor() : undefined,
     onModeloCambiado(nuevo) {
       modeloActual = nuevo;
       // [039A-3 P6b] Propaga a TODOS los paneles (ambos son completos y
@@ -1098,21 +1096,22 @@ const navegador = montarPanelNavegador({
 });
 let navegadorAbierto = false;
 
-// ---------- Panel derecho con tabs + visor (089A-2) ----------
-// Chat lateral, Navegador y Visor conviven como tabs (antes el navegador
-// y el lateral se excluían). El grip del navegador desaparece: el panel
-// derecho trae su grip único (ancho persistido en la clave de siempre).
-// [089A-10] En modo real (Tauri o web) el backend puede leer archivos del
-// workspace activo; solo el mock no ofrece lectura (leerArchivo=undefined).
-const visor = montarPanelVisor({ leerArchivo: USA_REAL ? adaptador.sesion.filesystem.leer : undefined });
+// ---------- Panel derecho con tabs (089A-12) ----------
+// Files es un pane único estilo Synara: árbol a la izquierda + preview a la
+// derecha; el preview forma parte del mismo pane.
+const toastGlobal: ToastGlobal = montarToastGlobal();
 const files = montarPanelFiles({
   transporte: adaptador.sesion.filesystem,
-  abrirArchivo(ruta) {
-    abrirVisor();
-    visor.abrirArchivo(ruta);
+  onError(texto, detalle) {
+    toastGlobal.mostrar(texto, detalle);
   },
 });
-const git = montarPanelGit({ transporte: { estado: adaptador.sesion.filesystem.gitEstado } });
+const git = montarPanelGit({
+  transporte: { estado: adaptador.sesion.filesystem.gitEstado },
+  onError(texto, detalle) {
+    toastGlobal.mostrar(texto, detalle);
+  },
+});
 const panelDerecho = montarPanelDerecho({
   onCambioTab(id) {
     // La webview hija es nativa: no respeta `hidden`. Al salir de su tab
@@ -1131,7 +1130,6 @@ const panelDerecho = montarPanelDerecho({
     if (opcion === 'files') abrirFiles();
     else if (opcion === 'git') abrirGit();
     else if (opcion === 'navegador') abrirNavegador();
-    else if (opcion === 'visor') abrirVisor();
     else abrirChatLateralVacio();
   },
 });
@@ -1140,8 +1138,7 @@ const panelDerecho = montarPanelDerecho({
 barra.montarTabs(panelDerecho.tabsBarra);
 
 // [089A-11] Al cambiar de área (workspace activo) se recargan las tabs
-// abiertas que dependen de la raíz del backend: Files y Git local. El Visor
-// resuelve la ruta en el backend al cargar, así que no requiere refresco.
+// abiertas que dependen de la raíz del backend: Files y Git local.
 onCambioWorkspace(() => {
   if (panelDerecho.tiene('files')) files.recargar();
   if (panelDerecho.tiene('git')) git.recargar();
@@ -1210,8 +1207,8 @@ function reposicionarWebview(): void {
   }).catch(() => {});
 }
 
-/** Abre el tab Visor (vuelca los cambios del panel activo + fija el área). */
 function abrirFiles(): void {
+  files.sincronizarCambios(panelActivo()?.listarCambios() ?? []);
   files.recargar();
   asegurarPanelDerecho();
   panelDerecho.abrirTab('files', 'Files', files.raiz, () => {
@@ -1229,23 +1226,10 @@ function abrirGit(): void {
   });
 }
 
-function abrirVisor(): void {
-  visor.limpiarCambios();
-  panelActivo()
-    ?.listarCambios()
-    .forEach((c) => visor.registrarCambio(c));
-  visor.fijarBase(proyectoActivo?.ruta ?? null);
-  asegurarPanelDerecho();
-  panelDerecho.abrirTab('visor', 'Visor', visor.raiz, () => {
-    panelDerecho.cerrarTab('visor');
-    cerrarPanelDerechoSiVacio();
-  });
-}
-
 function abrirNavegador(): void {
   if (navegadorAbierto) return;
   // [089A-2] El navegador vive como tab del panel derecho y convive con el
-  // chat lateral y el visor (antes se excluían entre sí).
+  // chat lateral, Files y Git local.
   navegadorAbierto = true;
   asegurarPanelDerecho();
   panelDerecho.abrirTab('navegador', 'Navegador', navegador.raiz, () => cerrarNavegador());
@@ -1335,8 +1319,8 @@ cuerpo.appendChild(sidebar.raiz);
 cuerpo.appendChild(grip);
 paneles.appendChild(principal.raiz);
 cuerpo.appendChild(paneles);
-// [089A-2] El navegador y el visor viven detached hasta abrir su tab del
-// panel derecho (que se monta bajo demanda con `asegurarPanelDerecho`).
+// [089A-2] El navegador vive detached hasta abrir su tab del panel derecho
+// (que se monta bajo demanda con `asegurarPanelDerecho`).
 // [089A-3] La barra superior global va primera (a todo el ancho, por
 // encima de sidebar/paneles/panel derecho). `app` ya es `raizApp`, así que no
 // se vuelve a insertar a sí mismo (eso provoca un HierarchyRequestError).
@@ -1395,7 +1379,8 @@ if (USA_MOCK) {
   );
 }
 
-// Añade el modal fuera de #app (hermano del layout).
+// Añade las capas globales fuera de #app (hermanas del layout).
+document.body.appendChild(toastGlobal.raiz);
 document.body.appendChild(modal.raiz);
 
 // [069A-Proyectos] Modal "Nuevo proyecto" autocontenido.

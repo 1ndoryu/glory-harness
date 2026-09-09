@@ -25,7 +25,10 @@ export interface PanelGit {
   recargar(): void;
 }
 
-export function montarPanelGit(opts: { transporte: GitTransport }): PanelGit {
+export function montarPanelGit(opts: {
+  transporte: GitTransport;
+  onError?: (texto: string, detalle?: string) => void;
+}): PanelGit {
   const raiz = el('div', 'panel-git');
   const cabecera = el('div', 'git-cabecera');
   const titulo = el('span', 'git-titulo');
@@ -37,30 +40,30 @@ export function montarPanelGit(opts: { transporte: GitTransport }): PanelGit {
   recargar.appendChild(icono('recargar'));
   cabecera.append(titulo, recargar);
 
-  const estado = el('div', 'git-estado');
   const lista = el('div', 'git-lista');
   lista.setAttribute('role', 'list');
   const diff = el('pre', 'git-diff');
-  raiz.append(cabecera, estado, lista, diff);
+  raiz.append(cabecera, lista, diff);
 
   let secuencia = 0;
-
-  function pintarEstado(texto: string, clase = ''): void {
-    estado.textContent = texto;
-    estado.className = `git-estado${clase ? ` ${clase}` : ''}`;
-  }
 
   function pintar(resultado: EstadoGit): void {
     lista.replaceChildren();
     diff.textContent = resultado.diff;
     if (!resultado.aplicable) {
-      pintarEstado(resultado.mensaje ?? 'Git no aplicable', 'vacio');
       diff.textContent = '';
+      const vacio = el('div', 'git-vacio');
+      vacio.textContent = resultado.mensaje ?? 'Git no aplicable en este workspace';
+      lista.appendChild(vacio);
       return;
+    }
+    if (resultado.entradas.length === 0) {
+      const vacio = el('div', 'git-vacio');
+      vacio.textContent = 'sin cambios';
+      lista.appendChild(vacio);
     }
     for (const entrada of resultado.entradas) {
       const fila = el('div', 'git-entrada');
-      fila.setAttribute('role', 'listitem');
       const codigo = el('span', 'git-codigo');
       codigo.textContent = entrada.estado;
       const ruta = el('span', 'git-ruta');
@@ -68,18 +71,10 @@ export function montarPanelGit(opts: { transporte: GitTransport }): PanelGit {
       fila.append(codigo, ruta);
       lista.appendChild(fila);
     }
-    const cambios = resultado.entradas.length === 1 ? 'cambio' : 'cambios';
-    pintarEstado(
-      resultado.truncado
-        ? `${resultado.entradas.length} ${cambios}; salida truncada`
-        : `${resultado.entradas.length} ${cambios}`,
-      resultado.entradas.length === 0 ? 'vacio' : '',
-    );
   }
 
   async function cargar(): Promise<void> {
     const id = ++secuencia;
-    pintarEstado('consultando Git…', 'cargando');
     try {
       const resultado = await opts.transporte.estado();
       if (id !== secuencia) return;
@@ -88,7 +83,7 @@ export function montarPanelGit(opts: { transporte: GitTransport }): PanelGit {
       if (id !== secuencia) return;
       lista.replaceChildren();
       diff.textContent = '';
-      pintarEstado(`no se pudo consultar Git: ${String(error)}`, 'error');
+      opts.onError?.('no se pudo consultar Git', String(error));
     }
   }
 

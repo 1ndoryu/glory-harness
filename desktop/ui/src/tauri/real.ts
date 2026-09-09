@@ -192,8 +192,8 @@ export interface HooksAdaptador {
   /** [069A-2 F4] Estado de la conexión del transporte (solo el HTTP/SSE la
    * reporta; Tauri in-process no la usa). */
   onConexion?: (estado: 'conectando' | 'en-linea' | 'reconectando' | 'error', detalle?: string) => void;
-  /** [089A-2] El agente modificó un archivo (file_write/file_patch con diff):
-   * el orquestador lo refleja en el tab Cambios del visor. Hook opcional. */
+  /** [089A-12] El agente modificó un archivo (file_write/file_patch con
+   * diff): el orquestador actualiza el pane Files. Hook opcional. */
   onCambioArchivo?: (cambio: {
     origen: 'tool';
     tool: 'file_write' | 'file_patch';

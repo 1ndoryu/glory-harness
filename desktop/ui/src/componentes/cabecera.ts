@@ -51,8 +51,6 @@ export interface CabeceraChatOpciones {
   /** [089A-2] Se invoca al pulsar el botón de mostrar/ocultar el panel
    * derecho (solo principal, siempre visible). */
   onTogglePanelDerecho?: () => void;
-  /** [089A-2] Se invoca al pulsar el botón del visor (solo principal). */
-  onAbrirVisor?: () => void;
   /** [039A-3 P5] Se invoca al pulsar el botón × de un panel lateral. */
   onCerrar?: () => void;
 }
