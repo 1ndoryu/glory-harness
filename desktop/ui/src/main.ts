@@ -13,22 +13,22 @@ import './estilos/index.css';
 
 import { CONVERSACIONES } from './datos/conversaciones';
 import { MODELO_INICIAL, PROVEEDORES } from './dominio/catalogoModelos';
-import type { Conversacion, Workspace } from './dominio/tipos';
 
 import { montarVistaModal } from './orquestador/vistaModal';
 import { ejecutarArranque } from './orquestador/arranque';
 import { crearGanchos } from './orquestador/ganchos';
+import { crearSesionVista } from './orquestador/sesionVista';
+import { montarVistaBarra } from './orquestador/vistaBarra';
+import { montarVistaMeta } from './orquestador/vistaMeta';
 import './estilos/modalProyecto.css';
-import { montarPanelMeta } from './componentes/panelMeta';
 import type { PanelChat } from './componentes/panelChat';
-import { montarBarraSuperior } from './componentes/barraSuperior';
 import { montarNavegadorVista } from './orquestador/navegadorVista';
 import { montarPanelDerechoTodo } from './orquestador/panelDerecho';
 
 import { crearSimulacion } from './simulacion/simulacion';
 import { crearAdaptadorReal, esEntornoTauri } from './tauri/real';
 import { crearAdaptadorApi } from './adaptadores/api';
-import type { HooksAdaptador, InfoSesion } from './tauri/real';
+import type { HooksAdaptador } from './tauri/real';
 import { el } from './util/dom';
 import {
   abrirAccionesPanel,
@@ -61,34 +61,16 @@ const paneles = el('div');
 paneles.id = 'paneles';
 
 // [089A-3] Barra superior global estilo Synara (toggles + arrastre +
-// botonera caption). Se monta como primera hija de #app (ver montaje).
-// Los callbacks existen como declaraciones hoisted más abajo; solo se
-// invocan en runtime (clic), cuando todo ya está definido.
-const barra = montarBarraSuperior({
-  onAlternarSidebar() {
-    alternarSidebar();
-  },
-  // [089A-3] Atrás/adelante replican la navegación por historial de Synara;
-  // lógica pendiente (roadmap): arrancan deshabilitados.
-  onAtras() {
-    /* pendiente: historial de la app */
-  },
-  onAdelante() {
-    /* pendiente: historial de la app */
-  },
-  onAlternarPanelDerecho() {
-    alternarPanelDerecho();
-  },
+// botonera caption). Vive en `orquestador/vistaBarra`; los toggles son
+// cierres de runtime (sidebar y panel derecho se crean más abajo).
+const barra = montarVistaBarra({
+  alternarSidebar: () => alternarSidebar(),
+  alternarPanelDerecho: () => alternarPanelDerecho(),
 });
-barra.setPuedeNavegar(false, false);
 
 // ---------- Estado compartido M1 (runtime único) ----------
 /* El estado vista (modelo/modo/razonamiento) vive en `orquestador/vistaModal`
- * (`todoVistaModal.estado`, creado más abajo); aquí solo quedan flags. */
-// Flag global: algún panel tiene turno en curso (M1: solo uno a la vez).
-let turnoGlobal = false;
-// Panel que envió el último mensaje (para el play/reanudar del panelMeta).
-let panelUltimoEnvio: PanelChat | null = null;
+ * y el turno global en `orquestador/vistaMeta`; aquí no quedan lets. */
 
 const ent = resolverEntorno(esEntornoTauri());
 const USA_TAURI = ent.usaTauri;
@@ -99,61 +81,43 @@ const MODO_TEXTO = ent.modoTexto;
 
 const simulacion = crearSimulacion();
 
-// Lista de conversaciones (fuente para la sidebar y el ⋯ de cabecera).
-let conversaciones: Conversacion[] = USA_REAL
-  ? []
-  : CONVERSACIONES.map((c) => ({ ...c }));
-
-// [069A-Proyectos] Proyectos registrados en la sesión + activo actual.
-let proyectos: Workspace[] = [];
-let proyectoActivo: Workspace | null = null;
-// [089A-11] Suscriptores al cambio de workspace activo (área de trabajo):
-// Files/Git dependen de la raíz que resuelve el backend, así que recargan
-// cuando el área cambia y su tab está abierta. El orquestador registra la
-// acción donde se montan los paneles (evita referencias previas al montaje).
-const suscriptoresCambioWorkspace: Array<(ruta: string | null) => void> = [];
-function onCambioWorkspace(accion: (ruta: string | null) => void): void {
-  suscriptoresCambioWorkspace.push(accion);
-}
-
-// ---------- PanelMeta global (M1): lo monta el orquestador dentro de la
-// entrada del principal (el lateral no tiene panelMeta propio). ----------
-const panelMeta = montarPanelMeta({
-  onMetaCambiada(meta) {
-    if (!USA_REAL) return;
-    const valor = meta.trim() ? meta.trim() : null;
-    void adaptador.sesion
-      .actualizarMeta(valor)
-      .catch((e: unknown) => avisoGlobal(`no se pudo fijar la meta: ${String(e)}`, '', ''));
-  },
-  onPausar() {
-    if (!turnoGlobal) return;
-    // Pausar = cancelar el turno global en curso (M1).
-    if (USA_REAL) adaptador.detener();
-    else simulacion.detener();
-    panelMeta.setEstado('pausado');
-    panelesRegistrados.forEach((p) => p.setCorriendoGlobal(false));
-    turnoGlobal = false;
-  },
-  onReanudar() {
-    if (turnoGlobal) return;
-    if (!panelUltimoEnvio) {
-      avisoGlobal('nada que reanudar: envía un mensaje primero', '', '');
-      return;
-    }
-    panelUltimoEnvio.reanudarUltimo();
-  },
+// ---------- Sesión/proyectos (conversaciones + workspaces) ----------
+// Vive en `orquestador/sesionVista`. `adaptador`, `barraLateral` y
+// `todoVistaModal` llegan como cierres de runtime (se crean más abajo).
+const sesionVista = crearSesionVista({
+  usaReal: USA_REAL,
+  conversacionesIniciales: USA_REAL ? [] : CONVERSACIONES.map((c) => ({ ...c })),
+  paneles: () => panelesRegistrados,
+  getSidebar: () => barraLateral.sidebar,
+  getEstadoVista: () => todoVistaModal.estado,
+  setModeloEnModal: (m) => todoVistaModal.modal.setModelo(m),
+  listarConversaciones: () => adaptador.sesion.listar(),
+  listarWorkspaces: () => adaptador.sesion.workspaces.listar(),
 });
+
+// ---------- PanelMeta + turno global (M1) ----------
+// Vive en `orquestador/vistaMeta`. `adaptador`/`todoVistaModal` llegan como
+// cierres de runtime (se crean más abajo), fuera de la TDZ.
+const vistaMeta = montarVistaMeta({
+  usaReal: USA_REAL,
+  actualizarMeta: (valor) => adaptador.sesion.actualizarMeta(valor),
+  detenerReal: () => adaptador.detener(),
+  detenerMock: () => simulacion.detener(),
+  paneles: () => panelesRegistrados,
+  getModo: () => todoVistaModal.estado.modo,
+  avisar: avisoGlobal,
+});
+const panelMeta = vistaMeta.panelMeta;
 
 // ---------- Backend real: adaptador (compartido). ----------
 // Los ganchos viven en `orquestador/ganchos`; las piezas creadas más abajo
 // (modal, navegador, files) llegan como cierres perezosos de runtime.
 const hooksAdaptador: HooksAdaptador = crearGanchos({
   usaReal: USA_REAL,
-  sincronizarModeloDesdeSesion,
+  sincronizarModeloDesdeSesion: sesionVista.sincronizarModeloDesdeSesion,
   asignarWorkspace: (ws) => todoVistaModal.modal.asignarValor('workspace', ws),
-  refrescarProyectos,
-  resincronizarSidebar,
+  refrescarProyectos: sesionVista.refrescarProyectos,
+  resincronizarSidebar: sesionVista.resincronizarSidebar,
   paneles: () => panelesRegistrados,
   getNavegador: () => todoNavegador.navegador,
   avisar: avisoGlobal,
@@ -193,76 +157,8 @@ function activarPanel(panel: PanelChat | null): void {
   panelDerecho.fijarInicioChatDisponible(id != null);
 }
 
-function hayTurnoGlobal(): boolean {
-  return turnoGlobal;
-}
-
-function notificarTurnoInicio(): void {
-  turnoGlobal = true;
-  panelesRegistrados.forEach((p) => p.setCorriendoGlobal(true));
-}
-
-function notificarTurnoFin(): void {
-  turnoGlobal = false;
-  panelesRegistrados.forEach((p) => p.setCorriendoGlobal(false));
-  if (USA_REAL) void resincronizarSidebar();
-}
-
-function registrarUltimoEnvio(panel: PanelChat): void {
-  panelUltimoEnvio = panel;
-}
-
 function avisoGlobal(texto: string, meta: string, detalle: string): void {
   panelActivo()?.avisoLocal(texto, meta, detalle);
-}
-
-function sincronizarModeloDesdeSesion(info: InfoSesion): void {
-  const corte = info.modelo.indexOf('/');
-  if (corte < 0) return;
-  const proveedor = info.modelo.slice(0, corte);
-  const modelo = info.modelo.slice(corte + 1);
-  const estadoVista = todoVistaModal.estado;
-  if (proveedor === estadoVista.modelo.proveedor && modelo === estadoVista.modelo.modelo) return;
-  estadoVista.modelo = { proveedor, modelo, nombre: modelo };
-  panelesRegistrados.forEach((p) => p.setModelo(estadoVista.modelo));
-  todoVistaModal.modal.setModelo(estadoVista.modelo);
-}
-
-async function resincronizarSidebar(): Promise<void> {
-  if (!USA_REAL) return;
-  await refrescarProyectos();
-  const lista = await adaptador.sesion.listar();
-  conversaciones = lista.map((c) => ({
-    id: c.id,
-    titulo: c.titulo,
-    archivada: c.archivada,
-    workspaceId: c.workspace_id,
-    workspaceNombre: c.workspace_nombre,
-  }));
-  sidebar.sustituir(conversaciones);
-}
-
-/** [069A-Proyectos] Refresca el estado de proyectos desde el backend. */
-async function refrescarProyectos(): Promise<void> {
-  if (!USA_REAL) return;
-  try {
-    const res = await adaptador.sesion.workspaces.listar();
-    proyectos = res.workspaces;
-    const rutaAnterior = proyectoActivo?.ruta ?? null;
-    const rutaNueva = res.activa?.ruta ?? null;
-    proyectoActivo = res.activa;
-    sidebar.sustituirProyectos(proyectos, proyectoActivo);
-    // Sincroniza el selector de workspace de todos los paneles.
-    const seleccionadoId = proyectoActivo?.id ?? null;
-    panelesRegistrados.forEach((p) => p.setWorkspaces(proyectos, seleccionadoId));
-    // [089A-11] El área de trabajo cambió (ruta distinta): Files/Git
-    // resuelven la raíz en el backend, así que recargan las tabs abiertas.
-    if (rutaAnterior !== rutaNueva) {
-      suscriptoresCambioWorkspace.forEach((fn) => fn(rutaNueva));
-    }
-  } catch {
-    // silencioso: el sidebar conserva el último estado válido
-  }
 }
 
 // Persistencia de preferencias: se resuelve contra el adaptador una vez
@@ -285,19 +181,17 @@ const barraLateral = montarBarraLateral({
   usaReal: USA_REAL,
   usaMock: USA_MOCK,
   persistencia: depsPersistencia,
-  conversacionesIniciales: conversaciones,
-  proyectosIniciales: proyectos,
-  proyectoActivoInicial: proyectoActivo,
-  getConversaciones: () => conversaciones,
-  setConversaciones: (c) => {
-    conversaciones = c;
-  },
-  getTurnoGlobal: () => turnoGlobal,
+  conversacionesIniciales: sesionVista.getConversaciones(),
+  proyectosIniciales: sesionVista.getProyectos(),
+  proyectoActivoInicial: sesionVista.getProyectoActivo(),
+  getConversaciones: sesionVista.getConversaciones,
+  setConversaciones: sesionVista.setConversaciones,
+  getTurnoGlobal: () => vistaMeta.hayTurnoGlobal(),
   paneles: panelesRegistrados,
   panelActivo,
   activarPanel,
   avisar: avisoGlobal,
-  resincronizarSidebar,
+  resincronizarSidebar: sesionVista.resincronizarSidebar,
   abrirEnLateral: (id) => abrirEnLateral(depsLaterales, id),
   abrirConfig: () => todoVistaModal.modal.abrir(),
   abrirModalProyecto: () => todoVistaModal.modalProyecto.abrir(),
@@ -314,14 +208,6 @@ const alternarSidebar = barraLateral.alternarSidebar;
 // Escucha resize para el auto-ocultado de la lista por ancho mínimo.
 window.addEventListener('resize', () => barraLateral.pintarSidebar());
 
-function sincronizarPanelMeta(): void {
-  // La meta solo es editable y aplicable en ese modo. Mantener el panel
-  // oculto fuera de `meta` evita sugerir que un turno autónomo la ejecutará;
-  // el backend también la ignora fuera de ese modo como segunda barrera.
-  const hayConversacion = panelesRegistrados.some((p) => p.conversaId !== null);
-  panelMeta.mostrar(todoVistaModal.estado.modo === 'meta' && hayConversacion);
-}
-
 // ---------- Modal (config + nuevo proyecto + estado vista) ----------
 /* Vive en `orquestador/vistaModal`. Se crea aquí (antes de la fábrica de
  * paneles) porque `depsCrearPanel` comparte su `estado`; los usos previos
@@ -337,7 +223,7 @@ const todoVistaModal = montarVistaModal({
   paneles: panelesRegistrados,
   usaReal: USA_REAL,
   usaTauri: USA_TAURI,
-  sincronizarPanelMeta,
+  sincronizarPanelMeta: vistaMeta.sincronizarPanelMeta,
   aplicarTemaOscuro,
   configGuardar: (id, valor) => adaptador.sesion.configGuardar(id, valor),
   configGuardarModelo: async (nuevo) => {
@@ -348,7 +234,7 @@ const todoVistaModal = montarVistaModal({
     if (!USA_REAL) return;
     await adaptador.sesion.workspaces.guardarProyecto(nombre, ruta);
   },
-  hayTurno: hayTurnoGlobal,
+  hayTurno: () => vistaMeta.hayTurnoGlobal(),
   avisar: avisoGlobal,
   ponerBorradorPrincipal: () => principal.ponerBorrador(),
   activarPrincipal: () => activarPanel(principal),
@@ -367,7 +253,7 @@ const depsCrearPanel: CrearPanelDeps = {
   sidebar,
   modal: todoVistaModal.modal,
   proveedores: PROVEEDORES,
-  getConversaciones: () => conversaciones,
+  getConversaciones: sesionVista.getConversaciones,
   getModelo: () => todoVistaModal.estado.modelo,
   setModelo: (m) => {
     todoVistaModal.estado.modelo = m;
@@ -380,17 +266,20 @@ const depsCrearPanel: CrearPanelDeps = {
   setRazonamiento: (r) => {
     todoVistaModal.estado.razonamiento = r;
   },
-  getProyectos: () => proyectos,
-  getProyectoActivoId: () => proyectoActivo?.id ?? null,
+  getProyectos: sesionVista.getProyectos,
+  getProyectoActivoId: sesionVista.getProyectoActivoId,
   getPrincipal: () => principal,
-  hayTurnoGlobal,
-  notificarTurnoInicio,
-  notificarTurnoFin,
-  registrarUltimoEnvio,
+  hayTurnoGlobal: () => vistaMeta.hayTurnoGlobal(),
+  notificarTurnoInicio: () => vistaMeta.notificarTurnoInicio(),
+  notificarTurnoFin: () =>
+    vistaMeta.notificarTurnoFin(() => {
+      if (USA_REAL) void sesionVista.resincronizarSidebar();
+    }),
+  registrarUltimoEnvio: (panel) => vistaMeta.registrarUltimoEnvio(panel),
   panelActivo,
   activarPanel,
-  resincronizarSidebar,
-  sincronizarPanelMeta,
+  resincronizarSidebar: sesionVista.resincronizarSidebar,
+  sincronizarPanelMeta: vistaMeta.sincronizarPanelMeta,
   avisar: avisoGlobal,
   alternarSidebar,
   // `todoPanelDerecho` se crea más abajo (tras el navegador): cierre de runtime.
@@ -430,7 +319,7 @@ const todoPanelDerecho = montarPanelDerechoTodo({
   persistencia: depsPersistencia,
   paneles: panelesRegistrados,
   panelActivo,
-  onCambioWorkspace,
+  onCambioWorkspace: sesionVista.onCambioWorkspace,
   navegadorRaiz: todoNavegador.navegador.raiz,
   mostrarNavegador: (v) => todoNavegador.navegador.mostrar(v),
   estaNavegadorAbierto: todoNavegador.estaAbierto,
@@ -450,7 +339,7 @@ const pintarToggleDerecho = todoPanelDerecho.pintarToggleDerecho;
 // cierres de runtime (clic), cuando todo ya está definido.
 const depsLaterales: LateralesDeps = {
   paneles: panelesRegistrados,
-  getConversaciones: () => conversaciones,
+  getConversaciones: sesionVista.getConversaciones,
   crearPanel: (tipo, idPrefijo, opts) => crearPanel(depsCrearPanel, tipo, idPrefijo, opts),
   activarPanel,
   panelActivo,
@@ -498,16 +387,16 @@ ejecutarArranque({
   usaTauri: USA_TAURI,
   baseApi: BASE_API,
   modoTexto: MODO_TEXTO,
-  hayTurno: hayTurnoGlobal,
+  hayTurno: () => vistaMeta.hayTurnoGlobal(),
   panelActivo,
   usoUltimoTurno: () => adaptador.usoUltimoTurno(),
   asegurarSesion: () => adaptador.asegurarSesion(opcionesArranque()),
   configLeer: (id) => adaptador.sesion.configLeer(id),
   aplicarSesionGuardada: (sesion) => todoVistaModal.aplicarSesionGuardada(sesion),
-  sincronizarPanelMeta,
-  resincronizarSidebar,
+  sincronizarPanelMeta: vistaMeta.sincronizarPanelMeta,
+  resincronizarSidebar: sesionVista.resincronizarSidebar,
   claveTemaOscuro: CLAVE_TEMA_OSCURO,
-  getConversaciones: () => conversaciones,
+  getConversaciones: sesionVista.getConversaciones,
   principal,
   seleccionarSidebar: (id) => sidebar.seleccionar(id),
   activarPanel,
