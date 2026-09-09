@@ -198,6 +198,17 @@ Orden propuesto (dependencias de abajo arriba):
       historial de la app para atrás/adelante (misma lógica que Synara,
       hoy deshabilitados) y Terminal/Files/Source control como opciones del
       inicio cuando existan esos paneles.
+- [x] **089A-11 — Files/Git se recargan al cambiar de área de trabajo**
+      (08-09, HECHO 08-09): al cambiar el workspace activo con la tab de
+      Files/Git abierta, la lista/diffs seguían del área anterior (Files/Git
+      resuelven la raíz en el backend según `comun.workspace`). Mecanismo de
+      suscripción en `main.ts`: `refrescarProyectos()` detecta el cambio de
+      ruta y notifica a los suscriptores; Files/Git recargan solo si su tab
+      está abierta (`panelDerecho.tiene`). Evidencia:
+      `Agente/completados/tareas-2026-09-08.md` (entrada 089A-11);
+      verificación navegador real: Files 21→3 entradas al pasar de
+      `glory-harness` a `Test` y Git se recargó al volver (3 cambios);
+      gate 089A-11 PASS 0/0/0.
 - [x] **089A-10 — Files y Git en el modo web (08-09, HECHO 08-09)**: el servidor
       `glory-harness web` no expone endpoints de filesystem/Git (solo Tauri
       IPC), así que en el navegador Files/Git mostraban "no está disponible en

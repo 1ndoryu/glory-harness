@@ -132,6 +132,14 @@ let conversaciones: Conversacion[] = USA_REAL
 // [069A-Proyectos] Proyectos registrados en la sesión + activo actual.
 let proyectos: Workspace[] = [];
 let proyectoActivo: Workspace | null = null;
+// [089A-11] Suscriptores al cambio de workspace activo (área de trabajo):
+// Files/Git dependen de la raíz que resuelve el backend, así que recargan
+// cuando el área cambia y su tab está abierta. El orquestador registra la
+// acción donde se montan los paneles (evita referencias previas al montaje).
+const suscriptoresCambioWorkspace: Array<(ruta: string | null) => void> = [];
+function onCambioWorkspace(accion: (ruta: string | null) => void): void {
+  suscriptoresCambioWorkspace.push(accion);
+}
 
 // ---------- PanelMeta global (M1): lo monta el orquestador dentro de la
 // entrada del principal (el lateral no tiene panelMeta propio). ----------
@@ -303,11 +311,18 @@ async function refrescarProyectos(): Promise<void> {
   try {
     const res = await adaptador.sesion.workspaces.listar();
     proyectos = res.workspaces;
+    const rutaAnterior = proyectoActivo?.ruta ?? null;
+    const rutaNueva = res.activa?.ruta ?? null;
     proyectoActivo = res.activa;
     sidebar.sustituirProyectos(proyectos, proyectoActivo);
     // Sincroniza el selector de workspace de todos los paneles.
     const seleccionadoId = proyectoActivo?.id ?? null;
     panelesRegistrados.forEach((p) => p.setWorkspaces(proyectos, seleccionadoId));
+    // [089A-11] El área de trabajo cambió (ruta distinta): Files/Git
+    // resuelven la raíz en el backend, así que recargan las tabs abiertas.
+    if (rutaAnterior !== rutaNueva) {
+      suscriptoresCambioWorkspace.forEach((fn) => fn(rutaNueva));
+    }
   } catch {
     // silencioso: el sidebar conserva el último estado válido
   }
@@ -1123,6 +1138,14 @@ const panelDerecho = montarPanelDerecho({
 // La barra de tabs comparte la barra superior; el panel derecho conserva
 // únicamente el contenido y el launcher para no dejar una segunda barra.
 barra.montarTabs(panelDerecho.tabsBarra);
+
+// [089A-11] Al cambiar de área (workspace activo) se recargan las tabs
+// abiertas que dependen de la raíz del backend: Files y Git local. El Visor
+// resuelve la ruta en el backend al cargar, así que no requiere refresco.
+onCambioWorkspace(() => {
+  if (panelDerecho.tiene('files')) files.recargar();
+  if (panelDerecho.tiene('git')) git.recargar();
+});
 
 /** Visibilidad del panel derecho (independiente de sus tabs: ocultar no
  * destruye; las tabs y sus nodos vivos se conservan). Arranca oculto. */
