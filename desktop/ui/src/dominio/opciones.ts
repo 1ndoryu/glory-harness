@@ -217,6 +217,14 @@ export const OPCIONES_CONTEXTO: GrupoOpciones = {
       // persistida `contexto_max_ventana`, misma que el id para configGuardar).
       // Tope blando: si el modelo real tiene menos ventana, el % del
       // `ContextoDetalle` manda (fuente única, decisión §2.10).
+      id: 'gancho_pre_compact',
+      etiqueta: 'Hook antes de compactar',
+      tipo: 'texto',
+      valor: '',
+      placeholder: '{"comando":"...","args":[],"timeout_ms":10000}',
+      nota: 'JSON opcional: comando externo, argumentos y timeout máximo de 60 s.',
+    },
+    {
       id: 'contexto_max_ventana',
       etiqueta: 'Ventana de contexto',
       tipo: 'texto',

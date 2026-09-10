@@ -8,6 +8,7 @@
 //! responsabilidad del consumidor y no viven aquí.
 
 pub mod meta;
+pub mod sesion_config;
 pub mod sesion;
 
 pub use meta::{

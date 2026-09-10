@@ -17,6 +17,7 @@ use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
 use glory_harness::{run, PersistenciaSqlite};
+use glory_harness::servicio::sesion_config::leer_gancho_pre_compact;
 use glory_harness_core::ports::{TareaProgramada, TareaProgramadaPendiente};
 use glory_harness_core::{AgentPersistence, HarnessError, ProgramadorTareas};
 use uuid::Uuid;
@@ -148,6 +149,8 @@ async fn accion_run(
         modo: None,
         razonamiento: None,
         max_ventana: None,
+        gancho_pre_compact: leer_gancho_pre_compact(tiendas)
+            .map_err(HarnessError::Persistencia)?,
         /* [069A-3] `schedule run` es desatendido (sin usuario ante la
          * consola): sin avisos aunque el flag exista en otro subcomando. */
         notificar: false,

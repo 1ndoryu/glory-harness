@@ -10,6 +10,7 @@
  *   completo sigue recuperable (sección 5.2.1 del plan). */
 
 use crate::llm::AiMessage;
+use crate::hooks::ComandoGancho;
 use serde::{Deserialize, Serialize};
 
 /// Marcadores de capas del system prompt (318A-15 F1). El runtime ensambla el
@@ -77,6 +78,11 @@ pub struct ContextoConfig {
     /// [318A-15 F6] Tope de tokens de salida del resumen LLM (variante A).
     #[serde(default = "default_max_resumen_tokens")]
     pub max_resumen_tokens: u32,
+    /// Hook externo ejecutado antes de compactar. Su registro efectivo lo
+    /// realiza el consumidor al construir el runtime; el core solo conserva
+    /// la declaración serializable.
+    #[serde(default)]
+    pub gancho_pre_compact: Option<ComandoGancho>,
 }
 
 impl Default for ContextoConfig {
@@ -92,6 +98,7 @@ impl Default for ContextoConfig {
             ventana_seguridad: 0.15,
             resumir_con_llm: false,
             max_resumen_tokens: 1_000,
+            gancho_pre_compact: None,
         }
     }
 }

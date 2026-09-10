@@ -243,19 +243,23 @@ Orden propuesto (dependencias de abajo arriba):
       Evidencia: `Agente/completados/tareas-2026-09-09.md` (entrada
       089A-16); reportes `.quality-reports/check/089A-16*/`. Pendiente:
       re-gate `unwrap-produccion-rs`.
-- [ ] **109A-1 — Hook pre-compactación** (10-09, pendiente, independiente):
-      comando externo configurable (`ContextoConfig.gancho_pre_compact`) que
-      corre antes de resumir en `core/src/nucleo/context.rs` (recibe JSON por
-      stdin, puede vetar/ajustar); timeout acotado, fallo = warn + continúa
-      (explícito, no bloquea). Equivalente al `PreCompact` de VS Code.
-      Plan: `Agente/planes/plan-109A-memorias-por-proyecto-2026-09-10.md` (F1).
+- [x] **109A-1 — Hook pre-compactación** (10-09, HECHO):
+      hook externo configurable (`ContextoConfig.gancho_pre_compact`) antes de
+      resumir: recibe JSON por stdin, admite veto `exit 2` y ajuste JSON
+      validado; timeout acotado, fallo/timeout/stdout inválido/salida no cero =
+      warning + la compactación continúa. Runner HTTP con logs redacted, carga
+      persistida en `chat`/`tui`/`run`/`schedule` y borrado/null consistente en
+      UI. Evidencia en `Agente/completados/tareas-2026-09-10.md`.
+      Gate canónico ejecutado: FAIL por `sccache-no-configurado` y deuda heredada
+      de `data/referencias-cli/**`; análisis reducido del alcance propio: 0/0/0.
 - [ ] **109A-2 — Memoria estrictamente por proyecto + export/import** (10-09,
       pendiente, base de 109A-3): hoy `memoria_*` es global por `user_id`
       (`cli/src/persistencia_sqlite/puerto.rs:145-223`); migración
       `workspace_id` + scope en puerto/curador/CLI (legado NULL = ámbito
       `global`, legible con flag, nunca listado en proyectos); export/import
       markdown por ámbito `project`/`local` con sanitize. Skills globales
-      (no alcance). Plan F2.
+      (no alcance). Plan activo (F1 cerrada, F2/F3 pendientes):
+      `Agente/planes/plan-109A-memorias-por-proyecto-2026-09-10.md`.
 - [ ] **109A-3 — Sección "Memorias" en Configuración** (10-09, pendiente,
       depende 109A-2): panel custom `componentes/memorias.ts` en el modal
       (el esquema de `opciones.ts` no admite listas): listar/buscar/ver/

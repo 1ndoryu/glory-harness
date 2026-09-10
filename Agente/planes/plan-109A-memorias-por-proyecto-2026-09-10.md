@@ -1,6 +1,6 @@
 # Plan 109A — Memorias por proyecto + hook pre-compact (gaps vs VS Code)
 
-> IDs roadmap: **109A-1/2/3** · Fecha: 2026-09-10 · Estado: activo
+> IDs roadmap: **109A-1/2/3** · Fecha: 2026-09-10 · Estado: F1 completada; F2/F3 pendientes
 > Origen: comparativa VS Code (§ memorias/compactación, 09-09): VS Code aporta
 > hook `PreCompact` y memoria versionable por ámbitos; GH compacta y cura mejor
 > pero su memoria es global por usuario y no tiene hook previo.
@@ -30,14 +30,24 @@ y sección "Memorias" en Configuración para gestionarlas.
 
 ## 3. Fases
 
-### F1 — 109A-1 Hook pre-compactación (independiente)
-- `ContextoConfig.gancho_pre_compact: Option<ComandoGancho>` (comando externo):
-  se ejecuta **antes** de resumir en `context.rs:198`, recibe JSON por stdin
-  (ocupación, nº mensajes, resumen candidato) y puede vetar/ajustar la pasada.
-- Timeout acotado; fallo o timeout = evento `warn` + **continúa compactando**
-  (explícito, nunca silencioso ni bloqueante). Config por consumidor + CLI flag.
-- Tests: el hook corre antes de compactar; veto respeta anti-thrash; fallo no bloquea.
-- Gate: clippy 0 + `cargo test` + sentinel del bloque.
+### F1 — 109A-1 Hook pre-compactación (HECHA 2026-09-10)
+- `ContextoConfig.gancho_pre_compact: Option<ComandoGancho>` se ejecuta antes
+  de resumir y recibe JSON por stdin (ocupación, mensajes y resumen candidato).
+- Runner de comando: timeout cubre spawn/escritura/espera/lectura, stdout limitado
+  a 64 KiB, `exit 2` veta, salida JSON permite únicamente `resumen` o
+  `resumen_llm`; fallo/timeout/JSON inválido registra warning y continúa.
+- Runner HTTP: errores y timeout no exponen URL, credenciales, query, fragmento
+  ni ruta; solo se registra origen `esquema://host:puerto`.
+- Configuración durable: resolver compartido con warning para JSON inválido;
+  aplicado a sesión, `run`, `chat`, `tui` y `schedule run`; `null` elimina el
+  hook y la UI devuelve `null` al leerlo.
+- Evidencia: `cargo test -p glory-harness-core --lib --quiet` (273/273),
+  `cargo test -p glory-harness --lib --quiet` (102/102), Clippy de core+CLI
+  con `-D warnings` limpio, build UI `tsc --noEmit && vite build` correcto,
+  análisis reducido Sentinel 0 errores/0 warnings en 18 archivos.
+- Gate canónico ejecutado dos veces: FAIL por `sccache-no-configurado` y
+  317 errores/206 warnings heredados de `data/referencias-cli/**`; no se
+  declara PASS del gate global.
 
 ### F2 — 109A-2 Memoria por proyecto + export/import (base de 109A-3)
 - Migración: `ALTER TABLE memoria ADD COLUMN workspace_id TEXT`; recuerdos viejos

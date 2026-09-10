@@ -48,6 +48,12 @@ fn opciones_run(args: &[String]) -> run::OpcionesRun {
         /* [039A-3 P6-backend] El CLI no inyecta ventana: None → default
          * del core (128k, intacto). Solo el desktop inyecta (150k). */
         max_ventana: None,
+        gancho_pre_compact: extraer_opcion(args, &["--gancho-pre-compact"])
+            .map(|comando| glory_harness_core::hooks::ComandoGancho {
+                comando,
+                args: Vec::new(),
+                timeout_ms: 0,
+            }),
         /* [069A-3] Toast de Windows al terminar el turno o pedir un
          * permiso (solo CLI interactivo, tras flag explícito). */
         notificar: args.iter().any(|a| a == "--notificar"),
@@ -83,6 +89,12 @@ fn despachar_chat(args: &[String]) -> ExitCode {
         /* [039A-3 P6-backend] Sin inyección de ventana en CLI (None →
          * default del core 128k). */
         max_ventana: None,
+        gancho_pre_compact: extraer_opcion(args, &["--gancho-pre-compact"])
+            .map(|comando| glory_harness_core::hooks::ComandoGancho {
+                comando,
+                args: Vec::new(),
+                timeout_ms: 0,
+            }),
         /* [069A-3] Como en `run` (vale también para `session resume`,
          * que reabre este mismo REPL). */
         notificar: args.iter().any(|a| a == "--notificar"),
@@ -201,9 +213,9 @@ fn imprimir_ayuda() {
     );
     println!();
     println!(
-        "  run       turno único (--prompt/--stdin/--dir/--provider/--modelo/--modo/--notificar)"
+        "  run       turno único (--prompt/--stdin/--dir/--provider/--modelo/--modo/--gancho-pre-compact/--notificar)"
     );
-    println!("  chat      sesión interactiva; --tui para la interfaz enriquecida; --notificar para toast de Windows");
+    println!("  chat      sesión interactiva; --tui para la interfaz enriquecida; --gancho-pre-compact para hook; --notificar para toast de Windows");
     println!("  daemon    servicio de fondo por NDJSON (consumidor-daemon.mjs)");
     println!("  schedule  tareas programadas: <list|create|remove|logs|run>");
     println!("  session   conversaciones: <list|ver|resume|borrar> [id]");
@@ -230,6 +242,7 @@ fn cmd_session(args: &[String]) -> ExitCode {
         modo: extraer_opcion(args, &["--modo"]),
         razonamiento: None,
         max_ventana: None,
+        gancho_pre_compact: None,
         /* [069A-3] `session resume` reabre el REPL: admite el mismo flag. */
         notificar: args.iter().any(|a| a == "--notificar"),
         navegador: None,

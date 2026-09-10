@@ -20,6 +20,7 @@
 //!   cambia su comportamiento (los hooks son observación/política opcional).
 
 use async_trait::async_trait;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::sync::Arc;
 use std::time::Duration;
@@ -27,6 +28,39 @@ use std::time::Duration;
 /// Timeout por defecto de cada hook (los fallos nunca abortan el turno;
 /// se registran y se continúa con la misma semántica que sin hook).
 pub const TIMEOUT_HOOK_DEFAULT: Duration = Duration::from_secs(10);
+/// Límite de seguridad para el timeout configurable de un hook externo.
+pub const TIMEOUT_HOOK_MAX: Duration = Duration::from_secs(60);
+
+/// Declaración serializable de un comando de ciclo de vida. Se mantiene como
+/// datos simples para que los consumidores puedan persistirlo sin serializar
+/// `Duration` ni introducir shell parsing.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ComandoGancho {
+    pub comando: String,
+    #[serde(default)]
+    pub args: Vec<String>,
+    /// Milisegundos; `0` usa [`TIMEOUT_HOOK_DEFAULT`].
+    #[serde(default)]
+    pub timeout_ms: u64,
+}
+
+impl ComandoGancho {
+    #[must_use]
+    pub fn a_hook(&self) -> Option<Hook> {
+        let comando = self.comando.trim();
+        if comando.is_empty() {
+            return None;
+        }
+        let timeout = Duration::from_millis(self.timeout_ms)
+            .min(TIMEOUT_HOOK_MAX);
+        Some(Hook::comando(
+            "pre-compact-configurado",
+            EventoHook::PreCompact,
+            comando,
+            self.args.clone(),
+        ).con_timeout(if timeout.is_zero() { TIMEOUT_HOOK_DEFAULT } else { timeout }))
+    }
+}
 
 /// [Bloque 3, F4] Eventos de ciclo de vida que el núcleo puede emitir.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -56,11 +90,15 @@ pub enum EventoHook {
 }
 
 impl EventoHook {
-    /// [Bloque 3, F4] Eventos cuyo resultado puede BLOQUEAR la acción en
-    /// curso (claurst: exit 2 del hook). El resto son informativos.
+    /// Eventos cuyo resultado puede vetar la acción en curso. `PreCompact`
+    /// también es bloqueable: el runtime debe conservar el historial intacto
+    /// cuando el hook devuelve exit 2.
     #[must_use]
     pub fn puede_bloquear(self) -> bool {
-        matches!(self, EventoHook::PreToolUse | EventoHook::PermissionRequest)
+        matches!(
+            self,
+            EventoHook::PreToolUse | EventoHook::PreCompact | EventoHook::PermissionRequest
+        )
     }
 
     /// Nombre estable del evento (para logs y payloads de diagnóstico).
@@ -156,16 +194,32 @@ impl Hook {
 }
 
 /// Resultado de ejecutar un hook.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SalidaHook {
-    /// `true` = el hook pide bloquear la acción (solo aplica en eventos que
-    /// pueden bloquear; claurst: exit code 2 del comando).
+    /// `true` = el hook pide bloquear la acción (exit code 2 del comando).
     pub bloqueo: bool,
+    /// Ajuste opcional devuelto como JSON. Solo `PreCompact` lo consume;
+    /// los demás eventos lo ignoran para no ampliar su contrato accidentalmente.
+    pub ajuste: Option<Value>,
 }
 
 impl SalidaHook {
-    pub const CONTINUAR: Self = Self { bloqueo: false };
-    pub const BLOQUEAR: Self = Self { bloqueo: true };
+    pub const CONTINUAR: Self = Self {
+        bloqueo: false,
+        ajuste: None,
+    };
+    pub const BLOQUEAR: Self = Self {
+        bloqueo: true,
+        ajuste: None,
+    };
+
+    #[must_use]
+    pub fn con_ajuste(ajuste: Value) -> Self {
+        Self {
+            bloqueo: false,
+            ajuste: Some(ajuste),
+        }
+    }
 }
 
 /// [Bloque 3, F4] Seam de ejecución: el dispatcher no conoce procesos ni
@@ -195,6 +249,204 @@ impl Default for RunnerComandoHttp {
     }
 }
 
+const MAX_SALIDA_HOOK: usize = 64 * 1024;
+
+fn timeout_efectivo(configurado: Duration, defecto: Duration) -> Duration {
+    let timeout = if configurado.is_zero() { defecto } else { configurado };
+    if timeout.is_zero() {
+        TIMEOUT_HOOK_DEFAULT
+    } else {
+        timeout
+    }
+}
+
+async fn limpiar_proceso_y_lector(
+    child: &mut tokio::process::Child,
+    lector: &mut tokio::task::JoinHandle<std::result::Result<Vec<u8>, String>>,
+) {
+    /* `kill` + `wait` evita dejar el proceso directo vivo. En Windows no
+     * garantiza por sí solo la terminación de descendientes creados por el
+     * hook; el comando se mantiene sin shell para reducir esa superficie y
+     * esta limitación queda cubierta por la política/documentación del hook. */
+    let _ = child.kill().await;
+    let _ = child.wait().await;
+    lector.abort();
+    let _ = lector.await;
+}
+
+async fn ejecutar_comando_local(
+    comando: &str,
+    args: &[String],
+    payload: &Value,
+    timeout: Duration,
+) -> std::result::Result<(std::process::ExitStatus, Vec<u8>), String> {
+    let cuerpo = serde_json::to_string(payload).map_err(|e| e.to_string())?;
+    let inicio = tokio::time::Instant::now();
+    let mut child = tokio::process::Command::new(comando)
+        .args(args)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .map_err(|e| format!("no se pudo lanzar '{comando}': {e}"))?;
+    let stdout = match child.stdout.take() {
+        Some(stdout) => stdout,
+        None => {
+            let _ = child.kill().await;
+            let _ = child.wait().await;
+            return Err(format!("'{comando}' no expuso stdout"));
+        }
+    };
+    /* El lector empieza antes de escribir stdin: un hook que produce salida o
+     * espera el cierre de stdin no bloquea el pipe. El mismo presupuesto cubre
+     * escritura, espera y drenaje; los errores limpian proceso y lector. */
+    let mut lector = tokio::spawn(async move {
+        use tokio::io::AsyncReadExt;
+        let mut salida = Vec::new();
+        stdout
+            .take((MAX_SALIDA_HOOK + 1) as u64)
+            .read_to_end(&mut salida)
+            .await
+            .map(|_| salida)
+            .map_err(|e| format!("no se pudo leer stdout de hook: {e}"))
+    });
+
+    let resultado = tokio::time::timeout(
+        timeout.saturating_sub(inicio.elapsed()),
+        async {
+            if let Some(mut stdin) = child.stdin.take() {
+                use tokio::io::AsyncWriteExt;
+                stdin.write_all(cuerpo.as_bytes()).await.map_err(|e| {
+                    format!("no se pudo escribir el payload a '{comando}': {e}")
+                })?;
+                /* Cerrar stdin es parte del contrato: permite que el hook
+                 * detecte EOF y termine sin esperar otro mensaje. */
+            }
+            let estado = child
+                .wait()
+                .await
+                .map_err(|e| format!("'{comando}' falló: {e}"))?;
+            let salida = (&mut lector)
+                .await
+                .map_err(|e| format!("lector de hook abortado: {e}"))??;
+            Ok::<_, String>((estado, salida))
+        },
+    )
+    .await;
+
+    match resultado {
+        Ok(Ok(resultado)) => Ok(resultado),
+        Ok(Err(error)) => {
+            limpiar_proceso_y_lector(&mut child, &mut lector).await;
+            Err(error)
+        }
+        Err(_) => {
+            limpiar_proceso_y_lector(&mut child, &mut lector).await;
+            Err(format!(
+                "'{comando}' excedió el timeout de {}ms",
+                timeout.as_millis()
+            ))
+        }
+    }
+}
+
+fn interpretar_salida_comando(
+    evento: EventoHook,
+    comando: &str,
+    estado: std::process::ExitStatus,
+    salida: Vec<u8>,
+) -> std::result::Result<SalidaHook, String> {
+    if salida.len() > MAX_SALIDA_HOOK {
+        return Err(format!(
+            "'{comando}' excedió el límite de stdout de {MAX_SALIDA_HOOK} bytes"
+        ));
+    }
+    let codigo = estado.code();
+    let mut resultado = if codigo == Some(2) {
+        SalidaHook::BLOQUEAR
+    } else {
+        if codigo != Some(0) {
+            tracing::warn!(
+                comando = %comando,
+                codigo = ?codigo,
+                "hook terminó con error no bloqueante; se continúa"
+            );
+        }
+        SalidaHook::CONTINUAR
+    };
+    if evento == EventoHook::PreCompact
+        && !salida.is_empty()
+        && !salida.iter().all(u8::is_ascii_whitespace)
+    {
+        let ajuste: Value = serde_json::from_slice(&salida)
+            .map_err(|e| format!("stdout de '{comando}' no es JSON válido: {e}"))?;
+        resultado.ajuste = Some(validar_ajuste_precompact(ajuste, comando)?);
+    }
+    Ok(resultado)
+}
+
+fn destino_http_seguro(url: &str) -> String {
+    let Ok(destino) = reqwest::Url::parse(url) else {
+        return "<url de hook inválida>".into();
+    };
+    let host = destino.host_str().unwrap_or("<host>");
+    let host = if host.contains(':') {
+        format!("[{host}]")
+    } else {
+        host.to_owned()
+    };
+    let puerto = destino
+        .port()
+        .map(|puerto| format!(":{puerto}"))
+        .unwrap_or_default();
+    format!("{}://{host}{puerto}", destino.scheme())
+}
+
+async fn ejecutar_http(
+    url: &str,
+    payload: &Value,
+    timeout: Duration,
+) -> std::result::Result<SalidaHook, String> {
+    let cliente = reqwest::Client::new();
+    let destino = destino_http_seguro(url);
+    match tokio::time::timeout(timeout, cliente.post(url).json(payload).send()).await {
+        Ok(Ok(respuesta)) => {
+            let status = respuesta.status();
+            if !status.is_success() {
+                tracing::warn!(destino = %destino, status = %status, "hook http respondió no-2xx (se continúa)");
+            }
+            Ok(SalidaHook::CONTINUAR)
+        }
+        Ok(Err(_)) => Err("POST del hook HTTP falló".into()),
+        Err(_) => Err(format!(
+            "POST del hook HTTP excedió el timeout de {}s",
+            timeout.as_secs()
+        )),
+    }
+}
+
+fn validar_ajuste_precompact(valor: Value, comando: &str) -> std::result::Result<Value, String> {
+    let objeto = valor
+        .as_object()
+        .ok_or_else(|| format!("stdout de '{comando}' debe ser un objeto JSON"))?;
+    let mut ajuste = serde_json::Map::new();
+    for (clave, valor) in objeto {
+        if clave != "resumen_llm" && clave != "resumen" {
+            return Err(format!(
+                "stdout de '{comando}' contiene la clave no permitida '{clave}'"
+            ));
+        }
+        let texto = valor.as_str().map(str::trim).filter(|texto| !texto.is_empty()).ok_or_else(|| {
+            format!("stdout de '{comando}' requiere que '{clave}' sea texto no vacío")
+        })?;
+        ajuste.insert(clave.clone(), Value::String(texto.to_owned()));
+    }
+    if ajuste.is_empty() {
+        return Err(format!("stdout de '{comando}' no contiene un ajuste reconocido"));
+    }
+    Ok(Value::Object(ajuste))
+}
+
 #[async_trait]
 impl RunnerHook for RunnerComandoHttp {
     async fn correr(
@@ -202,63 +454,13 @@ impl RunnerHook for RunnerComandoHttp {
         hook: &Hook,
         payload: &Value,
     ) -> std::result::Result<SalidaHook, String> {
-        let timeout = if hook.timeout.is_zero() {
-            self.timeout
-        } else {
-            hook.timeout
-        };
+        let timeout = timeout_efectivo(hook.timeout, self.timeout);
         match &hook.tipo {
             TipoHook::Comando { comando, args } => {
-                let cuerpo = serde_json::to_string(payload).map_err(|e| e.to_string())?;
-                let mut child = tokio::process::Command::new(comando)
-                    .args(args)
-                    .stdin(std::process::Stdio::piped())
-                    .stdout(std::process::Stdio::null())
-                    .stderr(std::process::Stdio::null())
-                    .spawn()
-                    .map_err(|e| format!("no se pudo lanzar '{comando}': {e}"))?;
-                if let Some(mut stdin) = child.stdin.take() {
-                    use tokio::io::AsyncWriteExt;
-                    if let Err(e) = stdin.write_all(cuerpo.as_bytes()).await {
-                        return Err(format!("no se pudo escribir el payload a '{comando}': {e}"));
-                    }
-                }
-                match tokio::time::timeout(timeout, child.wait()).await {
-                    Ok(Ok(status)) => {
-                        /* [Bloque 3, F4] Exit 2 = bloquear (claurst). */
-                        if status.code() == Some(2) {
-                            Ok(SalidaHook::BLOQUEAR)
-                        } else {
-                            Ok(SalidaHook::CONTINUAR)
-                        }
-                    }
-                    Ok(Err(e)) => Err(format!("'{comando}' falló: {e}")),
-                    Err(_) => {
-                        let _ = child.kill().await;
-                        Err(format!(
-                            "'{comando}' excedió el timeout de {}s",
-                            timeout.as_secs()
-                        ))
-                    }
-                }
+                let (estado, salida) = ejecutar_comando_local(comando, args, payload, timeout).await?;
+                interpretar_salida_comando(hook.evento, comando, estado, salida)
             }
-            TipoHook::Http { url } => {
-                let cliente = reqwest::Client::new();
-                match tokio::time::timeout(timeout, cliente.post(url).json(payload).send()).await {
-                    Ok(Ok(respuesta)) => {
-                        let status = respuesta.status();
-                        if !status.is_success() {
-                            tracing::warn!(url = %url, status = %status, "hook http respondió no-2xx (se continúa)");
-                        }
-                        Ok(SalidaHook::CONTINUAR)
-                    }
-                    Ok(Err(e)) => Err(format!("POST {url} falló: {e}")),
-                    Err(_) => Err(format!(
-                        "POST {url} excedió el timeout de {}s",
-                        timeout.as_secs()
-                    )),
-                }
-            }
+            TipoHook::Http { url } => ejecutar_http(url, payload, timeout).await,
         }
     }
 }
@@ -356,12 +558,11 @@ impl DispatcherHooks {
         &self.hooks
     }
 
-    /// Dispara los hooks que coinciden con `evento` (y, si el payload trae
-    /// `"tool"`, con el patrón del hook). Devuelve `true` si algún hook pidió
-    /// bloquear y el evento lo permite ([`EventoHook::puede_bloquear`]). Los
-    /// fallos del runner se registran y se continúa (nunca abortan).
-    pub async fn disparar(&self, evento: EventoHook, payload: Value) -> bool {
-        let mut bloqueado = false;
+    /// Dispara los hooks y conserva su resultado estructurado. Los fallos del
+    /// runner se registran y se continúa (nunca abortan). Si varios hooks
+    /// devuelven un ajuste, gana el último en orden de registro; el veto es OR.
+    pub async fn disparar_con_salida(&self, evento: EventoHook, payload: Value) -> SalidaHook {
+        let mut salida_final = SalidaHook::CONTINUAR;
         for hook in self.hooks.iter().filter(|h| h.evento == evento) {
             if let Some(patron) = &hook.tool_patron {
                 let tool = payload
@@ -375,17 +576,25 @@ impl DispatcherHooks {
             match self.runner.correr(hook, &payload).await {
                 Ok(salida) => {
                     if salida.bloqueo && evento.puede_bloquear() {
-                        bloqueado = true;
+                        salida_final.bloqueo = true;
+                    }
+                    if evento == EventoHook::PreCompact {
+                        salida_final.ajuste = salida.ajuste;
                     }
                 }
                 Err(error) => {
-                    /* [Bloque 3, F4] Un hook roto no rompe el turno: se
-                     * registra y se continúa con la semántica de sin-hook. */
+                    /* Un hook roto no rompe el turno: se registra y se
+                     * continúa con la semántica de sin-hook. */
                     tracing::warn!(hook = %hook.nombre, %error, "hook falló; se continúa sin él");
                 }
             }
         }
-        bloqueado
+        salida_final
+    }
+
+    /// Compatibilidad para eventos cuyo consumidor solo necesita el veto.
+    pub async fn disparar(&self, evento: EventoHook, payload: Value) -> bool {
+        self.disparar_con_salida(evento, payload).await.bloqueo
     }
 }
 
@@ -473,6 +682,7 @@ mod tests {
     #[test]
     fn eventos_bloqueables_y_nombres() {
         assert!(EventoHook::PreToolUse.puede_bloquear());
+        assert!(EventoHook::PreCompact.puede_bloquear());
         assert!(EventoHook::PermissionRequest.puede_bloquear());
         assert!(!EventoHook::PostToolUse.puede_bloquear());
         assert!(!EventoHook::Stop.puede_bloquear());
@@ -538,6 +748,21 @@ mod tests {
                 .await,
             "PreToolUse puede bloquear"
         );
+    }
+
+    #[tokio::test]
+    async fn precompact_acepta_ajuste_y_veto() {
+        let runner = RunnerGrabador::con_salida(Ok(SalidaHook {
+            bloqueo: true,
+            ajuste: Some(serde_json::json!({"resumen_llm": "ajustado"})),
+        }));
+        let mut d = DispatcherHooks::con_runner(runner);
+        d.registrar(Hook::comando("pre", EventoHook::PreCompact, "hook", vec![]));
+        let salida = d
+            .disparar_con_salida(EventoHook::PreCompact, serde_json::json!({}))
+            .await;
+        assert!(salida.bloqueo);
+        assert_eq!(salida.ajuste, Some(serde_json::json!({"resumen_llm": "ajustado"})));
     }
 
     #[tokio::test]
@@ -655,6 +880,25 @@ mod tests {
     }
 
     #[test]
+    fn comando_gancho_valida_y_limita_timeout() {
+        let comando = ComandoGancho {
+            comando: "echo".into(),
+            args: vec!["ok".into()],
+            timeout_ms: 90_000,
+        };
+        let hook = comando.a_hook().expect("comando válido");
+        assert_eq!(hook.evento, EventoHook::PreCompact);
+        assert_eq!(hook.timeout, TIMEOUT_HOOK_MAX);
+    }
+
+    #[test]
+    fn salida_con_ajuste_no_bloquea_por_defecto() {
+        let salida = SalidaHook::con_ajuste(serde_json::json!({"resumen_llm": "ok"}));
+        assert!(!salida.bloqueo);
+        assert!(salida.ajuste.is_some());
+    }
+
+    #[test]
     fn constructor_por_tipo_es_diferenciable() {
         let cmd = Hook::comando("c", EventoHook::Stop, "echo", vec!["-n".into()]);
         assert!(matches!(cmd.tipo, TipoHook::Comando { .. }));
@@ -663,5 +907,101 @@ mod tests {
             .con_timeout(Duration::from_secs(2));
         assert!(matches!(http.tipo, TipoHook::Http { .. }));
         assert_eq!(http.timeout, Duration::from_secs(2));
+    }
+
+    #[cfg(windows)]
+    fn comando_pwsh(script: &str) -> Hook {
+        Hook::comando(
+            "proceso-real",
+            EventoHook::PreCompact,
+            "powershell.exe",
+            vec!["-NoProfile".into(), "-Command".into(), script.into()],
+        )
+    }
+
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn runner_real_lee_payload_y_acepta_ajuste() {
+        let hook = comando_pwsh(
+            "$input | ConvertFrom-Json | Out-Null; Write-Output '{\"resumen\":\"ajuste real\"}'",
+        )
+        .con_timeout(Duration::from_secs(5));
+        let salida = RunnerComandoHttp::default()
+            .correr(&hook, &serde_json::json!({"evento":"PreCompact"}))
+            .await
+            .expect("el proceso real debe terminar");
+        assert_eq!(
+            salida.ajuste,
+            Some(serde_json::json!({"resumen":"ajuste real"}))
+        );
+        assert!(!salida.bloqueo);
+    }
+
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn runner_real_exit_1_continua_y_se_observa() {
+        let hook = comando_pwsh("$input | Out-Null; exit 1").con_timeout(Duration::from_secs(5));
+        let salida = RunnerComandoHttp::default()
+            .correr(&hook, &serde_json::json!({}))
+            .await
+            .expect("exit 1 sigue siendo no bloqueante");
+        assert!(!salida.bloqueo);
+    }
+
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn runner_real_exit_2_veta() {
+        let hook = comando_pwsh("$input | Out-Null; exit 2").con_timeout(Duration::from_secs(5));
+        let salida = RunnerComandoHttp::default()
+            .correr(&hook, &serde_json::json!({}))
+            .await
+            .expect("exit 2 sigue siendo una salida válida");
+        assert!(salida.bloqueo);
+    }
+
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn runner_real_timeout_subsegundo_no_muestra_cero() {
+        let hook = comando_pwsh("Start-Sleep -Milliseconds 500").con_timeout(Duration::from_millis(25));
+        let error = RunnerComandoHttp::default()
+            .correr(&hook, &serde_json::json!({}))
+            .await
+            .expect_err("debe aplicar el timeout pequeño");
+        assert!(error.contains("25ms"), "mensaje inesperado: {error}");
+    }
+
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn runner_real_rechaza_stdout_invalido_sin_bloquear_dispatcher() {
+        let hook = comando_pwsh("$input | Out-Null; Write-Output texto").con_timeout(Duration::from_secs(5));
+        let mut dispatcher = DispatcherHooks::vacia();
+        dispatcher.registrar(hook);
+        let salida = dispatcher
+            .disparar_con_salida(EventoHook::PreCompact, serde_json::json!({}))
+            .await;
+        assert!(!salida.bloqueo);
+        assert!(salida.ajuste.is_none());
+    }
+
+    #[test]
+    fn ajuste_precompact_rechaza_claves_y_texto_vacio() {
+        assert!(validar_ajuste_precompact(serde_json::json!([]), "x").is_err());
+        assert!(validar_ajuste_precompact(serde_json::json!({"otro":"x"}), "x").is_err());
+        assert!(validar_ajuste_precompact(serde_json::json!({"resumen":" "}), "x").is_err());
+        assert_eq!(
+            validar_ajuste_precompact(serde_json::json!({"resumen":"  ok  "}), "x").unwrap(),
+            serde_json::json!({"resumen":"ok"})
+        );
+    }
+
+    #[test]
+    fn destino_http_no_expone_credenciales_ni_ruta() {
+        let destino = destino_http_seguro(
+            "https://usuario:secreto@example.test:8443/hooks/pre?token=privado#fragmento",
+        );
+        assert_eq!(destino, "https://example.test:8443");
+        assert!(!destino.contains("secreto"));
+        assert!(!destino.contains("privado"));
+        assert!(!destino.contains("/hooks"));
     }
 }

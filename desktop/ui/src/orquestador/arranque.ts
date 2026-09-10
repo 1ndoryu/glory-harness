@@ -113,7 +113,7 @@ export function ejecutarArranque(deps: ArranqueDeps): void {
     void (async () => {
       try {
         await deps.asegurarSesion();
-        const [provG, modG, modoG, razG, anchoG, colG, ctxG, temaG] = await Promise.all([
+        const [provG, modG, modoG, razG, anchoG, colG, ctxG, ganchoG, temaG] = await Promise.all([
           deps.configLeer('proveedor'),
           deps.configLeer('modelo'),
           deps.configLeer('modo'),
@@ -121,6 +121,7 @@ export function ejecutarArranque(deps: ArranqueDeps): void {
           deps.configLeer(CLAVE_ANCHO),
           deps.configLeer(CLAVE_COLAPSADA),
           deps.configLeer('contexto_max_ventana'),
+          deps.configLeer('gancho_pre_compact'),
           deps.configLeer(deps.claveTemaOscuro),
         ]);
         if (anchoG) {
@@ -138,6 +139,7 @@ export function ejecutarArranque(deps: ArranqueDeps): void {
           modo: modoG,
           razonamiento: razG,
           contextoMaxVentana: ctxG,
+          ganchoPreCompact: ganchoG,
           temaOscuro: temaG,
         });
         deps.sincronizarPanelMeta();

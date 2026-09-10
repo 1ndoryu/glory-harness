@@ -1,6 +1,7 @@
 //! Comandos de sesion y configuracion del desktop.
 
 use super::*;
+use glory_harness_core::hooks::ComandoGancho;
 
 #[derive(serde::Serialize, Clone)]
 pub(super) struct ProveedorConteo {
@@ -57,7 +58,8 @@ pub(crate) fn reconfigurar_sesion(
     comun
         .reconfigurar(provider, modelo, modo, razonamiento)
         .map_err(|e| e.to_string())?;
-    /* El nuevo runtime trae un sandbox fresco SIN el hook: se re-cablea. */
+    /* El nuevo runtime trae el hook persistido porque `reconfigurar` lo
+     * resuelve desde SQLite; se recablea además el sandbox del desktop. */
     cablear_vault_a(&comun.runtime, &sesion.vault);
     drop(comun);
     info_de_panel(&sesion, PANEL_PRINCIPAL)
@@ -153,15 +155,58 @@ pub(crate) fn config_leer(
 }
 
 /// Guarda una clave de configuración (`provider_defecto`, `modelo_defecto`…).
+/// El hook pre-compact tiene una ruta tipada: valida, persiste y reconstruye
+/// el runtime en la misma operación lógica; `null` o vacío lo desactiva.
 #[tauri::command]
 pub(crate) fn config_guardar(
     estado: State<'_, Estado>,
     clave: String,
     valor: String,
 ) -> Result<(), String> {
+    let clave = clave.trim().to_string();
     let sesion = sesion_actual(&estado)?;
+    if clave == "gancho_pre_compact" {
+        let hook = if valor.trim().is_empty() || valor.trim() == "null" {
+            None
+        } else {
+            let hook = serde_json::from_str::<ComandoGancho>(&valor)
+                .map_err(|e| format!("gancho_pre_compact inválido: {e}"))?;
+            if hook.comando.trim().is_empty() {
+                return Err("gancho_pre_compact vacío".into());
+            }
+            if hook.timeout_ms > 60_000 {
+                return Err("timeout del hook demasiado alto".into());
+            }
+            Some(hook)
+        };
+        if estado.turno.lock().map(|t| t.activo).unwrap_or(true) {
+            return Err("hay un turno en curso".into());
+        }
+        match hook {
+            Some(hook) => {
+                let raw = serde_json::to_string(&hook).map_err(|e| e.to_string())?;
+                sesion
+                    .persistencia
+                    .config_guardar(&clave, &raw)
+                    .map_err(|e| e.to_string())?;
+            }
+            None => sesion
+                .persistencia
+                .config_borrar(&clave)
+                .map_err(|e| e.to_string())?,
+        }
+        let mut comun = sesion
+            .comun
+            .lock()
+            .map_err(|_| "sesión bloqueada".to_string())?;
+        comun
+            .reconfigurar(None, None, None, None)
+            .map_err(|e| e.to_string())?;
+        cablear_vault_a(&comun.runtime, &sesion.vault);
+        return Ok(());
+    }
     sesion
         .persistencia
-        .config_guardar(clave.trim(), &valor)
+        .config_guardar(&clave, &valor)
         .map_err(|e| e.to_string())
 }

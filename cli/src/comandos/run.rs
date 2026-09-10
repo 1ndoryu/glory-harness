@@ -19,6 +19,7 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 use glory_harness_core::evento::AgenteEvento;
+use glory_harness_core::hooks::ComandoGancho;
 use glory_harness_core::llm::{LlavesProveedor, LlmProviderService};
 use glory_harness_core::ports::NavegadorPort;
 use glory_harness_core::runtime::{AgentRuntime, PuertosHarness, TurnoConfig};
@@ -27,6 +28,7 @@ use glory_harness_core::{AgentPersistence, ProgramadorTareas};
 
 use crate::persistencia::PersistenciaMemoria;
 use crate::persistencia_sqlite::PersistenciaSqlite;
+use crate::servicio::sesion_config::leer_gancho_pre_compact;
 
 /// Opciones del subcomando `run`.
 #[derive(Clone, Default)]
@@ -51,6 +53,9 @@ pub struct OpcionesRun {
     /// Se aplica ANTES de construir el runtime: el `AgentContextManager` y el
     /// desglose del turno clonan esta config al construir (una sola fuente).
     pub max_ventana: Option<u32>,
+    /// Hook externo previo a la compactación. Se configura desde la sesión;
+    /// `None` mantiene el comportamiento sin hooks.
+    pub gancho_pre_compact: Option<ComandoGancho>,
     /// [069A-3] Toast de Windows al terminar el turno o al pedir un permiso
     /// (`--notificar`). Solo CLI interactivo; sin flag no se registra ningún
     /// hook (emisión no-op como antes).
@@ -69,6 +74,7 @@ impl std::fmt::Debug for OpcionesRun {
             .field("modo", &self.modo)
             .field("razonamiento", &self.razonamiento)
             .field("max_ventana", &self.max_ventana)
+            .field("gancho_pre_compact", &self.gancho_pre_compact)
             .field("notificar", &self.notificar)
             .field(
                 "navegador",
@@ -120,10 +126,26 @@ pub async fn construir_harness(opciones: &OpcionesRun) -> Result<HarnessCli, Str
     // Añadir una skill base para dar contexto útil (standalone sin BD).
     let user_id = Uuid::new_v4();
     persistencia.con_skills_base(user_id);
+    let mut opciones_run = opciones.clone();
+    /* `run` conserva persistencia efímera para el turno one-shot, pero debe
+     * respetar el hook guardado cuando existe una BD durable. La ausencia de
+     * APPDATA/HOME no es un error del modo standalone; un fallo de lectura sí
+     * se hace visible y no se convierte en una configuración silenciosa. */
+    if opciones_run.gancho_pre_compact.is_none() {
+        if PersistenciaSqlite::ruta_bd_app().is_some() {
+            let (tiendas, _) = abrir_tiendas_durables()
+                .map_err(|e| format!("configuración durable: {e}"))?;
+            opciones_run.gancho_pre_compact =
+                leer_gancho_pre_compact(&tiendas)
+                    .map_err(|e| format!("configuración: {e}"))?;
+        } else {
+            tracing::debug!("run sin configuración durable; se usan defaults");
+        }
+    }
     let mut registry = AgentToolRegistry::new();
     crate::mcp_cli::registrar_desde_env(&mut registry).await?;
     let mut harness = construir_harness_con_impl(
-        opciones,
+        &opciones_run,
         persistencia,
         Arc::new(crate::persistencia::ProgramadorMemoria::nuevo()),
         user_id,
@@ -142,10 +164,19 @@ pub async fn construir_harness(opciones: &OpcionesRun) -> Result<HarnessCli, Str
 pub async fn construir_harness_durable(opciones: &OpcionesRun) -> Result<HarnessCli, String> {
     let (tiendas, user_id) = abrir_tiendas_durables()?;
     tiendas.con_skills_base(user_id);
+    let mut opciones_durables = opciones.clone();
+    /* `chat`, `tui` y `session resume` construyen directamente sobre SQLite,
+     * no pasan por `SesionComun::resolver_opciones`; cargar aquí el hook
+     * garantiza que la configuración guardada se aplique en esos tres flujos.
+     * Un flag explícito conserva prioridad sobre la BD. */
+    if opciones_durables.gancho_pre_compact.is_none() {
+        opciones_durables.gancho_pre_compact =
+            leer_gancho_pre_compact(&tiendas).map_err(|e| format!("configuración: {e}"))?;
+    }
     let mut registry = AgentToolRegistry::new();
     crate::mcp_cli::registrar_desde_env(&mut registry).await?;
     let mut harness = construir_harness_con_impl(
-        opciones,
+        &opciones_durables,
         tiendas.clone(),
         tiendas.clone(),
         user_id,
@@ -279,6 +310,7 @@ pub fn construir_harness_con_impl(
     if let Some(v) = opciones.max_ventana.filter(|v| *v >= VENTANA_MINIMA) {
         config.contexto.max_ventana = v;
     }
+    config.contexto.gancho_pre_compact = opciones.gancho_pre_compact.clone();
 
     /* [Bloque 3, F3] Skills del workspace (carpeta `.glory/skills`, archivos
      * markdown con frontmatter): la tool `skill` se registra ANTES de mover
@@ -314,6 +346,15 @@ pub fn construir_harness_con_impl(
         },
         config.clone(),
     ));
+    if let Some(comando) = config.contexto.gancho_pre_compact.as_ref() {
+        if let Some(hook) = comando.a_hook() {
+            let mut dispatcher = glory_harness_core::hooks::DispatcherHooks::vacia();
+            dispatcher.registrar(hook);
+            runtime.set_hooks(dispatcher);
+        } else {
+            tracing::warn!("gancho_pre_compact configurado pero el comando está vacío; se ignora");
+        }
+    }
     /* [318A-15 F2] Reglas del repositorio (AGENTS.md, jerarquía: la raíz gana
      * a subcarpetas) → ranura `[REGLAS]` del system prompt. Sin AGENTS.md la
      * ranura queda vacía (el núcleo no emite encabezado huérfano). [Bloque 3,

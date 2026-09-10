@@ -22,6 +22,7 @@ export interface SesionGuardadaVista {
   modo: string | null;
   razonamiento: string | null;
   contextoMaxVentana: string | null;
+  ganchoPreCompact: string | null;
   temaOscuro: string | null;
 }
 
@@ -86,6 +87,9 @@ export function montarVistaModal(deps: VistaModalDeps): VistaModal {
       } else if (id === 'nivelRazonamiento') {
         estado.razonamiento = String(valor);
         deps.paneles.forEach((p) => p.setRazonamiento(estado.razonamiento));
+      } else if (id === 'gancho_pre_compact') {
+        // El JSON se valida en el boundary del backend; aquí solo se persiste
+        // mediante la misma ruta que las demás opciones reales.
       } else if (id === 'contexto_max_ventana') {
         // [039A-3 P6] La ventana se persiste vía configGuardar (abajo); el
         // backend la consumirá al construir la sesión (inyección de
@@ -99,6 +103,7 @@ export function montarVistaModal(deps: VistaModalDeps): VistaModal {
         (id === 'modo' ||
           id === 'nivelRazonamiento' ||
           id === 'contexto_max_ventana' ||
+          id === 'gancho_pre_compact' ||
           id === deps.claveTemaOscuro)
       ) {
         void deps
@@ -174,6 +179,9 @@ export function montarVistaModal(deps: VistaModalDeps): VistaModal {
     // refleja el valor guardado en el control del panel Contexto).
     if (sesion.contextoMaxVentana && Number(sesion.contextoMaxVentana) > 0) {
       modal.asignarValor('contexto_max_ventana', sesion.contextoMaxVentana);
+    }
+    if (sesion.ganchoPreCompact !== null) {
+      modal.asignarValor('gancho_pre_compact', sesion.ganchoPreCompact);
     }
     if (sesion.temaOscuro !== null) {
       const activo = sesion.temaOscuro === '1' || sesion.temaOscuro === 'true';

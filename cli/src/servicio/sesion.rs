@@ -13,10 +13,11 @@ use uuid::Uuid;
 
 use crate::{
     cargar_env_usuario, construir_harness_con, historial_desde_persistencia, InfoConversacion,
-    OpcionesRun, PersistenciaSqlite, VENTANA_MINIMA,
+    OpcionesRun, PersistenciaSqlite,
 };
 
 use super::meta::{resolver_meta, ComandoMeta, ErrorMeta, EstadoMeta, ResultadoMeta};
+use super::sesion_config::{leer_gancho_pre_compact, leer_max_ventana, resolver_opciones};
 
 /// Error de una operación del servicio común.
 #[derive(Debug)]
@@ -268,6 +269,8 @@ impl SesionComun {
             modo: modo.or_else(|| Some(cfg.modo.clone())),
             max_ventana: leer_max_ventana(&self.persistencia)?,
             razonamiento: razonamiento.or_else(|| cfg.nivel_razonamiento.clone()),
+            gancho_pre_compact: leer_gancho_pre_compact(&self.persistencia)
+                .map_err(Error::Persistencia)?,
             notificar: false,
             /* [069A-1 F5] El puerto de navegador se conserva en la sesión y
              * se reinyecta al reconstruir: cambiar de modelo NO debe perder
@@ -306,6 +309,8 @@ impl SesionComun {
             modo: Some(cfg.modo.clone()),
             max_ventana: leer_max_ventana(&self.persistencia)?,
             razonamiento: cfg.nivel_razonamiento.clone(),
+            gancho_pre_compact: leer_gancho_pre_compact(&self.persistencia)
+                .map_err(Error::Persistencia)?,
             notificar: false,
             /* [069A-1 F5] Se conserva el puerto de navegador de la sesión:
              * cambiar el workspace no debe perder la tool. */
@@ -501,61 +506,6 @@ fn conteos(llaves: &LlavesProveedor) -> Vec<ProveedorConteo> {
             claves: llaves.commandcode.len(),
         },
     ]
-}
-
-fn leer_max_ventana(persistencia: &PersistenciaSqlite) -> Result<Option<u32>, Error> {
-    const DEFAULT: u32 = 150_000;
-    match persistencia
-        .config_leer("contexto_max_ventana")
-        .map_err(|e| Error::Persistencia(e.to_string()))?
-    {
-        Some(txt) => match txt.trim().parse::<u32>() {
-            Ok(v) if v >= VENTANA_MINIMA => Ok(Some(v)),
-            _ => Ok(Some(DEFAULT)),
-        },
-        None => Ok(Some(DEFAULT)),
-    }
-}
-
-fn resolver_opciones(
-    persistencia: &PersistenciaSqlite,
-    opciones: &OpcionesSesion,
-) -> Result<OpcionesRun, Error> {
-    let leer = |clave| {
-        persistencia
-            .config_leer(clave)
-            .map_err(|e| Error::Persistencia(e.to_string()))
-    };
-    let dir = match opciones.dir.clone() {
-        Some(dir) => Some(dir),
-        None => leer("workspace")?.filter(|d| !d.trim().is_empty()),
-    };
-    let provider = match opciones.provider.clone() {
-        Some(p) => Some(p),
-        None => leer("proveedor")?,
-    };
-    let modelo = match opciones.modelo.clone() {
-        Some(m) => Some(m),
-        None => leer("modelo")?,
-    };
-    let modo = match opciones.modo.clone() {
-        Some(m) => Some(m),
-        None => leer("modo")?,
-    };
-    let razonamiento = match opciones.razonamiento.clone() {
-        Some(valor) => Some(valor),
-        None => leer("nivelRazonamiento")?,
-    };
-    Ok(OpcionesRun {
-        provider,
-        modelo,
-        dir: dir.map(PathBuf::from),
-        modo,
-        razonamiento,
-        max_ventana: leer_max_ventana(persistencia)?,
-        notificar: false,
-        navegador: opciones.navegador.clone(),
-    })
 }
 
 /// [039A-1 04-09 H5] Nombre breve de conversación desde el primer mensaje del

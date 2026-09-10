@@ -29,6 +29,7 @@ const CLAVES_SERVIDOR = new Set([
   'modo',
   'nivelRazonamiento',
   'contexto_max_ventana',
+  'gancho_pre_compact',
   'workspace',
 ]);
 
@@ -172,6 +173,10 @@ export function crearTransporteApi(base: string, hooks: HooksAdaptador = {}): Tr
           return (c['razonamiento'] as string) ?? null;
         case 'contexto_max_ventana':
           return c['max_ventana'] === undefined ? null : String(c['max_ventana']);
+        case 'gancho_pre_compact': {
+          const hook = c['gancho_pre_compact'];
+          return hook === undefined || hook === null ? null : JSON.stringify(hook);
+        }
         default:
           return null;
       }
@@ -192,6 +197,18 @@ export function crearTransporteApi(base: string, hooks: HooksAdaptador = {}): Tr
       const parche: Record<string, unknown> = {};
       if (clave === 'nivelRazonamiento') parche['razonamiento'] = valor;
       else if (clave === 'contexto_max_ventana') parche['max_ventana'] = Number(valor);
+      else if (clave === 'gancho_pre_compact') {
+        const texto = valor.trim();
+        if (texto === '' || texto === 'null') {
+          parche['gancho_pre_compact'] = null;
+        } else {
+          try {
+            parche['gancho_pre_compact'] = JSON.parse(texto);
+          } catch {
+            throw new Error('gancho_pre_compact debe ser JSON válido');
+          }
+        }
+      }
       /* [FG1-069A-10 F2] El backend espera `provider` (ParcheConfig), no
        * `proveedor` (clave del front en español). */
       else if (clave === 'proveedor') parche['provider'] = valor;

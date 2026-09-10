@@ -7,6 +7,7 @@ use axum::{
     http::{HeaderMap, Method},
     Json,
 };
+use glory_harness_core::hooks::ComandoGancho;
 use glory_harness_core::llm::LlavesProveedor;
 use serde::Deserialize;
 use serde_json::Value;
@@ -31,6 +32,8 @@ pub(crate) struct ParcheConfig {
     pub(crate) modo: Option<String>,
     pub(crate) razonamiento: Option<String>,
     pub(crate) max_ventana: Option<u32>,
+    /// `None` = campo ausente; `Some(None)` = borrar; `Some(Some(_))` = actualizar.
+    pub(crate) gancho_pre_compact: Option<Option<ComandoGancho>>,
 }
 
 // ── Proveedores y configuración ──────────────────────────────────────────
@@ -103,6 +106,14 @@ pub(crate) async fn guardar_config(
             return Err(error("peticion_invalida", "max_ventana bajo el mínimo"));
         }
     }
+    if let Some(Some(hook)) = &peticion.gancho_pre_compact {
+        if hook.comando.trim().is_empty() {
+            return Err(error("peticion_invalida", "gancho_pre_compact vacío"));
+        }
+        if hook.timeout_ms > 60_000 {
+            return Err(error("peticion_invalida", "timeout del hook demasiado alto"));
+        }
+    }
 
     let (sesion, _) = sesion_y_comun(&headers, &Method::PATCH, &state, &id).await?;
     let mut comun = sesion.comun.lock().await;
@@ -111,6 +122,22 @@ pub(crate) async fn guardar_config(
             .persistencia
             .config_guardar("contexto_max_ventana", &v.to_string())
             .map_err(|e| error("sesion", e.to_string()))?;
+    }
+    if let Some(hook) = &peticion.gancho_pre_compact {
+        match hook {
+            Some(hook) => {
+                let raw = serde_json::to_string(hook)
+                    .map_err(|e| error("peticion_invalida", e.to_string()))?;
+                comun
+                    .persistencia
+                    .config_guardar("gancho_pre_compact", &raw)
+                    .map_err(|e| error("sesion", e.to_string()))?;
+            }
+            None => comun
+                .persistencia
+                .config_borrar("gancho_pre_compact")
+                .map_err(|e| error("sesion", e.to_string()))?,
+        }
     }
     /* [FG1-069A-10 F1] Persistir cada clave en BD ANTES de reconfigurar el
      * runtime: así sobrevive a recargas (mantiene paridad con el escritorio
@@ -121,6 +148,7 @@ pub(crate) async fn guardar_config(
         modo,
         razonamiento,
         max_ventana: _,
+        gancho_pre_compact: _,
     } = &peticion;
     if let Some(p) = provider {
         comun
@@ -172,6 +200,11 @@ fn config_efectiva(comun: &SesionComun) -> Result<Value, ApiError> {
         "modo": cfg.modo,
         "razonamiento": cfg.nivel_razonamiento,
         "max_ventana": max_ventana,
+        "gancho_pre_compact": comun
+            .persistencia
+            .config_leer("gancho_pre_compact")
+            .map_err(|e| error("sesion", e.to_string()))?
+            .and_then(|raw| serde_json::from_str::<ComandoGancho>(&raw).ok()),
         "workspace": comun.workspace,
     }))
 }

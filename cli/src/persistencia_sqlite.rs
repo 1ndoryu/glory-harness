@@ -316,4 +316,13 @@ impl PersistenciaSqlite {
             .map_err(|e| Error::Persistencia(e.to_string()))?;
         Ok(())
     }
+
+    /// Elimina una opción persistida. Es idempotente para que limpiar una
+    /// configuración ausente tenga el mismo resultado que limpiarla una vez.
+    pub fn config_borrar(&self, clave: &str) -> HarnessResult<()> {
+        bloquear(&self.conn)
+            .execute("DELETE FROM config WHERE clave = ?1", params![clave])
+            .map_err(|e| Error::Persistencia(e.to_string()))?;
+        Ok(())
+    }
 }

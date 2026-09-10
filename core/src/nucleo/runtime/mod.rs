@@ -25,7 +25,7 @@ use crate::evento::AgenteEvento;
 use crate::guardas::{
     aviso_por_repeticion, aviso_vacio, decidir_reintento_vacio, texto_vacio, GuardasTurno,
 };
-use crate::hooks::{DispatcherHooks, EventoHook};
+use crate::hooks::{DispatcherHooks, EventoHook, SalidaHook};
 use crate::llm::{AiChatOptions, AiMessage, AiToolCall, LlmProviderService};
 use crate::memoria::registrar_tools_memoria;
 use crate::ports::EjecutorComando;
@@ -359,13 +359,20 @@ impl AgentRuntime {
         ensamblar_prompt_sistema(&self.turno_config, &reglas, &fecha_hoy())
     }
 
-    /// [Bloque 3, F4] Dispara los hooks configurados para un evento del ciclo
-    /// de vida con su payload JSON. Sin hooks → no-op barato (el runtime no
-    /// cambia su comportamiento). Devuelve `true` si un hook pidió bloquear la
-    /// acción en curso (solo aplica en los eventos bloqueables de hooks.rs).
-    async fn disparar_hook(&self, evento: EventoHook, payload: Value) -> bool {
+    /// Dispara un hook y devuelve su salida completa para los eventos que
+    /// tienen un canal de ajuste. Los consumidores existentes que solo
+    /// necesitan veto usan [`Self::disparar_hook`].
+    async fn disparar_hook_con_salida(
+        &self,
+        evento: EventoHook,
+        payload: Value,
+    ) -> SalidaHook {
         let hooks = self.hooks.lock().unwrap_or_else(|p| p.into_inner()).clone();
-        hooks.disparar(evento, payload).await
+        hooks.disparar_con_salida(evento, payload).await
+    }
+
+    async fn disparar_hook(&self, evento: EventoHook, payload: Value) -> bool {
+        self.disparar_hook_con_salida(evento, payload).await.bloqueo
     }
 }
 

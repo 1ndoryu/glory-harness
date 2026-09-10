@@ -6,6 +6,7 @@
 //!  - `permisos`: flujo de permiso/veredicto y ejecución de una tool.
 
 use super::*;
+use crate::context::tokens_de_mensaje;
 
 mod auditoria;
 mod permisos;
@@ -320,35 +321,78 @@ impl AgentRuntime {
         mensajes: Vec<AiMessage>,
         tx: &Sender<AgenteEvento>,
     ) -> Result<Vec<AiMessage>> {
-        /* [Bloque 3, F4] PreCompact se avisa ANTES de compactar (la decisión
-         * se consulta sin mutar y sin hooks es no-op); PostCompact solo si la
-         * compactación ocurrió. Ambos informativos. */
-        let requiere = {
+        /* PreCompact se emite antes de compactar. El hook puede vetar la
+         * pasada (exit 2) o devolver `{"resumen_llm":"..."}` como ajuste.
+         * El veto se resuelve aquí, antes de la segunda evaluación de
+         * `preparar_con`, porque esa función no conoce hooks ni debe mutar su
+         * semántica pura. */
+        let en_ejecucion_tool = self
+            .tool_en_curso
+            .load(std::sync::atomic::Ordering::Relaxed);
+        let (requiere, payload_precompact) = {
             let cm = self.contexto.lock().await;
-            cm.requiere_compactacion(
-                &mensajes,
-                0,
-                self.tool_en_curso
-                    .load(std::sync::atomic::Ordering::Relaxed),
-            )
+            let tokens: u32 = mensajes.iter().map(tokens_de_mensaje).sum();
+            let ventana = cm.config().ventana_efectiva().max(1);
+            let ocupacion_pct = tokens as f32 / ventana as f32 * 100.0;
+            let candidato: String = crate::context::resumen_de_mensajes(&mensajes)
+                .chars()
+                .take(4_000)
+                .collect();
+            let requiere = cm.requiere_compactacion(&mensajes, 0, en_ejecucion_tool);
+            let payload = serde_json::json!({
+                "evento": EventoHook::PreCompact.nombre(),
+                "mensajes": mensajes.len(),
+                "tokens_estimados": tokens,
+                "ventana_efectiva": ventana,
+                "ocupacion_pct": ocupacion_pct,
+                "umbral_pct": cm.config().umbral_disparo() * 100.0,
+                "en_ejecucion_tool": en_ejecucion_tool,
+                "resumen_candidato": candidato,
+            });
+            (requiere, payload)
         };
+        let mut resumen_llm = None;
         if requiere {
-            let _ = self
-                .disparar_hook(
-                    EventoHook::PreCompact,
-                    serde_json::json!({ "mensajes": mensajes.len() }),
-                )
+            let salida = self
+                .disparar_hook_con_salida(EventoHook::PreCompact, payload_precompact)
                 .await;
+            if salida.bloqueo {
+                tracing::warn!(
+                    "PreCompact vetó la compactación; se conserva el historial sin cambios"
+                );
+                return Ok(mensajes);
+            }
+            let limite_chars = {
+                let cm = self.contexto.lock().await;
+                cm.config().max_resumen_tokens.max(1) as usize * 4
+            };
+            resumen_llm = salida.ajuste.and_then(|ajuste| {
+                let texto = ajuste
+                    .get("resumen_llm")
+                    .or_else(|| ajuste.get("resumen"))
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|texto| !texto.is_empty())?;
+                if texto.chars().count() > limite_chars {
+                    tracing::warn!(
+                        limite_chars,
+                        "ajuste de PreCompact excede max_resumen_tokens; se ignora y se usa fallback"
+                    );
+                    None
+                } else {
+                    Some(texto.to_owned())
+                }
+            });
         }
         let (mensajes_prep, metricas) = {
             let mut cm = self.contexto.lock().await;
-            let resultado = cm.preparar_con(
-                &mensajes,
-                0,
-                None,
-                self.tool_en_curso
-                    .load(std::sync::atomic::Ordering::Relaxed),
-            );
+            /* El hook solo aporta una sugerencia: se limita al mismo
+             * presupuesto semántico que el resumen LLM interno. Así stdout
+             * acotado no se convierte en un resumen desproporcionado dentro
+             * de la ventana de contexto. */
+            let limite_chars = cm.config().max_resumen_tokens.max(1) as usize * 4;
+            let resumen_llm = resumen_llm.map(|texto| texto.chars().take(limite_chars).collect());
+            let resultado = cm.preparar_con(&mensajes, 0, resumen_llm, en_ejecucion_tool);
             (resultado.mensajes, resultado.metricas)
         };
         if metricas.is_some() {

@@ -88,7 +88,10 @@ function controlTexto(op: OpcionControl, alCambio: (v: string) => void): HTMLEle
   input.value = String(op.valor);
   input.placeholder = op.placeholder ?? '';
   input.spellcheck = false;
-  const aplicar = () => alCambio(input.value);
+  const aplicar = () => {
+    op.valor = input.value;
+    alCambio(input.value);
+  };
   input.addEventListener('change', aplicar); // al perder foco / Enter
   return input;
 }
