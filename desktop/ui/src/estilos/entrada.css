@@ -45,8 +45,15 @@
     cursor: pointer;
     white-space: nowrap;
 }
-.entrada .selector-workspace-boton:hover { background: #000; color: #fff; }
-.entrada .selector-workspace-boton:hover .ic { stroke: #fff; }
+.entrada .selector-workspace-boton:hover {
+    background: var(--superficie-seleccionada);
+    color: var(--invertido);
+}
+.entrada .selector-workspace-boton:hover .ic { stroke: var(--invertido); }
+.entrada .selector-workspace-boton:focus-visible {
+    outline: 2px solid var(--foco);
+    outline-offset: 2px;
+}
 .entrada .caja {
     display: flex;
     flex-wrap: wrap;
@@ -94,7 +101,17 @@
     white-space: nowrap;
 }
 .entrada .controles button.control { cursor: pointer; }
-.entrada .controles button.control:hover { opacity: 1; }
+.entrada .controles button.control:hover {
+    opacity: 1;
+    background: var(--superficie-hover);
+}
+.entrada .controles button.control:active {
+    background: var(--superficie-active);
+}
+.entrada .controles button.control:focus-visible {
+    outline: 2px solid var(--foco);
+    outline-offset: 1px;
+}
 .entrada .controles button.control:disabled { opacity: 0.35; cursor: default; }
 .entrada .controles .control .ic { flex: none; opacity: 0.7; }
 /* selector de modelo en la barra: el nombre no debe estirarse (control compacto) */
@@ -116,9 +133,16 @@
     padding: 0;
 }
 .entrada .btn-enviar .ic { color: #fff; }
-.entrada .btn-enviar:hover { opacity: 0.85; }
+/* Enviar es una acción invertida: el hover no puede invertir el fondo otra
+   vez, así que conserva el realce por opacidad y solo tokeniza el foco. */
+.entrada .btn-enviar:hover { opacity: 0.85; background: var(--superficie-active); }
+.entrada .btn-enviar:active { opacity: 1; }
+.entrada .btn-enviar:focus-visible {
+    outline: 2px solid var(--foco);
+    outline-offset: 2px;
+}
 .entrada .btn-enviar:disabled { opacity: 0.3; cursor: default; }
-.entrada .btn-enviar:disabled:hover { opacity: 0.3; }
+.entrada .btn-enviar:disabled:hover { opacity: 0.3; background: #000; }
 
 /* [039A-3 P6] indicador circular de contexto junto a enviar: círculo sin
    relleno (solo stroke) cuya circunferencia se rellena según ocupacion_pct.
@@ -153,7 +177,11 @@
     stroke: #000;
     fill: none;
 }
-.entrada .ctx-indicador:hover { opacity: 1; }
+.entrada .ctx-indicador:hover { opacity: 1; background: var(--superficie-hover); }
+.entrada .ctx-indicador:focus-visible {
+    outline: 2px solid var(--foco);
+    outline-offset: 1px;
+}
 
 /* [039A-3 P6+] menú de detalle del uso de la ventana (hover sobre el círculo).
    Informativo, sin ítems accionables: pointer-events:none para que lo abra y

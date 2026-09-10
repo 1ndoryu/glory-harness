@@ -38,10 +38,6 @@ export interface DepsPanel {
   /** Workspaces disponibles y destino actual de las conversaciones nuevas. */
   getWorkspaces(): Workspace[];
   getWorkspaceSeleccionadoId(): string | null;
-  /** Activa el destino seleccionado en la sesión antes de crear la conversación. */
-  onWorkspaceCambiado(id: string | null): void;
-  /** Prepara el workspace destino justo antes de enviar (create-on-write). */
-  prepararWorkspaceSeleccionado(): Promise<void>;
   /** true si CUALQUIER panel tiene turno en curso (M1: 1 a la vez). */
   hayTurnoGlobal(): boolean;
   /** El panel que lanza avisa → el orquestador pone TODOS en 'corriendo'. */

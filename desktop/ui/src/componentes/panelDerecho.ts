@@ -15,12 +15,23 @@ import type { IconoNombre } from '../dominio/tipos';
 /** Id de tab: 'files' | 'git' | 'navegador' | 'chat:<conversaId>'. */
 export type TabDerechaId = string;
 
+/** Estado declarativo restaurable; no contiene nodos ni callbacks del DOM.
+ * `barraVisible` es la visibilidad de la BARRA de tabs, no la del panel: el
+ * panel lo controla el orquestador, que es quien conoce grip y contenedor. */
+export interface EstadoPanelDerecho {
+  barraVisible: boolean;
+  tabs: TabDerechaId[];
+  activa: TabDerechaId | null;
+}
+
 export interface PanelDerecho {
   raiz: HTMLElement;
   /** Barra única de tabs, montada por el orquestador en la barra superior. */
   tabsBarra: HTMLElement;
   /** Monta el contenido en su tab (o reactiva la existente) y la activa. */
   abrirTab(id: TabDerechaId, titulo: string, contenido: HTMLElement, onCerrar?: () => void): void;
+  /** Oculta la barra externa cuando el panel completo está cerrado. */
+  setTabsVisibles(visibles: boolean): void;
   /** Activa una tab existente (sin crearla). */
   activarTab(id: TabDerechaId): void;
   /** Quita la tab y desmonta su contenido (sin invocar `onCerrar`: el dueño
@@ -29,6 +40,10 @@ export interface PanelDerecho {
   tiene(id: TabDerechaId): boolean;
   activa(): TabDerechaId | null;
   hayTabs(): boolean;
+  /** Devuelve solo ids de tabs, sin serializar nodos DOM. */
+  estado(): EstadoPanelDerecho;
+  /** Activa una tab restaurada cuando ya fue abierta por su dueño. */
+  restaurarActiva(id: TabDerechaId | null): void;
   /** Habilita la opción "Chat lateral" del inicio (hay conversación activa). */
   fijarInicioChatDisponible(hay: boolean): void;
 }
@@ -121,6 +136,7 @@ export function montarPanelDerecho(opts: {
 
   const tabs = new Map<TabDerechaId, { boton: HTMLButtonElement; nodo: HTMLElement; onCerrar?: () => void }>();
   let activaId: TabDerechaId | null = null;
+  let barraVisible = false;
 
   function pintar(): void {
     for (const [id, t] of tabs) {
@@ -131,7 +147,7 @@ export function montarPanelDerecho(opts: {
     }
     // Sin tabs: el launcher ocupa todo el panel y no hay barra vacía.
     const vacio = tabs.size === 0;
-    barra.hidden = vacio;
+    barra.hidden = vacio || !barraVisible;
     inicio.hidden = !vacio;
     contenido.hidden = vacio;
   }
@@ -151,6 +167,8 @@ export function montarPanelDerecho(opts: {
     if (activaId === id) {
       const siguiente = tabs.keys().next();
       activar(siguiente.done ? null : siguiente.value);
+    } else {
+      opts.onCambioTab(activaId);
     }
   }
 
@@ -159,6 +177,10 @@ export function montarPanelDerecho(opts: {
   return {
     raiz,
     tabsBarra: barra,
+    setTabsVisibles(visibles) {
+      barraVisible = visibles;
+      pintar();
+    },
     abrirTab(id, titulo, nodo, onCerrar) {
       let t = tabs.get(id);
       if (!t) {
@@ -213,6 +235,12 @@ export function montarPanelDerecho(opts: {
     },
     hayTabs() {
       return tabs.size > 0;
+    },
+    estado() {
+      return { barraVisible, tabs: [...tabs.keys()], activa: activaId };
+    },
+    restaurarActiva(id) {
+      if (id && tabs.has(id)) activar(id);
     },
     fijarInicioChatDisponible(hay: boolean) {
       chatLateralDisponible = hay;

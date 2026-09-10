@@ -44,7 +44,7 @@ let contadorLaterales = 0;
 
 /** Abre/activa un lateral en su propia tab `chat:<id>` (multi-chat). Si la
  * conversación ya está abierta, solo se activa su tab. */
-export function abrirEnLateral(deps: LateralesDeps, id: string): void {
+export async function abrirEnLateral(deps: LateralesDeps, id: string): Promise<void> {
   const tabId = `chat:${id}`;
   const yaAbierto = deps.paneles.find(
     (p) => p.tipo === 'lateral' && p.raiz.dataset.tabId === tabId,
@@ -77,11 +77,17 @@ export function abrirEnLateral(deps: LateralesDeps, id: string): void {
   // (scrollHeight 0). Al montar el panel ya se puede medir: recalcula la
   // altura del input (si no, el área de escritura del lateral queda invisible).
   lateral.medir();
-  // Carga la conversación elegida en el lateral y lo enfoca.
-  void (async () => {
+  // Carga la conversación antes de devolver el control: la restauración del
+  // layout depende de que el lateral ya tenga título, mensajes y conversaId.
+  // Los clics de UI pueden ignorar la promesa, pero el fallo sigue siendo
+  // observable y el panel incompleto no queda registrado como abierto.
+  try {
     await lateral.cargarConversacion(id);
     deps.activarPanel(lateral);
-  })();
+  } catch (e: unknown) {
+    deps.avisar('no se pudo abrir el chat lateral', '', String(e));
+    cerrarLateral(deps, tabId);
+  }
 }
 
 /** Abre un lateral nuevo sin cargar la conversación enfocada. */

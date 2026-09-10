@@ -2,10 +2,14 @@
  * [089A-16 F1b]): backend real → configGuardar; si no, localStorage.
  * Las dependencias se inyectan por parámetro (sin estado de módulo). */
 
+export const CLAVE_LATERAL_ANCHO = 'lateral_ancho';
+export const CLAVE_PANEL_DERECHO = 'panel_derecho_estado';
+
 export interface PersistenciaDeps {
   usaReal: boolean;
   usaTauri: boolean;
   guardarConfig: (clave: string, valor: string) => Promise<unknown>;
+  leerConfig: (clave: string) => Promise<string | null>;
   avisar: (texto: string) => void;
 }
 
@@ -24,12 +28,20 @@ export function guardarSidebar(deps: PersistenciaDeps, clave: string, valor: str
 }
 
 export function leerSidebar(deps: PersistenciaDeps, clave: string): string | null {
-  // El modo web usa localStorage para estas claves; Tauri las restaura por IPC
-  // cuando termina de abrir la sesión persistida en SQLite.
+  // El modo web puede restaurar síncronamente; Tauri se lee tras abrir la sesión.
   if (deps.usaTauri) return null;
   try {
     return window.localStorage.getItem(clave);
   } catch {
     return null;
   }
+}
+
+/** Lee una preferencia en ambos entornos sin duplicar la política de acceso. */
+export async function leerPreferencia(
+  deps: PersistenciaDeps,
+  clave: string,
+): Promise<string | null> {
+  if (deps.usaReal) return deps.leerConfig(clave);
+  return leerSidebar(deps, clave);
 }

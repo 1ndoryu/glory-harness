@@ -205,16 +205,6 @@ Orden propuesto (dependencias de abajo arriba):
       historial de la app para atrás/adelante (misma lógica que Synara,
       hoy deshabilitados) y Terminal/Files/Source control como opciones del
       inicio cuando existan esos paneles.
-- [ ] **089A-18 — Coherencia de layout, persistencia y workspace** (09-09, en
-      curso): al ocultar el panel derecho también se ocultan sus tabs sin
-      esconder el toggle ni la botonera; se persisten/restauran visibilidad,
-      ancho, tabs y tab activa junto con la sidebar; se unifican hover/active/
-      focus mediante tokens; y el selector de workspace desde un chat lateral
-      deja ese panel en borrador en vez de mutar siempre el principal. La
-      semántica sigue siendo create-on-write. Sentinel/VarSense detectan
-      contratos estáticos, pero no ejecutan E2E visual ni analizan CSS en este
-      alcance: la aceptación requiere validación funcional en navegador.
-      Plan: `Agente/planes/plan-089A-18-coherencia-layout-workspace-2026-09-09.md`.
 - [x] **089A-13 — Gate cubre frontend TS + Tauri en VarSense** (09-09,
       HECHO): el gate solo analizaba `.rs` de `core`/`cli` (herencia de fase 0);
       añadidos `desktop/ui/src/**/*.ts` a `sentinel.config.json` y
@@ -280,8 +270,18 @@ Orden propuesto (dependencias de abajo arriba):
        `/compactar` bajo demanda (respeta gancho 109A-1, no-op explícito);
       F4 `/meta <texto>` como override de turno (solo lectura) y retirar
       `meta` del modo global (migración a `predeterminado` + aviso). Base
-      existente: `ComandoSlash` markdown en `core/src/herramientas/skill.rs`.
-      Plan: `Agente/planes/plan-109A-comandos-slash-2026-09-10.md`.
+       existente: `ComandoSlash` markdown en `core/src/herramientas/skill.rs`.
+       Plan: `Agente/planes/plan-109A-comandos-slash-2026-09-10.md`.
+- [ ] **109A-5 — Meta con ciclo de vida (tareas visibles + cierre con
+      evidencia)** (10-09, pendiente; Synara como inspiración): la meta pasa
+      de texto + modo que deniega a objeto por conversación
+      (fijar/pausar/reanudar/lograr con validación fail-closed + reloj neto de
+      pausas + historial máx 20); `todo` gana `en_curso` + evento
+      `TareasActualizadas` con filas visibles; evento `MetaLograda` con pie
+      "Meta lograda en Xs" anclado al turno; regla de bloqueo (mismo motivo
+      ×3 → pausa); deny de `meta` intacto. F1 backend independiente; F3/F4
+      tras F4 de 109A-4 (mismos ficheros UI).
+      Plan: `Agente/planes/plan-109A-meta-ciclo-vida-2026-09-10.md`.
 - [x] **089A-12 — Files estilo Synara: árbol + visor integrado** (09-09,
       HECHO): Files es un único pane dividido (árbol a la izquierda y preview
       a la derecha al seleccionar un archivo); se eliminaron `21 entradas`,

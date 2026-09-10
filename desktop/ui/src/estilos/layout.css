@@ -69,7 +69,15 @@
     opacity: 0.8;
     overflow: hidden;
 }
-#sidebar .nav-boton:hover { opacity: 1; }
+#sidebar .nav-boton:hover {
+    opacity: 1;
+    background: var(--superficie-hover);
+}
+#sidebar .nav-boton:active { background: var(--superficie-active); }
+#sidebar .nav-boton:focus-visible {
+    outline: 2px solid var(--foco);
+    outline-offset: -2px;
+}
 #sidebar .nav-boton .ic { flex: none; }
 #sidebar .nav-boton span {
     overflow: hidden;
@@ -91,7 +99,15 @@
     gap: var(--sp-sm);
     position: relative;
 }
-.conv:not(.sel):hover { opacity: 1; }
+.conv:not(.sel):hover {
+    opacity: 1;
+    background: var(--superficie-hover);
+}
+.conv:active { background: var(--superficie-active); }
+.conv:focus-visible {
+    outline: 2px solid var(--foco);
+    outline-offset: -2px;
+}
 .conv.sel {
     opacity: 1;
     background: transparent;
@@ -340,7 +356,14 @@
     cursor: pointer;
 }
 .cabecera-chat .cab-boton .ic { display: block; }
-.cabecera-chat .cab-boton:hover { background: #000; color: #fff; }
+.cabecera-chat .cab-boton:hover {
+    background: var(--superficie-seleccionada);
+    color: var(--invertido);
+}
+.cabecera-chat .cab-boton:focus-visible {
+    outline: 2px solid var(--foco);
+    outline-offset: -2px;
+}
 /* [039A-3 P6b] `.cab-boton` usa `display:inline-flex`, que anula el atributo
    `hidden` por defecto; se fuerza oculto cuando el botón de "mostrar lista"
    no aplica (lista visible). */

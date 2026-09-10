@@ -25,7 +25,7 @@
 .files-recargar,
 .files-abrir { border: 0; }
 .files-accion:hover,
-.files-accion:focus-visible { background: color-mix(in srgb, var(--texto) 8%, var(--fondo)); }
+.files-accion:focus-visible { background: var(--superficie-hover); outline-color: var(--foco); }
 
 .files-contenido {
     display: flex;
@@ -96,7 +96,7 @@
 }
 
 .files-nombre:hover,
-.files-nombre:focus-visible { background: color-mix(in srgb, var(--texto) 8%, var(--fondo)); }
+.files-nombre:focus-visible { background: var(--superficie-hover); outline-color: var(--foco); }
 .files-nombre .ic { width: 14px; height: 14px; flex: none; }
 .files-nombre-texto { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .files-ignorado { position: absolute; right: var(--sp-sm); font-size: var(--xs); opacity: .45; }

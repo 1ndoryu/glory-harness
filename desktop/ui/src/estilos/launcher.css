@@ -47,11 +47,16 @@
 }
 
 .panel-inicio .inicio-opcion:hover {
-    background: color-mix(in srgb, var(--texto) 7%, var(--fondo));
+    background: var(--superficie-hover);
 }
 
 .panel-inicio .inicio-opcion:active {
-    background: color-mix(in srgb, var(--texto) 4%, var(--fondo));
+    background: var(--superficie-active);
+}
+
+.panel-inicio .inicio-opcion:focus-visible {
+    outline: 2px solid var(--foco);
+    outline-offset: 2px;
 }
 
 .panel-inicio .inicio-opcion:disabled {

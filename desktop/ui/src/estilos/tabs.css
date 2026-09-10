@@ -59,7 +59,7 @@
 .tab-mas:hover,
 .tab-mas:focus-visible {
     opacity: 1;
-    background: color-mix(in srgb, var(--texto) 8%, var(--fondo));
+    background: var(--superficie-hover);
 }
 
 .tab-mas .ic {
@@ -84,10 +84,19 @@
     max-width: 220px;
 }
 
-.tab:hover { opacity: 1; }
+.tab:hover { opacity: 1; background: var(--superficie-hover); }
 
 .tab.sel {
     opacity: 1;
+    color: var(--invertido);
+    background: var(--superficie-seleccionada);
+}
+
+.tab:focus-visible,
+.tab-x:focus-visible,
+.tab-mas:focus-visible {
+    outline: 2px solid var(--foco);
+    outline-offset: -2px;
 }
 
 .tab-etiqueta {
@@ -108,7 +117,7 @@
     padding: 1px;
 }
 
-.tab-x:hover { opacity: 1; }
+.tab-x:hover { opacity: 1; background: var(--superficie-hover); }
 
 .tab-x .ic { width: 12px; height: 12px; }
 

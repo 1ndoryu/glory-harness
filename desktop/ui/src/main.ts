@@ -168,6 +168,7 @@ const depsPersistencia: PersistenciaDeps = {
   usaReal: USA_REAL,
   usaTauri: USA_TAURI,
   guardarConfig: (clave, valor) => adaptador.sesion.configGuardar(clave, valor),
+  leerConfig: (clave) => adaptador.sesion.configLeer(clave),
   avisar: (texto) => avisoGlobal(texto, '', ''),
 };
 
@@ -320,12 +321,14 @@ const todoPanelDerecho = montarPanelDerechoTodo({
   persistencia: depsPersistencia,
   paneles: panelesRegistrados,
   panelActivo,
+  getConversaciones: sesionVista.getConversaciones,
   onCambioWorkspace: sesionVista.onCambioWorkspace,
   navegadorRaiz: todoNavegador.navegador.raiz,
   mostrarNavegador: (v) => todoNavegador.navegador.mostrar(v),
   estaNavegadorAbierto: todoNavegador.estaAbierto,
   abrirNavegador: todoNavegador.abrirNavegador,
   abrirChatLateral: () => abrirChatLateralVacio(depsLaterales),
+  abrirChatLateralPorId: (id) => abrirEnLateral(depsLaterales, id),
 });
 const panelDerecho = todoPanelDerecho.panelDerecho;
 const files = todoPanelDerecho.files;
@@ -380,6 +383,7 @@ ejecutarArranque({
   persistencia: depsPersistencia,
   barraLateral,
   pintarToggleDerecho,
+  restaurarPanelDerecho: () => todoPanelDerecho.restaurarEstado(),
   paneles: panelesRegistrados,
   panelMeta,
   usaReal: USA_REAL,

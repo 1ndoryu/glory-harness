@@ -73,8 +73,8 @@
     cursor: pointer;
 }
 .git-entrada:hover,
-.git-entrada:focus-visible { background: color-mix(in srgb, var(--texto) 8%, var(--fondo)); }
-.git-entrada.seleccionada { background: color-mix(in srgb, var(--texto) 14%, var(--fondo)); }
+.git-entrada:focus-visible { background: var(--superficie-hover); outline-color: var(--foco); }
+.git-entrada.seleccionada { background: var(--superficie-active); }
 .git-codigo { flex: none; min-width: 2ch; opacity: .65; }
 .git-ruta { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
@@ -106,7 +106,7 @@
     min-width: max-content;
     white-space: pre;
 }
-.git-diff-linea:hover { background: color-mix(in srgb, var(--texto) 8%, var(--fondo)); }
+.git-diff-linea:hover { background: var(--superficie-hover); }
 .git-diff-numero {
     padding: 0 var(--sp-xs);
     color: var(--texto);
@@ -117,8 +117,8 @@
 }
 .git-diff-marca { text-align: center; user-select: none; }
 .git-diff-texto { padding: 0 var(--sp-sm); }
-.git-diff-adicion { background: color-mix(in srgb, var(--texto) 10%, var(--fondo)); }
-.git-diff-eliminacion { background: color-mix(in srgb, var(--texto) 5%, var(--fondo)); }
+.git-diff-adicion { background: var(--superficie-diff-adicion); }
+.git-diff-eliminacion { background: var(--superficie-diff-eliminacion); }
 .git-diff-adicion .git-diff-marca { font-weight: 700; }
 .git-diff-eliminacion .git-diff-marca { opacity: .7; }
 .git-diff-hunk,

@@ -75,6 +75,28 @@ export function crearPanel(
   idPrefijo: string,
   opts: { onCerrar?: () => void } = {},
 ): PanelChat {
+  async function cambiarWorkspaceDesdePanel(panel: PanelChat, id: string | null): Promise<void> {
+    if (id === null) return;
+    if (deps.hayTurnoGlobal()) {
+      // Callar aquí dejaría el selector mostrando un destino que no se aplicó.
+      deps.avisar('cambia el área de trabajo cuando termine el turno actual', '', '');
+      return;
+    }
+    const ws = deps.getProyectos().find((p) => p.id === id);
+    if (!ws) {
+      deps.avisar(`área de trabajo no encontrada: ${id}`, '', '');
+      return;
+    }
+    try {
+      await deps.adaptador.sesion.workspaces.activarPorRuta(ws.ruta);
+      // El selector pertenece a este panel: un lateral no debe mutar el principal.
+      panel.ponerBorrador();
+      deps.activarPanel(panel);
+    } catch (e: unknown) {
+      deps.avisar(`no se pudo cambiar de proyecto: ${String(e)}`, '', '');
+    }
+  }
+
   const panel = montarPanelChat({
     tipo,
     idPrefijo,
@@ -92,30 +114,6 @@ export function crearPanel(
       getRazonamiento: deps.getRazonamiento,
       getWorkspaces: deps.getProyectos,
       getWorkspaceSeleccionadoId: deps.getProyectoActivoId,
-      prepararWorkspaceSeleccionado: async () => {
-        // No-op: la activación se delega al callback.
-      },
-      onWorkspaceCambiado(id) {
-        // Siempre hay un workspace activo (el agente trabaja en algún
-        // área). Si id es null no se hace nada (fallback al activo actual).
-        if (id === null) return;
-        const ws = deps.getProyectos().find((p) => p.id === id);
-        if (!ws) return;
-        if (deps.hayTurnoGlobal()) return;
-        void (async () => {
-          try {
-            await deps.adaptador.sesion.workspaces.activarPorRuta(ws.ruta);
-            // onSesion refrescará sidebar + lista.
-            const principal = deps.getPrincipal();
-            if (principal) {
-              principal.ponerBorrador();
-              deps.activarPanel(principal);
-            }
-          } catch (e: unknown) {
-            deps.avisar(`no se pudo cambiar de proyecto: ${String(e)}`, '', '');
-          }
-        })();
-      },
       hayTurnoGlobal: deps.hayTurnoGlobal,
       notificarTurnoInicio: deps.notificarTurnoInicio,
       notificarTurnoFin: deps.notificarTurnoFin,
@@ -183,23 +181,8 @@ export function crearPanel(
       }
     },
     onWorkspaceCambiado(id) {
-      // Siempre hay un workspace activo. Si id es null, no se hace nada.
-      if (id === null) return;
-      const ws = deps.getProyectos().find((p) => p.id === id);
-      if (!ws) return;
-      if (deps.hayTurnoGlobal()) return;
-      void (async () => {
-        try {
-          await deps.adaptador.sesion.workspaces.activarPorRuta(ws.ruta);
-          const principal = deps.getPrincipal();
-          if (principal) {
-            principal.ponerBorrador();
-            deps.activarPanel(principal);
-          }
-        } catch (e: unknown) {
-          deps.avisar(`no se pudo cambiar de proyecto: ${String(e)}`, '', '');
-        }
-      })();
+      // Única ruta real: la entrada de ESTE panel delega aquí.
+      void cambiarWorkspaceDesdePanel(panel, id);
     },
   });
 

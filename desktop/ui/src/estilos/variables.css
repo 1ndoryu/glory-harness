@@ -18,6 +18,13 @@
     --texto: #000000;
     --invertido: #ffffff;
     --borde: #000000;
+    --superficie-hover: #eeeeee;
+    --superficie-active: #dddddd;
+    --superficie-seleccionada: #000000;
+    --superficie-diff-adicion: #eeeeee;
+    --superficie-diff-eliminacion: #f5f5f5;
+    --texto-tenue: #666666;
+    --foco: #000000;
     --font: 'Departure Mono', ui-monospace, SFMono-Regular, 'SF Mono', Consolas, 'Liberation Mono', Menlo, monospace;
     --xs: 0.72rem;   /* ~9.4px  */
     --sm: 0.85rem;   /* ~11px   */

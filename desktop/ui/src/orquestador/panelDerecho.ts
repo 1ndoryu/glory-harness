@@ -16,9 +16,13 @@ import type { PanelChat } from '../componentes/panelChat';
 import type { BarraSuperior } from '../componentes/barraSuperior';
 import type { AdaptadorReal } from '../tauri/real';
 import type { PersistenciaDeps } from './persistencia';
-import { guardarSidebar, leerSidebar } from './persistencia';
-
-const CLAVE_LATERAL_ANCHO = 'lateral_ancho';
+import {
+  CLAVE_LATERAL_ANCHO,
+  CLAVE_PANEL_DERECHO,
+  guardarSidebar,
+  leerPreferencia,
+  leerSidebar,
+} from './persistencia';
 
 /** Núcleo del panel derecho: montaje, adaptador y paneles. */
 export interface PanelDerechoNucleo {
@@ -30,6 +34,7 @@ export interface PanelDerechoNucleo {
   persistencia: PersistenciaDeps;
   paneles: PanelChat[];
   panelActivo: () => PanelChat | null;
+  getConversaciones: () => Array<{ id: string }>;
 }
 
 /** Navegador embebido y aperturas delegadas. */
@@ -40,6 +45,7 @@ export interface PanelDerechoNavegador {
   estaNavegadorAbierto: () => boolean;
   abrirNavegador: () => void;
   abrirChatLateral: () => void;
+  abrirChatLateralPorId: (id: string) => Promise<void>;
 }
 
 export interface PanelDerechoDeps
@@ -60,6 +66,7 @@ export interface PanelDerechoVisibilidad {
   alternarPanelDerecho: () => void;
   cerrarPanelDerechoSiVacio: () => void;
   pintarToggleDerecho: () => void;
+  restaurarEstado: () => Promise<void>;
 }
 
 /** Aperturas delegadas (archivos, git, reposicionado del webview). */
@@ -123,6 +130,7 @@ export function montarPanelDerechoTodo(deps: PanelDerechoDeps): PanelDerechoTodo
   // Al abrir el panel derecho se restaura el ancho persistido (si cabe en el
   // 70% disponible).
   function restaurarPanelDerechoAncho(): void {
+    if (anchoPanelDerechoFijado !== null) return;
     const base = leerSidebar(deps.persistencia, CLAVE_LATERAL_ANCHO);
     const anchoCuerpo = medirAnchoCuerpo();
     const MAX = Math.round(anchoCuerpo * 0.7);
@@ -153,6 +161,7 @@ export function montarPanelDerechoTodo(deps: PanelDerechoDeps): PanelDerechoTodo
     onCambioTab(id) {
       // La webview hija es nativa: no respeta `hidden`. Al salir de su tab
       // se oculta (sin destruirla) y al volver se muestra + reposiciona.
+      guardarEstadoPanel();
       if (!deps.usaTauri || !deps.estaNavegadorAbierto()) return;
       if (id === 'navegador') {
         void invoke('navegador_mostrar', { visible: true })
@@ -184,9 +193,21 @@ export function montarPanelDerechoTodo(deps: PanelDerechoDeps): PanelDerechoTodo
   // Visibilidad del panel derecho (independiente de sus tabs: ocultar no
   // destruye; las tabs y sus nodos vivos se conservan). Arranca oculto.
   let panelDerechoVisible = false;
+  let restaurandoEstado = false;
+  function guardarEstadoPanel(): void {
+    if (restaurandoEstado) return;
+    const estado = panelDerecho.estado();
+    guardarSidebar(
+      deps.persistencia,
+      CLAVE_PANEL_DERECHO,
+      // El JSON persistido expone `visible` (visibilidad del panel completo).
+      JSON.stringify({ visible: panelDerechoVisible, tabs: estado.tabs, activa: estado.activa }),
+    );
+  }
 
   // Refleja la visibilidad en el toggle de la barra superior global.
   function pintarToggleDerecho(): void {
+    panelDerecho.setTabsVisibles(panelDerechoVisible);
     deps.paneles
       .find((p) => p.tipo === 'principal')
       ?.setPanelDerechoAbierto(panelDerechoVisible);
@@ -205,15 +226,18 @@ export function montarPanelDerechoTodo(deps: PanelDerechoDeps): PanelDerechoTodo
     if (!panelDerecho.raiz.parentNode) deps.cuerpo.appendChild(panelDerecho.raiz);
     panelDerechoVisible = true;
     pintarToggleDerecho();
+    guardarEstadoPanel();
   }
 
   // Oculta el panel derecho sin destruir sus tabs (el toggle lo reabre).
   function ocultarPanelDerecho(): void {
+    guardarEstadoPanel();
     gripPanelDerecho?.remove();
     gripPanelDerecho = null;
     panelDerecho.raiz.remove();
     panelDerechoVisible = false;
     pintarToggleDerecho();
+    guardarEstadoPanel();
   }
 
   // Alterna el panel derecho (toggle de la barra superior). Sin tabs
@@ -250,8 +274,10 @@ export function montarPanelDerechoTodo(deps: PanelDerechoDeps): PanelDerechoTodo
     asegurarPanelDerecho();
     panelDerecho.abrirTab('files', 'Files', files.raiz, () => {
       panelDerecho.cerrarTab('files');
+      guardarEstadoPanel();
       cerrarPanelDerechoSiVacio();
     });
+    guardarEstadoPanel();
   }
 
   function abrirGit(): void {
@@ -259,8 +285,79 @@ export function montarPanelDerechoTodo(deps: PanelDerechoDeps): PanelDerechoTodo
     asegurarPanelDerecho();
     panelDerecho.abrirTab('git', 'Git local', git.raiz, () => {
       panelDerecho.cerrarTab('git');
+      guardarEstadoPanel();
       cerrarPanelDerechoSiVacio();
     });
+    guardarEstadoPanel();
+  }
+
+  async function restaurarEstado(): Promise<void> {
+    try {
+      const ancho = await leerPreferencia(deps.persistencia, CLAVE_LATERAL_ANCHO);
+      if (ancho) {
+        const n = Number(ancho);
+        if (Number.isFinite(n)) {
+          const anchoCuerpo = medirAnchoCuerpo();
+          const max = Math.round(anchoCuerpo * 0.7);
+          aplicarPanelDerechoAncho(Math.min(max, Math.max(260, Math.round(n))));
+        }
+      }
+      const serializado = await leerPreferencia(deps.persistencia, CLAVE_PANEL_DERECHO);
+      if (!serializado) return;
+      const candidato = JSON.parse(serializado) as {
+        visible?: unknown;
+        tabs?: unknown;
+        activa?: unknown;
+      };
+      const tabs = Array.isArray(candidato.tabs)
+        ? candidato.tabs.filter(
+            (id): id is string =>
+              (id === 'files' || id === 'git' || id === 'navegador') ||
+              (typeof id === 'string' && /^chat:[^:]+$/.test(id) && !id.startsWith('chat:nuevo-')),
+          )
+        : [];
+      const activa = typeof candidato.activa === 'string' && tabs.includes(candidato.activa)
+        ? candidato.activa
+        : null;
+      // Estados anteriores no tenían `visible`: si conservaron tabs, el
+      // comportamiento compatible es restaurar el panel abierto. Los estados
+      // actuales distinguen explícitamente panel oculto de panel sin tabs.
+      const visible = typeof candidato.visible === 'boolean'
+        ? candidato.visible
+        : tabs.length > 0;
+      restaurandoEstado = true;
+      if (tabs.length > 0 || visible) asegurarPanelDerecho();
+      const noRestauradas: string[] = [];
+      for (const id of tabs) {
+        if (id === 'files') abrirFiles();
+        else if (id === 'git') abrirGit();
+        else if (id === 'navegador') deps.abrirNavegador();
+        else if (deps.getConversaciones().some((c) => c.id === id.slice('chat:'.length))) {
+          await deps.abrirChatLateralPorId(id.slice('chat:'.length));
+        } else {
+          // La conversación guardada ya no existe: no se restaura su tab ni
+          // se conserva en el estado persistido (auto-sanación observable).
+          noRestauradas.push(id);
+        }
+      }
+      if (noRestauradas.length > 0) {
+        deps.persistencia.avisar(
+          `no se pudieron restaurar ${noRestauradas.length} pestaña(s) del panel derecho`,
+        );
+      }
+      panelDerecho.restaurarActiva(activa);
+      panelDerechoVisible = visible;
+      if (panelDerechoVisible) {
+        pintarToggleDerecho();
+      } else {
+        ocultarPanelDerecho();
+      }
+      restaurandoEstado = false;
+      guardarEstadoPanel();
+    } catch (e: unknown) {
+      restaurandoEstado = false;
+      deps.persistencia.avisar(`no se pudo restaurar el panel derecho: ${String(e)}`);
+    }
   }
 
   return {
@@ -273,6 +370,7 @@ export function montarPanelDerechoTodo(deps: PanelDerechoDeps): PanelDerechoTodo
     alternarPanelDerecho,
     cerrarPanelDerechoSiVacio,
     pintarToggleDerecho,
+    restaurarEstado,
     abrirFiles,
     abrirGit,
     reposicionarWebview,

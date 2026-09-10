@@ -69,10 +69,14 @@
     cursor: pointer;
 }
 .barra-superior .barra-boton:hover {
-    background: color-mix(in srgb, currentColor 9%, transparent);
+    background: var(--superficie-hover);
 }
 .barra-superior .barra-boton:active {
-    background: color-mix(in srgb, currentColor 5%, transparent);
+    background: var(--superficie-active);
+}
+.barra-superior .barra-boton:focus-visible {
+    outline: 2px solid var(--foco);
+    outline-offset: -2px;
 }
 .barra-superior .barra-boton:disabled {
     opacity: 0.35;

@@ -6,6 +6,13 @@ html[data-tema='oscuro'] {
     --texto: #eeeeee;
     --invertido: #111111;
     --borde: #5a5a5a;
+    --superficie-hover: #292929;
+    --superficie-active: #3a3a3a;
+    --superficie-seleccionada: #eeeeee;
+    --superficie-diff-adicion: #292929;
+    --superficie-diff-eliminacion: #202020;
+    --texto-tenue: #aaaaaa;
+    --foco: #eeeeee;
 }
 
 /* Algunos componentes conservan bordes monocromos explícitos en claro;

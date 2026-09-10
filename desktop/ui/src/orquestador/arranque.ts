@@ -19,6 +19,7 @@ export interface ArranqueNucleo {
   persistencia: PersistenciaDeps;
   barraLateral: BarraLateral;
   pintarToggleDerecho: () => void;
+  restaurarPanelDerecho: () => Promise<void>;
   paneles: PanelChat[];
   panelMeta: PanelMeta;
   principal: PanelChat;
@@ -98,6 +99,7 @@ export function ejecutarArranque(deps: ArranqueDeps): void {
       deps.seleccionarSidebar(candidata.id);
     }
     deps.activarPanel(deps.principal);
+    void deps.restaurarPanelDerecho();
   } else if (deps.usaReal) {
     deps.principal.avisoLocal(
       'Sesión real del núcleo (sin simulación)',
@@ -151,6 +153,7 @@ export function ejecutarArranque(deps: ArranqueDeps): void {
           deps.principal.ponerBorrador();
         }
         deps.activarPanel(deps.principal);
+        await deps.restaurarPanelDerecho();
       } catch (e: unknown) {
         deps.principal.avisoLocal(
           `el backend no arrancó: ${String(e)}`,
