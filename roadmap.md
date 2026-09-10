@@ -273,15 +273,23 @@ Orden propuesto (dependencias de abajo arriba):
        existente: `ComandoSlash` markdown en `core/src/herramientas/skill.rs`.
        Plan: `Agente/planes/plan-109A-comandos-slash-2026-09-10.md`.
 - [ ] **109A-5 — Meta con ciclo de vida (tareas visibles + cierre con
-      evidencia)** (10-09, pendiente; Synara como inspiración): la meta pasa
-      de texto + modo que deniega a objeto por conversación
-      (fijar/pausar/reanudar/lograr con validación fail-closed + reloj neto de
-      pausas + historial máx 20); `todo` gana `en_curso` + evento
-      `TareasActualizadas` con filas visibles; evento `MetaLograda` con pie
-      "Meta lograda en Xs" anclado al turno; regla de bloqueo (mismo motivo
-      ×3 → pausa); deny de `meta` intacto. F1 backend independiente; F3/F4
-      tras F4 de 109A-4 (mismos ficheros UI).
+      evidencia)** (10-09, **activo**, F1 HECHO: meta como objeto por
+      conversación con `resolver_meta`, persistencia
+      `meta_texto/iniciada_en/pausada_en/logros`, `meta_aplicar` con `&mut` y
+      comandos fijar/limpiar/pausar/reanudar/lograr fail-closed en el PATCH
+      web y en el comando Tauri; 365 tests + clippy 0; evidencia en el plan.
+      Pendientes F2 tareas visibles (`en_curso` + evento
+      `TareasActualizadas`), F3 pie "Meta lograda en Xs" anclado al turno,
+      F4 regla de bloqueo ×3 y migración del modo global; deny de `meta`
+      intacto. F3/F4 tras F4 de 109A-4 (mismos ficheros UI).
       Plan: `Agente/planes/plan-109A-meta-ciclo-vida-2026-09-10.md`.
+- [ ] **Gate: etapa Rust y sccache** (10-09, pendiente, independiente):
+      el gate de glory-harness no compila Rust (las etapas `coverage`,
+      `sccache` y `sentinel` solo analizan), así que `cargo` directo queda
+      bloqueado por el guard sin vía de validación declarada; añadir una etapa
+      que ejecute clippy/tests y decidir la configuración de `sccache`
+      (`rustc-wrapper` + `SCCACHE_CACHE_SIZE`), hoy en rojo por
+      `sccache-no-configurado`.
 - [x] **089A-12 — Files estilo Synara: árbol + visor integrado** (09-09,
       HECHO): Files es un único pane dividido (árbol a la izquierda y preview
       a la derecha al seleccionar un archivo); se eliminaron `21 entradas`,

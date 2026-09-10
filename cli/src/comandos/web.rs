@@ -45,7 +45,9 @@ use tokio_stream::StreamExt;
 use tower_http::limit::RequestBodyLimitLayer;
 use uuid::Uuid;
 
-use crate::servicio::{OpcionesSesion, SesionComun};
+use crate::servicio::{
+    aplicar_en_borrador, comando_desde_payload, OpcionesSesion, SesionComun,
+};
 
 use super::web_sse::DifusionSse;
 
@@ -69,8 +71,6 @@ pub(crate) const BODY_MAX_BYTES: usize = 256 * 1024;
 pub(crate) const MAX_SESIONES: usize = 16;
 /// TTL de sesión en segundos (24 h, igual que `Max-Age` de la cookie).
 pub(crate) const SESION_TTL_SECS: u64 = 86_400;
-/// Límite de la meta para evitar payloads grandes y mantener el contrato del UI.
-pub(crate) const MAX_META_CHARS: usize = 8_000;
 /// Turno en curso: id + tarea para abortar al cancelar/cerrar.
 pub(crate) struct TurnoActivo {
     pub(crate) id: Uuid,
@@ -126,10 +126,15 @@ impl IntoResponse for ApiError {
             "no_autorizado" => StatusCode::UNAUTHORIZED,
             "origen" => StatusCode::FORBIDDEN,
             "no_encontrado" | "sin_turno" => StatusCode::NOT_FOUND,
-            "turno_activo" => StatusCode::CONFLICT,
+            /* [109A-5 F1] Estados de meta que chocan con la petición (pausar
+             * dos veces, reanudar sin pausa, lograr sin meta) o con el ciclo
+             * de vida (borrador todavía sin conversación). */
+            "turno_activo" | "sin_conversacion" | "sin_meta_activa" | "meta_ya_pausada"
+            | "meta_no_pausada" => StatusCode::CONFLICT,
             "mensaje_largo" | "meta_larga" => StatusCode::PAYLOAD_TOO_LARGE,
             "demasiadas_sesiones" => StatusCode::TOO_MANY_REQUESTS,
             "sesion_expirada" => StatusCode::GONE,
+            "persistencia" => StatusCode::INTERNAL_SERVER_ERROR,
             _ => StatusCode::BAD_REQUEST,
         };
         (status, Json(self)).into_response()
@@ -365,10 +370,17 @@ async fn crear_sesion(
     Ok((StatusCode::OK, [(header::SET_COOKIE, cookie)], cuerpo).into_response())
 }
 
-/// `PATCH /api/v1/session/:id/meta` — fija o limpia la meta de la sesión.
+/// `PATCH /api/v1/session/:id/meta` — ciclo de vida de la meta ([109A-5 F1]).
+///
+/// `meta` sin `accion` conserva el contrato del panel (texto = fijar, ausente
+/// o vacío = limpiar); `accion` explícita permite pausar/reanudar/lograr. La
+/// meta vive en la conversación de la sesión y, mientras esa conversación no
+/// exista (create-on-write), en el borrador en memoria.
 #[derive(Debug, serde::Deserialize)]
 pub(crate) struct ActualizarMeta {
     pub(crate) meta: Option<String>,
+    pub(crate) accion: Option<String>,
+    pub(crate) turno_id: Option<String>,
 }
 
 pub(crate) async fn actualizar_meta(
@@ -378,21 +390,31 @@ pub(crate) async fn actualizar_meta(
     Json(peticion): Json<ActualizarMeta>,
 ) -> Result<Json<Value>, ApiError> {
     let (sesion, _) = autorizar_sesion(&headers, &Method::PATCH, &state, &id).await?;
-    let normalizada = peticion
-        .meta
-        .map(|m| m.trim().to_string())
-        .filter(|m| !m.is_empty());
-    if normalizada
-        .as_ref()
-        .is_some_and(|m| m.chars().count() > MAX_META_CHARS)
-    {
-        return Err(error(
-            "meta_larga",
-            "meta demasiado larga (máx. 8000 caracteres)",
-        ));
-    }
-    *sesion.meta.lock().await = normalizada.clone();
-    Ok(Json(serde_json::json!({ "ok": true, "meta": normalizada })))
+    let comando = comando_desde_payload(
+        peticion.meta,
+        peticion.accion.as_deref(),
+        peticion.turno_id.as_deref(),
+    )
+    .map_err(|e| error(e.codigo(), e.to_string()))?;
+    let conversacion = *sesion.conversacion_id.lock().await;
+    let meta = match conversacion {
+        Some(conversacion) => {
+            let mut comun = sesion.comun.lock().await;
+            comun
+                .meta_aplicar(conversacion, comando)
+                .map_err(|e| error(e.codigo(), e.to_string()))?
+                .estado
+                .texto_activo()
+                .map(str::to_owned)
+        }
+        None => {
+            let mut borrador = sesion.meta.lock().await;
+            *borrador = aplicar_en_borrador(comando)
+                .map_err(|e| error(e.codigo(), e.to_string()))?;
+            borrador.clone()
+        }
+    };
+    Ok(Json(serde_json::json!({ "ok": true, "meta": meta })))
 }
 
 /// `DELETE /api/v1/session/:id` — cancela el turno activo y cierra.
@@ -701,11 +723,13 @@ pub(crate) mod tests {
         assert_eq!(res.status(), StatusCode::OK);
     }
 
-    #[tokio::test]
-    async fn meta_web_se_fija_y_se_normaliza() {
-        let state = state_test();
-        let (sid, sesion) = sesion_memoria(&state).await;
-        let app = router(Arc::clone(&state));
+    /// Envía un PATCH de meta y devuelve (status, cuerpo).
+    async fn parchear_meta(
+        state: &Arc<AppState>,
+        sid: &str,
+        cuerpo: Value,
+    ) -> (StatusCode, Value) {
+        let app = router(Arc::clone(state));
         let res = app
             .oneshot(
                 Request::builder()
@@ -713,34 +737,128 @@ pub(crate) mod tests {
                     .uri(format!("/api/v1/session/{sid}/meta"))
                     .header(header::AUTHORIZATION, format!("Bearer {sid}"))
                     .header(header::CONTENT_TYPE, "application/json")
-                    .body(Body::from(r#"{"meta":"  objetivo claro  "}"#))
+                    .body(Body::from(cuerpo.to_string()))
                     .unwrap(),
             )
             .await
             .unwrap();
-        assert_eq!(res.status(), StatusCode::OK);
-        assert_eq!(sesion.meta.lock().await.as_deref(), Some("objetivo claro"));
+        let status = res.status();
+        let bytes = axum::body::to_bytes(res.into_body(), 4096).await.unwrap();
+        (status, serde_json::from_slice(&bytes).unwrap_or(Value::Null))
+    }
+
+    #[tokio::test]
+    async fn meta_web_se_fija_y_se_normaliza() {
+        let state = state_test();
+        let (sid, sesion) = sesion_memoria(&state).await;
+        let (status, cuerpo) = parchear_meta(
+            &state,
+            &sid,
+            serde_json::json!({ "meta": "  objetivo claro  " }),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(cuerpo["meta"], "objetivo claro");
+        /* [109A-5 F1] La meta ya no vive solo en memoria: queda en la fila de la
+         * conversación y es la fuente que lee el turno. */
+        let conv = sesion.conversacion_id.lock().await.expect("conversación");
+        let estado = sesion
+            .comun
+            .lock()
+            .await
+            .meta_leer(conv)
+            .expect("lee meta");
+        assert_eq!(estado.texto_activo(), Some("objetivo claro"));
+        assert!(sesion.meta.lock().await.is_none());
+    }
+
+    #[tokio::test]
+    async fn meta_web_ciclo_de_vida_falla_cerrado() {
+        let state = state_test();
+        let (sid, _) = sesion_memoria(&state).await;
+
+        // Pausar/reanudar/lograr sin meta activa son errores explícitos.
+        for accion in ["pausar", "reanudar"] {
+            let (status, cuerpo) =
+                parchear_meta(&state, &sid, serde_json::json!({ "accion": accion })).await;
+            assert_eq!(status, StatusCode::CONFLICT, "{accion}");
+            assert_eq!(cuerpo["code"], "sin_meta_activa");
+        }
+        let (status, cuerpo) =
+            parchear_meta(&state, &sid, serde_json::json!({ "accion": "lograr" })).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(cuerpo["code"], "turno_requerido");
+
+        // Fijar + pausar dos veces: la segunda no muta nada.
+        let (status, _) = parchear_meta(
+            &state,
+            &sid,
+            serde_json::json!({ "accion": "fijar", "meta": "meta web" }),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let (status, _) =
+            parchear_meta(&state, &sid, serde_json::json!({ "accion": "pausar" })).await;
+        assert_eq!(status, StatusCode::OK);
+        let (status, cuerpo) =
+            parchear_meta(&state, &sid, serde_json::json!({ "accion": "pausar" })).await;
+        assert_eq!(status, StatusCode::CONFLICT);
+        assert_eq!(cuerpo["code"], "meta_ya_pausada");
+
+        // Lograr con turno válido cierra la meta y deja historial.
+        let turno = Uuid::new_v4().to_string();
+        let (status, cuerpo) = parchear_meta(
+            &state,
+            &sid,
+            serde_json::json!({ "accion": "lograr", "turno_id": turno }),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(cuerpo["meta"], Value::Null);
+
+        // Combinaciones ambiguas se rechazan en vez de interpretarse.
+        let (status, cuerpo) = parchear_meta(
+            &state,
+            &sid,
+            serde_json::json!({ "accion": "pausar", "meta": "texto" }),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(cuerpo["code"], "peticion_invalida");
+    }
+
+    #[tokio::test]
+    async fn meta_web_en_borrador_no_inventa_conversacion() {
+        let state = state_test();
+        let (sid, sesion) = sesion_memoria(&state).await;
+        *sesion.conversacion_id.lock().await = None;
+
+        let (status, cuerpo) = parchear_meta(
+            &state,
+            &sid,
+            serde_json::json!({ "meta": "borrador" }),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(cuerpo["meta"], "borrador");
+        assert_eq!(sesion.meta.lock().await.as_deref(), Some("borrador"));
+
+        // Sin fila no hay reloj durable que pausar: error explícito.
+        let (status, cuerpo) =
+            parchear_meta(&state, &sid, serde_json::json!({ "accion": "pausar" })).await;
+        assert_eq!(status, StatusCode::CONFLICT);
+        assert_eq!(cuerpo["code"], "sin_conversacion");
     }
 
     #[tokio::test]
     async fn meta_web_rechaza_exceso_y_sesion_ajena() {
         let state = state_test();
         let (sid, _) = sesion_memoria(&state).await;
-        let app = router(Arc::clone(&state));
-        let larga = "x".repeat(MAX_META_CHARS + 1);
-        let res = app
-            .oneshot(
-                Request::builder()
-                    .method(Method::PATCH)
-                    .uri(format!("/api/v1/session/{sid}/meta"))
-                    .header(header::AUTHORIZATION, format!("Bearer {sid}"))
-                    .header(header::CONTENT_TYPE, "application/json")
-                    .body(Body::from(serde_json::json!({ "meta": larga }).to_string()))
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-        assert_eq!(res.status(), StatusCode::PAYLOAD_TOO_LARGE);
+        let larga = "x".repeat(crate::servicio::meta::MAX_META_CHARS + 1);
+        let (status, cuerpo) =
+            parchear_meta(&state, &sid, serde_json::json!({ "meta": larga })).await;
+        assert_eq!(status, StatusCode::PAYLOAD_TOO_LARGE);
+        assert_eq!(cuerpo["code"], "meta_larga");
 
         let app2 = router(Arc::clone(&state));
         let res2 = app2

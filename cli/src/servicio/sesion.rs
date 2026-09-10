@@ -16,6 +16,8 @@ use crate::{
     OpcionesRun, PersistenciaSqlite, VENTANA_MINIMA,
 };
 
+use super::meta::{resolver_meta, ComandoMeta, ErrorMeta, EstadoMeta, ResultadoMeta};
+
 /// Error de una operación del servicio común.
 #[derive(Debug)]
 pub enum Error {
@@ -331,16 +333,69 @@ impl SesionComun {
         Ok(())
     }
 
+    /// Lee el estado de meta durable de una conversación propia ([109A-5 F1]).
+    ///
+    /// Distingue "sin meta" (`EstadoMeta::default`) de "conversación
+    /// inexistente", que es error: un id borrado o ajeno no debe degradar a un
+    /// estado vacío que parezca legítimo.
+    pub fn meta_leer(&self, conversacion_id: Uuid) -> Result<EstadoMeta, ErrorMeta> {
+        let crudo = self
+            .persistencia
+            .conversacion_meta_leer(self.user_id, conversacion_id)
+            .map_err(|e| ErrorMeta::Persistencia(e.to_string()))?;
+        match crudo {
+            Some(valor) => EstadoMeta::desde_persistida(valor),
+            None => Err(ErrorMeta::ConversacionInexistente),
+        }
+    }
+
+    /// Aplica un comando de ciclo de vida y persiste el resultado.
+    ///
+    /// `&mut self` es intencional: obliga al llamador a retener el mutex de la
+    /// sesión durante la lectura y la escritura, así dos transiciones del mismo
+    /// proceso no pueden intercalarse y perder una actualización. Si la
+    /// escritura falla, el estado en disco queda como estaba (una sola
+    /// sentencia) y el error se propaga sin mutar la copia en memoria.
+    pub fn meta_aplicar(
+        &mut self,
+        conversacion_id: Uuid,
+        comando: ComandoMeta,
+    ) -> Result<ResultadoMeta, ErrorMeta> {
+        let estado = self.meta_leer(conversacion_id)?;
+        let resultado = resolver_meta(comando, &estado, Utc::now())?;
+        let fila = resultado.estado.a_persistida()?;
+        let guardado = self
+            .persistencia
+            .conversacion_meta_guardar(self.user_id, conversacion_id, &fila)
+            .map_err(|e| ErrorMeta::Persistencia(e.to_string()))?;
+        if !guardado {
+            return Err(ErrorMeta::ConversacionInexistente);
+        }
+        Ok(resultado)
+    }
+
     /// Persiste el mensaje y devuelve los datos necesarios para ejecutar el turno.
+    ///
+    /// [109A-5 F1] La meta es de la CONVERSACIÓN, no de la sesión: se lee de
+    /// disco y solo si esa conversación no tiene meta vigente se usa
+    /// `meta_borrador` (que existe porque el panel global puede fijar una meta
+    /// antes de que la fila se cree en el primer mensaje).
     pub async fn preparar_turno(
         &self,
         conversacion_id: Uuid,
         mensaje: String,
-        meta: Option<String>,
+        meta_borrador: Option<String>,
     ) -> Result<PreparacionTurno, Error> {
         if mensaje.trim().is_empty() {
             return Err(Error::Turno("mensaje vacío".into()));
         }
+        /* Se lee ANTES de escribir nada: si el estado durable estuviera
+         * corrupto o la conversación no existiera, el turno falla sin haber
+         * persistido el mensaje ni renombrado la conversación. */
+        let meta_efectiva = match self.meta_leer(conversacion_id) {
+            Ok(estado) => estado.activa.map(|activa| activa.texto).or(meta_borrador),
+            Err(e) => return Err(Error::Turno(format!("meta de la conversación: {e}"))),
+        };
         let mensajes_previos = self
             .persistencia
             .listar_mensajes(conversacion_id)
@@ -383,7 +438,7 @@ impl SesionComun {
             .await
             .map_err(|e| Error::Persistencia(e.to_string()))?;
 
-        let mensaje_efectivo = match (self.modo.as_str(), meta) {
+        let mensaje_efectivo = match (self.modo.as_str(), meta_efectiva.as_deref()) {
             ("meta", Some(m)) if !m.trim().is_empty() => {
                 format!("[META: {}]\n{}", m.trim(), mensaje)
             }
@@ -584,6 +639,102 @@ mod tests {
         assert_eq!(
             turno_meta.mensaje_efectivo,
             "[META: sí debe aplicarse]\nmensaje de prueba"
+        );
+    }
+
+    /// [109A-5 F1] La meta es de la conversación: la de A no se filtra a B y
+    /// un id inexistente es error, no un estado vacío silencioso.
+    #[tokio::test]
+    async fn meta_durable_es_por_conversacion() {
+        let persistencia = PersistenciaSqlite::en_memoria().expect("BD en memoria");
+        let (mut sesion, apertura) = SesionComun::abrir_con_persistencia(
+            OpcionesSesion {
+                modo: Some("meta".into()),
+                ..OpcionesSesion::default()
+            },
+            persistencia,
+            None,
+        )
+        .expect("abrir sesión meta");
+        let conv_a = apertura.conversacion.id;
+        let conv_b = sesion
+            .persistencia
+            .conversacion_crear(sesion.user_id, "otra")
+            .expect("crear segunda conversación");
+        sesion
+            .meta_aplicar(
+                conv_a,
+                ComandoMeta::Fijar {
+                    texto: "meta A".into(),
+                },
+            )
+            .expect("fija A");
+
+        let turno_a = sesion
+            .preparar_turno(conv_a, "hola A".into(), None)
+            .await
+            .expect("turno A");
+        assert_eq!(turno_a.mensaje_efectivo, "[META: meta A]\nhola A");
+        let turno_b = sesion
+            .preparar_turno(conv_b, "hola B".into(), None)
+            .await
+            .expect("turno B");
+        assert_eq!(turno_b.mensaje_efectivo, "hola B");
+        assert!(sesion.meta_leer(conv_b).expect("lee B").activa.is_none());
+        assert_eq!(
+            sesion.meta_leer(Uuid::new_v4()).unwrap_err(),
+            ErrorMeta::ConversacionInexistente
+        );
+    }
+
+    /// [109A-5 F1] Ciclo completo durable: fallos cerrados sin mutar, logro con
+    /// turno anclado e historial que sobrevive a reabrir la sesión.
+    #[tokio::test]
+    async fn meta_durable_registra_logro_y_sobrevive() {
+        let persistencia = PersistenciaSqlite::en_memoria().expect("BD en memoria");
+        let (mut sesion, apertura) = SesionComun::abrir_con_persistencia(
+            OpcionesSesion::default(),
+            persistencia,
+            None,
+        )
+        .expect("abrir sesión");
+        let conv = apertura.conversacion.id;
+        assert_eq!(
+            sesion.meta_aplicar(conv, ComandoMeta::Pausar).unwrap_err(),
+            ErrorMeta::SinMetaActiva
+        );
+        sesion
+            .meta_aplicar(
+                conv,
+                ComandoMeta::Fijar {
+                    texto: "meta durable".into(),
+                },
+            )
+            .expect("fija");
+        sesion.meta_aplicar(conv, ComandoMeta::Pausar).expect("pausa");
+        assert_eq!(
+            sesion.meta_aplicar(conv, ComandoMeta::Pausar).unwrap_err(),
+            ErrorMeta::YaPausada
+        );
+        let turno = Uuid::new_v4();
+        let resultado = sesion
+            .meta_aplicar(conv, ComandoMeta::Lograr { turno_id: turno })
+            .expect("logra");
+        assert_eq!(resultado.logro.as_ref().expect("logro").turno_id, turno);
+        let estado = sesion.meta_leer(conv).expect("lee meta");
+        assert!(estado.activa.is_none());
+        assert_eq!(estado.logros.len(), 1);
+
+        let compartida = (*sesion.persistencia).clone();
+        let (sesion2, _) = SesionComun::abrir_con_persistencia(
+            OpcionesSesion::default(),
+            compartida,
+            None,
+        )
+        .expect("reabrir sesión");
+        assert_eq!(
+            sesion2.meta_leer(conv).expect("lee tras reabrir").logros.len(),
+            1
         );
     }
 

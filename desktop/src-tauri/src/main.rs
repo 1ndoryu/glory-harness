@@ -91,7 +91,10 @@ struct Sesion {
     /// que el core ya tiene cableado): el árbol/índice viven aquí, y el hook
     /// (que no conoce el turno) se fija con `fijar_contexto` en cada turno.
     vault: Arc<vault::VaultArchivos>,
-    /// Objetivo del modo `meta` (el modo activo vive en `SesionComun`).
+    /// Meta de BORRADOR del panel sin conversación (el modo activo vive en
+    /// `SesionComun`). [109A-5 F1] La meta real es por conversación y vive en
+    /// SQLite (`SesionComun::meta_aplicar`); este campo solo existe mientras
+    /// el panel global no tenga fila donde anclar el reloj.
     meta: Mutex<Option<String>>,
 }
 

@@ -156,7 +156,22 @@ const MIGRACIONES: &[&str] = &[
      * FK lógica, no física: las áreas se borran sin arrastrar historial. */
     "ALTER TABLE conversaciones ADD COLUMN workspace_id TEXT",
     "CREATE INDEX IF NOT EXISTS idx_conversaciones_ws ON conversaciones (user_id, workspace_id)",
+    "ALTER TABLE conversaciones ADD COLUMN meta_texto TEXT",
+    "ALTER TABLE conversaciones ADD COLUMN meta_iniciada_en TEXT",
+    "ALTER TABLE conversaciones ADD COLUMN meta_pausada_en TEXT",
+    "ALTER TABLE conversaciones ADD COLUMN meta_logros TEXT NOT NULL DEFAULT '[]'",
 ];
+
+/// Estado crudo de meta leído desde SQLite. La conversión a dominio vive en
+/// `servicio::meta`, para que esta capa no dependa del ciclo de vida del agente.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MetaConversacionPersistida {
+    pub texto: Option<String>,
+    pub iniciada_en: Option<String>,
+    pub pausada_en: Option<String>,
+    pub logros_json: String,
+}
+
 /// Vista de conversación para la sidebar (Tauri la serializa tal cual).
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct InfoConversacion {

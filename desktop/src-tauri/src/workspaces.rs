@@ -2,6 +2,8 @@
 
 use super::*;
 
+use glory_harness::servicio::{aplicar_en_borrador, comando_desde_payload};
+
 /// Diálogo nativo de carpeta → reabre la sesión sobre ese workspace. Si el
 /// usuario cancela, devuelve la sesión actual sin cambios (no es un error).
 /// [039A-1 04-09 H3] La ruta elegida se persiste en config (`workspace`) para
@@ -224,18 +226,42 @@ pub(crate) fn workspace_eliminar(estado: State<'_, Estado>, id: String) -> Resul
         .map_err(|e| e.to_string())
 }
 
-/// Fija la meta del modo `meta` (`None`/vacía = sin meta). Normalizada.
+/// Fija o cambia la meta ([109A-5 F1]).
+///
+/// `conversacion_id` es opcional: sin él la meta vive en memoria como
+/// BORRADOR, que es el caso del panel global mientras el panel no identifique
+/// su conversación (F3 lo cablea); con él, la transición es durable y por
+/// conversación, y cualquier comando inválido se rechaza sin mutar nada.
+/// `accion` (`fijar|limpiar|pausar|reanudar|lograr`) es opcional: sin ella se
+/// conserva el contrato anterior del panel (texto = fijar, vacío = limpiar).
 #[tauri::command]
 pub(crate) fn actualizar_meta(
     estado: State<'_, Estado>,
     meta: Option<String>,
+    accion: Option<String>,
+    turno_id: Option<String>,
+    conversacion_id: Option<String>,
 ) -> Result<Option<String>, String> {
     let sesion = sesion_actual(&estado)?;
-    let normalizada = meta.map(|m| m.trim().to_string()).filter(|m| !m.is_empty());
-    sesion
-        .meta
-        .lock()
-        .map(|mut g| *g = normalizada.clone())
-        .map_err(|_| "sesión bloqueada".to_string())?;
-    Ok(normalizada)
+    let comando = comando_desde_payload(meta, accion.as_deref(), turno_id.as_deref())
+        .map_err(|e| e.to_string())?;
+    match conversacion_id {
+        Some(id) => {
+            let conv = Uuid::parse_str(id.trim()).map_err(|_| "conversación inválida".to_string())?;
+            let mut comun = sesion
+                .comun
+                .lock()
+                .map_err(|_| "sesión bloqueada".to_string())?;
+            let resultado = comun.meta_aplicar(conv, comando).map_err(|e| e.to_string())?;
+            Ok(resultado.estado.texto_activo().map(str::to_owned))
+        }
+        None => {
+            let mut borrador = sesion
+                .meta
+                .lock()
+                .map_err(|_| "sesión bloqueada".to_string())?;
+            *borrador = aplicar_en_borrador(comando).map_err(|e| e.to_string())?;
+            Ok(borrador.clone())
+        }
+    }
 }

@@ -86,8 +86,11 @@ fn reclamar_turno(estado: &State<'_, Estado>) -> Result<(), String> {
     Ok(())
 }
 
-/// [079A-1 F5] Exige conversación, lee meta y prepara el turno en el
-/// servicio común (auxiliar de `enviar_turno`).
+/// [079A-1 F5] Exige conversación, lee la meta de borrador y prepara el turno
+/// en el servicio común (auxiliar de `enviar_turno`).
+/// [109A-5 F1] La meta se lee DURABLE por conversación dentro de
+/// `preparar_turno`; el borrador solo entra si esa conversación no tiene meta
+/// vigente, así cambiar de panel no arrastra la meta de otro.
 async fn preparar_paquete(
     sesion: &Sesion,
     panel_id: &str,

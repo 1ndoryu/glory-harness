@@ -7,6 +7,11 @@
 //! El vault de archivos, los paneles y el emisor de eventos de ventana son
 //! responsabilidad del consumidor y no viven aquí.
 
+pub mod meta;
 pub mod sesion;
 
+pub use meta::{
+    aplicar_en_borrador, comando_desde_payload, elapsed_ms, resolver_meta, ComandoMeta, ErrorMeta,
+    EstadoMeta, LogroMeta, MetaActiva, ResultadoMeta, MAX_LOGROS_META, MAX_META_CHARS,
+};
 pub use sesion::{Apertura, Error, OpcionesSesion, PreparacionTurno, ProveedorConteo, SesionComun};

@@ -10,7 +10,7 @@ use glory_harness_core::HarnessResult;
 
 use super::{
     a_fecha, a_uuid, ahora_rfc3339, bloquear, AccionRecuperada, InfoConversacion,
-    PersistenciaSqlite,
+    MetaConversacionPersistida, PersistenciaSqlite,
 };
 
 impl PersistenciaSqlite {
@@ -214,6 +214,69 @@ impl PersistenciaSqlite {
             }
         }
         Ok(out)
+    }
+
+    /// Lee el estado de meta de una conversación propia.
+    ///
+    /// `None` significa que la conversación no existe o pertenece a otro
+    /// usuario; el llamador no recibe una señal que permita enumerar ids.
+    pub fn conversacion_meta_leer(
+        &self,
+        user_id: Uuid,
+        conversacion_id: Uuid,
+    ) -> HarnessResult<Option<MetaConversacionPersistida>> {
+        bloquear(&self.conn)
+            .query_row(
+                "SELECT meta_texto, meta_iniciada_en, meta_pausada_en, meta_logros
+                 FROM conversaciones WHERE id = ?1 AND user_id = ?2",
+                params![
+                    conversacion_id.as_hyphenated().to_string(),
+                    user_id.as_hyphenated().to_string()
+                ],
+                |f| {
+                    Ok(MetaConversacionPersistida {
+                        texto: f.get(0)?,
+                        iniciada_en: f.get(1)?,
+                        pausada_en: f.get(2)?,
+                        logros_json: f
+                            .get::<_, Option<String>>(3)?
+                            .unwrap_or_else(|| "[]".to_string()),
+                    })
+                },
+            )
+            .optional()
+            .map_err(|e| Error::Persistencia(e.to_string()))
+    }
+
+    /// Guarda el estado completo de meta de forma atómica para una conversación.
+    /// Devuelve `false` si no existe o no pertenece al usuario.
+    pub fn conversacion_meta_guardar(
+        &self,
+        user_id: Uuid,
+        conversacion_id: Uuid,
+        meta: &MetaConversacionPersistida,
+    ) -> HarnessResult<bool> {
+        let filas = bloquear(&self.conn)
+            .execute(
+                "UPDATE conversaciones SET
+                    meta_texto = ?1,
+                    meta_iniciada_en = ?2,
+                    meta_pausada_en = ?3,
+                    meta_logros = ?4,
+                    actualizada_en = ?5
+                 WHERE id = ?6 AND user_id = ?7",
+                params![
+                    meta.texto,
+                    meta.iniciada_en,
+                    meta.pausada_en,
+                    meta.logros_json,
+                    ahora_rfc3339(),
+                    conversacion_id.as_hyphenated().to_string(),
+                    user_id.as_hyphenated().to_string()
+                ],
+            )
+            .map_err(|e| Error::Persistencia(e.to_string()))?;
+        Ok(filas == 1)
     }
 
     /// Renombra (solo si es del usuario); `false` si no existe o no es suya.
