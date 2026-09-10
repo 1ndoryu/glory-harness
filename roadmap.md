@@ -205,6 +205,16 @@ Orden propuesto (dependencias de abajo arriba):
       historial de la app para atrás/adelante (misma lógica que Synara,
       hoy deshabilitados) y Terminal/Files/Source control como opciones del
       inicio cuando existan esos paneles.
+- [ ] **089A-18 — Coherencia de layout, persistencia y workspace** (09-09, en
+      curso): al ocultar el panel derecho también se ocultan sus tabs sin
+      esconder el toggle ni la botonera; se persisten/restauran visibilidad,
+      ancho, tabs y tab activa junto con la sidebar; se unifican hover/active/
+      focus mediante tokens; y el selector de workspace desde un chat lateral
+      deja ese panel en borrador en vez de mutar siempre el principal. La
+      semántica sigue siendo create-on-write. Sentinel/VarSense detectan
+      contratos estáticos, pero no ejecutan E2E visual ni analizan CSS en este
+      alcance: la aceptación requiere validación funcional en navegador.
+      Plan: `Agente/planes/plan-089A-18-coherencia-layout-workspace-2026-09-09.md`.
 - [x] **089A-13 — Gate cubre frontend TS + Tauri en VarSense** (09-09,
       HECHO): el gate solo analizaba `.rs` de `core`/`cli` (herencia de fase 0);
       añadidos `desktop/ui/src/**/*.ts` a `sentinel.config.json` y
@@ -243,6 +253,25 @@ Orden propuesto (dependencias de abajo arriba):
       Evidencia: `Agente/completados/tareas-2026-09-09.md` (entrada
       089A-16); reportes `.quality-reports/check/089A-16*/`. Pendiente:
       re-gate `unwrap-produccion-rs`.
+- [ ] **109A-1 — Hook pre-compactación** (10-09, pendiente, independiente):
+      comando externo configurable (`ContextoConfig.gancho_pre_compact`) que
+      corre antes de resumir en `core/src/nucleo/context.rs` (recibe JSON por
+      stdin, puede vetar/ajustar); timeout acotado, fallo = warn + continúa
+      (explícito, no bloquea). Equivalente al `PreCompact` de VS Code.
+      Plan: `Agente/planes/plan-109A-memorias-por-proyecto-2026-09-10.md` (F1).
+- [ ] **109A-2 — Memoria estrictamente por proyecto + export/import** (10-09,
+      pendiente, base de 109A-3): hoy `memoria_*` es global por `user_id`
+      (`cli/src/persistencia_sqlite/puerto.rs:145-223`); migración
+      `workspace_id` + scope en puerto/curador/CLI (legado NULL = ámbito
+      `global`, legible con flag, nunca listado en proyectos); export/import
+      markdown por ámbito `project`/`local` con sanitize. Skills globales
+      (no alcance). Plan F2.
+- [ ] **109A-3 — Sección "Memorias" en Configuración** (10-09, pendiente,
+      depende 109A-2): panel custom `componentes/memorias.ts` en el modal
+      (el esquema de `opciones.ts` no admite listas): listar/buscar/ver/
+      borrar/curar/exportar/importar **solo del proyecto activo**, con
+      distintivo de ámbito y confirmación en borrado; IPC Tauri nuevos;
+      E2E manual con 2 proyectos sin mezcla. Plan F3.
 - [x] **089A-12 — Files estilo Synara: árbol + visor integrado** (09-09,
       HECHO): Files es un único pane dividido (árbol a la izquierda y preview
       a la derecha al seleccionar un archivo); se eliminaron `21 entradas`,
