@@ -21,6 +21,7 @@ import type { EstadoGit } from '../componentes/panelGit';
 import type { ListadoWorkspace, ResultadoBusqueda, Workspace } from '../dominio/tipos';
 import { crearClienteApi } from './apiCliente';
 import { transporteMemoriasNoDisponibles } from './apiMemorias';
+import { transporteComandosNoDisponibles } from './apiComandos';
 
 /** Claves que viven en el servidor; el resto cae a localStorage (igual que
  * el mock): la superficie configLeer/Guardar no cambia. */
@@ -312,6 +313,9 @@ export function crearTransporteApi(base: string, hooks: HooksAdaptador = {}): Tr
     // resuelve el backend de escritorio): se rechaza con motivo explícito en
     // vez de devolver una lista vacía, que se leería como "no hay recuerdos".
     ...transporteMemoriasNoDisponibles(),
+    // [109A-4] Mismo criterio con los comandos `/` del área: la capacidad es
+    // del escritorio (carpeta `.glory/comandos` del área activa).
+    ...transporteComandosNoDisponibles(),
   };
 }
 

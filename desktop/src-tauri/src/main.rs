@@ -32,6 +32,7 @@ use tauri::{AppHandle, Emitter, Manager, State};
 use uuid::Uuid;
 
 mod archivo;
+mod comandos;
 mod conversaciones;
 mod filesystem;
 mod git;
@@ -490,6 +491,9 @@ fn main() {
             memoria::memoria_curar,
             memoria::memoria_exportar,
             memoria::memoria_importar,
+            // [109A-4] Comandos `/` del área activa (menú del compositor).
+            comandos::comandos_listar,
+            comandos::comando_expandir,
             archivo::leer_archivo,
             filesystem::workspace_info,
             filesystem::workspace_listar_entrada,

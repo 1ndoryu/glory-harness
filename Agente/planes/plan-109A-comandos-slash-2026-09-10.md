@@ -1,7 +1,7 @@
 # Plan 109A-4 — Comandos `/` estilo VS Code (`/compactar`, `/meta`)
 
-> ID roadmap: **109A-4** · Fecha: 2026-09-10 · Estado: activo (F1 HECHO 10-09,
-> catálogo v1 cerrado; F2–F4 pendientes)
+> ID roadmap: **109A-4** · Fecha: 2026-09-10 · Estado: activo (F1 y F2 HECHOS
+> 10-09; F3–F4 pendientes)
 > Origen: petición usuario — menú `/` como VS Code; `/compactar`; `meta` pasa de
 > modo de ejecución a comando; luego relevar comandos útiles en las referencias.
 
@@ -11,7 +11,8 @@
   patrón Claude/opencode): `.md` con `tipo: comando` + `comando: <nombre>`,
   plantilla con `$ARGUMENTOS` y `@archivo`, expansión pura y determinista
   (sin I/O ni LLM). Hay descubrimiento en directorio (`:100`).
-- UI sin menú `/` (`entradaMontaje.ts:63` tiene `autocomplete='off'`).
+- UI con menú `/` desde F2 (`componentes/menuComandos.ts` + `entradaComandos.ts`;
+  el textarea mantiene `autocomplete='off'` a propósito).
 - `meta` hoy es **modo global**: `permiso_por_modo("meta")`
   (`politica/permiso.rs:188`), `turno_config.modo == "meta"`
   (`nucleo/runtime/turno/permisos.rs:123`), segmento en `OPCIONES_EJECUCION`
@@ -48,15 +49,50 @@ Diferidos a hijas (fuera de v1): gestión de skills, `btw` lateral, `steer`/`que
 config/theme, checkpoints/rewind (P2 ya existe por UI), coste detallado,
 voz, teleport/remoto.
 
-### F2 — Menú `/` en la entrada
-- Detectar `/` al inicio del textarea (`componentes/entrada*`); menú flotante
-  con filtrado por prefijo (algoritmo grok: exacto > prefijo > contiene,
-  comando antes que descripción), navegación teclado (↑↓/Tab/Esc), inserción al elegir.
-- Nuevo `componentes/menuComandos.ts` (≤300 líneas); iconos de `iconos.ts`,
-  tokens en `variables.css`, sin literales. Datos: los 8 builtins del catálogo
-  v1 + comandos markdown descubiertos del backend (nuevo IPC `comandos_listar`
-  o vía `enviar_turno` con expansión previa). Desconocido → error explícito
-  con sugerencia `/ayuda` (nunca fall-through silencioso al LLM).
+### F2 — Menú `/` en la entrada (HECHO 10-09)
+
+Implementado:
+
+- **Datos** `dominio/comandosSlash.ts` (puro, sin DOM): 8 builtins del catálogo v1
+  con categoría/ayuda/uso, `filtrarComandos` (exacto > prefijo > nombre > resumen,
+  desempate `localeCompare`), `partirComando`, `consultaMenu`, `catalogoTexto`.
+- **Menú** `componentes/menuComandos.ts` + `estilos/menuComandos.css`: flotante,
+  sin robar foco (`mousedown` con `preventDefault`), filas `role="option"`,
+  posicionamiento con `anchoVentana/altoVentana`, cierre por Escape/fuera/resize/blur.
+- **Disparador** `componentes/entradaComandos.ts`: abre con `/` al inicio del
+  textarea, filtra al teclear, cierra con espacio (paso a argumentos).
+- **Ejecutor** `componentes/panelChatComandos.ts`: `/ayuda`, `/modelo`, `/contexto`,
+  `/limpiar`, `/revisar`, `/iniciar` y comandos markdown del área; `/compactar` y
+  `/meta` responden explícitamente «aún no está activo (llega en la fase siguiente
+  del plan 109A-4)»; desconocido → `comando desconocido «/x»; prueba /ayuda`.
+  Sin fall-through al LLM.
+- **Comandos del área**: `comandos_listar`/`comando_expandir` (Tauri, ahora en
+  `desktop/src-tauri/src/comandos/mod.rs`) reutilizan `glory_harness_core::skill`;
+  en modo web se declaran ausentes con `util/capacidad.ts` (error tipado, sin
+  ruido en consola).
+
+Evidencia (10-09):
+
+- `npm run type-check` limpio; `npm run build` EXIT 0 (96 módulos,
+  `index-*.js` 155.86 kB, `index-*.css` 47.66 kB).
+- `cargo clippy -p glory-harness-desktop --all-targets -- -D warnings` limpio.
+- E2E real en navegador (`localhost:8760`): menú con los 8 builtins; filtro `/co`
+  devuelve prefijos antes que coincidencias por nombre; ↑↓ mueven la selección;
+  Escape cierra; Enter ejecuta; `/ayuda` imprime el catálogo agrupado;
+  `/modelo` lista proveedores/modelos y `/modelo zzz` falla con mensaje explícito;
+  `/contexto` sin datos avisa en vez de mentir; `/limpiar` vacía el panel y deja
+  «Nueva conversación»; `/noexiste` → «comando desconocido».
+- Bug real encontrado y corregido en el E2E: el menú no llamaba a `preventDefault`,
+  así que Enter llegaba al textarea e insertaba salto de línea en vez de ejecutar
+  (`menuComandos.alTecla`).
+- Gate canónico (`check 109A-4`): `coverage` PASS, `sentinel` PASS — 0 errores y
+  los 10 warnings preexistentes (8 `console-production` + 2 `limite-lineas`);
+  `sccache` FAIL por `sccache-no-configurado`, deuda **ajena** ya registrada en el
+  roadmap («Gate: etapa Rust y sccache»).
+- Nota de arquitectura: el módulo Tauri pasó a `comandos/mod.rs` porque el nuevo
+  archivo plano dejaba `src-tauri/src/` en 11 archivos (>10) y activaba
+  `directorio-abarrotado`; la reorganización por dominio de ese directorio queda
+  como deuda en 109A-6.
 
 ### F3 — `/compactar`
 - Builtin que dispara compactación bajo demanda (`context.rs` evaluar+compactar)

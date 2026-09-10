@@ -5,6 +5,7 @@ import type { CabeceraChat } from './cabecera';
 import type { Entrada } from './entrada';
 import { crearAvisoSistema } from './mensajes';
 import type { DepsPanel, PanelChat, TipoPanel } from './panelChatTipos';
+import type { EjecutorComandos } from './panelChatComandos';
 import type {
   CargaConversacion,
   OpcionesTurno,
@@ -26,6 +27,8 @@ export interface TurnoDeps {
   aplicarCarga(carga: CargaConversacion): void;
   anadirPieTurno(u: UsoTurno): void;
   aviso(texto: string, meta: string, detalle: string): void;
+  /** [109A-4] Resuelve un `/comando` antes de montar el turno. */
+  comandos: EjecutorComandos;
 }
 
 export interface TurnoChat {
@@ -75,6 +78,16 @@ export function crearTurno(deps: TurnoDeps): TurnoChat {
       deps.aviso('termina el turno en curso antes de enviar', '', '');
       return;
     }
+    // [109A-4] Un `/comando` nunca cae al agente por accidente: se resuelve
+    // ANTES de montar el turno. Solo los que devuelven `prompt` (comandos del
+    // área y `/revisar`,`/iniciar`) siguen el curso normal como texto.
+    const comando = await deps.comandos.resolver(texto);
+    if (comando.tipo === 'consumido') return;
+    if (comando.tipo === 'error') {
+      deps.aviso(comando.mensaje, 'comando no ejecutado', 'prueba /ayuda');
+      return;
+    }
+    if (comando.tipo === 'prompt') texto = comando.texto;
     ultimoTextoEnviado = texto;
     inicioTurno = Date.now();
     d.registrarUltimoEnvio(deps.getPanel());

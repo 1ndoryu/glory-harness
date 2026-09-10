@@ -190,6 +190,12 @@ export interface ResultadoCarpetaMemoria {
   omitidos: string[];
 }
 
+/** [109A-4] Comando `/` definido por el área activa (`.glory/comandos/*.md`). */
+export interface ComandoArea {
+  nombre: string;
+  descripcion: string;
+}
+
 export interface HooksAdaptador {
   /** Se llama con cada `abrir_sesion`/`reconfigurar`/`elegir_workspace`. */
   onSesion?: (info: InfoSesion) => void;
@@ -266,6 +272,9 @@ export interface Transporte {
   memoriaCurar(): Promise<string>;
   memoriaExportar(): Promise<ResultadoCarpetaMemoria>;
   memoriaImportar(): Promise<ResultadoCarpetaMemoria>;
+  // [109A-4] Comandos `/` propios del área activa (catálogo + expansión).
+  comandosListar(): Promise<ComandoArea[]>;
+  comandoExpandir(nombre: string, argumentos: string): Promise<string>;
 }
 
 /** true solo dentro de la app Tauri (hay `__TAURI__` global). */

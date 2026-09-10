@@ -25,6 +25,8 @@ import type {
 } from '../dominio/tipos';
 import { crearAcciones } from './panelChatAcciones';
 import { crearCarga } from './panelChatCarga';
+import { crearComandosArea } from './comandosArea';
+import { crearEjecutorComandos } from './panelChatComandos';
 import { crearHistorial } from './panelChatHistorial';
 import { crearTurno } from './panelChatTurno';
 import type { PanelChat, PanelChatOpciones } from './panelChatTipos';
@@ -76,6 +78,9 @@ export function montarPanelChat(opts: PanelChatOpciones): PanelChat {
     workspaceSeleccionadoId: d.getWorkspaceSeleccionadoId(),
     onWorkspaceCambiado(workspaceId) {
       opts.onWorkspaceCambiado?.(workspaceId);
+      // El área activa cambia con el destino elegido: el catálogo de comandos
+      // `/` del área se recarga (el backend resuelve la carpeta, no el front).
+      void comandosArea.refrescar();
     },
     onEnviar(texto, editandoId) {
       void turno.enviar(texto, editandoId);
@@ -166,6 +171,26 @@ export function montarPanelChat(opts: PanelChatOpciones): PanelChat {
     pintarHistorial: (h, a, u) => historial.pintarHistorial(h, a, u),
     aviso: (texto, meta, detalle) => acciones.avisoChat(texto, meta, detalle),
   });
+  // [109A-4 F2] Comandos `/`: catálogo del área activa (vivo y recargable) y
+  // ejecutor. El backend resuelve el área; el front no envía rutas.
+  const comandosArea = crearComandosArea({
+    listar: () => d.adaptador.sesion.comandos.listar(),
+    avisar: (texto) => acciones.avisoChat(texto, 'comandos del área', ''),
+  });
+  comandosArea.alCambiar(() => entrada.setComandosProyecto(comandosArea.lista()));
+  void comandosArea.refrescar();
+  const comandos = crearEjecutorComandos({
+    aviso: (texto, meta, detalle) => acciones.avisoChat(texto, meta, detalle),
+    comandosProyecto: () => comandosArea.lista(),
+    expandirComando: (nombre, argumentos) =>
+      d.adaptador.sesion.comandos.expandir(nombre, argumentos),
+    limpiarPanel: () => carga.ponerBorrador(),
+    contexto: () => entrada.getContexto(),
+    proveedores: () => opts.proveedores ?? [],
+    modeloActual: () => d.getModelo(),
+    cambiarModelo: (modelo) => opts.onModeloCambiado?.(modelo),
+  });
+
   const turno = crearTurno({
     d,
     tipo,
@@ -181,6 +206,7 @@ export function montarPanelChat(opts: PanelChatOpciones): PanelChat {
     aplicarCarga: (c) => carga.aplicarCarga(c),
     anadirPieTurno: (u) => historial.anadirPieTurno(u),
     aviso: (texto, meta, detalle) => acciones.avisoChat(texto, meta, detalle),
+    comandos,
   });
 
   const panel: PanelChat = {

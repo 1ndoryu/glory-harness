@@ -270,15 +270,20 @@ Orden propuesto (dependencias de abajo arriba):
       cerrada como 109A-3; plan completo en
       `Agente/planes/completados/plan-109A-memorias-por-proyecto-2026-09-10.md`.
 - [ ] **109A-4 — Comandos `/` estilo VS Code (`/compactar`, `/meta`)** (10-09,
-       F1 HECHO: relevadas las 5 referencias y catálogo v1 cerrado a 8 comandos
+       F1+F2 HECHOS: relevadas las 5 referencias y catálogo v1 cerrado a 8 comandos
        — `/ayuda /modelo /compactar /contexto /limpiar /revisar /iniciar /meta` —;
-       pendientes F2 menú flotante `/` en la
-       entrada (filtrado + teclado, `componentes/menuComandos.ts`); F3
-       `/compactar` bajo demanda (respeta gancho 109A-1, no-op explícito);
-      F4 `/meta <texto>` como override de turno (solo lectura) y retirar
-      `meta` del modo global (migración a `predeterminado` + aviso). Base
-       existente: `ComandoSlash` markdown en `core/src/herramientas/skill.rs`.
-       Plan: `Agente/planes/plan-109A-comandos-slash-2026-09-10.md`.
+       F2 menú flotante `/` completo en `dominio/comandosSlash.ts`,
+       `componentes/menuComandos.ts`, `entradaComandos.ts`, `panelChatComandos.ts`
+       + IPC `comandos_listar`/`comando_expandir` (`desktop/src-tauri/src/comandos/mod.rs`)
+       reutilizando `core::skill`. Evidencia: type-check/build EXIT 0, clippy
+       0 warnings, E2E real de los 8 comandos (incluido el bug de teclado
+       `preventDefault` detectado y corregido) y gate `check 109A-4` con
+       `coverage`/`sentinel` PASS (10 warnings preexistentes) y único error
+       ajeno `sccache-no-configurado`. Pendientes F3 `/compactar` bajo demanda
+       (respeta gancho 109A-1, no-op explícito) y F4 `/meta <texto>` como override
+       de turno (solo lectura) retirando `meta` del modo global (migración a
+       `predeterminado` + aviso). Plan:
+       `Agente/planes/plan-109A-comandos-slash-2026-09-10.md`.
 - [ ] **109A-5 — Meta con ciclo de vida (tareas visibles + cierre con
       evidencia)** (10-09, **activo**, F1 HECHO: meta como objeto por
       conversación con `resolver_meta`, persistencia
@@ -304,7 +309,11 @@ Orden propuesto (dependencias de abajo arriba):
       del techo de 300 para componentes. Es deuda **preexistente** (ya estaba
       en 109A-1/109A-2 con 304/307) y 109A-3 solo añadió 1 línea de cableado;
       extraer responsabilidades sin cambiar comportamiento (p. ej. el montaje
-      del modal y el árbol de paneles) con `tsc` + build verdes.
+      del modal y el árbol de paneles) con `tsc` + build verdes. Incluye además
+      la densidad de `desktop/src-tauri/src/`: quedó en **10 archivos** (techo 10)
+      tras `109A-4` F2 (`comandos.rs` → `comandos/mod.rs`), así que el próximo
+      módulo plano disparará `directorio-abarrotado`; toca agrupar por dominio
+      (p. ej. `archivos/` y `sesion/`) en una fase propia.
 - [x] **089A-12 — Files estilo Synara: árbol + visor integrado** (09-09,
       HECHO): Files es un único pane dividido (árbol a la izquierda y preview
       a la derecha al seleccionar un archivo); se eliminaron `21 entradas`,

@@ -5,6 +5,7 @@ import type { EstadoGit } from '../componentes/panelGit';
 import type { ListadoWorkspace, ResultadoBusqueda, Workspace } from '../dominio/tipos';
 import type {
   CargaConversacion,
+  ComandoArea,
   InfoConversacion,
   InfoSesion,
   ListadoMemoria,
@@ -102,6 +103,11 @@ export function transporteTauri(): Transporte {
     memoriaCurar: () => invoke<string>('memoria_curar'),
     memoriaExportar: () => invoke<ResultadoCarpetaMemoria>('memoria_exportar'),
     memoriaImportar: () => invoke<ResultadoCarpetaMemoria>('memoria_importar'),
+    // [109A-4] Comandos del área activa: el backend resuelve la carpeta
+    // (`.glory/comandos`) como el CLI; el front nunca envía rutas.
+    comandosListar: () => invoke<ComandoArea[]>('comandos_listar'),
+    comandoExpandir: (nombre, argumentos) =>
+      invoke<string>('comando_expandir', { nombre, argumentos }),
   };
 }
 

@@ -10,6 +10,7 @@ import type {
 } from '../dominio/tipos';
 import type {
   CargaConversacion,
+  ComandoArea,
   HooksAdaptador,
   InfoConversacion,
   InfoSesion,
@@ -163,6 +164,16 @@ export function crearAdaptadorReal(hooks: HooksAdaptador = {}, transporte: Trans
         },
         async importar(): Promise<ResultadoCarpetaMemoria> {
           return transporte.memoriaImportar();
+        },
+      },
+      // [109A-4] Comandos `/` del área activa: el backend resuelve la carpeta
+      // (`.glory/comandos`); aquí no viaja ninguna ruta del front.
+      comandos: {
+        async listar(): Promise<ComandoArea[]> {
+          return transporte.comandosListar();
+        },
+        async expandir(nombre: string, argumentos: string): Promise<string> {
+          return transporte.comandoExpandir(nombre, argumentos);
         },
       },
     },

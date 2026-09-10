@@ -6,6 +6,7 @@ import type {
   ProveedorModelo,
   Workspace,
 } from '../dominio/tipos';
+import type { ComandoProyecto } from '../dominio/comandosSlash';
 
 export type ModoEjecucion = 'predeterminado' | 'meta' | 'autonomo';
 
@@ -92,6 +93,9 @@ export interface Entrada {
    * vacío. El resto de campos alimenta el pequeño menú `.ctx-detalle` que
    * aparece al poner el cursor sobre el círculo (uso de la ventana). */
   setContexto(estado: EstadoContexto): void;
+  /** [109A-4] Último estado de contexto conocido (`null` si aún no hay dato):
+   * lo consume el comando `/contexto`. */
+  getContexto(): EstadoContexto | null;
   /** Actualiza las áreas disponibles sin reconstruir el composer. */
   setWorkspaces(workspaces: Workspace[], seleccionadoId: string | null): void;
   /** Oculta/muestra el selector de workspace (conversación nueva vs existente). */
@@ -101,6 +105,9 @@ export interface Entrada {
   adjuntarElemento(elem: ElementoSeleccionado): void;
   /** [seleccionar] Badge pendiente actual (`null` si no hay). */
   getElementoPendiente(): ElementoSeleccionado | null;
+  /** [109A-4] Reemplaza los comandos `/` del área activa (menú del
+   * compositor). Los integrados no se pasan aquí: son catálogo fijo. */
+  setComandosProyecto(comandos: ComandoProyecto[]): void;
 }
 
 /** Identidad y variante de la entrada (núcleo mínimo que todo consumidor usa). */
@@ -149,5 +156,11 @@ export interface EntradaArea {
   onWorkspaceCambiado?: (workspaceId: string | null) => void;
 }
 
+/** [109A-4] Comandos `/` propios del área activa (`.glory/comandos`). */
+export interface EntradaComandosOpc {
+  /** Catálogo inicial de comandos del área (se puede refrescar después). */
+  comandosProyecto?: ComandoProyecto[];
+}
+
 export interface EntradaOpciones
-  extends EntradaBase, EntradaModelo, EntradaEnvio, EntradaArea {}
+  extends EntradaBase, EntradaModelo, EntradaEnvio, EntradaArea, EntradaComandosOpc {}

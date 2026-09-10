@@ -12,6 +12,7 @@ import type {
   Workspace,
 } from '../dominio/tipos';
 import { icono } from './iconos';
+import { crearEntradaComandos } from './entradaComandos';
 import { crearBarrasEntrada } from './entradaBarras';
 import { crearIndicadorContexto } from './entradaContexto';
 import { abrirMenuContextual, cerrarMenuActual, crearItemMenu } from './menu';
@@ -31,6 +32,7 @@ import type {
   ModoEjecucion,
   VarianteEntrada,
 } from './entradaTipos';
+import type { ComandoProyecto } from '../dominio/comandosSlash';
 
 export function montarEntrada(opts: EntradaOpciones): Entrada {
   const raiz = el('div', 'entrada');
@@ -65,6 +67,10 @@ export function montarEntrada(opts: EntradaOpciones): Entrada {
   // ---- estado interno ----
   let corriendo = false;
   let modo: ModoEjecucion = opts.modo;
+  // [109A-4] Comandos `/` del área activa (los integrados son catálogo fijo).
+  let comandosProyecto: ComandoProyecto[] = opts.comandosProyecto ?? [];
+  // Último estado de contexto pintado (lo lee el comando `/contexto`).
+  let ultimoContexto: EstadoContexto | null = null;
 
   // [039A-3 P5] En la variante mínima no se construyen controles de
   // modelo/razonamiento/modo: el runtime M1 es compartido y el panel
@@ -180,13 +186,29 @@ export function montarEntrada(opts: EntradaOpciones): Entrada {
   controles.appendChild(ctx.indicador);
   controles.appendChild(barras.btnEnviar);
 
-
+  // [109A-4 F2] Menú `/`: el compositor solo aporta el ancla y decide qué
+  // pasa al elegir. El filtrado, la navegación y el pintado viven en
+  // `entradaComandos.ts` + `menuComandos.ts`.
+  const comandos = crearEntradaComandos({
+    textarea,
+    comandosProyecto: () => comandosProyecto,
+    onElegir(comando, admiteArgumentos) {
+      if (corriendo) return;
+      textarea.value = `/${comando.nombre}${admiteArgumentos ? ' ' : ''}`;
+      barras.ajustarEntrada();
+      textarea.focus();
+      // Con argumentos el usuario sigue escribiendo; sin ellos se ejecuta ya
+      // por el MISMO canal que un envío normal (el turno resuelve el comando).
+      if (!admiteArgumentos) enviar();
+    },
+  });
 
   function enviar(): void {
     if (corriendo) {
       opts.onDetener();
       return;
     }
+    comandos.cerrar();
     const texto = textarea.value.trim();
     if (!texto) return;
     textarea.value = '';
@@ -203,6 +225,8 @@ export function montarEntrada(opts: EntradaOpciones): Entrada {
 
   barras.btnEnviar.addEventListener('click', enviar);
   textarea.addEventListener('keydown', (e) => {
+    // El menú `/` tiene prioridad sobre enviar/navegar mientras está abierto.
+    if (comandos.alTecla(e)) return;
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       enviar();
@@ -315,7 +339,11 @@ export function montarEntrada(opts: EntradaOpciones): Entrada {
       return textarea.value;
     },
     setContexto(estado: EstadoContexto) {
+      ultimoContexto = estado;
       ctx.pintarContexto(estado);
+    },
+    getContexto() {
+      return ultimoContexto;
     },
     setWorkspaces(workspaces: Workspace[], seleccionadoId: string | null) {
       sw.setWorkspaces(workspaces, seleccionadoId);
@@ -329,6 +357,10 @@ export function montarEntrada(opts: EntradaOpciones): Entrada {
     },
     getElementoPendiente() {
       return barras.getElementoPendiente();
+    },
+    setComandosProyecto(lista: ComandoProyecto[]) {
+      comandosProyecto = lista;
+      comandos.cerrar();
     },
   };
 }
