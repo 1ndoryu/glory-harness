@@ -390,12 +390,8 @@ async fn accion_memoria_exportar(args: &[String]) -> Result<(), String> {
         .await
         .map_err(|e| e.to_string())?;
     let destino = destino_export(args, &tiendas, user_id, ambito)?;
-    escribir_recuerdos(&destino, &entradas)?;
-    println!(
-        "{} recuerdo(s) exportados a {}",
-        entradas.len(),
-        destino.display()
-    );
+    let escritos = memoria_io::exportar_carpeta(&destino, &entradas)?;
+    println!("{escritos} recuerdo(s) exportados a {}", destino.display());
     Ok(())
 }
 
@@ -434,23 +430,14 @@ fn etiqueta_carpeta(ambito: AmbitoMemoria) -> String {
         .unwrap_or_else(|| "global".to_string())
 }
 
-/// Escribe un archivo por recuerdo (el destino debe existir o crearse).
-fn escribir_recuerdos(dir: &Path, entradas: &[MemoriaEntrada]) -> Result<(), String> {
-    std::fs::create_dir_all(dir).map_err(|e| format!("no se pudo crear {}: {e}", dir.display()))?;
-    for entrada in entradas {
-        let ruta = memoria_io::ruta_libre(dir, &entrada.clave);
-        std::fs::write(&ruta, memoria_io::render_recuerdo(entrada))
-            .map_err(|e| format!("no se pudo escribir {}: {e}", ruta.display()))?;
-    }
-    Ok(())
-}
-
 /// `memoria importar <carpeta> [--proyecto <uuid|ruta>|--global]`: fusiona
 /// los `.md` de la carpeta en el ámbito pedido (upsert por clave).
 ///
 /// El import es entrada externa: cada archivo pasa por el sanitizado de
 /// memoria y uno que parece una credencial se omite con motivo (nunca se
-/// guarda a medias ni aborta el resto).
+/// guarda a medias ni aborta el resto). La lectura de la carpeta y el merge
+/// viven en `infra::memoria_io` porque el panel "Memorias" del escritorio
+/// usa exactamente la misma implementación ([109A-3]).
 async fn accion_memoria_importar(args: &[String]) -> Result<SalidaMemoria, String> {
     let origen = match requerir_arg(args, 1) {
         Ok(d) => d,
@@ -463,53 +450,19 @@ async fn accion_memoria_importar(args: &[String]) -> Result<SalidaMemoria, Strin
     let (tiendas, user_id) = abrir_memoria()?;
     let ambito = ambito_pedido(args, &tiendas, user_id)?;
     let persistencia: Arc<dyn AgentPersistence> = tiendas;
-    let mut importados = 0usize;
-    let mut omitidos: Vec<String> = Vec::new();
-    for ruta in archivos_markdown(&origen)? {
-        let texto = std::fs::read_to_string(&ruta)
-            .map_err(|e| format!("no se pudo leer {}: {e}", ruta.display()))?;
-        match memoria_io::parsear_recuerdo(&texto) {
-            Ok(entrada) => {
-                persistencia
-                    .memoria_upsert(user_id, ambito, &entrada)
-                    .await
-                    .map_err(|e| e.to_string())?;
-                importados += 1;
-            }
-            Err(motivo) => omitidos.push(format!("{}: {motivo}", ruta.display())),
-        }
-    }
+    let resumen = memoria_io::importar_carpeta(&origen, &persistencia, user_id, ambito).await?;
     println!(
-        "{importados} recuerdo(s) importados en el ámbito {}",
+        "{} recuerdo(s) importados en el ámbito {}",
+        resumen.importados,
         ambito.etiqueta()
     );
-    if !omitidos.is_empty() {
-        println!("{} archivo(s) omitidos:", omitidos.len());
-        for motivo in &omitidos {
+    if !resumen.omitidos.is_empty() {
+        println!("{} archivo(s) omitidos:", resumen.omitidos.len());
+        for motivo in &resumen.omitidos {
             println!("- {motivo}");
         }
     }
     Ok(SalidaMemoria::Ok)
-}
-
-/// Archivos `.md` de una carpeta, en orden estable (el import es reproducible).
-fn archivos_markdown(dir: &Path) -> Result<Vec<PathBuf>, String> {
-    let mut rutas = Vec::new();
-    let entradas =
-        std::fs::read_dir(dir).map_err(|e| format!("no se pudo leer {}: {e}", dir.display()))?;
-    for entrada in entradas {
-        let entrada =
-            entrada.map_err(|e| format!("no se pudo leer una entrada de {}: {e}", dir.display()))?;
-        let ruta = entrada.path();
-        let es_md = ruta
-            .extension()
-            .is_some_and(|e| e.eq_ignore_ascii_case("md"));
-        if ruta.is_file() && es_md {
-            rutas.push(ruta);
-        }
-    }
-    rutas.sort();
-    Ok(rutas)
 }
 
 /// `memoria curar`: pasada del curador bajo demanda (mismo código que el
@@ -642,8 +595,8 @@ mod pruebas {
     }
 
     /// [109A-2] Ida y vuelta del export/import por archivos: lo escrito por
-    /// `escribir_recuerdos` se descubre y se reconstruye igual (clave,
-    /// contenido y metadatos), sin BD de por medio.
+    /// `memoria_io::exportar_carpeta` se descubre y se reconstruye igual
+    /// (clave, contenido y metadatos), sin BD de por medio.
     #[test]
     fn export_import_ida_y_vuelta_por_archivos() {
         let dir = std::env::temp_dir().join(format!("glory-export-{}", Uuid::new_v4()));
@@ -655,11 +608,12 @@ mod pruebas {
             usos: 2,
             ultimo_uso: Some(chrono::Utc::now()),
         };
-        escribir_recuerdos(&dir, std::slice::from_ref(&original)).expect("export");
+        let uno = std::slice::from_ref(&original);
+        assert_eq!(memoria_io::exportar_carpeta(&dir, uno).expect("export"), 1);
         // Reexportar reutiliza el archivo: no acumula copias.
-        escribir_recuerdos(&dir, std::slice::from_ref(&original)).expect("reexport");
+        assert_eq!(memoria_io::exportar_carpeta(&dir, uno).expect("reexport"), 1);
 
-        let archivos = archivos_markdown(&dir).expect("listar export");
+        let archivos = memoria_io::archivos_markdown(&dir).expect("listar export");
         assert_eq!(archivos.len(), 1, "un archivo por recuerdo: {archivos:?}");
         let texto = std::fs::read_to_string(&archivos[0]).expect("leer export");
         let vuelta = memoria_io::parsear_recuerdo(&texto).expect("import");
@@ -740,5 +694,78 @@ mod pruebas {
             ambito_pedido(&args, &tiendas, user).expect("uuid"),
             AmbitoMemoria::Proyecto(uuid)
         );
+    }
+
+    /// [109A-3] El panel "Memorias" del escritorio usa `memoria_io` sobre la
+    /// persistencia REAL con el ámbito del área activa. Esta prueba recorre
+    /// ese mismo camino con dos áreas registradas: listar, exportar e
+    /// importar no pueden mezclar los recuerdos de dos proyectos.
+    #[tokio::test]
+    async fn areas_no_mezclan_recuerdos_al_exportar_e_importar() {
+        let base = std::env::temp_dir().join(format!("glory-109a3-{}", Uuid::new_v4()));
+        let ruta_a = base.join("area-a");
+        let ruta_b = base.join("area-b");
+        std::fs::create_dir_all(&ruta_a).expect("área A");
+        std::fs::create_dir_all(&ruta_b).expect("área B");
+
+        let user_id = Uuid::new_v4();
+        let p = PersistenciaSqlite::abrir(&base.join("memorias.db")).expect("abrir BD");
+        let area_a = p
+            .workspace_crear(user_id, "A", &ruta_a.to_string_lossy())
+            .expect("registrar A");
+        let area_b = p
+            .workspace_crear(user_id, "B", &ruta_b.to_string_lossy())
+            .expect("registrar B");
+        let persistencia: Arc<dyn AgentPersistence> = Arc::new(p);
+        let ambito_a = AmbitoMemoria::Proyecto(area_a.id);
+        let ambito_b = AmbitoMemoria::Proyecto(area_b.id);
+        for (ambito, clave, texto) in [
+            (ambito_a, "clave-a", "solo A"),
+            (ambito_b, "clave-b", "solo B"),
+        ] {
+            persistencia
+                .memoria_upsert(
+                    user_id,
+                    ambito,
+                    &MemoriaEntrada::nueva(clave.into(), texto.into(), "prueba".into()),
+                )
+                .await
+                .expect("sembrar");
+        }
+
+        // Listar el ámbito activo (lo que hace `memoria_listar_proyecto`).
+        let lista_a = persistencia
+            .memoria_listar(user_id, ambito_a)
+            .await
+            .expect("listar A");
+        assert_eq!(lista_a.len(), 1, "A solo ve lo suyo");
+        assert_eq!(lista_a[0].clave, "clave-a");
+
+        // Exportar A escribe en la carpeta de SU área y no toca la de B.
+        let carpeta_a = ruta_a.join(memoria_io::CARPETA_PROYECTO);
+        assert_eq!(memoria_io::exportar_carpeta(&carpeta_a, &lista_a).expect("exportar"), 1);
+        assert!(
+            !ruta_b.join(memoria_io::CARPETA_PROYECTO).exists(),
+            "el export de A no crea nada en B"
+        );
+
+        // Importar la carpeta de A en B suma (upsert) sin borrar lo de B.
+        let resumen = memoria_io::importar_carpeta(&carpeta_a, &persistencia, user_id, ambito_b)
+            .await
+            .expect("importar");
+        assert_eq!(resumen.importados, 1);
+        assert!(resumen.omitidos.is_empty(), "{:?}", resumen.omitidos);
+        let claves_b: Vec<String> = persistencia
+            .memoria_listar(user_id, ambito_b)
+            .await
+            .expect("listar B")
+            .into_iter()
+            .map(|e| e.clave)
+            .collect();
+        assert_eq!(claves_b.len(), 2, "B conserva lo suyo y suma: {claves_b:?}");
+        assert!(claves_b.contains(&"clave-b".to_string()));
+
+        drop(persistencia);
+        let _ = std::fs::remove_dir_all(&base);
     }
 }

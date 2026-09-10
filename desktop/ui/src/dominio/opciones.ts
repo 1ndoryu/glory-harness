@@ -254,4 +254,9 @@ export const FORMULARIO_CONFIGURACION: Array<{
   { id: 'permisos', etiqueta: 'Permisos', grupos: [OPCIONES_PERMISOS] },
   { id: 'apariencia', etiqueta: 'Apariencia', grupos: [OPCIONES_APARIENCIA] },
   { id: 'contexto', etiqueta: 'Contexto', grupos: [OPCIONES_CONTEXTO] },
+  // [109A-3] "Memorias" no es un formulario de opciones sino una LISTA
+  // gestora del proyecto activo: se declara sin grupos para que salga en el
+  // nav y `componentes/modal.ts` monta ahí el panel custom
+  // (`componentes/memorias.ts`). El esquema declarativo no admite listas.
+  { id: 'memorias', etiqueta: 'Memorias', grupos: [] },
 ];

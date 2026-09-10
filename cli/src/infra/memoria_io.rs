@@ -12,9 +12,11 @@
 //! credencial se rechaza con motivo en vez de guardarse.
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use glory_harness_core::memoria::sanitize_para_memoria;
-use glory_harness_core::ports::MemoriaEntrada;
+use glory_harness_core::ports::{AgentPersistence, AmbitoMemoria, MemoriaEntrada};
+use uuid::Uuid;
 
 /// Carpeta versionable dentro del área de trabajo (destino `project`).
 pub const CARPETA_PROYECTO: &str = ".glory/memorias";
@@ -142,6 +144,80 @@ fn parsear_fecha(valor: &str) -> Option<chrono::DateTime<chrono::Utc>> {
         .map(|d| d.with_timezone(&chrono::Utc))
 }
 
+/// Resultado de importar una carpeta a un ámbito: cuántos entraron y por qué
+/// se rechazó cada archivo omitido (nunca se calla un archivo saltado).
+#[derive(Debug, Default, Clone)]
+pub struct ResumenImport {
+    pub importados: usize,
+    pub omitidos: Vec<String>,
+}
+
+/// Escribe un archivo por recuerdo dentro de `dir` (lo crea si no existe) y
+/// devuelve cuántos se escribieron.
+///
+/// Compartido por el subcomando `memoria exportar` del CLI y por el panel
+/// "Memorias" del escritorio: el formato y la desambiguación de nombres viven
+/// aquí una sola vez ([109A-3]).
+pub fn exportar_carpeta(dir: &Path, entradas: &[MemoriaEntrada]) -> Result<usize, String> {
+    std::fs::create_dir_all(dir).map_err(|e| format!("no se pudo crear {}: {e}", dir.display()))?;
+    for entrada in entradas {
+        let ruta = ruta_libre(dir, &entrada.clave);
+        std::fs::write(&ruta, render_recuerdo(entrada))
+            .map_err(|e| format!("no se pudo escribir {}: {e}", ruta.display()))?;
+    }
+    Ok(entradas.len())
+}
+
+/// Archivos `.md` de una carpeta, en orden estable (el import es reproducible).
+pub fn archivos_markdown(dir: &Path) -> Result<Vec<PathBuf>, String> {
+    let mut rutas = Vec::new();
+    let entradas =
+        std::fs::read_dir(dir).map_err(|e| format!("no se pudo leer {}: {e}", dir.display()))?;
+    for entrada in entradas {
+        let entrada =
+            entrada.map_err(|e| format!("no se pudo leer una entrada de {}: {e}", dir.display()))?;
+        let ruta = entrada.path();
+        let es_md = ruta
+            .extension()
+            .is_some_and(|e| e.eq_ignore_ascii_case("md"));
+        if ruta.is_file() && es_md {
+            rutas.push(ruta);
+        }
+    }
+    rutas.sort();
+    Ok(rutas)
+}
+
+/// Fusiona los `.md` de `dir` en el ámbito pedido (upsert por clave).
+///
+/// Cada archivo es entrada externa: pasa por [`parsear_recuerdo`] y uno que
+/// parece una credencial se omite con motivo, sin guardar a medias ni abortar
+/// el resto. Lo usan el subcomando `memoria importar` del CLI y el panel
+/// "Memorias" del escritorio ([109A-3]).
+pub async fn importar_carpeta(
+    dir: &Path,
+    persistencia: &Arc<dyn AgentPersistence>,
+    user_id: Uuid,
+    ambito: AmbitoMemoria,
+) -> Result<ResumenImport, String> {
+    let mut resumen = ResumenImport::default();
+    for ruta in archivos_markdown(dir)? {
+        let texto = std::fs::read_to_string(&ruta)
+            .map_err(|e| format!("no se pudo leer {}: {e}", ruta.display()))?;
+        match parsear_recuerdo(&texto) {
+            Ok(entrada) => {
+                persistencia
+                    .memoria_upsert(user_id, ambito, &entrada)
+                    .await
+                    .map_err(|e| e.to_string())?;
+                resumen.importados += 1;
+            }
+            Err(motivo) => resumen.omitidos.push(format!("{}: {motivo}", ruta.display())),
+        }
+    }
+    Ok(resumen)
+}
+
 #[cfg(test)]
 mod pruebas {
     //! [109A-2] Ida y vuelta del formato y frontera de entrada externa.
@@ -244,6 +320,78 @@ mod pruebas {
         );
         std::fs::write(&otra, render_recuerdo(&entrada("color!", "rojo"))).expect("escribir");
         assert_eq!(ruta_libre(&dir, "color!"), otra, "cada clave conserva su archivo");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// [109A-3] El escritorio usa estas funciones de carpeta; la ida y vuelta
+    /// completa (exportar → importar) debe conservar los recuerdos del ámbito.
+    #[tokio::test]
+    async fn exportar_e_importar_conservan_los_recuerdos() {
+        let dir = std::env::temp_dir().join(format!("glory-mem-io-{}", uuid::Uuid::new_v4()));
+        let tienda: Arc<dyn AgentPersistence> =
+            Arc::new(crate::persistencia::PersistenciaMemoria::nuevo());
+        let user_id = Uuid::new_v4();
+        let ambito = AmbitoMemoria::Proyecto(Uuid::new_v4());
+        tienda
+            .memoria_upsert(user_id, ambito, &entrada("color", "azul"))
+            .await
+            .expect("siembra");
+
+        let escritas = exportar_carpeta(&dir, &tienda.memoria_listar(user_id, ambito).await.expect("listar"))
+            .expect("exportar");
+        assert_eq!(escritas, 1);
+
+        // Importar en otro ámbito NO toca el origen ni mezcla ámbitos.
+        let otro = AmbitoMemoria::Proyecto(Uuid::new_v4());
+        let resumen = importar_carpeta(&dir, &tienda, user_id, otro)
+            .await
+            .expect("importar");
+        assert_eq!(resumen.importados, 1);
+        assert!(resumen.omitidos.is_empty(), "{:?}", resumen.omitidos);
+        assert_eq!(
+            tienda.memoria_listar(user_id, otro).await.expect("listar").len(),
+            1,
+            "el destino recibe el recuerdo"
+        );
+        assert_eq!(
+            tienda.memoria_listar(user_id, ambito).await.expect("listar").len(),
+            1,
+            "el origen no se duplica"
+        );
+        assert!(
+            tienda
+                .memoria_listar(user_id, AmbitoMemoria::Global)
+                .await
+                .expect("listar")
+                .is_empty(),
+            "el global queda intacto"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Un archivo con credencial se omite con motivo y no aborta el resto.
+    #[tokio::test]
+    async fn importar_omite_credenciales_sin_abortar() {
+        let dir = std::env::temp_dir().join(format!("glory-mem-om-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).expect("carpeta temporal");
+        std::fs::write(dir.join("bueno.md"), render_recuerdo(&entrada("nota", "cuerpo"))).expect("ok");
+        std::fs::write(dir.join("malo.md"), "---\nclave: token\n---\nghp_9f2c8ab1\n").expect("ok");
+
+        let tienda: Arc<dyn AgentPersistence> =
+            Arc::new(crate::persistencia::PersistenciaMemoria::nuevo());
+        let user_id = Uuid::new_v4();
+        let resumen = importar_carpeta(&dir, &tienda, user_id, AmbitoMemoria::Global)
+            .await
+            .expect("importar");
+        assert_eq!(resumen.importados, 1);
+        assert_eq!(resumen.omitidos.len(), 1, "{:?}", resumen.omitidos);
+        assert!(
+            resumen.omitidos[0].contains("credencial"),
+            "el motivo explica el rechazo: {}",
+            resumen.omitidos[0]
+        );
 
         let _ = std::fs::remove_dir_all(&dir);
     }

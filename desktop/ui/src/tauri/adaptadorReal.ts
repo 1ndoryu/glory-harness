@@ -13,7 +13,9 @@ import type {
   HooksAdaptador,
   InfoConversacion,
   InfoSesion,
+  ListadoMemoria,
   ProveedorInfo,
+  ResultadoCarpetaMemoria,
   ResultadoRestauracionTramo,
   Transporte,
 } from './realTipos';
@@ -141,6 +143,26 @@ export function crearAdaptadorReal(hooks: HooksAdaptador = {}, transporte: Trans
         },
         async gitEstado(): Promise<EstadoGit> {
           return transporte.workspaceGitEstado();
+        },
+      },
+      // [109A-3] Memorias del proyecto activo (panel "Memorias"). El ámbito
+      // lo decide el backend con el área activa de la sesión: aquí no viaja
+      // ningún identificador de proyecto.
+      memorias: {
+        async listar(): Promise<ListadoMemoria> {
+          return transporte.memoriaListar();
+        },
+        async borrar(clave: string): Promise<ListadoMemoria> {
+          return transporte.memoriaBorrar(clave);
+        },
+        async curar(): Promise<string> {
+          return transporte.memoriaCurar();
+        },
+        async exportar(): Promise<ResultadoCarpetaMemoria> {
+          return transporte.memoriaExportar();
+        },
+        async importar(): Promise<ResultadoCarpetaMemoria> {
+          return transporte.memoriaImportar();
         },
       },
     },

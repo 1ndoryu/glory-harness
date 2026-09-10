@@ -155,6 +155,41 @@ export interface UsoTurno {
 /** Resultado de cierre de un turno, para que el llamador decida el pie. */
 export type ResultadoTurno = 'ok' | 'error' | 'cancelado';
 
+/** [109A-3] Un recuerdo del proyecto activo (DTO del backend). */
+export interface RecuerdoMemoria {
+  clave: string;
+  contenido: string;
+  origen: string;
+  usos: number;
+  ultimo_uso: string | null;
+  actualizada_en: string;
+  /** Archivado por el curador: se conserva para auditar, no se inyecta. */
+  archivada: boolean;
+}
+
+/** [109A-3] Ámbito activo resuelto por el backend y sus recuerdos. El front
+ * no elige el ámbito: el panel siempre muestra el proyecto abierto. */
+export interface ListadoMemoria {
+  /** `true` = ámbito global (la carpeta activa no es un área registrada). */
+  global: boolean;
+  /** Etiqueta del núcleo: `global` o `proyecto`. */
+  ambito: string;
+  /** Nombre del área activa; `null` en el ámbito global. */
+  proyecto: string | null;
+  ruta: string | null;
+  /** Carpeta `.glory/memorias` del área activa; `null` sin área. */
+  carpeta: string | null;
+  recuerdos: RecuerdoMemoria[];
+}
+
+/** [109A-3] Resultado de exportar o importar la carpeta de memorias. */
+export interface ResultadoCarpetaMemoria {
+  carpeta: string;
+  recuerdos: number;
+  /** Archivos rechazados al importar, con motivo (vacío al exportar). */
+  omitidos: string[];
+}
+
 export interface HooksAdaptador {
   /** Se llama con cada `abrir_sesion`/`reconfigurar`/`elegir_workspace`. */
   onSesion?: (info: InfoSesion) => void;
@@ -225,6 +260,12 @@ export interface Transporte {
   workspaceAbrirCon(ruta: string): Promise<void>;
   workspaceBuscar(consulta: string, ruta?: string): Promise<ResultadoBusqueda>;
   workspaceGitEstado(): Promise<EstadoGit>;
+  // [109A-3] Memorias del proyecto activo (panel "Memorias" del modal).
+  memoriaListar(): Promise<ListadoMemoria>;
+  memoriaBorrar(clave: string): Promise<ListadoMemoria>;
+  memoriaCurar(): Promise<string>;
+  memoriaExportar(): Promise<ResultadoCarpetaMemoria>;
+  memoriaImportar(): Promise<ResultadoCarpetaMemoria>;
 }
 
 /** true solo dentro de la app Tauri (hay `__TAURI__` global). */

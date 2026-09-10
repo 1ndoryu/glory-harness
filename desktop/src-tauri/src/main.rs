@@ -35,6 +35,7 @@ mod archivo;
 mod conversaciones;
 mod filesystem;
 mod git;
+mod memoria;
 mod navegador;
 mod sesion;
 mod turno;
@@ -483,6 +484,12 @@ fn main() {
             workspaces::workspace_renombrar,
             workspaces::workspace_eliminar,
             workspaces::actualizar_meta,
+            // [109A-3] Memorias del proyecto activo (panel "Memorias").
+            memoria::memoria_listar_proyecto,
+            memoria::memoria_borrar,
+            memoria::memoria_curar,
+            memoria::memoria_exportar,
+            memoria::memoria_importar,
             archivo::leer_archivo,
             filesystem::workspace_info,
             filesystem::workspace_listar_entrada,

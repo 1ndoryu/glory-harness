@@ -7,6 +7,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { montarModalConfiguracion, type ModalConfiguracion } from '../componentes/modal';
 import { montarModalProyecto, type ModalProyecto } from '../componentes/modalProyecto';
 import type { PanelChat } from '../componentes/panelChat';
+import type { MemoriasDeps } from '../componentes/memorias';
 import type { ModeloSeleccionado, ProveedorModelo } from '../dominio/tipos';
 import type { ModoEjecucion } from '../componentes/entrada';
 
@@ -50,6 +51,9 @@ export interface VistaModalAcciones {
   configGuardar: (id: string, valor: string) => Promise<void>;
   configGuardarModelo: (nuevo: ModeloSeleccionado) => Promise<void>;
   guardarProyecto: (nombre: string, ruta: string) => Promise<void>;
+  /** [109A-3] Acciones del panel "Memorias" (ámbito = proyecto activo). El
+   * aviso lo aporta el modal desde `avisar`, así que no viaja aquí. */
+  memoria: Omit<MemoriasDeps, 'avisar'>;
   hayTurno: () => boolean;
   avisar: (texto: string, meta: string, detalle: string) => void;
   ponerBorradorPrincipal: () => void;
@@ -122,6 +126,9 @@ export function montarVistaModal(deps: VistaModalDeps): VistaModal {
           );
       }
     },
+    // [109A-3] El panel de memorias no elige ámbito: el backend usa el área
+    // activa de la sesión. Solo se le pasan las acciones y el aviso.
+    memoria: { ...deps.memoria, avisar: deps.avisar },
   });
 
   // [069A-Proyectos] Modal "Nuevo proyecto" autocontenido.

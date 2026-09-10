@@ -266,14 +266,9 @@ Orden propuesto (dependencias de abajo arriba):
       Evidencia: 393 tests lib verdes, clippy `-D warnings` limpio, build UI OK;
       gate canónico FAIL por deuda ajena (`sccache` y `data/referencias-cli/**`)
       con 0 hallazgos en `cli/src`/`core/src`; detalle en
-      `Agente/completados/tareas-2026-09-10.md`. Queda F3 (sección en
-      Configuración) en `Agente/planes/plan-109A-memorias-por-proyecto-2026-09-10.md`.
-- [ ] **109A-3 — Sección "Memorias" en Configuración** (10-09, pendiente,
-      depende 109A-2): panel custom `componentes/memorias.ts` en el modal
-      (el esquema de `opciones.ts` no admite listas): listar/buscar/ver/
-      borrar/curar/exportar/importar **solo del proyecto activo**, con
-      distintivo de ámbito y confirmación en borrado; IPC Tauri nuevos;
-      E2E manual con 2 proyectos sin mezcla. Plan F3.
+      `Agente/completados/tareas-2026-09-10.md`. F3 (sección en Configuración)
+      cerrada como 109A-3; plan completo en
+      `Agente/planes/completados/plan-109A-memorias-por-proyecto-2026-09-10.md`.
 - [ ] **109A-4 — Comandos `/` estilo VS Code (`/compactar`, `/meta`)** (10-09,
        F1 HECHO: relevadas las 5 referencias y catálogo v1 cerrado a 8 comandos
        — `/ayuda /modelo /compactar /contexto /limpiar /revisar /iniciar /meta` —;
@@ -302,6 +297,14 @@ Orden propuesto (dependencias de abajo arriba):
       que ejecute clippy/tests y decidir la configuración de `sccache`
       (`rustc-wrapper` + `SCCACHE_CACHE_SIZE`), hoy en rojo por
       `sccache-no-configurado`.
+- [ ] **109A-6 — Deuda: dividir `main.ts` y `panelDerecho.ts`** (10-09,
+      independiente): el gate sigue marcando `limite-lineas` en
+      `desktop/ui/src/main.ts` (305 efectivas) y
+      `desktop/ui/src/orquestador/panelDerecho.ts` (307 efectivas), por encima
+      del techo de 300 para componentes. Es deuda **preexistente** (ya estaba
+      en 109A-1/109A-2 con 304/307) y 109A-3 solo añadió 1 línea de cableado;
+      extraer responsabilidades sin cambiar comportamiento (p. ej. el montaje
+      del modal y el árbol de paneles) con `tsc` + build verdes.
 - [x] **089A-12 — Files estilo Synara: árbol + visor integrado** (09-09,
       HECHO): Files es un único pane dividido (árbol a la izquierda y preview
       a la derecha al seleccionar un archivo); se eliminaron `21 entradas`,

@@ -1,6 +1,7 @@
 # Plan 109A — Memorias por proyecto + hook pre-compact (gaps vs VS Code)
 
-> IDs roadmap: **109A-1/2/3** · Fecha: 2026-09-10 · Estado: F1 y F2 completadas; F3 pendiente
+> IDs roadmap: **109A-1/2/3** · Fecha: 2026-09-10 · Estado: **COMPLETADO**
+> (F1, F2 y F3 hechas; cerrado 2026-09-10)
 > Origen: comparativa VS Code (§ memorias/compactación, 09-09): VS Code aporta
 > hook `PreCompact` y memoria versionable por ámbitos; GH compacta y cura mejor
 > pero su memoria es global por usuario y no tiene hook previo.
@@ -86,18 +87,38 @@ y sección "Memorias" en Configuración para gestionarlas.
   subcomando se hizo con pruebas de las funciones reales (`destino_export`, `ambito_pedido`,
   ida y vuelta de archivos) en vez de con el proceso manual.
 
-### F3 — 109A-3 Sección "Memorias" en Configuración (depende F2)
+### F3 — 109A-3 Sección "Memorias" en Configuración (HECHA 2026-09-10)
 - El esquema declarativo de `opciones.ts` no admite listas gestoras → panel custom
-  `componentes/memorias.ts` (≤300 líneas; partir en lista/detalle si crece),
-  montado como sección del modal (`modal.ts`/`vistaModal.ts`), tokens en
-  `variables.css`, sin literales.
-- Funciones: listar **solo proyecto activo** + buscar, ver detalle, borrar,
-  curar, exportar/importar; distintivo de ámbito (proyecto/global-legacy);
-  confirmación en borrado. Nunca muestra recuerdos de otros proyectos.
-- IPC Tauri nuevos: `memoria_listar_proyecto`, `memoria_borrar`, `memoria_curar`,
-  `memoria_exportar`, `memoria_importar` (todos con workspace activo del backend).
-- Validación: `tsc` + `vite build` + E2E manual en ventana real con 2 proyectos
-  (no mezcla) + gate.
+  `componentes/memorias.ts` (261 líneas; ≤300), montado como sección del modal
+  (`modal.ts`/`vistaModal.ts`), tokens de `variables.css`, sin literales.
+- Funciones implementadas: listar **solo proyecto activo** + buscar (clave y
+  contenido), ver detalle, borrar con confirmación en dos pasos ("¿olvidar?"),
+  curar, exportar/importar; distintivo de ámbito (`global` invertido vs
+  `proyecto`) y aviso explícito cuando el área activa no está registrada (ámbito
+  global) para no atribuir al proyecto recuerdos compartidos. Nunca muestra
+  recuerdos de otros proyectos: el front no envía identificador alguno.
+- IPC Tauri nuevos (`desktop/src-tauri/src/memoria.rs`, 256 líneas):
+  `memoria_listar_proyecto`, `memoria_borrar` (idempotente, devuelve listado
+  fresco), `memoria_curar`, `memoria_exportar` (destino fijo `.glory/memorias`,
+  error si no hay área) y `memoria_importar` (error si falta la carpeta,
+  devuelve los omitidos con motivo). El ámbito lo resuelve el backend con
+  `area_activa` y degrada a global.
+- Export/import compartido: las funciones de carpeta (`exportar_carpeta`,
+  `archivos_markdown`, `importar_carpeta`, `ResumenImport`) se elevaron a
+  `cli/src/infra/memoria_io.rs` para que CLI y escritorio usen UNA
+  implementación del formato; `cli/src/comandos/memoria.rs` solo resuelve el
+  destino y delega.
+- En modo web el transporte **rechaza** las memorias con motivo explícito
+  (`adaptadores/apiMemorias.ts`): una lista vacía se leería como "no hay
+  recuerdos" y mentiría sobre el estado real.
+- Evidencia: `cargo test -p glory-harness --lib` (**120 verdes**, incluye
+  `areas_no_mezclan_recuerdos_al_exportar_e_importar`, que usa SQLite real con
+  dos áreas registradas), `cargo test -p glory-harness-core --lib` (276),
+  `cargo test -p glory-harness-desktop` (11), clippy `-D warnings` limpio en los
+  tres crates, `npm.cmd --prefix desktop/ui run build` OK (88 módulos, `tsc`
+  EXIT 0). Gate canónico: ver `Agente/completados/tareas-2026-09-10.md`
+  (FAIL ajeno por `sccache`, 0 hallazgos nuevos propios; los 10 warnings que
+  quedan son preexistentes de 109A-1/109A-2).
 
 ## 4. No alcance
 
@@ -109,3 +130,24 @@ y sección "Memorias" en Configuración para gestionarlas.
 `cargo clippy --workspace --all-targets` 0 warnings, `cargo test --workspace` verde,
 `tsc` EXIT 0, gate full PASS 0/0/0, E2E 2-proyectos sin mezcla, roadmap actualizado y
 completada con evidencia por fase.
+
+### Cierre (2026-09-10)
+
+- Clippy `-D warnings` limpio en `glory-harness-core`, `glory-harness` y
+  `glory-harness-desktop`; suites verdes (276 core + 120 CLI + 11 escritorio) y
+  build de UI EXIT 0.
+- Aislamiento entre proyectos cubierto por pruebas reales sobre SQLite (dos áreas
+  registradas) en vez del E2E con ventana: abrir una ventana GUI y pulsar botones
+  no es viable desde el agente, así que la comprobación manual queda pendiente
+  para el usuario y la evidencia es el test de integración más las pruebas del
+  DTO del panel. **Limitación registrada, no sustituida por silencio.**
+- Gate canónico `sentinel check 109A-3 --stages scripts/quality/stages.json`:
+  **FAIL** por `sccache-no-configurado` (ajeno, tarea del roadmap); etapas
+  `coverage` PASS 0/0/0, `sentinel` PASS 0 errores con **10 warnings
+  preexistentes** (8 `console-production` en el navegador y `limite-lineas` en
+  `main.ts`/`panelDerecho.ts`, ya presentes en 109A-1/109A-2). Los dos hallazgos
+  nuevos que introdujo la primera pasada de F3 (`limite-lineas` en `api.ts` y
+  `large-interface-isp` en `vistaModal.ts`) se corrigieron extrayendo el rechazo
+  web a `adaptadores/apiMemorias.ts` y agrupando las acciones en un solo campo
+  `memoria`. DoD de "gate PASS 0/0/0" no alcanzable por la etapa `sccache`
+  ajena: se registra como deuda, no como PASS falso.

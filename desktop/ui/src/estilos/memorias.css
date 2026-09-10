@@ -1,0 +1,179 @@
+/*
+   Panel "Memorias" del modal de configuración ([109A-3]).
+   Mismo lenguaje monocromo del resto: bordes de 1px, sin radios ni sombras,
+   estados por inversión. Solo tokens de variables.css (nada literal): el tema
+   oscuro se hereda redefiniendo las variables.
+   ============================================================ */
+
+.memorias {
+    display: flex;
+    flex-direction: column;
+    gap: var(--sp-sm);
+    min-height: 0;
+}
+
+.memorias-cabecera {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--sp-sm);
+    border-bottom: 1px solid var(--borde);
+    padding-bottom: var(--sp-xs);
+}
+
+.memorias-identidad {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+
+.memorias-titulo {
+    font-size: calc(var(--xs) + 1px);
+    text-decoration: underline;
+}
+
+.memorias-subtitulo {
+    display: flex;
+    align-items: baseline;
+    gap: var(--sp-xs);
+    font-size: var(--xs);
+    color: var(--texto-tenue);
+    min-width: 0;
+}
+
+.memorias-ruta {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.memorias-chip {
+    flex: none;
+    border: 1px solid var(--borde);
+    color: var(--texto);
+    padding: 0 4px;
+    font-size: var(--xs);
+}
+
+/* El ámbito global no es el proyecto abierto: se invierte para que el ojo no
+   lo confunda con memorias del proyecto. */
+.memorias-chip.global {
+    background: var(--superficie-seleccionada);
+    color: var(--invertido);
+}
+
+.memorias-acciones {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--sp-xs);
+    justify-content: flex-end;
+}
+
+.memorias-accion {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    border: 1px solid var(--borde);
+    background: var(--fondo);
+    color: var(--texto);
+    font-family: inherit;
+    font-size: var(--xs);
+    padding: 2px var(--sp-xs);
+    cursor: pointer;
+}
+
+.memorias-accion:hover { background: var(--superficie-hover); }
+.memorias-accion:focus-visible { outline: 1px solid var(--foco); outline-offset: 1px; }
+
+.memorias-lista {
+    display: flex;
+    flex-direction: column;
+    border: 1px solid var(--borde);
+    max-height: 220px;
+    overflow-y: auto;
+}
+
+.memoria-fila {
+    display: flex;
+    align-items: stretch;
+    border-bottom: 1px solid var(--borde);
+}
+.memoria-fila:last-child { border-bottom: none; }
+
+.memoria-principal {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    border: none;
+    background: transparent;
+    color: var(--texto);
+    font-family: inherit;
+    font-size: var(--xs);
+    text-align: left;
+    padding: var(--sp-xs);
+    cursor: pointer;
+}
+
+.memoria-principal:hover { background: var(--superficie-hover); }
+.memoria-principal:focus-visible { outline: 1px solid var(--foco); outline-offset: -2px; }
+
+.memoria-clave { text-decoration: underline; }
+.memoria-resumen { color: var(--texto-tenue); }
+.memoria-meta { color: var(--texto-tenue); }
+
+.memoria-borrar {
+    flex: none;
+    border: none;
+    border-left: 1px solid var(--borde);
+    background: transparent;
+    color: var(--texto);
+    font-family: inherit;
+    font-size: var(--xs);
+    padding: 0 var(--sp-xs);
+    cursor: pointer;
+}
+
+.memoria-borrar:hover { background: var(--superficie-hover); }
+.memoria-borrar:focus-visible { outline: 1px solid var(--foco); outline-offset: -2px; }
+.memoria-borrar.confirmar {
+    background: var(--superficie-seleccionada);
+    color: var(--invertido);
+}
+
+.memorias-detalle {
+    display: flex;
+    flex-direction: column;
+    gap: var(--sp-xs);
+    border: 1px solid var(--borde);
+    padding: var(--sp-sm);
+}
+.memorias-detalle[hidden] { display: none; }
+
+.memorias-detalle-titulo { font-size: calc(var(--xs) + 1px); text-decoration: underline; }
+.memorias-detalle-meta { font-size: var(--xs); color: var(--texto-tenue); }
+
+.memorias-detalle-cuerpo {
+    font-family: inherit;
+    font-size: var(--xs);
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: 160px;
+    overflow: auto;
+    border-left: 1px solid var(--borde);
+    padding-left: var(--sp-xs);
+}
+
+.memorias-detalle-acciones { display: flex; gap: var(--sp-xs); }
+
+.memorias-estado { min-height: var(--sp-md); }
+
+.memorias-nota { font-size: var(--xs); color: var(--texto-tenue); }
+.memorias-nota.error {
+    color: var(--texto);
+    border-left: 3px solid var(--borde);
+    padding-left: var(--sp-xs);
+}

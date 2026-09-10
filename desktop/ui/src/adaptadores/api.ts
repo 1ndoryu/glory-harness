@@ -20,6 +20,7 @@ import {
 import type { EstadoGit } from '../componentes/panelGit';
 import type { ListadoWorkspace, ResultadoBusqueda, Workspace } from '../dominio/tipos';
 import { crearClienteApi } from './apiCliente';
+import { transporteMemoriasNoDisponibles } from './apiMemorias';
 
 /** Claves que viven en el servidor; el resto cae a localStorage (igual que
  * el mock): la superficie configLeer/Guardar no cambia. */
@@ -307,6 +308,10 @@ export function crearTransporteApi(base: string, hooks: HooksAdaptador = {}): Tr
     },
     workspaceGitEstado: async (): Promise<EstadoGit> =>
       http<EstadoGit>('GET', `/api/v1/session/${cliente.getSid()}/git/estado`),
+    // [109A-3] El servidor web no expone rutas de memoria (el ámbito lo
+    // resuelve el backend de escritorio): se rechaza con motivo explícito en
+    // vez de devolver una lista vacía, que se leería como "no hay recuerdos".
+    ...transporteMemoriasNoDisponibles(),
   };
 }
 

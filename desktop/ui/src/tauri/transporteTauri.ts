@@ -7,7 +7,9 @@ import type {
   CargaConversacion,
   InfoConversacion,
   InfoSesion,
+  ListadoMemoria,
   ProveedorInfo,
+  ResultadoCarpetaMemoria,
   ResultadoRestauracionTramo,
   Transporte,
 } from './realTipos';
@@ -93,6 +95,13 @@ export function transporteTauri(): Transporte {
       }),
     workspaceGitEstado: () =>
       invoke<EstadoGit>('workspace_git_estado'),
+    // [109A-3] Memorias: el backend resuelve el ámbito con el área activa y
+    // no acepta rutas del front (export/import van a `.glory/memorias`).
+    memoriaListar: () => invoke<ListadoMemoria>('memoria_listar_proyecto'),
+    memoriaBorrar: (clave) => invoke<ListadoMemoria>('memoria_borrar', { clave }),
+    memoriaCurar: () => invoke<string>('memoria_curar'),
+    memoriaExportar: () => invoke<ResultadoCarpetaMemoria>('memoria_exportar'),
+    memoriaImportar: () => invoke<ResultadoCarpetaMemoria>('memoria_importar'),
   };
 }
 

@@ -9,6 +9,7 @@ import { FORMULARIO_CONFIGURACION, OPCIONES_MODELO } from '../dominio/opciones';
 import type { ModeloSeleccionado, ProveedorModelo } from '../dominio/tipos';
 import type { ModoEjecucion } from './entrada';
 import { montarFormulario } from './formulario';
+import { montarMemorias, type MemoriasDeps, type MemoriasPanel } from './memorias';
 import { montarSelectorModelo, type SelectorModeloApi } from './selectorModelo';
 import { el } from '../util/dom';
 
@@ -34,6 +35,8 @@ export interface ModalOpciones {
   onCambio?: (id: string, valor: string | boolean) => void;
   /** Se invoca al elegir un modelo en el selector (panel Modelo). */
   onModeloCambiado?: (modelo: ModeloSeleccionado) => void;
+  /** [109A-3] Acciones del panel "Memorias" (proyecto activo). */
+  memoria: MemoriasDeps;
 }
 
 type PanelId = (typeof FORMULARIO_CONFIGURACION)[number]['id'];
@@ -73,12 +76,20 @@ export function montarModalConfiguracion(opts: ModalOpciones): ModalConfiguracio
   const formularioDeOpcion = new Map<string, ReturnType<typeof montarFormulario>>();
   /** Selector de modelo del panel Modelo (se reemplaza la opción de lectura). */
   let selectorModeloApi: SelectorModeloApi | null = null;
+  /** [109A-3] Panel "Memorias" (se consulta al backend al mostrarlo). */
+  let panelMemorias: MemoriasPanel | null = null;
+  /** Panel visible ahora mismo (para recargar al reabrir el modal). */
+  let panelActivo: PanelId = FORMULARIO_CONFIGURACION[0].id as PanelId;
 
   function cambiarPanel(objetivo: PanelId): void {
+    panelActivo = objetivo;
     items.forEach((item, clave) => item.classList.toggle('sel', clave === objetivo));
     formularios.forEach((f, clave) => {
       f.raiz.hidden = clave !== objetivo;
     });
+    // Las memorias viven en el backend: se leen al abrir la sección (no al
+    // construir el modal) y otra vez al reabrir, para ver lo que cambió.
+    if (objetivo === 'memorias') panelMemorias?.refrescar();
   }
 
   // guardado automático: todo cambio se notifica al vuelo
@@ -119,6 +130,13 @@ export function montarModalConfiguracion(opts: ModalOpciones): ModalConfiguracio
       f.reemplazarControl('proveedorModelo', selModelo.raiz);
       selectorModeloApi = selModelo;
     }
+
+    // [109A-3] Sección "Memorias": panel custom (no hay formulario que
+    // generar; la sección se declaró sin grupos a propósito).
+    if (seccion.id === 'memorias') {
+      panelMemorias = montarMemorias(opts.memoria);
+      f.raiz.appendChild(panelMemorias.raiz);
+    }
   });
 
   const contenedor = el('div', 'config-paneles');
@@ -132,6 +150,9 @@ export function montarModalConfiguracion(opts: ModalOpciones): ModalConfiguracio
   // ---------- comportamiento ----------
   function abrir(): void {
     fondo.hidden = false;
+    // Si el modal se cierra en "Memorias" y se reabre, se relista el ámbito
+    // activo (pudo cambiar el proyecto o curar el agente entre medias).
+    if (panelActivo === 'memorias') panelMemorias?.refrescar();
   }
   function cerrar(): void {
     fondo.hidden = true;
@@ -147,7 +168,6 @@ export function montarModalConfiguracion(opts: ModalOpciones): ModalConfiguracio
   // panel inicial: primero visible
   const primera = FORMULARIO_CONFIGURACION[0].id as PanelId;
   cambiarPanel(primera);
-
   return {
     raiz: fondo,
     abrir,

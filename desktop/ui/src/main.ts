@@ -236,6 +236,10 @@ const todoVistaModal = montarVistaModal({
     if (!USA_REAL) return;
     await adaptador.sesion.workspaces.guardarProyecto(nombre, ruta);
   },
+  // [109A-3] Memorias del proyecto activo: el ámbito lo resuelve el backend
+  // (área activa de la sesión). En modo web el transporte rechaza con su
+  // motivo, que el panel muestra tal cual; el aviso lo añade el modal.
+  memoria: adaptador.sesion.memorias,
   hayTurno: () => vistaMeta.hayTurnoGlobal(),
   avisar: avisoGlobal,
   ponerBorradorPrincipal: () => principal.ponerBorrador(),
