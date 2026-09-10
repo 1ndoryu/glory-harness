@@ -683,6 +683,7 @@ mod tests {
         let (sandbox, dir) = sandbox_con_fixture();
         let persistencia = crate::contrato_tests::PersistenciaMock::default();
         let ctx = AgentToolContext {
+            ambito_memoria: crate::ports::AmbitoMemoria::Global,
             user_id: uuid::Uuid::new_v4(),
             persistencia: &persistencia,
             web_fetch: None,

@@ -334,6 +334,7 @@ async fn ejecutar_turno_tui(ctx: CtxTurnoTui<'_>) {
         crate::memoria::bloque_memoria_para_turno(
             persistencia,
             user_id,
+            runtime.turno_config.ambito_memoria,
             texto,
             runtime.turno_config.incluir_memoria,
             runtime.turno_config.incluir_skills,
@@ -358,6 +359,7 @@ async fn ejecutar_turno_tui(ctx: CtxTurnoTui<'_>) {
             crate::memoria::sincronizar_memoria_tras_turno(
                 persistencia,
                 user_id,
+                runtime.turno_config.ambito_memoria,
                 &respuesta.texto,
                 texto,
                 "turno:tui",

@@ -159,6 +159,7 @@ mod tests {
         web_search: Option<&'a dyn WebSearchProvider>,
     ) -> AgentToolContext<'a> {
         AgentToolContext {
+            ambito_memoria: crate::ports::AmbitoMemoria::Global,
             user_id: Uuid::new_v4(),
             persistencia,
             web_search,
@@ -214,6 +215,7 @@ mod tests {
     async fn web_fetch_falla_claro_sin_proveedor() {
         let persistencia = PersistenciaMock::default();
         let cxt = AgentToolContext {
+            ambito_memoria: crate::ports::AmbitoMemoria::Global,
             user_id: Uuid::new_v4(),
             persistencia: &persistencia,
             web_search: None,

@@ -169,6 +169,7 @@ mod tests {
         let error = rt.block_on(async {
             // Contexto mínimo (ningún puerto se toca: la tool falla antes).
             let ctx = AgentToolContext {
+                ambito_memoria: crate::ports::AmbitoMemoria::Global,
                 user_id: uuid::Uuid::new_v4(),
                 persistencia: &crate::contrato_tests::PersistenciaMock::default(),
                 web_search: None,

@@ -25,7 +25,8 @@ pub mod sanitize;
 pub mod tools;
 
 pub use curador::{
-    ejecutar_curador, es_peticion_curador, PoliticaCurador, ResumenCurador, MARCADOR_CURADOR,
+    ejecutar_curador, ejecutar_curador_todos, es_peticion_curador, PoliticaCurador,
+    ResumenCurador, MARCADOR_CURADOR,
 };
 pub use proveedor::{extraer_candidatos, puntuar_y_formatear, MemoriaBase};
 pub use sanitize::{parece_secreto, sanitize_para_memoria};

@@ -10,12 +10,15 @@ use uuid::Uuid;
 
 use glory_harness_core::error::Error;
 use glory_harness_core::ports::{
-    AccionAuditable, MemoriaEntrada, MensajePersistido, SkillEntrada, TareaProgramadaPendiente,
-    TurnoPersistido,
+    AccionAuditable, AmbitoMemoria, MemoriaEntrada, MensajePersistido, SkillEntrada,
+    TareaProgramadaPendiente, TurnoPersistido,
 };
 use glory_harness_core::{AgentPersistence, HarnessResult};
 
-use super::{a_fecha, a_uuid, ahora_rfc3339, bloquear, PersistenciaSqlite};
+use super::{
+    a_fecha, a_uuid, ahora_rfc3339, ambito_a_workspace_id, bloquear, workspace_id_a_ambito,
+    PersistenciaSqlite,
+};
 
 #[async_trait]
 impl AgentPersistence for PersistenciaSqlite {
@@ -142,25 +145,35 @@ impl AgentPersistence for PersistenciaSqlite {
         Ok(())
     }
 
-    async fn memoria_listar(&self, user_id: Uuid) -> HarnessResult<Vec<MemoriaEntrada>> {
+    async fn memoria_listar(
+        &self,
+        user_id: Uuid,
+        ambito: AmbitoMemoria,
+    ) -> HarnessResult<Vec<MemoriaEntrada>> {
         let conn = bloquear(&self.conn);
         let mut stmt = conn
             .prepare(
                 "SELECT clave, contenido, actualizada_en, origen, usos, ultimo_uso
-                 FROM memoria WHERE user_id = ?1",
+                 FROM memoria WHERE user_id = ?1 AND workspace_id = ?2",
             )
             .map_err(|e| Error::Persistencia(e.to_string()))?;
         let filas = stmt
-            .query_map(params![user_id.as_hyphenated().to_string()], |f| {
-                Ok((
-                    f.get::<_, String>(0)?,
-                    f.get::<_, String>(1)?,
-                    f.get::<_, Option<String>>(2)?,
-                    f.get::<_, Option<String>>(3)?,
-                    f.get::<_, i64>(4)?,
-                    f.get::<_, Option<String>>(5)?,
-                ))
-            })
+            .query_map(
+                params![
+                    user_id.as_hyphenated().to_string(),
+                    ambito_a_workspace_id(ambito)
+                ],
+                |f| {
+                    Ok((
+                        f.get::<_, String>(0)?,
+                        f.get::<_, String>(1)?,
+                        f.get::<_, Option<String>>(2)?,
+                        f.get::<_, Option<String>>(3)?,
+                        f.get::<_, i64>(4)?,
+                        f.get::<_, Option<String>>(5)?,
+                    ))
+                },
+            )
             .map_err(|e| Error::Persistencia(e.to_string()))?;
         let mut out = Vec::new();
         for fila in filas {
@@ -190,12 +203,18 @@ impl AgentPersistence for PersistenciaSqlite {
         Ok(out)
     }
 
-    async fn memoria_upsert(&self, user_id: Uuid, entrada: &MemoriaEntrada) -> HarnessResult<()> {
+    async fn memoria_upsert(
+        &self,
+        user_id: Uuid,
+        ambito: AmbitoMemoria,
+        entrada: &MemoriaEntrada,
+    ) -> HarnessResult<()> {
         bloquear(&self.conn)
             .execute(
-                "INSERT INTO memoria (user_id, clave, contenido, actualizada_en, origen, usos, ultimo_uso)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
-                 ON CONFLICT(user_id, clave) DO UPDATE SET
+                "INSERT INTO memoria
+                     (user_id, workspace_id, clave, contenido, actualizada_en, origen, usos, ultimo_uso)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+                 ON CONFLICT(user_id, workspace_id, clave) DO UPDATE SET
                     contenido = excluded.contenido,
                     actualizada_en = excluded.actualizada_en,
                     origen = excluded.origen,
@@ -203,6 +222,7 @@ impl AgentPersistence for PersistenciaSqlite {
                     ultimo_uso = excluded.ultimo_uso",
                 params![
                     user_id.as_hyphenated().to_string(),
+                    ambito_a_workspace_id(ambito),
                     entrada.clave,
                     entrada.contenido,
                     entrada.actualizada_en.to_rfc3339_opts(SecondsFormat::Secs, true),
@@ -217,14 +237,52 @@ impl AgentPersistence for PersistenciaSqlite {
         Ok(())
     }
 
-    async fn memoria_borrar(&self, user_id: Uuid, clave: &str) -> HarnessResult<()> {
+    async fn memoria_borrar(
+        &self,
+        user_id: Uuid,
+        ambito: AmbitoMemoria,
+        clave: &str,
+    ) -> HarnessResult<()> {
         bloquear(&self.conn)
             .execute(
-                "DELETE FROM memoria WHERE user_id = ?1 AND clave = ?2",
-                params![user_id.as_hyphenated().to_string(), clave],
+                "DELETE FROM memoria WHERE user_id = ?1 AND workspace_id = ?2 AND clave = ?3",
+                params![
+                    user_id.as_hyphenated().to_string(),
+                    ambito_a_workspace_id(ambito),
+                    clave
+                ],
             )
             .map_err(|e| Error::Persistencia(e.to_string()))?;
         Ok(())
+    }
+
+    /// Ámbitos con recuerdos del usuario ([109A-2]). El curador los recorre
+    /// todos, así que el orden debe ser estable entre pasadas: global primero
+    /// y después los proyectos por UUID. El global siempre está presente
+    /// aunque no tenga recuerdos, para que el curador pueda avisar de él.
+    async fn memoria_ambitos(&self, user_id: Uuid) -> HarnessResult<Vec<AmbitoMemoria>> {
+        let conn = bloquear(&self.conn);
+        let mut stmt = conn
+            .prepare("SELECT DISTINCT workspace_id FROM memoria WHERE user_id = ?1")
+            .map_err(|e| Error::Persistencia(e.to_string()))?;
+        let filas = stmt
+            .query_map(params![user_id.as_hyphenated().to_string()], |f| {
+                f.get::<_, String>(0)
+            })
+            .map_err(|e| Error::Persistencia(e.to_string()))?;
+        let mut ambitos = Vec::new();
+        for fila in filas {
+            let valor = fila.map_err(|e| Error::Persistencia(e.to_string()))?;
+            let ambito = workspace_id_a_ambito(&valor)?;
+            if !ambitos.contains(&ambito) {
+                ambitos.push(ambito);
+            }
+        }
+        if !ambitos.contains(&AmbitoMemoria::Global) {
+            ambitos.push(AmbitoMemoria::Global);
+        }
+        ambitos.sort_by_key(|a| (a.proyecto_id().is_some(), a.proyecto_id()));
+        Ok(ambitos)
     }
 
     async fn skills_listar(&self, user_id: Uuid) -> HarnessResult<Vec<SkillEntrada>> {

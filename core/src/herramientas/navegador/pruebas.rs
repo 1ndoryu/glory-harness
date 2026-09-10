@@ -69,6 +69,7 @@ fn ctx_con_navegador() -> AgentToolContext<'static> {
     }));
 
     AgentToolContext {
+        ambito_memoria: crate::ports::AmbitoMemoria::Global,
         user_id: uuid::Uuid::nil(),
 
         persistencia,
@@ -96,6 +97,7 @@ fn ctx_sin_navegador() -> AgentToolContext<'static> {
         Box::leak(Box::new(crate::contrato_tests::PersistenciaMock::default()));
 
     AgentToolContext {
+        ambito_memoria: crate::ports::AmbitoMemoria::Global,
         user_id: uuid::Uuid::new_v4(),
 
         persistencia,

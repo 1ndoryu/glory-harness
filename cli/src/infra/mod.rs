@@ -4,5 +4,6 @@
 
 pub mod ejecutor;
 pub mod fetch;
+pub mod memoria_io;
 pub mod persistencia;
 pub mod reglas;

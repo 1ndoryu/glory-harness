@@ -563,6 +563,7 @@ mod pruebas {
         persistencia: &crate::contrato_tests::PersistenciaMock,
     ) -> AgentToolContext<'_> {
         AgentToolContext {
+            ambito_memoria: crate::ports::AmbitoMemoria::Global,
             user_id: uuid::Uuid::new_v4(),
             persistencia,
             web_fetch: None,

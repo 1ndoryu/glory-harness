@@ -518,6 +518,7 @@ mod tests {
         let persistencia: &'static crate::contrato_tests::PersistenciaMock =
             Box::leak(Box::new(crate::contrato_tests::PersistenciaMock::default()));
         AgentToolContext {
+            ambito_memoria: crate::ports::AmbitoMemoria::Global,
             user_id: Uuid::new_v4(),
             persistencia,
             web_fetch: None,

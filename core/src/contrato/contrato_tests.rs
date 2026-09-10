@@ -58,6 +58,7 @@ impl AgentPersistence for PersistenciaMock {
     async fn memoria_listar(
         &self,
         _user_id: uuid::Uuid,
+        _ambito: crate::ports::AmbitoMemoria,
     ) -> crate::error::Result<Vec<MemoriaEntrada>> {
         Ok(self
             .memoria
@@ -70,11 +71,17 @@ impl AgentPersistence for PersistenciaMock {
     async fn memoria_upsert(
         &self,
         _user_id: uuid::Uuid,
+        _ambito: crate::ports::AmbitoMemoria,
         _entrada: &MemoriaEntrada,
     ) -> crate::error::Result<()> {
         Ok(())
     }
-    async fn memoria_borrar(&self, _user_id: uuid::Uuid, _clave: &str) -> crate::error::Result<()> {
+    async fn memoria_borrar(
+        &self,
+        _user_id: uuid::Uuid,
+        _ambito: crate::ports::AmbitoMemoria,
+        _clave: &str,
+    ) -> crate::error::Result<()> {
         Ok(())
     }
     async fn skills_listar(&self, _user_id: uuid::Uuid) -> crate::error::Result<Vec<SkillEntrada>> {

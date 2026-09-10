@@ -10,18 +10,50 @@
 //! un fallo de lectura/escritura avisa por stderr y el turno continúa (pero
 //! nunca en silencio).
 
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use uuid::Uuid;
 
 use glory_harness_core::llm::AiMessage;
 use glory_harness_core::memoria::{
-    ejecutar_curador, sanitize_para_memoria, MemoriaBase, PoliticaCurador,
+    ejecutar_curador_todos, sanitize_para_memoria, MemoriaBase, PoliticaCurador,
 };
-use glory_harness_core::ports::{AgentPersistence, MemoriaEntrada, ProveedorMemoria};
+use glory_harness_core::ports::{
+    AgentPersistence, AmbitoMemoria, MemoriaEntrada, ProveedorMemoria,
+};
+
+use crate::infra::memoria_io;
+use crate::persistencia_sqlite::PersistenciaSqlite;
 
 /// Tope del bloque inyectado por turno (recuerdos + skills promovidas).
 pub const LIMITE_BLOQUE_MEMORIA: usize = 2000;
+
+/// [109A-2] Ámbito de memoria del turno a partir de la carpeta activa: el
+/// área de trabajo registrada con esa ruta, o global cuando no hay área (ruta
+/// ausente o nunca registrada). Un fallo de consulta se avisa y degrada a
+/// global en vez de romper el turno: la memoria es auxiliar, pero nunca
+/// falla en silencio.
+pub fn ambito_de_ruta(
+    sqlite: Option<&PersistenciaSqlite>,
+    user_id: Uuid,
+    ruta: Option<&Path>,
+) -> AmbitoMemoria {
+    let (Some(tiendas), Some(ruta)) = (sqlite, ruta) else {
+        return AmbitoMemoria::Global;
+    };
+    // La BD guarda la ruta tal como la registró la web; el CLI trabaja con la
+    // ruta canonizada, que en Windows puede llevar el prefijo verbatim.
+    let sin_verbatim = crate::run::quitar_prefijo_verbatim(ruta.to_path_buf());
+    match tiendas.workspace_por_ruta(user_id, &sin_verbatim.to_string_lossy()) {
+        Ok(Some(area)) => AmbitoMemoria::Proyecto(area.id),
+        Ok(None) => AmbitoMemoria::Global,
+        Err(e) => {
+            eprintln!("[memoria] área activa no resuelta: {e} (se usa la memoria global)");
+            AmbitoMemoria::Global
+        }
+    }
+}
 
 /// Recupera el bloque `[MEMORIA]`/`[SKILLS]` para `mensaje` como mensaje
 /// `system` inicial, o `None` si no hay nada relevante (o falla la lectura,
@@ -29,13 +61,14 @@ pub const LIMITE_BLOQUE_MEMORIA: usize = 2000;
 pub async fn bloque_memoria_para_turno(
     persistencia: &Arc<dyn AgentPersistence>,
     user_id: Uuid,
+    ambito: AmbitoMemoria,
     mensaje: &str,
     incluir_memoria: bool,
     incluir_skills: bool,
 ) -> Option<AiMessage> {
     let mut secciones = Vec::new();
     if incluir_memoria {
-        let base = MemoriaBase::nuevo(Arc::clone(persistencia), LIMITE_BLOQUE_MEMORIA);
+        let base = MemoriaBase::nuevo(Arc::clone(persistencia), LIMITE_BLOQUE_MEMORIA, ambito);
         match base.prefetch(user_id, mensaje, LIMITE_BLOQUE_MEMORIA).await {
             Ok(bloque) if !bloque.trim().is_empty() => {
                 secciones.push(format!("[MEMORIA]\n{bloque}"));
@@ -92,6 +125,7 @@ pub fn anteponer_memoria(
 pub async fn sincronizar_memoria_tras_turno(
     persistencia: &Arc<dyn AgentPersistence>,
     user_id: Uuid,
+    ambito: AmbitoMemoria,
     texto_respuesta: &str,
     mensaje_usuario: &str,
     origen: &str,
@@ -99,7 +133,7 @@ pub async fn sincronizar_memoria_tras_turno(
     if texto_respuesta.trim().is_empty() && mensaje_usuario.trim().is_empty() {
         return;
     }
-    let base = MemoriaBase::nuevo(Arc::clone(persistencia), LIMITE_BLOQUE_MEMORIA);
+    let base = MemoriaBase::nuevo(Arc::clone(persistencia), LIMITE_BLOQUE_MEMORIA, ambito);
     // El resumen combina ambas caras: la intención explícita suele estar en
     // el mensaje ("recuerda que...") y el dato en la respuesta.
     let resumen = format!("{mensaje_usuario}\n{texto_respuesta}");
@@ -124,25 +158,80 @@ pub enum SalidaMemoria {
     Uso,
 }
 
-/// `glory-harness memoria <listar|recordar|guardar|borrar|curar> [args]`
+/// `glory-harness memoria <listar|recordar|guardar|borrar|exportar|importar|curar> [args]`
 /// sobre la misma BD durable y `user_id` estable que `chat`/`session`:
 /// inspecciona y mantiene a mano lo que el agente recuerda solo.
 /// `curar` corre la misma pasada determinista que el cron con el marcador
 /// `[curador-memoria]` (sin gastar un turno de LLM).
+///
+/// [109A-2] Ámbito: por defecto el del área de trabajo de la carpeta activa
+/// (global si esa carpeta no es un área registrada). `--global` lo fuerza al
+/// ámbito compartido y `--proyecto <uuid|ruta>` al de un área concreta;
+/// `listar --todos` los recorre todos. La memoria es estricta por ámbito: un
+/// listado nunca mezcla recuerdos de dos proyectos.
+///
+/// [109A-2] `exportar`/`importar` mueven un ámbito a/desde una carpeta de
+/// markdown (un archivo por recuerdo) para inspeccionarlo, editarlo o
+/// llevarlo a otro equipo sin tocar la BD.
 pub async fn memoria(args: &[String]) -> Result<SalidaMemoria, String> {
     let accion = args.first().map(String::as_str).ok_or_else(|| {
-        "uso: glory-harness memoria <listar|recordar|guardar|borrar|curar> [args]".to_string()
+        "uso: glory-harness memoria <listar|recordar|guardar|borrar|exportar|importar|curar> [args] [--global|--proyecto <uuid|ruta>] [--todos]".to_string()
     })?;
     match accion {
-        "list" | "listar" => accion_memoria_listar().await.map(|()| SalidaMemoria::Ok),
+        "list" | "listar" => accion_memoria_listar(args).await.map(|()| SalidaMemoria::Ok),
         "recordar" | "buscar" => accion_memoria_recordar(args).await,
         "guardar" | "save" => accion_memoria_guardar(args).await,
         "borrar" | "rm" | "olvidar" => accion_memoria_borrar(args).await,
+        "exportar" | "export" => accion_memoria_exportar(args).await.map(|()| SalidaMemoria::Ok),
+        "importar" | "import" => accion_memoria_importar(args).await,
         "curar" | "curador" => accion_memoria_curar().await.map(|()| SalidaMemoria::Ok),
         otra => Err(format!(
-            "memoria: acción desconocida '{otra}' (listar|recordar|guardar|borrar|curar)"
+            "memoria: acción desconocida '{otra}' (listar|recordar|guardar|borrar|exportar|importar|curar)"
         )),
     }
+}
+
+/// Valor de un flag con argumento (`--destino <dir>`).
+fn valor_flag<'a>(args: &'a [String], flag: &str) -> Option<&'a str> {
+    args.iter()
+        .position(|a| a == flag)
+        .and_then(|i| args.get(i + 1))
+        .map(|s| s.as_str())
+        .filter(|s| !s.trim().is_empty())
+}
+
+/// Ámbito pedido en la línea de comandos. Un `--proyecto` inválido es error
+/// de uso (exit 2), no un fallback silencioso a global: guardar en el ámbito
+/// equivocado sería peor que no guardar.
+fn ambito_pedido(
+    args: &[String],
+    tiendas: &PersistenciaSqlite,
+    user_id: Uuid,
+) -> Result<AmbitoMemoria, String> {
+    if args.iter().any(|a| a == "--global") {
+        return Ok(AmbitoMemoria::Global);
+    }
+    if let Some(i) = args.iter().position(|a| a == "--proyecto") {
+        let valor = args
+            .get(i + 1)
+            .map(|s| s.trim())
+            .filter(|s| !s.is_empty())
+            .ok_or_else(|| "--proyecto necesita un uuid o una ruta".to_string())?;
+        if let Ok(id) = Uuid::parse_str(valor) {
+            return Ok(AmbitoMemoria::Proyecto(id));
+        }
+        return match tiendas.workspace_por_ruta(user_id, valor) {
+            Ok(Some(area)) => Ok(AmbitoMemoria::Proyecto(area.id)),
+            Ok(None) => Err(format!("--proyecto: no hay área de trabajo con la carpeta '{valor}'")),
+            Err(e) => Err(format!("--proyecto: {e}")),
+        };
+    }
+    // Sin flags: el área activa (cwd), o global si esa carpeta no es un área.
+    Ok(ambito_de_ruta(
+        Some(tiendas),
+        user_id,
+        std::env::current_dir().ok().as_deref(),
+    ))
 }
 
 /// Argumento posicional obligatorio (`memoria <acción> <arg>`); ausente o
@@ -160,27 +249,49 @@ fn abrir_memoria() -> Result<(Arc<crate::persistencia_sqlite::PersistenciaSqlite
     crate::run::abrir_tiendas_durables()
 }
 
-/// `memoria listar`: una línea por recuerdo (archivadas marcadas).
-async fn accion_memoria_listar() -> Result<(), String> {
+/// `memoria listar [--todos]`: una línea por recuerdo (archivadas marcadas).
+/// Con `--todos` recorre los ámbitos del usuario agrupados por encabezado,
+/// porque un listado de ámbito debe poder verse entero sin adivinar cuál es.
+async fn accion_memoria_listar(args: &[String]) -> Result<(), String> {
     let (tiendas, user_id) = abrir_memoria()?;
-    let persistencia: Arc<dyn AgentPersistence> = tiendas;
-    let mut entradas = persistencia
-        .memoria_listar(user_id)
-        .await
-        .map_err(|e| e.to_string())?;
-    if entradas.is_empty() {
-        println!("(sin recuerdos; el agente guarda con `memoria_guardar` o `memoria guardar`)");
-        return Ok(());
+    let persistencia: Arc<dyn AgentPersistence> = tiendas.clone();
+    let ambitos = if args.iter().any(|a| a == "--todos") {
+        persistencia.memoria_ambitos(user_id).await.map_err(|e| e.to_string())?
+    } else {
+        vec![ambito_pedido(args, &tiendas, user_id)?]
+    };
+    let mut vacio = true;
+    for ambito in ambitos {
+        let mut entradas = persistencia
+            .memoria_listar(user_id, ambito)
+            .await
+            .map_err(|e| e.to_string())?;
+        if entradas.is_empty() {
+            continue;
+        }
+        vacio = false;
+        entradas.sort_by(|a, b| a.clave.cmp(&b.clave));
+        println!("{}", etiqueta_ambito(ambito));
+        for e in &entradas {
+            let marca = if e.archivada() { " [archivada]" } else { "" };
+            println!(
+                "- {}: {} (usos={} origen={}){marca}",
+                e.clave, e.contenido, e.usos, e.origen
+            );
+        }
     }
-    entradas.sort_by(|a, b| a.clave.cmp(&b.clave));
-    for e in &entradas {
-        let marca = if e.archivada() { " [archivada]" } else { "" };
-        println!(
-            "- {}: {} (usos={} origen={}){marca}",
-            e.clave, e.contenido, e.usos, e.origen
-        );
+    if vacio {
+        println!("(sin recuerdos; el agente guarda con `memoria_guardar` o `memoria guardar`)");
     }
     Ok(())
+}
+
+/// Encabezado legible del ámbito (una línea por ámbito en `listar --todos`).
+fn etiqueta_ambito(ambito: AmbitoMemoria) -> String {
+    match ambito.proyecto_id() {
+        Some(id) => format!("[proyecto {id}]"),
+        None => "[global]".to_string(),
+    }
 }
 
 /// `memoria recordar <consulta> [--limite N]`: el mismo ranking del prefetch.
@@ -197,8 +308,9 @@ async fn accion_memoria_recordar(args: &[String]) -> Result<SalidaMemoria, Strin
         .map(|l| l.clamp(1, 8000))
         .unwrap_or(LIMITE_BLOQUE_MEMORIA);
     let (tiendas, user_id) = abrir_memoria()?;
+    let ambito = ambito_pedido(args, &tiendas, user_id)?;
     let persistencia: Arc<dyn AgentPersistence> = tiendas;
-    let base = MemoriaBase::nuevo(persistencia, LIMITE_BLOQUE_MEMORIA);
+    let base = MemoriaBase::nuevo(persistencia, LIMITE_BLOQUE_MEMORIA, ambito);
     let bloque = base
         .prefetch(user_id, &consulta, limite)
         .await
@@ -231,15 +343,17 @@ async fn accion_memoria_guardar(args: &[String]) -> Result<SalidaMemoria, String
         );
     };
     let (tiendas, user_id) = abrir_memoria()?;
+    let ambito = ambito_pedido(args, &tiendas, user_id)?;
     let persistencia: Arc<dyn AgentPersistence> = tiendas;
     persistencia
         .memoria_upsert(
             user_id,
+            ambito,
             &MemoriaEntrada::nueva(clave.clone(), limpio, "cli:memoria".into()),
         )
         .await
         .map_err(|e| e.to_string())?;
-    println!("recuerdo '{clave}' guardado");
+    println!("recuerdo '{clave}' guardado en el ámbito {}", ambito.etiqueta());
     Ok(SalidaMemoria::Ok)
 }
 
@@ -250,21 +364,164 @@ async fn accion_memoria_borrar(args: &[String]) -> Result<SalidaMemoria, String>
         Err(u) => return Ok(u),
     };
     let (tiendas, user_id) = abrir_memoria()?;
+    let ambito = ambito_pedido(args, &tiendas, user_id)?;
     let persistencia: Arc<dyn AgentPersistence> = tiendas;
     persistencia
-        .memoria_borrar(user_id, &clave)
+        .memoria_borrar(user_id, ambito, &clave)
         .await
         .map_err(|e| e.to_string())?;
-    println!("recuerdo '{clave}' borrado");
+    println!("recuerdo '{clave}' borrado del ámbito {}", ambito.etiqueta());
     Ok(SalidaMemoria::Ok)
+}
+
+/// `memoria exportar [--proyecto <uuid|ruta>|--global] [--project|--local]
+/// [--destino <carpeta>]`: un `.md` por recuerdo del ámbito.
+///
+/// Destino: `--local` (por defecto) usa la carpeta de datos de la app, que no
+/// se versiona; `--project` usa `.glory/memorias` dentro del área de trabajo
+/// para poder versionar los recuerdos en el repo. `--project` exige un ámbito
+/// de proyecto con carpeta conocida: no se inventa una ruta para el global.
+async fn accion_memoria_exportar(args: &[String]) -> Result<(), String> {
+    let (tiendas, user_id) = abrir_memoria()?;
+    let ambito = ambito_pedido(args, &tiendas, user_id)?;
+    let persistencia: Arc<dyn AgentPersistence> = tiendas.clone();
+    let entradas = persistencia
+        .memoria_listar(user_id, ambito)
+        .await
+        .map_err(|e| e.to_string())?;
+    let destino = destino_export(args, &tiendas, user_id, ambito)?;
+    escribir_recuerdos(&destino, &entradas)?;
+    println!(
+        "{} recuerdo(s) exportados a {}",
+        entradas.len(),
+        destino.display()
+    );
+    Ok(())
+}
+
+/// Carpeta destino del export ([109A-2]).
+fn destino_export(
+    args: &[String],
+    tiendas: &PersistenciaSqlite,
+    user_id: Uuid,
+    ambito: AmbitoMemoria,
+) -> Result<PathBuf, String> {
+    if let Some(dir) = valor_flag(args, "--destino") {
+        return Ok(PathBuf::from(dir));
+    }
+    if args.iter().any(|a| a == "--project") {
+        let id = ambito.proyecto_id().ok_or_else(|| {
+            "--project escribe dentro de un área de trabajo: indica `--proyecto <uuid|ruta>`"
+                .to_string()
+        })?;
+        let area = tiendas
+            .workspace_por_id(user_id, id)
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| format!("--project: el área {id} ya no existe"))?;
+        return Ok(Path::new(&area.ruta).join(memoria_io::CARPETA_PROYECTO));
+    }
+    let base = PersistenciaSqlite::ruta_bd_app()
+        .and_then(|p| p.parent().map(Path::to_path_buf))
+        .ok_or_else(|| "sin carpeta de datos de la app para exportar en local".to_string())?;
+    Ok(base.join("memorias").join(etiqueta_carpeta(ambito)))
+}
+
+/// Nombre de carpeta por ámbito (`global` o el uuid del proyecto).
+fn etiqueta_carpeta(ambito: AmbitoMemoria) -> String {
+    ambito
+        .proyecto_id()
+        .map(|id| id.hyphenated().to_string())
+        .unwrap_or_else(|| "global".to_string())
+}
+
+/// Escribe un archivo por recuerdo (el destino debe existir o crearse).
+fn escribir_recuerdos(dir: &Path, entradas: &[MemoriaEntrada]) -> Result<(), String> {
+    std::fs::create_dir_all(dir).map_err(|e| format!("no se pudo crear {}: {e}", dir.display()))?;
+    for entrada in entradas {
+        let ruta = memoria_io::ruta_libre(dir, &entrada.clave);
+        std::fs::write(&ruta, memoria_io::render_recuerdo(entrada))
+            .map_err(|e| format!("no se pudo escribir {}: {e}", ruta.display()))?;
+    }
+    Ok(())
+}
+
+/// `memoria importar <carpeta> [--proyecto <uuid|ruta>|--global]`: fusiona
+/// los `.md` de la carpeta en el ámbito pedido (upsert por clave).
+///
+/// El import es entrada externa: cada archivo pasa por el sanitizado de
+/// memoria y uno que parece una credencial se omite con motivo (nunca se
+/// guarda a medias ni aborta el resto).
+async fn accion_memoria_importar(args: &[String]) -> Result<SalidaMemoria, String> {
+    let origen = match requerir_arg(args, 1) {
+        Ok(d) => d,
+        Err(u) => return Ok(u),
+    };
+    let origen = PathBuf::from(origen);
+    if !origen.is_dir() {
+        return Err(format!("importar: '{}' no es una carpeta", origen.display()));
+    }
+    let (tiendas, user_id) = abrir_memoria()?;
+    let ambito = ambito_pedido(args, &tiendas, user_id)?;
+    let persistencia: Arc<dyn AgentPersistence> = tiendas;
+    let mut importados = 0usize;
+    let mut omitidos: Vec<String> = Vec::new();
+    for ruta in archivos_markdown(&origen)? {
+        let texto = std::fs::read_to_string(&ruta)
+            .map_err(|e| format!("no se pudo leer {}: {e}", ruta.display()))?;
+        match memoria_io::parsear_recuerdo(&texto) {
+            Ok(entrada) => {
+                persistencia
+                    .memoria_upsert(user_id, ambito, &entrada)
+                    .await
+                    .map_err(|e| e.to_string())?;
+                importados += 1;
+            }
+            Err(motivo) => omitidos.push(format!("{}: {motivo}", ruta.display())),
+        }
+    }
+    println!(
+        "{importados} recuerdo(s) importados en el ámbito {}",
+        ambito.etiqueta()
+    );
+    if !omitidos.is_empty() {
+        println!("{} archivo(s) omitidos:", omitidos.len());
+        for motivo in &omitidos {
+            println!("- {motivo}");
+        }
+    }
+    Ok(SalidaMemoria::Ok)
+}
+
+/// Archivos `.md` de una carpeta, en orden estable (el import es reproducible).
+fn archivos_markdown(dir: &Path) -> Result<Vec<PathBuf>, String> {
+    let mut rutas = Vec::new();
+    let entradas =
+        std::fs::read_dir(dir).map_err(|e| format!("no se pudo leer {}: {e}", dir.display()))?;
+    for entrada in entradas {
+        let entrada =
+            entrada.map_err(|e| format!("no se pudo leer una entrada de {}: {e}", dir.display()))?;
+        let ruta = entrada.path();
+        let es_md = ruta
+            .extension()
+            .is_some_and(|e| e.eq_ignore_ascii_case("md"));
+        if ruta.is_file() && es_md {
+            rutas.push(ruta);
+        }
+    }
+    rutas.sort();
+    Ok(rutas)
 }
 
 /// `memoria curar`: pasada del curador bajo demanda (mismo código que el
 /// cron nativo; la entrega se imprime en vez de ir a `tarea_logs`).
+///
+/// [109A-2] Cura **todos** los ámbitos del usuario en una sola pasada: es lo
+/// que hace el cron, y curar solo uno dejaría al resto acumulando recuerdos
+/// obsoletos sin que el operador lo sospeche.
 async fn accion_memoria_curar() -> Result<(), String> {
     let (tiendas, user_id) = abrir_memoria()?;
     let persistencia: Arc<dyn AgentPersistence> = tiendas;
-    let resumen = ejecutar_curador(&persistencia, user_id, &PoliticaCurador::default())
+    let resumen = ejecutar_curador_todos(&persistencia, user_id, &PoliticaCurador::default())
         .await
         .map_err(|e| e.to_string())?;
     println!("{}", resumen.texto());
@@ -301,6 +558,7 @@ mod pruebas {
         tienda
             .memoria_upsert(
                 user_id,
+                AmbitoMemoria::Global,
                 &MemoriaEntrada::nueva(
                     "color-favorito".into(),
                     "prefiere el azul".into(),
@@ -322,10 +580,16 @@ mod pruebas {
             )
             .await
             .expect("siembra skill");
-        let bloque =
-            bloque_memoria_para_turno(&tienda, user_id, "¿qué color prefiere?", true, true)
-                .await
-                .expect("hay bloque");
+        let bloque = bloque_memoria_para_turno(
+            &tienda,
+            user_id,
+            AmbitoMemoria::Global,
+            "¿qué color prefiere?",
+            true,
+            true,
+        )
+        .await
+        .expect("hay bloque");
         let texto = bloque.content.as_str().expect("texto");
         assert!(texto.contains("[MEMORIA]"), "{texto}");
         assert!(texto.contains("color-favorito"), "{texto}");
@@ -338,7 +602,15 @@ mod pruebas {
         let tienda: Arc<dyn AgentPersistence> =
             Arc::new(crate::persistencia::PersistenciaMemoria::nuevo());
         let user_id = Uuid::new_v4();
-        let bloque = bloque_memoria_para_turno(&tienda, user_id, "hola qué tal", true, false).await;
+        let bloque = bloque_memoria_para_turno(
+            &tienda,
+            user_id,
+            AmbitoMemoria::Global,
+            "hola qué tal",
+            true,
+            false,
+        )
+        .await;
         assert!(bloque.is_none(), "sin solape no hay bloque");
     }
 
@@ -350,14 +622,123 @@ mod pruebas {
         tienda
             .memoria_upsert(
                 user_id,
+                AmbitoMemoria::Global,
                 &MemoriaEntrada::nueva("color".into(), "prefiere el azul".into(), "t".into()),
             )
             .await
             .expect("siembra");
         assert!(
-            bloque_memoria_para_turno(&tienda, user_id, "qué color prefiere", false, false)
-                .await
-                .is_none()
+            bloque_memoria_para_turno(
+                &tienda,
+                user_id,
+                AmbitoMemoria::Global,
+                "qué color prefiere",
+                false,
+                false,
+            )
+            .await
+            .is_none()
+        );
+    }
+
+    /// [109A-2] Ida y vuelta del export/import por archivos: lo escrito por
+    /// `escribir_recuerdos` se descubre y se reconstruye igual (clave,
+    /// contenido y metadatos), sin BD de por medio.
+    #[test]
+    fn export_import_ida_y_vuelta_por_archivos() {
+        let dir = std::env::temp_dir().join(format!("glory-export-{}", Uuid::new_v4()));
+        let original = MemoriaEntrada {
+            clave: "editor-preferido".to_string(),
+            contenido: "Usa 4 espacios y sin punto y coma.".to_string(),
+            actualizada_en: chrono::Utc::now(),
+            origen: "turno:run".to_string(),
+            usos: 2,
+            ultimo_uso: Some(chrono::Utc::now()),
+        };
+        escribir_recuerdos(&dir, std::slice::from_ref(&original)).expect("export");
+        // Reexportar reutiliza el archivo: no acumula copias.
+        escribir_recuerdos(&dir, std::slice::from_ref(&original)).expect("reexport");
+
+        let archivos = archivos_markdown(&dir).expect("listar export");
+        assert_eq!(archivos.len(), 1, "un archivo por recuerdo: {archivos:?}");
+        let texto = std::fs::read_to_string(&archivos[0]).expect("leer export");
+        let vuelta = memoria_io::parsear_recuerdo(&texto).expect("import");
+        assert_eq!(vuelta.clave, original.clave);
+        assert_eq!(vuelta.contenido, original.contenido);
+        assert_eq!(vuelta.origen, original.origen);
+        assert_eq!(vuelta.usos, original.usos);
+        assert_eq!(
+            vuelta.ultimo_uso.map(|d| d.timestamp()),
+            original.ultimo_uso.map(|d| d.timestamp())
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// El destino explícito manda sobre el resto de la resolución.
+    #[test]
+    fn destino_export_respeta_el_destino_explicito() {
+        let tiendas = PersistenciaSqlite::en_memoria().expect("BD en memoria");
+        let args = vec![
+            "exportar".to_string(),
+            "--destino".to_string(),
+            "C:\\tmp\\memorias-verif".to_string(),
+        ];
+        let destino = destino_export(&args, &tiendas, Uuid::new_v4(), AmbitoMemoria::Global)
+            .expect("destino válido");
+        assert_eq!(destino, PathBuf::from("C:\\tmp\\memorias-verif"));
+    }
+
+    /// `--project` escribe en el área de trabajo (carpeta versionable).
+    #[test]
+    fn destino_export_project_usa_la_carpeta_del_area() {
+        let tiendas = PersistenciaSqlite::en_memoria().expect("BD en memoria");
+        let user = Uuid::new_v4();
+        let area = tiendas
+            .workspace_crear(user, "Área", "C:\\tmp\\area-memoria")
+            .expect("crear área");
+        let args = vec!["exportar".to_string(), "--project".to_string()];
+        let destino = destino_export(&args, &tiendas, user, AmbitoMemoria::Proyecto(area.id))
+            .expect("destino del área");
+        assert_eq!(
+            destino,
+            Path::new("C:\\tmp\\area-memoria").join(memoria_io::CARPETA_PROYECTO)
+        );
+    }
+
+    /// El ámbito global no tiene carpeta de trabajo: `--project` falla en vez
+    /// de inventarse una ruta.
+    #[test]
+    fn destino_export_project_rechaza_el_global() {
+        let tiendas = PersistenciaSqlite::en_memoria().expect("BD en memoria");
+        let args = vec!["exportar".to_string(), "--project".to_string()];
+        let error = destino_export(&args, &tiendas, Uuid::new_v4(), AmbitoMemoria::Global)
+            .expect_err("el global no tiene área");
+        assert!(error.contains("--proyecto"), "mensaje útil: {error}");
+    }
+
+    /// Un `--proyecto` que no existe es error de uso, no un fallback silencioso
+    /// a global (guardar en el ámbito equivocado sería peor que no guardar).
+    #[test]
+    fn ambito_pedido_rechaza_proyecto_inexistente() {
+        let tiendas = PersistenciaSqlite::en_memoria().expect("BD en memoria");
+        let user = Uuid::new_v4();
+        let args = vec![
+            "listar".to_string(),
+            "--proyecto".to_string(),
+            "C:\\tmp\\no-registrada".to_string(),
+        ];
+        let error = ambito_pedido(&args, &tiendas, user).expect_err("no hay área");
+        assert!(error.contains("no hay área de trabajo"), "{error}");
+        // Y el uuid se acepta tal cual (el listado es de solo lectura).
+        let uuid = Uuid::new_v4();
+        let args = vec![
+            "listar".to_string(),
+            "--proyecto".to_string(),
+            uuid.hyphenated().to_string(),
+        ];
+        assert_eq!(
+            ambito_pedido(&args, &tiendas, user).expect("uuid"),
+            AmbitoMemoria::Proyecto(uuid)
         );
     }
 }

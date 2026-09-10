@@ -31,6 +31,11 @@ use uuid::Uuid;
 /// servicios de dominio del consumidor viajan en `dominio` (opaco al núcleo).
 pub struct AgentToolContext<'a> {
     pub user_id: Uuid,
+    /// [109A-2] Ámbito de memoria del turno: las tools `memoria_*` solo leen
+    /// y escriben recuerdos de este ámbito (proyecto activo o global).
+    /// Default `Global`: un consumidor que no lo fije conserva el
+    /// comportamiento previo (memoria del usuario, sin mezclar proyectos).
+    pub ambito_memoria: crate::ports::AmbitoMemoria,
     /// Puerto de persistencia (turnos, mensajes, memoria, skills, tareas
     /// programadas). El runtime audita las acciones por aquí.
     pub persistencia: &'a dyn AgentPersistence,

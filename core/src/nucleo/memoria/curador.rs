@@ -8,7 +8,7 @@ use chrono::{DateTime, Utc};
 use uuid::Uuid;
 
 use crate::error::Result;
-use crate::ports::{AgentPersistence, MemoriaEntrada, SkillEntrada};
+use crate::ports::{AgentPersistence, AmbitoMemoria, MemoriaEntrada, SkillEntrada};
 
 /// Marcador que el motor del cron intercepta para curar nativo (ver
 /// [`es_peticion_curador`]): `schedule create --nombre curador-memoria
@@ -56,6 +56,16 @@ pub struct ResumenCurador {
 }
 
 impl ResumenCurador {
+    /// [109A-2] Suma otra pasada (el curador recorre varios ámbitos y el
+    /// consumidor ve un solo resumen, sin perder de qué clave se trata).
+    pub fn absorber(&mut self, otro: ResumenCurador) {
+        self.archivadas.extend(otro.archivadas);
+        self.podadas.extend(otro.podadas);
+        self.consolidadas.extend(otro.consolidadas);
+        self.promovidas.extend(otro.promovidas);
+        self.notas.extend(otro.notas);
+    }
+
     #[must_use]
     pub fn vacio(&self) -> bool {
         self.archivadas.is_empty()
@@ -117,25 +127,78 @@ fn edad_dias(fecha: DateTime<Utc>, ahora: DateTime<Utc>) -> i64 {
 pub async fn ejecutar_curador(
     persistencia: &Arc<dyn AgentPersistence>,
     user_id: Uuid,
+    ambito: AmbitoMemoria,
     politica: &PoliticaCurador,
 ) -> Result<ResumenCurador> {
     let ahora = Utc::now();
-    let entradas = persistencia.memoria_listar(user_id).await?;
+    let entradas = persistencia.memoria_listar(user_id, ambito).await?;
     let mut resumen = ResumenCurador::default();
     let mut vivas: HashMap<String, MemoriaEntrada> = HashMap::new();
 
-    consolidar_duplicadas(persistencia, user_id, &entradas, &mut resumen, &mut vivas).await?;
+    consolidar_duplicadas(
+        persistencia,
+        user_id,
+        ambito,
+        &entradas,
+        &mut resumen,
+        &mut vivas,
+    )
+    .await?;
     archivar_obsoletas(
         persistencia,
         user_id,
+        ambito,
         ahora,
         politica,
         &mut resumen,
         &mut vivas,
     )
     .await?;
-    promover_maduras(persistencia, user_id, ahora, politica, &mut resumen, &vivas).await?;
+    promover_maduras(
+        persistencia,
+        user_id,
+        ambito,
+        ahora,
+        politica,
+        &mut resumen,
+        &vivas,
+    )
+    .await?;
     Ok(resumen)
+}
+
+/// [109A-2] Pasada del curador sobre **todos** los ámbitos del usuario
+/// (global + cada proyecto con recuerdos). Es la que usa el cron: sin esto,
+/// los recuerdos de un proyecto no se curarían nunca. Devuelve una sola
+/// pasada agregada; si un ámbito falla, el error se propaga (nunca un
+/// resultado parcial silencioso).
+///
+/// Las claves de un proyecto se anotan con su ámbito para que el reporte no
+/// sugiera que se tocó el recuerdo homónimo de otro proyecto.
+pub async fn ejecutar_curador_todos(
+    persistencia: &Arc<dyn AgentPersistence>,
+    user_id: Uuid,
+    politica: &PoliticaCurador,
+) -> Result<ResumenCurador> {
+    let mut total = ResumenCurador::default();
+    for ambito in persistencia.memoria_ambitos(user_id).await? {
+        let mut pasada = ejecutar_curador(persistencia, user_id, ambito, politica).await?;
+        if let Some(id) = ambito.proyecto_id() {
+            let marca = format!(" [proyecto {id}]", id = id.as_hyphenated());
+            for lista in [
+                &mut pasada.archivadas,
+                &mut pasada.podadas,
+                &mut pasada.consolidadas,
+                &mut pasada.promovidas,
+            ] {
+                for clave in lista.iter_mut() {
+                    clave.push_str(&marca);
+                }
+            }
+        }
+        total.absorber(pasada);
+    }
+    Ok(total)
 }
 
 /// 1) Duplicadas: mismo contenido normalizado → conserva la de mayor
@@ -143,6 +206,7 @@ pub async fn ejecutar_curador(
 async fn consolidar_duplicadas(
     persistencia: &Arc<dyn AgentPersistence>,
     user_id: Uuid,
+    ambito: AmbitoMemoria,
     entradas: &[MemoriaEntrada],
     resumen: &mut ResumenCurador,
     vivas: &mut HashMap<String, MemoriaEntrada>,
@@ -171,7 +235,7 @@ async fn consolidar_duplicadas(
         });
         for duplicada in ordenado.iter().skip(1) {
             persistencia
-                .memoria_borrar(user_id, &duplicada.clave)
+                .memoria_borrar(user_id, ambito, &duplicada.clave)
                 .await?;
             resumen.consolidadas.push(duplicada.clave.clone());
         }
@@ -193,6 +257,7 @@ async fn consolidar_duplicadas(
 async fn archivar_obsoletas(
     persistencia: &Arc<dyn AgentPersistence>,
     user_id: Uuid,
+    ambito: AmbitoMemoria,
     ahora: DateTime<Utc>,
     politica: &PoliticaCurador,
     resumen: &mut ResumenCurador,
@@ -207,7 +272,7 @@ async fn archivar_obsoletas(
         if vieja && sin_uso {
             let mut archivada = entrada.clone();
             archivada.origen = format!("archivada:{}", ahora.format("%Y-%m-%d"));
-            persistencia.memoria_upsert(user_id, &archivada).await?;
+            persistencia.memoria_upsert(user_id, ambito, &archivada).await?;
             resumen.archivadas.push(entrada.clave.clone());
         }
     }
@@ -222,6 +287,7 @@ async fn archivar_obsoletas(
 async fn promover_maduras(
     persistencia: &Arc<dyn AgentPersistence>,
     user_id: Uuid,
+    ambito: AmbitoMemoria,
     ahora: DateTime<Utc>,
     politica: &PoliticaCurador,
     resumen: &mut ResumenCurador,
@@ -255,7 +321,7 @@ async fn promover_maduras(
             Ok(()) => {
                 let mut marcada = entrada.clone();
                 marcada.origen = format!("promovido-a-skill:{}", entrada.clave);
-                persistencia.memoria_upsert(user_id, &marcada).await?;
+                persistencia.memoria_upsert(user_id, ambito, &marcada).await?;
                 resumen.promovidas.push(entrada.clave.clone());
             }
             Err(e) => {
@@ -275,19 +341,26 @@ mod pruebas {
     use super::*;
     use crate::memoria::soporte::{entrada_vieja, TiendaPrueba};
 
+    /// La mayoría de las pruebas del curador trabajan en el ámbito global;
+    /// el recorrido multi-ámbito se prueba aparte.
+    const GLOBAL: crate::ports::AmbitoMemoria = crate::ports::AmbitoMemoria::Global;
+
     #[tokio::test]
     async fn curador_archiva_obsoleta_sin_uso() {
         let tienda: Arc<dyn AgentPersistence> = Arc::new(TiendaPrueba::default());
         let user_id = Uuid::new_v4();
         tienda
-            .memoria_upsert(user_id, &entrada_vieja("gusto", "le gusta el té", 40, 0))
+            .memoria_upsert(user_id, GLOBAL, &entrada_vieja("gusto", "le gusta el té", 40, 0))
             .await
             .expect("siembra");
-        let resumen = ejecutar_curador(&tienda, user_id, &PoliticaCurador::default())
+        let resumen = ejecutar_curador(&tienda, user_id, GLOBAL, &PoliticaCurador::default())
             .await
             .expect("curador");
         assert_eq!(resumen.archivadas, vec!["gusto".to_string()]);
-        let archivada = tienda.memoria_listar(user_id).await.expect("listar");
+        let archivada = tienda
+            .memoria_listar(user_id, GLOBAL)
+            .await
+            .expect("listar");
         assert!(archivada[0].archivada());
     }
 
@@ -299,8 +372,11 @@ mod pruebas {
         // ni se archiva ni se promueve.
         let mut e = entrada_vieja("hábito", "corre por las mañanas", 40, 1);
         e.ultimo_uso = Some(Utc::now());
-        tienda.memoria_upsert(user_id, &e).await.expect("siembra");
-        let resumen = ejecutar_curador(&tienda, user_id, &PoliticaCurador::default())
+        tienda
+            .memoria_upsert(user_id, GLOBAL, &e)
+            .await
+            .expect("siembra");
+        let resumen = ejecutar_curador(&tienda, user_id, GLOBAL, &PoliticaCurador::default())
             .await
             .expect("curador");
         assert!(resumen.vacio(), "uso reciente protege del archivo");
@@ -313,18 +389,21 @@ mod pruebas {
         let duplicada = entrada_vieja("gusto-b", "Le  gusta el TÉ", 2, 0);
         let original = entrada_vieja("gusto-a", "le gusta el té", 2, 4);
         tienda
-            .memoria_upsert(user_id, &duplicada)
+            .memoria_upsert(user_id, GLOBAL, &duplicada)
             .await
             .expect("siembra");
         tienda
-            .memoria_upsert(user_id, &original)
+            .memoria_upsert(user_id, GLOBAL, &original)
             .await
             .expect("siembra");
-        let resumen = ejecutar_curador(&tienda, user_id, &PoliticaCurador::default())
+        let resumen = ejecutar_curador(&tienda, user_id, GLOBAL, &PoliticaCurador::default())
             .await
             .expect("curador");
         assert_eq!(resumen.consolidadas, vec!["gusto-b".to_string()]);
-        let resto = tienda.memoria_listar(user_id).await.expect("listar");
+        let resto = tienda
+            .memoria_listar(user_id, GLOBAL)
+            .await
+            .expect("listar");
         assert_eq!(resto.len(), 1);
         assert_eq!(resto[0].clave, "gusto-a");
     }
@@ -334,10 +413,10 @@ mod pruebas {
         let tienda: Arc<dyn AgentPersistence> = Arc::new(TiendaPrueba::default());
         let user_id = Uuid::new_v4();
         tienda
-            .memoria_upsert(user_id, &entrada_vieja("atajo", "usa pnpm siempre", 10, 5))
+            .memoria_upsert(user_id, GLOBAL, &entrada_vieja("atajo", "usa pnpm siempre", 10, 5))
             .await
             .expect("siembra");
-        let resumen = ejecutar_curador(&tienda, user_id, &PoliticaCurador::default())
+        let resumen = ejecutar_curador(&tienda, user_id, GLOBAL, &PoliticaCurador::default())
             .await
             .expect("curador");
         assert_eq!(resumen.promovidas, vec!["atajo".to_string()]);
@@ -356,7 +435,7 @@ mod pruebas {
             vec![entrada_vieja("atajo", "usa pnpm siempre", 10, 5)],
         );
         let persistencia: Arc<dyn AgentPersistence> = tienda;
-        let resumen = ejecutar_curador(&persistencia, user_id, &PoliticaCurador::default())
+        let resumen = ejecutar_curador(&persistencia, user_id, GLOBAL, &PoliticaCurador::default())
             .await
             .expect("curador");
         assert!(resumen.promovidas.is_empty());
@@ -376,5 +455,77 @@ mod pruebas {
         let vacio = ResumenCurador::default();
         assert!(vacio.vacio());
         assert!(vacio.texto().contains("sin cambios"));
+    }
+
+    /// [109A-2] La pasada del cron recorre todos los ámbitos y los cura por
+    /// separado: dos recuerdos con el mismo contenido en proyectos distintos
+    /// NO son duplicados entre sí, y el reporte anota el proyecto tocado.
+    #[tokio::test]
+    async fn curador_todos_cura_cada_ambito_por_separado() {
+        use crate::ports::AmbitoMemoria;
+        let tienda = Arc::new(TiendaPrueba::default());
+        let user_id = Uuid::new_v4();
+        let ambito_a = AmbitoMemoria::Proyecto(Uuid::new_v4());
+        let ambito_b = AmbitoMemoria::Proyecto(Uuid::new_v4());
+        tienda.sembrar_en(
+            user_id,
+            GLOBAL,
+            vec![MemoriaEntrada::nueva(
+                "color".into(),
+                "azul".into(),
+                "t".into(),
+            )],
+        );
+        tienda.sembrar_en(
+            user_id,
+            ambito_a,
+            vec![
+                MemoriaEntrada::nueva("color-a".into(), "azul".into(), "t".into()),
+                MemoriaEntrada::nueva("color-a2".into(), "azul".into(), "t".into()),
+            ],
+        );
+        tienda.sembrar_en(
+            user_id,
+            ambito_b,
+            vec![MemoriaEntrada::nueva(
+                "color-b".into(),
+                "azul".into(),
+                "t".into(),
+            )],
+        );
+
+        let persistencia: Arc<dyn AgentPersistence> = tienda.clone();
+        let resumen = ejecutar_curador_todos(&persistencia, user_id, &PoliticaCurador::default())
+            .await
+            .expect("curador de todos los ámbitos");
+
+        let area_a = ambito_a.proyecto_id().expect("proyecto A");
+        assert_eq!(
+            resumen.consolidadas.len(),
+            1,
+            "solo A tenía duplicadas: {:?}",
+            resumen.consolidadas
+        );
+        assert!(
+            resumen.consolidadas[0].contains(&area_a.as_hyphenated().to_string()),
+            "el reporte dice de qué proyecto era: {:?}",
+            resumen.consolidadas
+        );
+        // El global y B conservan su recuerdo: no eran duplicados entre ámbitos.
+        assert!(tienda
+            .leer_en(user_id, GLOBAL, "color")
+            .is_some_and(|e| e.contenido == "azul"));
+        assert!(tienda
+            .leer_en(user_id, ambito_b, "color-b")
+            .is_some_and(|e| e.contenido == "azul"));
+        // En A sobrevive exactamente una de las dos.
+        assert_eq!(
+            persistencia
+                .memoria_listar(user_id, ambito_a)
+                .await
+                .expect("listar A")
+                .len(),
+            1
+        );
     }
 }

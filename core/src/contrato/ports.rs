@@ -66,6 +66,50 @@ pub struct MemoriaEntrada {
     pub ultimo_uso: Option<DateTime<Utc>>,
 }
 
+/// [109A-2] Ámbito de un recuerdo: global del usuario (sin área de trabajo;
+/// incluye todo lo guardado antes de esta feature) o de un proyecto concreto
+/// (`workspaces.id`).
+///
+/// El aislamiento es **estricto**: listar el ámbito de un proyecto nunca
+/// devuelve recuerdos globales ni de otro proyecto, y listar el global no ve
+/// los de proyecto. La misma clave puede existir a la vez en dos proyectos
+/// (son memorias distintas) y en el global.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum AmbitoMemoria {
+    /// Recuerdos sin proyecto asignado (legado + turnos sin área activa).
+    #[default]
+    Global,
+    /// Recuerdos del área de trabajo indicada.
+    Proyecto(Uuid),
+}
+
+impl AmbitoMemoria {
+    /// `Some(id)` → ámbito de ese proyecto; `None` → global. Es la conversión
+    /// que usa el consumidor cuando el turno puede no tener área activa.
+    #[must_use]
+    pub fn desde_proyecto(id: Option<Uuid>) -> Self {
+        id.map_or(Self::Global, Self::Proyecto)
+    }
+
+    /// Identificador del proyecto (`None` en el ámbito global).
+    #[must_use]
+    pub fn proyecto_id(self) -> Option<Uuid> {
+        match self {
+            Self::Global => None,
+            Self::Proyecto(id) => Some(id),
+        }
+    }
+
+    /// Etiqueta estable para reportes, export y UI.
+    #[must_use]
+    pub fn etiqueta(self) -> &'static str {
+        match self {
+            Self::Global => "global",
+            Self::Proyecto(_) => "proyecto",
+        }
+    }
+}
+
 fn ahora_utc() -> DateTime<Utc> {
     Utc::now()
 }
@@ -194,9 +238,24 @@ pub trait AgentPersistence: Send + Sync {
     async fn registrar_accion(&self, accion: &AccionAuditable) -> Result<()>;
 
     // --- Memoria ---
-    async fn memoria_listar(&self, user_id: Uuid) -> Result<Vec<MemoriaEntrada>>;
-    async fn memoria_upsert(&self, user_id: Uuid, entrada: &MemoriaEntrada) -> Result<()>;
-    async fn memoria_borrar(&self, user_id: Uuid, clave: &str) -> Result<()>;
+    /// Recuerdos del usuario **en ese ámbito y solo en ese** ([109A-2]).
+    async fn memoria_listar(
+        &self,
+        user_id: Uuid,
+        ambito: AmbitoMemoria,
+    ) -> Result<Vec<MemoriaEntrada>>;
+    async fn memoria_upsert(
+        &self,
+        user_id: Uuid,
+        ambito: AmbitoMemoria,
+        entrada: &MemoriaEntrada,
+    ) -> Result<()>;
+    async fn memoria_borrar(
+        &self,
+        user_id: Uuid,
+        ambito: AmbitoMemoria,
+        clave: &str,
+    ) -> Result<()>;
 
     // --- Skills (solo lectura para el agente) ---
     async fn skills_listar(&self, user_id: Uuid) -> Result<Vec<SkillEntrada>>;
@@ -232,6 +291,20 @@ pub trait AgentPersistence: Send + Sync {
         Err(crate::error::Error::Persistencia(
             "skills_registrar no implementado por esta tienda".into(),
         ))
+    }
+
+    /// [109A-2] Ámbitos con recuerdos de este usuario, para que el curador
+    /// recorra todos sin dejar proyectos sin curar. Default conservador
+    /// (solo global) para tiendas que aún no separan ámbitos: una tienda que
+    /// no lo implemente no pierde recuerdos, solo no los cura por proyecto.
+    ///
+    /// Va el ÚLTIMO del trait a propósito: es el segundo método con cuerpo
+    /// por defecto y la regla `funcion-larga-rs` mide las firmas sin cuerpo
+    /// contra el siguiente bloque con cuerpo del fichero; con los defaults
+    /// al final, ninguna firma queda tras un cuerpo.
+    async fn memoria_ambitos(&self, user_id: Uuid) -> Result<Vec<AmbitoMemoria>> {
+        let _ = user_id;
+        Ok(vec![AmbitoMemoria::Global])
     }
 }
 

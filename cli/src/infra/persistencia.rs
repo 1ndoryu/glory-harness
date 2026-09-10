@@ -16,8 +16,9 @@ use std::sync::{Arc, Mutex};
 use uuid::Uuid;
 
 use glory_harness_core::ports::{
-    AccionAuditable, LogTareaEjecucion, MemoriaEntrada, MensajePersistido, NuevaTareaProgramada,
-    ProgramadorTareas, SkillEntrada, TareaProgramada, TareaProgramadaPendiente, TurnoPersistido,
+    AccionAuditable, AmbitoMemoria, LogTareaEjecucion, MemoriaEntrada, MensajePersistido,
+    NuevaTareaProgramada, ProgramadorTareas, SkillEntrada, TareaProgramada,
+    TareaProgramadaPendiente, TurnoPersistido,
 };
 use glory_harness_core::{AgentPersistence, HarnessResult};
 
@@ -27,7 +28,9 @@ struct Estado {
     turnos: HashMap<Uuid, TurnoPersistido>,
     mensajes: HashMap<Uuid, Vec<MensajePersistido>>,
     acciones: Vec<AccionAuditable>,
-    memoria: HashMap<Uuid, HashMap<String, MemoriaEntrada>>,
+    /// [109A-2] Los recuerdos se indexan por `(usuario, ámbito)`: la memoria
+    /// de un proyecto nunca se mezcla con la global ni con la de otro.
+    memoria: HashMap<(Uuid, AmbitoMemoria), HashMap<String, MemoriaEntrada>>,
     skills: HashMap<Uuid, Vec<SkillEntrada>>,
     tareas: HashMap<Uuid, TareaProgramadaPendiente>,
     tareas_tomadas: std::collections::HashSet<Uuid>,
@@ -145,40 +148,72 @@ impl AgentPersistence for PersistenciaMemoria {
         Ok(())
     }
 
-    async fn memoria_listar(&self, user_id: Uuid) -> HarnessResult<Vec<MemoriaEntrada>> {
+    async fn memoria_listar(
+        &self,
+        user_id: Uuid,
+        ambito: AmbitoMemoria,
+    ) -> HarnessResult<Vec<MemoriaEntrada>> {
         let estado = self
             .estado
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         Ok(estado
             .memoria
-            .get(&user_id)
+            .get(&(user_id, ambito))
             .map(|mapa| mapa.values().cloned().collect())
             .unwrap_or_default())
     }
 
-    async fn memoria_upsert(&self, user_id: Uuid, entrada: &MemoriaEntrada) -> HarnessResult<()> {
+    async fn memoria_upsert(
+        &self,
+        user_id: Uuid,
+        ambito: AmbitoMemoria,
+        entrada: &MemoriaEntrada,
+    ) -> HarnessResult<()> {
         let mut estado = self
             .estado
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         estado
             .memoria
-            .entry(user_id)
+            .entry((user_id, ambito))
             .or_default()
             .insert(entrada.clave.clone(), entrada.clone());
         Ok(())
     }
 
-    async fn memoria_borrar(&self, user_id: Uuid, clave: &str) -> HarnessResult<()> {
+    async fn memoria_borrar(
+        &self,
+        user_id: Uuid,
+        ambito: AmbitoMemoria,
+        clave: &str,
+    ) -> HarnessResult<()> {
         let mut estado = self
             .estado
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        if let Some(mapa) = estado.memoria.get_mut(&user_id) {
+        if let Some(mapa) = estado.memoria.get_mut(&(user_id, ambito)) {
             mapa.remove(clave);
         }
         Ok(())
+    }
+
+    async fn memoria_ambitos(&self, user_id: Uuid) -> HarnessResult<Vec<AmbitoMemoria>> {
+        let estado = self
+            .estado
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut ambitos: Vec<AmbitoMemoria> = estado
+            .memoria
+            .keys()
+            .filter(|(u, _)| *u == user_id)
+            .map(|(_, a)| *a)
+            .collect();
+        if !ambitos.contains(&AmbitoMemoria::Global) {
+            ambitos.push(AmbitoMemoria::Global);
+        }
+        ambitos.sort_by_key(|a| (a.proyecto_id().is_some(), a.proyecto_id()));
+        Ok(ambitos)
     }
 
     async fn skills_listar(&self, user_id: Uuid) -> HarnessResult<Vec<SkillEntrada>> {

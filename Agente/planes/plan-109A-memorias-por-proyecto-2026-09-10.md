@@ -1,6 +1,6 @@
 # Plan 109A — Memorias por proyecto + hook pre-compact (gaps vs VS Code)
 
-> IDs roadmap: **109A-1/2/3** · Fecha: 2026-09-10 · Estado: F1 completada; F2/F3 pendientes
+> IDs roadmap: **109A-1/2/3** · Fecha: 2026-09-10 · Estado: F1 y F2 completadas; F3 pendiente
 > Origen: comparativa VS Code (§ memorias/compactación, 09-09): VS Code aporta
 > hook `PreCompact` y memoria versionable por ámbitos; GH compacta y cura mejor
 > pero su memoria es global por usuario y no tiene hook previo.
@@ -49,17 +49,42 @@ y sección "Memorias" en Configuración para gestionarlas.
   317 errores/206 warnings heredados de `data/referencias-cli/**`; no se
   declara PASS del gate global.
 
-### F2 — 109A-2 Memoria por proyecto + export/import (base de 109A-3)
-- Migración: `ALTER TABLE memoria ADD COLUMN workspace_id TEXT`; recuerdos viejos
-  (NULL) quedan en ámbito `global` legacy: **legibles con flag explícito, nunca
-  listados en un proyecto** (aislamiento por `WHERE workspace_id = ?`).
-- Puerto `AgentPersistence::memoria_*` con scope de proyecto (workspace activo;
-  flags CLI `--proyecto/--global`); curador y `ProveedorMemoria` filtran por proyecto.
-- Export/import markdown por recuerdo (frontmatter clave/origen/usos/ultimo_uso +
-  cuerpo): ámbito `project` (para versionar en el repo) / `local` (no versionar);
-  `sanitize` obligatorio en import.
-- Tests de aislamiento: dos workspaces no se ven entre sí; global no fuga a proyecto.
-- Gate: clippy 0 + tests + `memoria` CLI verificado a mano.
+### F2 — 109A-2 Memoria por proyecto + export/import (HECHA 2026-09-10)
+- Contrato: `AmbitoMemoria { Global | Proyecto(Uuid) }` en `core/src/contrato/ports.rs`;
+  `memoria_listar/upsert/borrar` reciben ámbito y `memoria_ambitos` (método por defecto)
+  enumera los ámbitos con contenido + el global. `AgentToolContext.ambito_memoria` y
+  `TurnoConfig.ambito_memoria` propagan el ámbito hasta las tools y el proveedor.
+- Migración real: SQLite no permite alterar la PK, así que `abrir_conexion` renombra la
+  tabla a `memoria_pre_109a2`, crea la nueva con `workspace_id TEXT NOT NULL DEFAULT ''`
+  y `UNIQUE (user_id, workspace_id, clave)`, copia las filas como globales, elimina la
+  vieja y confirma en una transacción; es idempotente (detecta la columna por
+  `PRAGMA table_info`).
+- Centinela `''` en vez de `NULL`: en SQLite los `NULL` no colisionan en `UNIQUE`, y con
+  `NULL` el `ON CONFLICT` del upsert dejaría de ser fiable. Los recuerdos previos quedan
+  en el ámbito global (se conservan, no se reasignan a proyectos).
+- Ámbito del turno: `ambito_de_ruta` resuelve la carpeta activa contra `workspaces`
+  (canoniza y quita el prefijo verbatim de Windows); sin área registrada o si la consulta
+  falla, degrada a global con aviso. CLI: `--global`, `--proyecto <uuid|ruta>`, `--todos`;
+  un `--proyecto` inexistente es error explícito, nunca un fallback silencioso.
+- Curador: `ejecutar_curador_todos` recorre todos los ámbitos (el cron ya no deja sin curar
+  los de proyecto) y anota `[proyecto {uuid}]` en las claves del reporte.
+- Export/import markdown por recuerdo (`cli/src/infra/memoria_io.rs`): frontmatter
+  `clave/origen/usos/ultimo_uso/actualizada_en` + cuerpo; destino `local` (carpeta de datos)
+  o `project` (`.glory/memorias` del área, versionable); reexportar reutiliza el archivo y
+  el slug desambigua con sufijo. El import aplica `sanitize_para_memoria` a clave y cuerpo:
+  un archivo con credencial se omite con motivo y no guarda a medias.
+- Evidencia: 393 tests lib verdes (core 117 + CLI 276), clippy `-D warnings` limpio en
+  ambos crates, `npm.cmd --prefix desktop/ui run build` OK (85 módulos), `git diff --check`
+  limpio. Aislamiento cubierto por pruebas reales: `memoria_aislada_entre_global_y_proyectos`,
+  `upsert_repite_clave_solo_en_su_ambito`, `memoria_no_cruza_usuarios`,
+  `migra_memoria_legacy_al_ambito_global_sin_perder_datos`, `prefetch_no_mezcla_ambitos`,
+  `sync_escribe_solo_en_su_ambito`, `curador_todos_cura_cada_ambito_por_separado` y la ida
+  y vuelta de archivos. Gate: ver `Agente/completados/tareas-2026-09-10.md` (FAIL ajeno,
+  0 hallazgos en `cli/src`/`core/src`).
+- Limitación registrada: el binario CLI no se pudo recompilar para la prueba manual porque
+  `glory-harness.exe` estaba en ejecución (bloqueo de escritura); la verificación del
+  subcomando se hizo con pruebas de las funciones reales (`destino_export`, `ambito_pedido`,
+  ida y vuelta de archivos) en vez de con el proceso manual.
 
 ### F3 — 109A-3 Sección "Memorias" en Configuración (depende F2)
 - El esquema declarativo de `opciones.ts` no admite listas gestoras → panel custom

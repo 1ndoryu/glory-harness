@@ -252,14 +252,22 @@ Orden propuesto (dependencias de abajo arriba):
       UI. Evidencia en `Agente/completados/tareas-2026-09-10.md`.
       Gate canónico ejecutado: FAIL por `sccache-no-configurado` y deuda heredada
       de `data/referencias-cli/**`; análisis reducido del alcance propio: 0/0/0.
-- [ ] **109A-2 — Memoria estrictamente por proyecto + export/import** (10-09,
-      pendiente, base de 109A-3): hoy `memoria_*` es global por `user_id`
-      (`cli/src/persistencia_sqlite/puerto.rs:145-223`); migración
-      `workspace_id` + scope en puerto/curador/CLI (legado NULL = ámbito
-      `global`, legible con flag, nunca listado en proyectos); export/import
-      markdown por ámbito `project`/`local` con sanitize. Skills globales
-      (no alcance). Plan activo (F1 cerrada, F2/F3 pendientes):
-      `Agente/planes/plan-109A-memorias-por-proyecto-2026-09-10.md`.
+- [x] **109A-2 — Memoria estrictamente por proyecto + export/import** (10-09,
+      HECHO): `AmbitoMemoria { Global | Proyecto(Uuid) }` en el contrato, con
+      ámbito propagado por tools, `TurnoConfig`, proveedor y curador
+      (`ejecutar_curador_todos` recorre todos los ámbitos). Migración real de
+      la tabla `memoria` a `UNIQUE (user_id, workspace_id, clave)` con
+      centinela `''` para global (los `NULL` no colisionan en `UNIQUE` y
+      romperían el `ON CONFLICT` del upsert); los recuerdos previos quedan
+      globales, sin reasignar. CLI `memoria` con `--global`,
+      `--proyecto <uuid|ruta>` y `--todos`, más export/import markdown por
+      recuerdo (`cli/src/infra/memoria_io.rs`): destino `project`
+      (`.glory/memorias`) o `local`, sanitize obligatorio en el import.
+      Evidencia: 393 tests lib verdes, clippy `-D warnings` limpio, build UI OK;
+      gate canónico FAIL por deuda ajena (`sccache` y `data/referencias-cli/**`)
+      con 0 hallazgos en `cli/src`/`core/src`; detalle en
+      `Agente/completados/tareas-2026-09-10.md`. Queda F3 (sección en
+      Configuración) en `Agente/planes/plan-109A-memorias-por-proyecto-2026-09-10.md`.
 - [ ] **109A-3 — Sección "Memorias" en Configuración** (10-09, pendiente,
       depende 109A-2): panel custom `componentes/memorias.ts` en el modal
       (el esquema de `opciones.ts` no admite listas): listar/buscar/ver/

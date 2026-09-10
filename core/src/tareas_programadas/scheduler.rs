@@ -275,17 +275,27 @@ mod tests {
         async fn registrar_accion(&self, _a: &crate::ports::AccionAuditable) -> CoreResult<()> {
             Ok(())
         }
-        async fn memoria_listar(&self, _u: Uuid) -> CoreResult<Vec<crate::ports::MemoriaEntrada>> {
+        async fn memoria_listar(
+            &self,
+            _u: Uuid,
+            _a: crate::ports::AmbitoMemoria,
+        ) -> CoreResult<Vec<crate::ports::MemoriaEntrada>> {
             Ok(Vec::new())
         }
         async fn memoria_upsert(
             &self,
             _u: Uuid,
+            _a: crate::ports::AmbitoMemoria,
             _e: &crate::ports::MemoriaEntrada,
         ) -> CoreResult<()> {
             Ok(())
         }
-        async fn memoria_borrar(&self, _u: Uuid, _c: &str) -> CoreResult<()> {
+        async fn memoria_borrar(
+            &self,
+            _u: Uuid,
+            _a: crate::ports::AmbitoMemoria,
+            _c: &str,
+        ) -> CoreResult<()> {
             Ok(())
         }
         async fn skills_listar(&self, _u: Uuid) -> CoreResult<Vec<crate::ports::SkillEntrada>> {

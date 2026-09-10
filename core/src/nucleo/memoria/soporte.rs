@@ -12,13 +12,15 @@ use uuid::Uuid;
 
 use crate::error::{Error, Result};
 use crate::ports::{
-    AccionAuditable, AgentPersistence, MemoriaEntrada, MensajePersistido, SkillEntrada,
+    AccionAuditable, AgentPersistence, AmbitoMemoria, MemoriaEntrada, MensajePersistido, SkillEntrada,
     TareaProgramadaPendiente, TurnoPersistido,
 };
 
 #[derive(Default)]
 pub(crate) struct TiendaPrueba {
-    memoria: Mutex<HashMap<Uuid, HashMap<String, MemoriaEntrada>>>,
+    /// Clave `(usuario, ámbito)` [109A-2]: la memoria de proyecto no puede
+    /// mezclarse con la global ni con la de otro proyecto.
+    memoria: Mutex<HashMap<(Uuid, AmbitoMemoria), HashMap<String, MemoriaEntrada>>>,
     skills: Mutex<HashMap<Uuid, Vec<SkillEntrada>>>,
     /// Simula una tienda sin `skills_registrar` (legacy): la promoción
     /// deja nota en vez de romper la pasada.
@@ -35,18 +37,36 @@ impl TiendaPrueba {
     }
 
     pub(crate) fn sembrar(&self, user_id: Uuid, entradas: Vec<MemoriaEntrada>) {
+        self.sembrar_en(user_id, AmbitoMemoria::Global, entradas);
+    }
+
+    pub(crate) fn sembrar_en(
+        &self,
+        user_id: Uuid,
+        ambito: AmbitoMemoria,
+        entradas: Vec<MemoriaEntrada>,
+    ) {
         let mut mapa = self.memoria.lock().unwrap_or_else(|p| p.into_inner());
-        let slot = mapa.entry(user_id).or_default();
+        let slot = mapa.entry((user_id, ambito)).or_default();
         for e in entradas {
             slot.insert(e.clave.clone(), e);
         }
     }
 
     pub(crate) fn leer(&self, user_id: Uuid, clave: &str) -> Option<MemoriaEntrada> {
+        self.leer_en(user_id, AmbitoMemoria::Global, clave)
+    }
+
+    pub(crate) fn leer_en(
+        &self,
+        user_id: Uuid,
+        ambito: AmbitoMemoria,
+        clave: &str,
+    ) -> Option<MemoriaEntrada> {
         self.memoria
             .lock()
             .unwrap_or_else(|p| p.into_inner())
-            .get(&user_id)
+            .get(&(user_id, ambito))
             .and_then(|m| m.get(clave))
             .cloned()
     }
@@ -72,34 +92,59 @@ impl AgentPersistence for TiendaPrueba {
     async fn registrar_accion(&self, _: &AccionAuditable) -> Result<()> {
         Ok(())
     }
-    async fn memoria_listar(&self, user_id: Uuid) -> Result<Vec<MemoriaEntrada>> {
+    async fn memoria_listar(&self, user_id: Uuid, ambito: AmbitoMemoria) -> Result<Vec<MemoriaEntrada>> {
         Ok(self
             .memoria
             .lock()
             .unwrap_or_else(|p| p.into_inner())
-            .get(&user_id)
+            .get(&(user_id, ambito))
             .map(|m| m.values().cloned().collect())
             .unwrap_or_default())
     }
-    async fn memoria_upsert(&self, user_id: Uuid, entrada: &MemoriaEntrada) -> Result<()> {
+    async fn memoria_upsert(
+        &self,
+        user_id: Uuid,
+        ambito: AmbitoMemoria,
+        entrada: &MemoriaEntrada,
+    ) -> Result<()> {
         self.memoria
             .lock()
             .unwrap_or_else(|p| p.into_inner())
-            .entry(user_id)
+            .entry((user_id, ambito))
             .or_default()
             .insert(entrada.clave.clone(), entrada.clone());
         Ok(())
     }
-    async fn memoria_borrar(&self, user_id: Uuid, clave: &str) -> Result<()> {
+    async fn memoria_borrar(
+        &self,
+        user_id: Uuid,
+        ambito: AmbitoMemoria,
+        clave: &str,
+    ) -> Result<()> {
         if let Some(m) = self
             .memoria
             .lock()
             .unwrap_or_else(|p| p.into_inner())
-            .get_mut(&user_id)
+            .get_mut(&(user_id, ambito))
         {
             m.remove(clave);
         }
         Ok(())
+    }
+    async fn memoria_ambitos(&self, user_id: Uuid) -> Result<Vec<AmbitoMemoria>> {
+        let mapa = self.memoria.lock().unwrap_or_else(|p| p.into_inner());
+        let mut ambitos: Vec<AmbitoMemoria> = mapa
+            .keys()
+            .filter(|(u, _)| *u == user_id)
+            .map(|(_, a)| *a)
+            .collect();
+        // El curador siempre recorre al menos el ámbito global, aunque aún no
+        // tenga entradas, para que la pasada sea determinista.
+        if !ambitos.contains(&AmbitoMemoria::Global) {
+            ambitos.push(AmbitoMemoria::Global);
+        }
+        ambitos.sort_by_key(|a| a.proyecto_id().map(|id| id.to_string()).unwrap_or_default());
+        Ok(ambitos)
     }
     async fn skills_listar(&self, user_id: Uuid) -> Result<Vec<SkillEntrada>> {
         Ok(self

@@ -79,6 +79,9 @@ impl AgentRuntime {
         }
         let ctx = AgentToolContext {
             user_id,
+            /* [109A-2] El ámbito viaja en el ctx para que las tools de memoria
+             * no puedan olvidarlo: lo fija el turno, no la tool. */
+            ambito_memoria: self.turno_config.ambito_memoria,
             persistencia: self.puertos.persistencia.as_ref(),
             web_search: self.puertos.web_search.as_deref(),
             web_fetch: self.puertos.web_fetch.as_deref(),

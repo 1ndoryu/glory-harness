@@ -21,7 +21,7 @@ use uuid::Uuid;
 use glory_harness_core::evento::AgenteEvento;
 use glory_harness_core::hooks::ComandoGancho;
 use glory_harness_core::llm::{LlavesProveedor, LlmProviderService};
-use glory_harness_core::ports::NavegadorPort;
+use glory_harness_core::ports::{AmbitoMemoria, NavegadorPort};
 use glory_harness_core::runtime::{AgentRuntime, PuertosHarness, TurnoConfig};
 use glory_harness_core::tool::AgentToolRegistry;
 use glory_harness_core::{AgentPersistence, ProgramadorTareas};
@@ -149,10 +149,24 @@ pub async fn construir_harness(opciones: &OpcionesRun) -> Result<HarnessCli, Str
         persistencia,
         Arc::new(crate::persistencia::ProgramadorMemoria::nuevo()),
         user_id,
+        /* [109A-2] `run` usa persistencia efímera: sus recuerdos no llegan a
+         * la BD durable, así que no tiene sentido resolver un área y queda en
+         * el ámbito global (el camino de chat/tui sí lo resuelve). */
+        AmbitoMemoria::Global,
         registry,
     );
     harness.sqlite = None;
     Ok(harness)
+}
+
+/// Raíz de trabajo del CLI: `--dir` o el cwd, canonizada y sin prefijo
+/// verbatim. Compartida por la construcción del harness y la resolución del
+/// ámbito de memoria ([109A-2]), que deben mirar exactamente la misma carpeta.
+pub fn workspace_de_opciones(dir: Option<&PathBuf>) -> Option<PathBuf> {
+    dir.cloned()
+        .or_else(|| std::env::current_dir().ok())
+        .map(|p| p.canonicalize().unwrap_or(p))
+        .map(quitar_prefijo_verbatim)
 }
 
 /// [069A-2] Harness durable para `chat`/`tui`/`session`: la misma BD sqlite
@@ -175,11 +189,20 @@ pub async fn construir_harness_durable(opciones: &OpcionesRun) -> Result<Harness
     }
     let mut registry = AgentToolRegistry::new();
     crate::mcp_cli::registrar_desde_env(&mut registry).await?;
+    /* [109A-2] Memoria estrictamente por proyecto: el ámbito del turno es el
+     * área de trabajo registrada con la carpeta activa, para que los
+     * recuerdos de un proyecto no aparezcan en otro. */
+    let ambito_memoria = crate::memoria::ambito_de_ruta(
+        Some(&tiendas),
+        user_id,
+        workspace_de_opciones(opciones.dir.as_ref()).as_deref(),
+    );
     let mut harness = construir_harness_con_impl(
         &opciones_durables,
         tiendas.clone(),
         tiendas.clone(),
         user_id,
+        ambito_memoria,
         registry,
     );
     harness.sqlite = Some(tiendas);
@@ -229,6 +252,10 @@ pub fn construir_harness_con(
         persistencia,
         programador,
         user_id,
+        /* [109A-2] Este constructor no conoce áreas de trabajo: el llamador
+         * que sí las resuelve (CLI durable) usa `construir_harness_durable`.
+         * El resto (session/schedule) trabaja en el ámbito global. */
+        AmbitoMemoria::Global,
         AgentToolRegistry::new(),
     )
 }
@@ -239,16 +266,12 @@ pub fn construir_harness_con_impl(
     persistencia: Arc<dyn AgentPersistence>,
     programador: Arc<dyn ProgramadorTareas>,
     user_id: Uuid,
+    ambito_memoria: AmbitoMemoria,
     registry: AgentToolRegistry,
 ) -> HarnessCli {
     /* La raíz del workspace: `--dir`, o el cwd donde se invocó el comando.
      * Así el agente "trabaja en esa carpeta" con sus tools de archivo. */
-    let workspace = opciones
-        .dir
-        .clone()
-        .or_else(|| std::env::current_dir().ok())
-        .map(|p| p.canonicalize().unwrap_or(p))
-        .map(quitar_prefijo_verbatim);
+    let workspace = workspace_de_opciones(opciones.dir.as_ref());
 
     /* [02-09-2026] En el CLI standalone queremos tools de archivo sobre el
      * workspace, que el núcleo solo activa con AGENTE_MODO=local. Fijamos
@@ -262,6 +285,9 @@ pub fn construir_harness_con_impl(
     let llm = Arc::new(LlmProviderService::new(LlavesProveedor::from_env()));
 
     let mut config = turno_config_default(workspace.clone());
+    // [109A-2] El ámbito viaja en el config del turno: las tools de memoria
+    // (`memoria_guardar/recordar/borrar`) lo reciben por `AgentToolContext`.
+    config.ambito_memoria = ambito_memoria;
     if let Some(provider) = opciones
         .provider
         .as_deref()
@@ -418,6 +444,7 @@ pub async fn ejecutar_turno_run(
         crate::memoria::bloque_memoria_para_turno(
             &harness.persistencia,
             user_id,
+            harness.config.ambito_memoria,
             &mensaje,
             harness.config.incluir_memoria,
             harness.config.incluir_skills,
@@ -475,6 +502,7 @@ pub async fn ejecutar_turno_run(
             crate::memoria::sincronizar_memoria_tras_turno(
                 &harness.persistencia,
                 user_id,
+                harness.config.ambito_memoria,
                 &texto,
                 &mensaje,
                 "turno:run",

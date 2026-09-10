@@ -369,13 +369,27 @@ mod tests {
         async fn registrar_accion(&self, _: &crate::ports::AccionAuditable) -> Result<()> {
             Ok(())
         }
-        async fn memoria_listar(&self, _: Uuid) -> Result<Vec<MemoriaEntrada>> {
+        async fn memoria_listar(
+            &self,
+            _: Uuid,
+            _: crate::ports::AmbitoMemoria,
+        ) -> Result<Vec<MemoriaEntrada>> {
             Ok(Vec::new())
         }
-        async fn memoria_upsert(&self, _: Uuid, _: &MemoriaEntrada) -> Result<()> {
+        async fn memoria_upsert(
+            &self,
+            _: Uuid,
+            _: crate::ports::AmbitoMemoria,
+            _: &MemoriaEntrada,
+        ) -> Result<()> {
             Ok(())
         }
-        async fn memoria_borrar(&self, _: Uuid, _: &str) -> Result<()> {
+        async fn memoria_borrar(
+            &self,
+            _: Uuid,
+            _: crate::ports::AmbitoMemoria,
+            _: &str,
+        ) -> Result<()> {
             Ok(())
         }
         async fn skills_listar(&self, _: Uuid) -> Result<Vec<SkillEntrada>> {

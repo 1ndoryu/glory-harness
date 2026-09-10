@@ -30,8 +30,8 @@ use crate::llm::{AiChatOptions, AiMessage, AiToolCall, LlmProviderService};
 use crate::memoria::registrar_tools_memoria;
 use crate::ports::EjecutorComando;
 use crate::ports::{
-    AccionAuditable, AgentPersistence, MensajePersistido, NavegadorPort, ProgramadorTareas,
-    TurnoPersistido, WebFetchProvider, WebSearchProvider,
+    AccionAuditable, AgentPersistence, AmbitoMemoria, MensajePersistido, NavegadorPort,
+    ProgramadorTareas, TurnoPersistido, WebFetchProvider, WebSearchProvider,
 };
 use crate::pregunta::{procesar_pregunta, registrar_tool_ask_user};
 use crate::sandbox::SandboxArchivos;
@@ -79,6 +79,11 @@ pub struct TurnoConfig {
     pub contexto: ContextoConfig,
     /// Modo de operación (sección 9.2): predeterminado | meta | autonomo.
     pub modo: String,
+    /// [109A-2] Área de trabajo del turno para la memoria: las tools
+    /// `memoria_*` y el prefetch/sync operan SOLO sobre este ámbito. Default
+    /// `Global` (usuario sin área activa), que es el comportamiento previo a
+    /// la feature: el consumidor que conozca el área activa debe fijarlo.
+    pub ambito_memoria: AmbitoMemoria,
     /// [02-09-2026] Fase 5: estilo de respuesta (conciso|detallado|amable) y
     /// preferencias personales del usuario; ambos se inyectan en el prompt.
     pub estilo: String,
@@ -116,6 +121,9 @@ impl Default for TurnoConfig {
             timeout_tool: Duration::from_secs(15),
             contexto: ContextoConfig::default(),
             modo: "predeterminado".into(),
+            /* [109A-2] Sin ámbito explícito la memoria es global del usuario:
+             * es el comportamiento que había antes de separar por proyecto. */
+            ambito_memoria: AmbitoMemoria::default(),
             estilo: "conciso".into(),
             preferencias: String::new(),
             workspace: None,
@@ -300,11 +308,15 @@ impl AgentRuntime {
     /// maduro y muy usado. La usa el motor del cron cuando el prompt es el
     /// marcador [`crate::memoria::MARCADOR_CURADOR`] y el subcomando CLI
     /// `memoria curar`. Determinista y sin coste de proveedor.
+    ///
+    /// [109A-2] Recorre **todos** los ámbitos del usuario (global + cada
+    /// proyecto con recuerdos): curar solo el global dejaría los proyectos
+    /// sin pasar nunca. El resumen agregado anota el proyecto de cada clave.
     pub async fn ejecutar_curador_nativo(
         &self,
         user_id: Uuid,
     ) -> Result<crate::memoria::ResumenCurador> {
-        crate::memoria::ejecutar_curador(
+        crate::memoria::ejecutar_curador_todos(
             &self.puertos.persistencia,
             user_id,
             &crate::memoria::PoliticaCurador::default(),

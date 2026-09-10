@@ -246,6 +246,7 @@ mod tests {
 
     fn ctx<'a>(persistencia: &'a PersistenciaMock) -> AgentToolContext<'a> {
         AgentToolContext {
+            ambito_memoria: crate::ports::AmbitoMemoria::Global,
             user_id: Uuid::new_v4(),
             persistencia,
             web_fetch: None,

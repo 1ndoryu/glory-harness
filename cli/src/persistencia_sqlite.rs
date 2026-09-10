@@ -27,6 +27,7 @@ use uuid::Uuid;
 
 use glory_harness_core::error::Error;
 use glory_harness_core::HarnessResult;
+use glory_harness_core::AmbitoMemoria;
 
 mod conversaciones;
 mod memoria;
@@ -90,19 +91,6 @@ CREATE TABLE IF NOT EXISTS acciones (
     diff TEXT,
     creado_en TEXT NOT NULL
 );
-CREATE TABLE IF NOT EXISTS memoria (
-    user_id TEXT NOT NULL,
-    clave TEXT NOT NULL,
-    contenido TEXT NOT NULL,
-    /* [069A-4] Metadatos de auditoría y curaduría (migración para BDs
-     * antiguas en MIGRACIONES; filas previas leen NULL → se tratan como
-     * nuevas al leer, nunca como obsoletas). */
-    actualizada_en TEXT NOT NULL DEFAULT '',
-    origen TEXT NOT NULL DEFAULT '',
-    usos INTEGER NOT NULL DEFAULT 0,
-    ultimo_uso TEXT,
-    PRIMARY KEY (user_id, clave)
-);
 CREATE TABLE IF NOT EXISTS skills (
     id TEXT PRIMARY KEY,
     user_id TEXT NOT NULL,
@@ -134,6 +122,50 @@ CREATE TABLE IF NOT EXISTS config (
     valor TEXT NOT NULL
 );
 ";
+
+/// Definición de `memoria` ([109A-2]). Vive fuera del bloque base porque la
+/// migración a memoria por proyecto necesita recrear la tabla con exactamente
+/// esta forma (SQLite no permite alterar una `PRIMARY KEY`).
+///
+/// `workspace_id` usa `''` como centinela del ámbito global en vez de NULL
+/// porque en SQLite los NULL no colisionan en un `UNIQUE`: con NULL, dos
+/// recuerdos globales de la misma clave convivirían y el `ON CONFLICT` del
+/// upsert dejaría de ser fiable.
+const ESQUEMA_MEMORIA: &str = "
+CREATE TABLE IF NOT EXISTS memoria (
+    user_id TEXT NOT NULL,
+    workspace_id TEXT NOT NULL DEFAULT '',
+    clave TEXT NOT NULL,
+    contenido TEXT NOT NULL,
+    /* [069A-4] Metadatos de auditoría y curaduría (migración para BDs
+     * antiguas en MIGRACIONES; filas previas leen NULL → se tratan como
+     * nuevas al leer, nunca como obsoletas). */
+    actualizada_en TEXT NOT NULL DEFAULT '',
+    origen TEXT NOT NULL DEFAULT '',
+    usos INTEGER NOT NULL DEFAULT 0,
+    ultimo_uso TEXT,
+    /* La misma clave puede existir a la vez en ámbitos distintos: son
+     * recuerdos independientes. */
+    UNIQUE (user_id, workspace_id, clave)
+);
+";
+
+/// `workspace_id` almacenado para un ámbito: `''` = global, UUID = proyecto.
+fn ambito_a_workspace_id(ambito: AmbitoMemoria) -> String {
+    ambito
+        .proyecto_id()
+        .map(|id| id.as_hyphenated().to_string())
+        .unwrap_or_default()
+}
+
+/// Inverso de [`ambito_a_workspace_id`]. Un `workspace_id` que no sea ni
+/// vacío ni un UUID se reporta como error en vez de degradarse a global.
+fn workspace_id_a_ambito(valor: &str) -> HarnessResult<AmbitoMemoria> {
+    if valor.is_empty() {
+        return Ok(AmbitoMemoria::Global);
+    }
+    Ok(AmbitoMemoria::Proyecto(a_uuid(valor.to_string())?))
+}
 
 /// Migraciones idempotentes para BDs creadas con un esquema anterior
 /// (`CREATE TABLE IF NOT EXISTS` no altera tablas existentes).
@@ -253,6 +285,8 @@ impl PersistenciaSqlite {
             .map_err(|e| Error::Persistencia(format!("busy_timeout: {e}")))?;
         conn.execute_batch(ESQUEMA)
             .map_err(|e| Error::Persistencia(format!("esquema inicial: {e}")))?;
+        conn.execute_batch(ESQUEMA_MEMORIA)
+            .map_err(|e| Error::Persistencia(format!("esquema inicial (memoria): {e}")))?;
         // Migraciones idempotentes: una BD antigua no tiene las columnas que
         // el `CREATE TABLE IF NOT EXISTS` no altera. Ignoramos "duplicate
         // column name" (ya migrada) y propagamos el resto.
@@ -264,7 +298,61 @@ impl PersistenciaSqlite {
                 }
             }
         }
+        Self::migrar_memoria_por_proyecto(&conn)?;
         Ok(conn)
+    }
+
+    /// `true` si `memoria` ya tiene la columna `workspace_id` ([109A-2]).
+    fn memoria_ya_tiene_ambito(conn: &Connection) -> HarnessResult<bool> {
+        let mut stmt = conn
+            .prepare("PRAGMA table_info(memoria)")
+            .map_err(|e| Error::Persistencia(format!("PRAGMA table_info(memoria): {e}")))?;
+        let columnas = stmt
+            .query_map([], |f| f.get::<_, String>(1))
+            .map_err(|e| Error::Persistencia(format!("PRAGMA table_info(memoria): {e}")))?;
+        for columna in columnas {
+            if columna.map_err(|e| Error::Persistencia(e.to_string()))? == "workspace_id" {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
+    /// [109A-2] Pasa `memoria` a memoria por proyecto recreando la tabla una
+    /// sola vez.
+    ///
+    /// La tabla anterior declaraba `PRIMARY KEY (user_id, clave)`, que impide
+    /// tener la misma clave en dos ámbitos, y SQLite no permite alterar una
+    /// PK: la única vía es copiar a una tabla nueva. Los recuerdos existentes
+    /// conservan su contenido y pasan al ámbito global (`''`), que es
+    /// exactamente lo que eran antes de esta feature. Idempotente (si la
+    /// columna ya existe no toca nada) y atómica: la transacción revierte
+    /// sola si algo falla, y el error se propaga en vez de perderse.
+    fn migrar_memoria_por_proyecto(conn: &Connection) -> HarnessResult<()> {
+        if Self::memoria_ya_tiene_ambito(conn)? {
+            return Ok(());
+        }
+        let tx = conn
+            .unchecked_transaction()
+            .map_err(|e| Error::Persistencia(format!("migración memoria: {e}")))?;
+        tx.execute_batch(
+            "DROP TABLE IF EXISTS memoria_pre_109a2;
+             ALTER TABLE memoria RENAME TO memoria_pre_109a2;",
+        )
+        .and_then(|()| tx.execute_batch(ESQUEMA_MEMORIA))
+        .and_then(|()| {
+            tx.execute_batch(
+                "INSERT INTO memoria
+                     (user_id, workspace_id, clave, contenido, actualizada_en, origen, usos, ultimo_uso)
+                 SELECT user_id, '', clave, contenido, actualizada_en, origen, usos, ultimo_uso
+                   FROM memoria_pre_109a2;
+                 DROP TABLE memoria_pre_109a2;",
+            )
+        })
+        .map_err(|e| Error::Persistencia(format!("migración memoria por proyecto: {e}")))?;
+        tx.commit()
+            .map_err(|e| Error::Persistencia(format!("migración memoria por proyecto: {e}")))?;
+        Ok(())
     }
 
     /// Abre (o crea) la BD en `ruta`, con directorios padres si faltan.

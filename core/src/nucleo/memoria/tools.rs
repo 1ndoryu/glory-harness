@@ -62,7 +62,7 @@ impl AgentTool for ToolMemoriaGuardar {
         let entrada =
             MemoriaEntrada::nueva(clave.to_string(), limpio, "tool:memoria_guardar".into());
         ctx.persistencia
-            .memoria_upsert(ctx.user_id, &entrada)
+            .memoria_upsert(ctx.user_id, ctx.ambito_memoria, &entrada)
             .await?;
         Ok(AgentToolResult::ok(
             format!("recuerdo '{}' guardado", entrada.clave),
@@ -112,7 +112,10 @@ impl AgentTool for ToolMemoriaRecordar {
             .and_then(Value::as_u64)
             .map(|l| (l as usize).clamp(1, 8000))
             .unwrap_or(2000);
-        let entradas = ctx.persistencia.memoria_listar(ctx.user_id).await?;
+        let entradas = ctx
+            .persistencia
+            .memoria_listar(ctx.user_id, ctx.ambito_memoria)
+            .await?;
         let (bloque, claves) = puntuar_y_formatear(&entradas, consulta, limite);
         if bloque.is_empty() {
             return Ok(AgentToolResult::ok(
@@ -165,7 +168,9 @@ impl AgentTool for ToolMemoriaBorrar {
             .map(str::trim)
             .filter(|c| !c.is_empty())
             .ok_or_else(|| Error::Argumentos("memoria_borrar: clave requerida".into()))?;
-        ctx.persistencia.memoria_borrar(ctx.user_id, clave).await?;
+        ctx.persistencia
+            .memoria_borrar(ctx.user_id, ctx.ambito_memoria, clave)
+            .await?;
         Ok(AgentToolResult::ok(
             format!("recuerdo '{clave}' borrado"),
             format!("memoria_borrar: {clave}"),
@@ -190,7 +195,18 @@ mod pruebas {
     use uuid::Uuid;
 
     fn contexto<'a>(tienda: &'a TiendaPrueba, user_id: Uuid) -> AgentToolContext<'a> {
+        contexto_en(tienda, user_id, crate::ports::AmbitoMemoria::Global)
+    }
+
+    /// Igual que [`contexto`] pero fijando el ámbito ([109A-2]): las pruebas
+    /// de aislamiento entre proyectos necesitan dos contextos distintos.
+    fn contexto_en<'a>(
+        tienda: &'a TiendaPrueba,
+        user_id: Uuid,
+        ambito_memoria: crate::ports::AmbitoMemoria,
+    ) -> AgentToolContext<'a> {
         AgentToolContext {
+            ambito_memoria,
             user_id,
             persistencia: tienda,
             web_fetch: None,

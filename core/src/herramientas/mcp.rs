@@ -437,6 +437,7 @@ mod tests {
         // las MCP no la tocan).
         let persistencia = crate::contrato_tests::PersistenciaMock::default();
         let ctx = crate::tool::AgentToolContext {
+            ambito_memoria: crate::ports::AmbitoMemoria::Global,
             user_id: uuid::Uuid::new_v4(),
             persistencia: &persistencia,
             web_search: None,

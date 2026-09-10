@@ -357,6 +357,7 @@ async fn ejecutar_turno_chat(
         crate::memoria::bloque_memoria_para_turno(
             &ctx.persistencia,
             ctx.user_id,
+            ctx.runtime.turno_config.ambito_memoria,
             texto,
             ctx.runtime.turno_config.incluir_memoria,
             ctx.runtime.turno_config.incluir_skills,
@@ -396,6 +397,7 @@ async fn ejecutar_turno_chat(
             crate::memoria::sincronizar_memoria_tras_turno(
                 &ctx.persistencia,
                 ctx.user_id,
+                ctx.runtime.turno_config.ambito_memoria,
                 &respuesta.texto,
                 texto,
                 "turno:chat",
