@@ -6,3 +6,4 @@ core/target/
 cli/target/
 desktop/src-tauri/gen/
 desktop/src-tauri/target/
+data/referencias-cli/
