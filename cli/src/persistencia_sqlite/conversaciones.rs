@@ -279,6 +279,8 @@ impl PersistenciaSqlite {
         Ok(filas == 1)
     }
 
+    // La compactación por demanda ([109A-4 F3]) vive en `super::compactacion`.
+
     /// Renombra (solo si es del usuario); `false` si no existe o no es suya.
     pub fn conversacion_renombrar(
         &self,
@@ -881,4 +883,6 @@ mod tests {
         let mensajes = p.listar_mensajes(conv).await.expect("listar");
         assert_eq!(mensajes.len(), 2);
     }
+
+    // Los tests de compactación viven en `super::compactacion`.
 }

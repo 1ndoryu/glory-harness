@@ -406,6 +406,42 @@ pub(crate) use crate::nucleo::prompt::fecha_hoy;
 pub(crate) use crate::nucleo::prompt::info_git;
 pub use crate::nucleo::prompt::{ensamblar_prompt_sistema, DesgloseContexto};
 
+/// [109A-4 F3] Resultado de una compactación pedida por el usuario desde la
+/// UI (`/compactar`). Fuera del bucle del turno no hay canal de eventos, así
+/// que el runtime devuelve el resultado completo (métricas + resumen) para que
+/// el consumidor lo muestre y lo persista. `motivo` nunca es `None` cuando
+/// `compactado` es falso: un no-op siempre se explica.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct CompactarManual {
+    pub compactado: bool,
+    pub motivo: Option<String>,
+    pub tokens_antes: u32,
+    pub tokens_despues: u32,
+    pub ahorro_pct: f32,
+    pub ocupacion_pct: f32,
+    pub tramos: u32,
+    /// Resumen del tramo compactado. El consumidor lo persiste para que los
+    /// turnos siguientes arranquen de él en vez del historial entero.
+    pub resumen: Option<String>,
+}
+
+impl CompactarManual {
+    /// No-op explicado: nada se compactó y el motivo queda visible.
+    #[must_use]
+    fn no_compactado(motivo: impl Into<String>, tokens_antes: u32, ocupacion_pct: f32) -> Self {
+        Self {
+            compactado: false,
+            motivo: Some(motivo.into()),
+            tokens_antes,
+            tokens_despues: tokens_antes,
+            ahorro_pct: 0.0,
+            ocupacion_pct,
+            tramos: 0,
+            resumen: None,
+        }
+    }
+}
+
 fn mensajes_usuario_resumen(mensaje: &str) -> String {
     mensaje.chars().take(500).collect()
 }

@@ -190,6 +190,19 @@ export interface ResultadoCarpetaMemoria {
   omitidos: string[];
 }
 
+/** [109A-4 F3] Resultado de `/compactar`. Sin el resumen del tramo: se
+ * persiste como punto de compactación y NO se pinta en el chat (el historial
+ * visible no cambia). `compactado: false` trae el `motivo` del no-op. */
+export interface ResumenCompactacion {
+  compactado: boolean;
+  motivo: string | null;
+  tokens_antes: number;
+  tokens_despues: number;
+  ahorro_pct: number;
+  ocupacion_pct: number;
+  tramos: number;
+}
+
 /** [109A-4] Comando `/` definido por el área activa (`.glory/comandos/*.md`). */
 export interface ComandoArea {
   nombre: string;
@@ -275,6 +288,8 @@ export interface Transporte {
   // [109A-4] Comandos `/` propios del área activa (catálogo + expansión).
   comandosListar(): Promise<ComandoArea[]>;
   comandoExpandir(nombre: string, argumentos: string): Promise<string>;
+  // [109A-4 F3] Compactación por demanda de la conversación del panel.
+  compactarConversacion(panelId: string | null, instruccion: string | null): Promise<ResumenCompactacion>;
 }
 
 /** true solo dentro de la app Tauri (hay `__TAURI__` global). */

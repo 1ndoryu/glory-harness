@@ -12,6 +12,7 @@ import type {
   ProveedorInfo,
   ResultadoCarpetaMemoria,
   ResultadoRestauracionTramo,
+  ResumenCompactacion,
   Transporte,
 } from './realTipos';
 
@@ -108,6 +109,13 @@ export function transporteTauri(): Transporte {
     comandosListar: () => invoke<ComandoArea[]>('comandos_listar'),
     comandoExpandir: (nombre, argumentos) =>
       invoke<string>('comando_expandir', { nombre, argumentos }),
+    // [109A-4 F3] Compactación por demanda: el backend decide con el historial
+    // real de la conversación del panel y persiste el punto de compactación.
+    compactarConversacion: (panelId, instruccion) =>
+      invoke<ResumenCompactacion>('compactar_conversacion', {
+        panel_id: panelId,
+        instruccion,
+      }),
   };
 }
 

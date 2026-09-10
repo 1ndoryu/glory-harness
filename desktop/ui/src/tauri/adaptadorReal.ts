@@ -18,6 +18,7 @@ import type {
   ProveedorInfo,
   ResultadoCarpetaMemoria,
   ResultadoRestauracionTramo,
+  ResumenCompactacion,
   Transporte,
 } from './realTipos';
 import { transporteTauri } from './transporteTauri';
@@ -103,6 +104,13 @@ export function crearAdaptadorReal(hooks: HooksAdaptador = {}, transporte: Trans
       },
       async actualizarMeta(meta: string | null): Promise<string | null> {
         return transporte.fijarMeta(meta);
+      },
+      /** [109A-4 F3] Compacta el contexto de la conversación del panel
+       * (`/compactar`). El backend decide con el historial real: devuelve el
+       * ahorro logrado o, si no había material, el `motivo` del no-op.
+       * [039A-3 P5] Opera sobre el panel dado (`principal`/`lateral`). */
+      async compactar(panelId?: string, instruccion?: string | null): Promise<ResumenCompactacion> {
+        return transporte.compactarConversacion(panelId ?? null, instruccion ?? null);
       },
       // [069A-Proyectos] Proyectos (áreas de trabajo).
       workspaces: {

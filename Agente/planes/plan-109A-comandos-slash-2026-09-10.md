@@ -1,7 +1,7 @@
 # Plan 109A-4 — Comandos `/` estilo VS Code (`/compactar`, `/meta`)
 
-> ID roadmap: **109A-4** · Fecha: 2026-09-10 · Estado: activo (F1 y F2 HECHOS
-> 10-09; F3–F4 pendientes)
+> ID roadmap: **109A-4** · Fecha: 2026-09-10 · Estado: activo (F1–F3 HECHOS
+> 10-09; F4 pendiente)
 > Origen: petición usuario — menú `/` como VS Code; `/compactar`; `meta` pasa de
 > modo de ejecución a comando; luego relevar comandos útiles en las referencias.
 
@@ -62,9 +62,10 @@ Implementado:
 - **Disparador** `componentes/entradaComandos.ts`: abre con `/` al inicio del
   textarea, filtra al teclear, cierra con espacio (paso a argumentos).
 - **Ejecutor** `componentes/panelChatComandos.ts`: `/ayuda`, `/modelo`, `/contexto`,
-  `/limpiar`, `/revisar`, `/iniciar` y comandos markdown del área; `/compactar` y
-  `/meta` responden explícitamente «aún no está activo (llega en la fase siguiente
-  del plan 109A-4)»; desconocido → `comando desconocido «/x»; prueba /ayuda`.
+  `/limpiar`, `/revisar`, `/iniciar` y comandos markdown del área; `/compactar`
+  (activado después en F3) y `/meta` responden explícitamente «aún no está activo
+  (llega en la fase siguiente del plan 109A-4)»; desconocido → `comando
+  desconocido «/x»; prueba /ayuda`.
   Sin fall-through al LLM.
 - **Comandos del área**: `comandos_listar`/`comando_expandir` (Tauri, ahora en
   `desktop/src-tauri/src/comandos/mod.rs`) reutilizan `glory_harness_core::skill`;
@@ -94,10 +95,60 @@ Evidencia (10-09):
   `directorio-abarrotado`; la reorganización por dominio de ese directorio queda
   como deuda en 109A-6.
 
-### F3 — `/compactar`
-- Builtin que dispara compactación bajo demanda (`context.rs` evaluar+compactar)
-  y respeta el gancho de 109A-1. Si no hay material que resumir, aviso explícito
-  (no-op visible, nunca silencio). Evento en historial.
+### F3 — `/compactar` (HECHO 10-09)
+
+Compactación bajo demanda con el MISMO gestor de contexto y los mismos ganchos
+que la pasada automática, más un **punto de compactación persistido** para que el
+turno siguiente arranque del resumen en vez de reenviar el historial entero:
+
+- **Core** `nucleo/context.rs`: `CompactarResultado.resumen_texto` (el consumidor
+  necesita el texto para persistirlo) y `compactar_forzado(...)`, que ignora
+  umbral y ventana de seguridad porque lo pide el usuario pero conserva el único
+  invariante útil — `hay_material(...)`, material nuevo y tramo resumible fuera
+  de la cola verbatim — para no «compactar» en balde. Automática y manual
+  comparten `aplicar_compactacion`, así que no pueden divergir en ahorro ni en
+  contadores.
+- **Runtime** `nucleo/runtime/turno/mod.rs`: `compactar_manual(&[AiMessage],
+  instruccion)` devuelve `CompactarManual { compactado, motivo, tokens_antes,
+  tokens_despues, ahorro_pct, ocupacion_pct, tramos, resumen }`; dispara
+  `PreCompact` (veto = no se toca nada) antes y `PostCompact` después, y reutiliza
+  `limite_resumen_chars` para acotar el resumen del gancho.
+- **Persistencia**: columnas `conversaciones.compactado_en` + `resumen_compactado`
+  (migración idempotente `ALTER TABLE`) con `conversacion_compactar` /
+  `conversacion_compactacion` (ownership por usuario; resumen en blanco = ausencia).
+- **Servicio** `SesionComun::compactar_conversacion`: compacta el historial real
+  de la conversación y persiste el punto; `preparar_turno` envía
+  `[resumen] + mensajes posteriores a la marca` cuando hay punto. Los mensajes NO
+  se borran: historial visible, rewind y auditoría siguen completos.
+- **Escritorio**: comando Tauri `compactar_conversacion` (mismo guard de turno en
+  curso que `cargar_conversacion`), expuesto en `Transporte`; en modo web se
+  declara ausente (`adaptadores/apiCompactar.ts`), sin simular ahorro.
+- **UI** `panelChatComandos.ts`: `/compactar [instrucción]` informa del ahorro real
+  («contexto compactado: A → B tokens (~N% menos)») o del motivo del no-op.
+
+Evidencia (10-09):
+
+- `cargo test -p glory-harness-core -p glory-harness`: 122 + 281 verdes, incluidos
+  los `forzado_*` del core y `compactar_conversacion_persiste_el_punto_y_el_turno_arranca_del_resumen`,
+  `compactar_conversacion_sin_material_no_persiste`, `compactacion_round_trip_y_ownership`
+  y `migracion_anade_columnas_de_compactacion` (BD con esquema anterior → migra).
+- Bug real encontrado por los tests: `PersistenciaSqlite` guarda `creado_en` con
+  precisión de SEGUNDOS, así que un punto con nanosegundos descartaba los mensajes
+  del mismo segundo. El punto se guarda con `SecondsFormat::Secs` y el filtro usa
+  `>=`: duplicar algo ya resumido es inofensivo, perder un turno no lo es.
+- `cargo clippy -p glory-harness-desktop --all-targets -- -D warnings` limpio;
+  `npm run type-check` limpio; `npm run build` EXIT 0 (97 módulos, `index-*.js`
+  156.73 kB).
+- E2E en navegador (modo web): `/compactar` falla con motivo explícito
+  («no se pudo compactar: la compactación por demanda requiere la aplicación de
+  escritorio») en vez de mostrar un ahorro que no ocurrió.
+- Límite real de la verificación: el camino Tauri no se pudo ejercer en ventana
+  (la infraestructura de tests del escritorio no monta un runtime Tauri); cubierto
+  con los tests de servicio —mismo par de llamadas que hace el comando—, clippy y
+  type-check.
+
+Interacción documentada: un `rewind` posterior sigue funcionando; el punto no se
+limpia porque el resumen cubre justamente el material anterior a la marca.
 
 ### F4 — `/meta <texto>` y retiro del modo
 - El comando ejecuta **un turno** con política meta (solo lectura) como override

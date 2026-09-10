@@ -331,24 +331,8 @@ impl AgentRuntime {
             .load(std::sync::atomic::Ordering::Relaxed);
         let (requiere, payload_precompact) = {
             let cm = self.contexto.lock().await;
-            let tokens: u32 = mensajes.iter().map(tokens_de_mensaje).sum();
-            let ventana = cm.config().ventana_efectiva().max(1);
-            let ocupacion_pct = tokens as f32 / ventana as f32 * 100.0;
-            let candidato: String = crate::context::resumen_de_mensajes(&mensajes)
-                .chars()
-                .take(4_000)
-                .collect();
             let requiere = cm.requiere_compactacion(&mensajes, 0, en_ejecucion_tool);
-            let payload = serde_json::json!({
-                "evento": EventoHook::PreCompact.nombre(),
-                "mensajes": mensajes.len(),
-                "tokens_estimados": tokens,
-                "ventana_efectiva": ventana,
-                "ocupacion_pct": ocupacion_pct,
-                "umbral_pct": cm.config().umbral_disparo() * 100.0,
-                "en_ejecucion_tool": en_ejecucion_tool,
-                "resumen_candidato": candidato,
-            });
+            let payload = payload_precompact(&cm, &mensajes, en_ejecucion_tool, None);
             (requiere, payload)
         };
         let mut resumen_llm = None;
@@ -362,27 +346,8 @@ impl AgentRuntime {
                 );
                 return Ok(mensajes);
             }
-            let limite_chars = {
-                let cm = self.contexto.lock().await;
-                cm.config().max_resumen_tokens.max(1) as usize * 4
-            };
-            resumen_llm = salida.ajuste.and_then(|ajuste| {
-                let texto = ajuste
-                    .get("resumen_llm")
-                    .or_else(|| ajuste.get("resumen"))
-                    .and_then(Value::as_str)
-                    .map(str::trim)
-                    .filter(|texto| !texto.is_empty())?;
-                if texto.chars().count() > limite_chars {
-                    tracing::warn!(
-                        limite_chars,
-                        "ajuste de PreCompact excede max_resumen_tokens; se ignora y se usa fallback"
-                    );
-                    None
-                } else {
-                    Some(texto.to_owned())
-                }
-            });
+            let limite_chars = self.limite_resumen_chars().await;
+            resumen_llm = resumen_del_gancho(salida, limite_chars);
         }
         let (mensajes_prep, metricas) = {
             let mut cm = self.contexto.lock().await;
@@ -413,6 +378,93 @@ impl AgentRuntime {
             tracing::info!(before = m.tokens_before, after = m.tokens_after, savings = %m.savings_pct, "compactación de contexto");
         }
         Ok(mensajes_prep)
+    }
+
+    /// Presupuesto en caracteres del resumen del tramo (`max_resumen_tokens`
+    /// × 4: la misma estimación chars/4 que usa `estimar_tokens`). Compartido
+    /// por la pasada automática y la compactación por demanda.
+    async fn limite_resumen_chars(&self) -> usize {
+        let cm = self.contexto.lock().await;
+        cm.config().max_resumen_tokens.max(1) as usize * 4
+    }
+
+    /// [109A-4 F3] Compactación pedida por el usuario (`/compactar`).
+    ///
+    /// Vive fuera del bucle del turno: no hay `tx` ni iteración que consuma el
+    /// resultado, así que se devuelve completo para que el consumidor lo
+    /// muestre y lo persista. Comparte con la automática el gestor de contexto
+    /// (mismos contadores y anti-thrash) y los ganchos `PreCompact`/`PostCompact`,
+    /// de modo que un hook de 109A-1 puede vetar o dirigir también esta pasada.
+    /// Nunca compacta en silencio sin material: lo dice con `motivo`.
+    pub async fn compactar_manual(
+        &self,
+        mensajes: &[AiMessage],
+        instruccion: Option<&str>,
+    ) -> CompactarManual {
+        let (hay_material, payload, tokens_antes, ocupacion_pct) = {
+            let cm = self.contexto.lock().await;
+            let tokens: u32 = mensajes.iter().map(tokens_de_mensaje).sum();
+            let ventana = cm.config().ventana_efectiva().max(1);
+            (
+                cm.hay_material(mensajes, 0),
+                payload_precompact(&cm, mensajes, false, instruccion),
+                tokens,
+                tokens as f32 / ventana as f32 * 100.0,
+            )
+        };
+        if !hay_material {
+            return CompactarManual::no_compactado(
+                "no hay material nuevo que resumir",
+                tokens_antes,
+                ocupacion_pct,
+            );
+        }
+        /* El gancho se dispara ANTES de compactar (mismo contrato que la
+         * pasada automática): veto = se conserva el historial sin cambios. */
+        let salida = self
+            .disparar_hook_con_salida(EventoHook::PreCompact, payload)
+            .await;
+        if salida.bloqueo {
+            return CompactarManual::no_compactado(
+                "el gancho PreCompact vetó la compactación",
+                tokens_antes,
+                ocupacion_pct,
+            );
+        }
+        let limite_chars = self.limite_resumen_chars().await;
+        let resumen_llm = resumen_del_gancho(salida, limite_chars);
+        let resultado = {
+            let mut cm = self.contexto.lock().await;
+            cm.compactar_forzado(mensajes, 0, resumen_llm)
+        };
+        let Some(metricas) = resultado.metricas else {
+            /* Carrera real (el material cambió entre la comprobación y la
+             * compactación): se reporta en vez de fingir que se compactó. */
+            return CompactarManual::no_compactado(
+                "no había nada que resumir en la última comprobación",
+                tokens_antes,
+                ocupacion_pct,
+            );
+        };
+        let _ = self
+            .disparar_hook(EventoHook::PostCompact, serde_json::json!({}))
+            .await;
+        tracing::info!(
+            before = metricas.tokens_before,
+            after = metricas.tokens_after,
+            savings = %metricas.savings_pct,
+            "compactación de contexto pedida por el usuario"
+        );
+        CompactarManual {
+            compactado: true,
+            motivo: None,
+            tokens_antes: metricas.tokens_before,
+            tokens_despues: metricas.tokens_after,
+            ahorro_pct: metricas.savings_pct,
+            ocupacion_pct: metricas.occupancy_pct,
+            tramos: metricas.tramos,
+            resumen: resultado.resumen_texto,
+        }
     }
 
     /// [059A-S3] El modelo respondió sin tool_calls: guardas de turno en la
@@ -504,4 +556,60 @@ impl AgentRuntime {
         }
         Ok(())
     }
+}
+
+/// Payload del gancho `PreCompact`. Lo comparten la compactación automática y
+/// la manual para que un hook de 109A-1 vea SIEMPRE los mismos campos; cuando
+/// el usuario dirigió el resumen (`/compactar <instrucción>`) se añade
+/// `instruccion`, sin quitar ni renombrar nada de lo existente.
+fn payload_precompact(
+    cm: &AgentContextManager,
+    mensajes: &[AiMessage],
+    en_ejecucion_tool: bool,
+    instruccion: Option<&str>,
+) -> Value {
+    let tokens: u32 = mensajes.iter().map(tokens_de_mensaje).sum();
+    let ventana = cm.config().ventana_efectiva().max(1);
+    let candidato: String = crate::context::resumen_de_mensajes(mensajes)
+        .chars()
+        .take(4_000)
+        .collect();
+    let mut payload = serde_json::json!({
+        "evento": EventoHook::PreCompact.nombre(),
+        "mensajes": mensajes.len(),
+        "tokens_estimados": tokens,
+        "ventana_efectiva": ventana,
+        "ocupacion_pct": tokens as f32 / ventana as f32 * 100.0,
+        "umbral_pct": cm.config().umbral_disparo() * 100.0,
+        "en_ejecucion_tool": en_ejecucion_tool,
+        "resumen_candidato": candidato,
+    });
+    if let Some(instruccion) = instruccion.map(str::trim).filter(|i| !i.is_empty()) {
+        payload["instruccion"] = Value::String(instruccion.to_owned());
+    }
+    payload
+}
+
+/// Ajuste del gancho `PreCompact` como resumen utilizable: `resumen_llm` o
+/// `resumen`, no vacío y dentro de `limite_chars`. Lo que excede el presupuesto
+/// se ignora (con aviso) y la compactación cae al fallback determinista: stdout
+/// acotado no debe convertirse en un resumen desproporcionado.
+fn resumen_del_gancho(salida: SalidaHook, limite_chars: usize) -> Option<String> {
+    salida.ajuste.and_then(|ajuste| {
+        let texto = ajuste
+            .get("resumen_llm")
+            .or_else(|| ajuste.get("resumen"))
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|texto| !texto.is_empty())?;
+        if texto.chars().count() > limite_chars {
+            tracing::warn!(
+                limite_chars,
+                "ajuste de PreCompact excede max_resumen_tokens; se ignora y se usa fallback"
+            );
+            None
+        } else {
+            Some(texto.to_owned())
+        }
+    })
 }

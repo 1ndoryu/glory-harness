@@ -29,6 +29,7 @@ use glory_harness_core::error::Error;
 use glory_harness_core::HarnessResult;
 use glory_harness_core::AmbitoMemoria;
 
+mod compactacion;
 mod conversaciones;
 mod memoria;
 mod puerto;
@@ -192,7 +193,22 @@ const MIGRACIONES: &[&str] = &[
     "ALTER TABLE conversaciones ADD COLUMN meta_iniciada_en TEXT",
     "ALTER TABLE conversaciones ADD COLUMN meta_pausada_en TEXT",
     "ALTER TABLE conversaciones ADD COLUMN meta_logros TEXT NOT NULL DEFAULT '[]'",
+    /* [109A-4 F3] Punto de compactación por conversación (`/compactar`): el
+     * resumen del tramo y su marca de tiempo. Los mensajes anteriores NO se
+     * borran (el historial visible y el rewind siguen intactos): solo dejan de
+     * enviarse al modelo, que arranca del resumen. NULL = sin compactar. */
+    "ALTER TABLE conversaciones ADD COLUMN compactado_en TEXT",
+    "ALTER TABLE conversaciones ADD COLUMN resumen_compactado TEXT",
 ];
+
+/// [109A-4 F3] Punto de compactación manual de una conversación.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CompactacionPersistida {
+    /// RFC3339 del momento en que se compactó.
+    pub compactado_en: String,
+    /// Resumen del tramo (texto ya enmarcado por el núcleo).
+    pub resumen: String,
+}
 
 /// Estado crudo de meta leído desde SQLite. La conversión a dominio vive en
 /// `servicio::meta`, para que esta capa no dependa del ciclo de vida del agente.

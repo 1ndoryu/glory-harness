@@ -477,6 +477,8 @@ fn main() {
             sesion::proveedores_disponibles,
             sesion::config_leer,
             sesion::config_guardar,
+            // [109A-4 F3] Compactación por demanda (`/compactar`).
+            sesion::compactar_conversacion,
             workspaces::elegir_workspace,
             workspaces::elegir_carpeta_proyecto,
             workspaces::workspaces_listar,

@@ -3,10 +3,10 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use chrono::Utc;
+use chrono::{DateTime, SecondsFormat, Utc};
 use glory_harness_core::llm::{AiMessage, LlavesProveedor};
 use glory_harness_core::ports::{MensajePersistido, NavegadorPort};
-use glory_harness_core::runtime::AgentRuntime;
+use glory_harness_core::runtime::{AgentRuntime, CompactarManual};
 use glory_harness_core::{AgentPersistence, ProgramadorTareas};
 use serde::Serialize;
 use uuid::Uuid;
@@ -407,7 +407,27 @@ impl SesionComun {
             .await
             .map_err(|e| Error::Persistencia(e.to_string()))?;
         let habia_historial = !mensajes_previos.is_empty();
-        let historial = historial_desde_persistencia(mensajes_previos);
+        let historial = match self.punto_de_compactacion(conversacion_id)? {
+            /* [109A-4 F3] Compactación manual previa: el modelo arranca del
+             * resumen persistido y solo ve los mensajes posteriores a la marca
+             * (verbatim). Nada se borra en disco: el historial visible, el
+             * rewind y la auditoría siguen completos. */
+            Some((cuando, resumen)) => {
+                /* `>=` y no `>`: `PersistenciaSqlite` guarda las fechas de
+                 * mensaje con precisión de SEGUNDOS (`SecondsFormat::Secs`) y el
+                 * punto usa la misma, así que un mensaje del mismo segundo que
+                 * la compactación debe entrar (duplicar algo ya resumido es
+                 * inofensivo; perder un turno no lo es). */
+                let posteriores: Vec<MensajePersistido> = mensajes_previos
+                    .into_iter()
+                    .filter(|m| m.creado_en >= cuando)
+                    .collect();
+                let mut contexto = vec![AiMessage::texto("system", resumen)];
+                contexto.extend(historial_desde_persistencia(posteriores));
+                contexto
+            }
+            None => historial_desde_persistencia(mensajes_previos),
+        };
 
         /* [039A-1 04-09 H5] Auto-nombre tras el primer mensaje: solo cuando
          * el título sigue siendo el default "Nueva conversación" y no había
@@ -456,6 +476,78 @@ impl SesionComun {
             mensaje_efectivo,
             runtime: Arc::clone(&self.runtime),
         })
+    }
+
+    /// [109A-4 F3] Compactación pedida por el usuario (`/compactar`).
+    ///
+    /// El historial se reconstruye desde la persistencia (igual que un turno) y
+    /// se compacta con el runtime de la sesión: mismo gestor de contexto y
+    /// mismos ganchos `PreCompact`/`PostCompact` que la pasada automática. Si
+    /// compacta, el resumen queda PERSISTIDO como punto de compactación de la
+    /// conversación y los turnos siguientes arrancan de él; los mensajes no se
+    /// borran (historial visible y rewind intactos). Si no hay material, no se
+    /// escribe nada y el resultado lo explica con `motivo`.
+    pub async fn compactar_conversacion(
+        &self,
+        conversacion_id: Uuid,
+        instruccion: Option<String>,
+    ) -> Result<CompactarManual, Error> {
+        let mensajes = self
+            .persistencia
+            .listar_mensajes(conversacion_id)
+            .await
+            .map_err(|e| Error::Persistencia(e.to_string()))?;
+        let historial = historial_desde_persistencia(mensajes);
+        let instruccion = instruccion
+            .map(|texto| texto.trim().to_owned())
+            .filter(|texto| !texto.is_empty());
+        let resultado = self
+            .runtime
+            .compactar_manual(&historial, instruccion.as_deref())
+            .await;
+        if let Some(resumen) = resultado.resumen.as_deref() {
+            let guardado = self
+                .persistencia
+                .conversacion_compactar(
+                    self.user_id,
+                    conversacion_id,
+                    /* Misma precisión que `PersistenciaSqlite` usa para los
+                     * mensajes: comparar nano segundos contra segundos haría
+                     * perder los mensajes del mismo segundo. */
+                    &Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true),
+                    resumen,
+                )
+                .map_err(|e| Error::Persistencia(e.to_string()))?;
+            if !guardado {
+                return Err(Error::Sesion(
+                    "la conversación no existe o no es del usuario".into(),
+                ));
+            }
+        }
+        Ok(resultado)
+    }
+
+    /// [109A-4 F3] Punto de compactación vigente, resuelto a (instante,
+    /// resumen). Una marca de tiempo ilegible se ignora con aviso en vez de
+    /// romper el turno: enviar el historial completo es la degradación segura.
+    fn punto_de_compactacion(
+        &self,
+        conversacion_id: Uuid,
+    ) -> Result<Option<(DateTime<Utc>, String)>, Error> {
+        let punto = self
+            .persistencia
+            .conversacion_compactacion(self.user_id, conversacion_id)
+            .map_err(|e| Error::Persistencia(e.to_string()))?;
+        let Some(punto) = punto else {
+            return Ok(None);
+        };
+        match DateTime::parse_from_rfc3339(&punto.compactado_en) {
+            Ok(cuando) => Ok(Some((cuando.with_timezone(&Utc), punto.resumen))),
+            Err(e) => {
+                tracing::warn!(error = %e, "compactación con fecha inválida; se envía el historial completo");
+                Ok(None)
+            }
+        }
     }
 
     pub async fn cancelar_turno(&self, turno_id: Uuid) -> Result<(), Error> {
@@ -715,5 +807,127 @@ mod tests {
         p.config_guardar("contexto_max_ventana", "5")
             .expect("guarda");
         assert_eq!(leer_max_ventana(&p).expect("lee"), Some(150_000));
+    }
+
+    /// [109A-4 F3] Siembra un historial que supera la cola verbatim mínima
+    /// (10 000 tokens: aquí ~21 000) con instrucciones reconocibles, para que
+    /// la compactación algorítmica tenga tramo real que resumir sin proveedor.
+    async fn sembrar_historial_largo(sesion: &SesionComun, conv: Uuid, pares: usize) {
+        let base = Utc::now() - chrono::Duration::hours(1);
+        for i in 0..pares {
+            let peticion = format!(
+                "Revisa el archivo src/modulo_{i}.rs y corrige el aviso del gate; mantén el estilo del proyecto y no toques otros módulos. {}",
+                "detalle ".repeat(60)
+            );
+            let respuesta = format!(
+                "Ajusté src/modulo_{i}.rs y pasé las pruebas del bloque {i}. {}",
+                "nota ".repeat(60)
+            );
+            for (rol, contenido) in [("user", peticion), ("assistant", respuesta)] {
+                sesion
+                    .persistencia
+                    .guardar_mensaje(&MensajePersistido {
+                        id: Uuid::new_v4(),
+                        conversacion_id: conv,
+                        rol: rol.into(),
+                        contenido,
+                        creado_en: base + chrono::Duration::seconds(i as i64),
+                    })
+                    .await
+                    .expect("sembrar mensaje");
+            }
+        }
+    }
+
+    /// [109A-4 F3] Compactación por demanda: el resumen queda persistido como
+    /// punto de la conversación y el turno siguiente arranca de él en vez de
+    /// arrastrar el historial entero. Los mensajes NO se borran: el historial
+    /// visible y el rewind siguen completos, y lo posterior a la marca viaja
+    /// verbatim.
+    #[tokio::test]
+    async fn compactar_conversacion_persiste_el_punto_y_el_turno_arranca_del_resumen() {
+        let persistencia = PersistenciaSqlite::en_memoria().expect("BD en memoria");
+        let (sesion, apertura) = SesionComun::abrir_con_persistencia(
+            OpcionesSesion::default(),
+            persistencia,
+            None,
+        )
+        .expect("abrir sesión");
+        let conv = apertura.conversacion.id;
+        sembrar_historial_largo(&sesion, conv, 60).await;
+
+        let resultado = sesion
+            .compactar_conversacion(conv, Some("prioriza los pendientes".into()))
+            .await
+            .expect("compactar");
+        assert!(resultado.compactado, "motivo: {:?}", resultado.motivo);
+        assert!(resultado.tokens_despues < resultado.tokens_antes);
+
+        let resumen = sesion
+            .persistencia
+            .conversacion_compactacion(sesion.user_id, conv)
+            .expect("leer punto")
+            .expect("punto persistido")
+            .resumen;
+        assert!(!resumen.trim().is_empty(), "el resumen no puede quedar vacío");
+
+        let turno = sesion
+            .preparar_turno(conv, "sigue con el siguiente archivo".into(), None)
+            .await
+            .expect("preparar turno");
+        assert_eq!(turno.historial.len(), 1, "solo el resumen debe viajar");
+        assert_eq!(turno.historial[0].role, "system");
+        assert_eq!(turno.historial[0].content.as_str().expect("texto"), resumen);
+
+        let siguiente = sesion
+            .preparar_turno(conv, "y ahora el otro".into(), None)
+            .await
+            .expect("preparar turno 2");
+        assert_eq!(siguiente.historial.len(), 2);
+        assert_eq!(siguiente.historial[1].role, "user");
+        assert!(siguiente.historial[1]
+            .content
+            .as_str()
+            .expect("texto")
+            .contains("sigue con el siguiente archivo"));
+    }
+
+    /// [109A-4 F3] Sin material no se compacta ni se persiste nada: repetir
+    /// `/compactar` dos veces seguidas con el mismo historial no debe fingir
+    /// trabajo ni dejar un punto huérfano.
+    #[tokio::test]
+    async fn compactar_conversacion_sin_material_no_persiste() {
+        let persistencia = PersistenciaSqlite::en_memoria().expect("BD en memoria");
+        let (sesion, apertura) =
+            SesionComun::abrir_con_persistencia(OpcionesSesion::default(), persistencia, None)
+                .expect("abrir sesión");
+        let conv = apertura.conversacion.id;
+        sesion
+            .persistencia
+            .guardar_mensaje(&MensajePersistido {
+                id: Uuid::new_v4(),
+                conversacion_id: conv,
+                rol: "user".into(),
+                contenido: "hola".into(),
+                creado_en: Utc::now(),
+            })
+            .await
+            .expect("sembrar mensaje");
+
+        let resultado = sesion
+            .compactar_conversacion(conv, None)
+            .await
+            .expect("compactar");
+        assert!(!resultado.compactado);
+        assert_eq!(
+            resultado.motivo.as_deref(),
+            Some("no hay material nuevo que resumir")
+        );
+        assert!(resultado.resumen.is_none());
+        assert!(sesion
+            .persistencia
+            .conversacion_compactacion(sesion.user_id, conv)
+            .expect("leer punto")
+            .is_none());
     }
 }

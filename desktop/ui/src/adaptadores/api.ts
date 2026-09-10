@@ -22,6 +22,7 @@ import type { ListadoWorkspace, ResultadoBusqueda, Workspace } from '../dominio/
 import { crearClienteApi } from './apiCliente';
 import { transporteMemoriasNoDisponibles } from './apiMemorias';
 import { transporteComandosNoDisponibles } from './apiComandos';
+import { transporteCompactarNoDisponible } from './apiCompactar';
 
 /** Claves que viven en el servidor; el resto cae a localStorage (igual que
  * el mock): la superficie configLeer/Guardar no cambia. */
@@ -316,6 +317,9 @@ export function crearTransporteApi(base: string, hooks: HooksAdaptador = {}): Tr
     // [109A-4] Mismo criterio con los comandos `/` del área: la capacidad es
     // del escritorio (carpeta `.glory/comandos` del área activa).
     ...transporteComandosNoDisponibles(),
+    // [109A-4 F3] Y con la compactación por demanda: el punto de compactación
+    // vive en la SQLite del escritorio.
+    ...transporteCompactarNoDisponible(),
   };
 }
 

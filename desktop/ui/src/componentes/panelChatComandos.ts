@@ -20,6 +20,7 @@ import {
 } from '../dominio/comandosSlash';
 import type { EstadoContexto } from './entradaTipos';
 import type { ModeloSeleccionado, ProveedorModelo } from '../dominio/tipos';
+import type { ResumenCompactacion } from '../tauri/real';
 
 export type ResultadoComando =
   | { tipo: 'no-es-comando' }
@@ -43,6 +44,9 @@ export interface ComandosDeps {
   modeloActual(): ModeloSeleccionado;
   /** Cambia el modelo activo (estado compartido M1). */
   cambiarModelo(modelo: ModeloSeleccionado): void;
+  /** [109A-4 F3] Compacta el contexto de este panel (backend decide con el
+   * historial real; `instruccion` dirige el resumen como argumento). */
+  compactar(instruccion: string | null): Promise<ResumenCompactacion>;
 }
 
 export interface EjecutorComandos {
@@ -128,6 +132,31 @@ export function crearEjecutorComandos(deps: ComandosDeps): EjecutorComandos {
     return { tipo: 'consumido' };
   }
 
+  /** [109A-4 F3] `/compactar [instrucción]`: compactación por demanda. Solo
+   * reporta lo que el backend hizo: si no había material, lo dice en vez de
+   * mostrar un ahorro que no ocurrió. */
+  async function compactarAhora(argumentos: string): Promise<ResultadoComando> {
+    try {
+      const r = await deps.compactar(argumentos || null);
+      if (!r.compactado) {
+        deps.aviso(r.motivo ?? 'no se compactó nada', 'compactar', 'el contexto no cambió');
+        return { tipo: 'consumido' };
+      }
+      deps.aviso(
+        `contexto compactado: ${r.tokens_antes} → ${r.tokens_despues} tokens (~${Math.round(r.ahorro_pct)}% menos)`,
+        'compactar',
+        `tramo ${r.tramos} · ocupación ${Math.round(r.ocupacion_pct)}% · el historial visible no cambia`,
+      );
+      return { tipo: 'consumido' };
+    } catch (e: unknown) {
+      /* `e.message` y no `String(e)`: los errores de capacidad ausente (web)
+       * llevan `name` propio y `String()` lo antepondría al motivo. Un fallo
+       * del backend llega como string, así que el `instanceof` cubre ambos. */
+      const motivo = e instanceof Error ? e.message : String(e);
+      return { tipo: 'error', mensaje: `no se pudo compactar: ${motivo}` };
+    }
+  }
+
   /** Comandos que se convierten en un turno normal hacia el agente. */
   function promptDe(nombre: string, argumentos: string): ResultadoComando {
     const plantilla = nombre === 'revisar' ? PLANTILLA_REVISAR : PLANTILLA_INICIAR;
@@ -155,6 +184,7 @@ export function crearEjecutorComandos(deps: ComandosDeps): EjecutorComandos {
       case 'iniciar':
         return promptDe(nombre, argumentos);
       case 'compactar':
+        return compactarAhora(argumentos);
       case 'meta':
         return {
           tipo: 'error',

@@ -164,6 +164,10 @@ pub struct CompactarResultado {
     pub compactado: bool,
     pub metricas: Option<CompactionMetrics>,
     pub tokens_estimados: u32,
+    /// [109A-4 F3] Texto del resumen del tramo cuando hubo compactación.
+    /// La compactación manual lo persiste para que los turnos siguientes
+    /// arranquen del resumen en vez de arrastrar el historial entero.
+    pub resumen_texto: Option<String>,
 }
 
 pub struct AgentContextManager {
@@ -227,14 +231,95 @@ impl AgentContextManager {
     ) -> CompactarResultado {
         let tokens_total: u32 = mensajes.iter().map(tokens_de_mensaje).sum();
         if !self.requiere_compactacion(mensajes, indice_system, en_ejecucion_tool) {
-            return CompactarResultado {
-                mensajes: mensajes.to_vec(),
-                compactado: false,
-                metricas: None,
-                tokens_estimados: tokens_total,
-            };
+            return Self::sin_compactar(mensajes, tokens_total);
         }
+        self.aplicar_compactacion(mensajes, indice_system, resumen_llm, tokens_total)
+    }
 
+    /// [109A-4 F3] Compactación por demanda (`/compactar`): mismo camino que la
+    /// automática pero sin umbral ni ventana de seguridad, porque la pide el
+    /// usuario de forma explícita. Se conserva el único invariante que evita
+    /// compactar en balde: sin material nuevo —historial demasiado corto o
+    /// idéntico al de la última compactación— devuelve `compactado: false` para
+    /// que la UI lo diga en vez de simular un trabajo que no ocurrió.
+    pub fn compactar_forzado(
+        &mut self,
+        mensajes: &[AiMessage],
+        indice_system: usize,
+        resumen_llm: Option<String>,
+    ) -> CompactarResultado {
+        let tokens_total: u32 = mensajes.iter().map(tokens_de_mensaje).sum();
+        if !self.hay_material(mensajes, indice_system) {
+            return Self::sin_compactar(mensajes, tokens_total);
+        }
+        self.aplicar_compactacion(mensajes, indice_system, resumen_llm, tokens_total)
+    }
+
+    /// Material resumible: hay algo más que el head, no es exactamente el
+    /// historial de la última compactación (repetirla no aportaría nada) y
+    /// queda algo fuera de la cola verbatim que conservar. Sin eso, compactar
+    /// solo añadiría el mensaje de continuación y empeoraría el contexto.
+    /// Público desde [109A-4 F3] para que la compactación por demanda pueda
+    /// avisar sin efecto ANTES de disparar el gancho: el gancho no debe
+    /// ejecutarse para una compactación que no va a ocurrir.
+    #[must_use]
+    pub fn hay_material(&self, mensajes: &[AiMessage], indice_system: usize) -> bool {
+        mensajes.len() > indice_system + 2
+            && mensajes.len() != self.ultima_compactacion_len
+            && self.hay_tramo_resumible(mensajes, indice_system)
+    }
+
+    /// ¿Queda tramo que resumir después de llenar la cola verbatim? Replica la
+    /// partición de `compactar` (mismo presupuesto y misma regla de no cortar
+    /// el primer mensaje) para poder decidirlo ANTES de mutar estado.
+    fn hay_tramo_resumible(&self, mensajes: &[AiMessage], indice_system: usize) -> bool {
+        let ventana_efectiva = self.config.ventana_efectiva();
+        let presupuesto_cola =
+            ((ventana_efectiva as f32 * self.config.cola_verbatim) as u32).clamp(10_000, 25_000);
+        let medio: Vec<&AiMessage> = mensajes
+            .iter()
+            .enumerate()
+            .filter(|(i, m)| {
+                *i > indice_system && !(m.role == "system" && es_prompt_con_marcadores(m))
+            })
+            .map(|(_, m)| m)
+            .collect();
+        let mut cola_tokens = 0u32;
+        let mut cola_len = 0usize;
+        for m in medio.iter().rev() {
+            let t = tokens_de_mensaje(m);
+            if cola_tokens + t > presupuesto_cola && cola_len > 0 {
+                break;
+            }
+            cola_tokens += t;
+            cola_len += 1;
+        }
+        cola_len < medio.len()
+    }
+
+    /// Resultado neutro de una evaluación que no compacta: el historial se
+    /// devuelve intacto, sin métricas y sin resumen que persistir.
+    fn sin_compactar(mensajes: &[AiMessage], tokens_total: u32) -> CompactarResultado {
+        CompactarResultado {
+            mensajes: mensajes.to_vec(),
+            compactado: false,
+            metricas: None,
+            tokens_estimados: tokens_total,
+            resumen_texto: None,
+        }
+    }
+
+    /// Cuerpo común de la compactación real: arma el tramo, actualiza los
+    /// contadores (anti-thrash, total de compactaciones y longitud del último
+    /// material) y calcula las métricas. Lo comparten la pasada automática y
+    /// la manual, así no pueden divergir en ahorro ni en contabilidad.
+    fn aplicar_compactacion(
+        &mut self,
+        mensajes: &[AiMessage],
+        indice_system: usize,
+        resumen_llm: Option<String>,
+        tokens_total: u32,
+    ) -> CompactarResultado {
         let (nuevos, cola_tokens, resumen_texto) =
             self.compactar(mensajes, indice_system, resumen_llm);
         let tokens_after: u32 = nuevos.iter().map(tokens_de_mensaje).sum();
@@ -263,6 +348,7 @@ impl AgentContextManager {
                 tramos: self.compactaciones,
             }),
             tokens_estimados: tokens_after,
+            resumen_texto: Some(resumen_texto),
         }
     }
 
@@ -291,13 +377,9 @@ impl AgentContextManager {
         /* [318A-15 F6] Ventana de seguridad: con una tool en curso (tool_call
          * largo o sesión hija) no se compacta salvo ocupación degenerada. */
         let en_tool = en_ejecucion_tool && occupancy < umbral_degenerado(&self.config);
-        /* [318A-15 F6] No compactar dos veces seguidas con el mismo material:
-         * sin mensajes nuevos desde la última compactación no hay nada que
-         * ganar y solo se pierde fidelidad. */
-        let sin_material_nuevo = mensajes.len() == self.ultima_compactacion_len;
 
         !en_tool
-            && !sin_material_nuevo
+            && self.hay_material(mensajes, indice_system)
             && (occupancy >= umbral_degenerado(&self.config)
                 || (occupancy >= umbral && !self.anti_thrash_activo()))
     }
@@ -880,5 +962,103 @@ mod tests {
             r.mensajes.last().is_some_and(|m| m.role == "assistant"),
             "la cola termina en un par completo"
         );
+    }
+
+    /* [109A-4 F3] Compactación por demanda (`/compactar`): la automática no
+     * compacta bajo el umbral, la manual sí; sin material nuevo no simula
+     * trabajo y el resumen queda disponible para persistirlo. */
+
+    /// Ventana pequeña con cola mínima: hay tramo resumible (la cola no absorbe
+    /// todo el historial) sin que la ocupación llegue al umbral automático.
+    fn config_con_tramo() -> ContextoConfig {
+        ContextoConfig {
+            max_ventana: 20_000,
+            reserva_salida: 2_000,
+            cola_verbatim: 0.01,
+            ..ContextoConfig::default()
+        }
+    }
+
+    /// ~12,5K tokens (121 mensajes de ~103): supera la cola verbatim (mínimo
+    /// 10K por clamp) y queda por debajo del 80% de la ventana efectiva (18K),
+    /// así que la pasada automática no compacta pero hay material resumible.
+    fn historial_con_tramo() -> Vec<AiMessage> {
+        historial_largo(60)
+    }
+
+    #[test]
+    fn forzado_compacta_aunque_no_supere_el_umbral() {
+        let mut cm = AgentContextManager::new(config_con_tramo());
+        let msgs = historial_con_tramo();
+        assert!(
+            !cm.preparar(&msgs, 0).compactado,
+            "bajo el umbral la pasada automática no compacta"
+        );
+        let r = cm.compactar_forzado(&msgs, 0, None);
+        assert!(r.compactado, "la demanda explícita ignora el umbral");
+        assert!(r.mensajes.len() < msgs.len());
+        let metricas = r.metricas.expect("métricas presentes");
+        assert_eq!(metricas.tramos, 1);
+        assert!(metricas.tokens_after < metricas.tokens_before);
+        assert!(
+            r.resumen_texto.is_some_and(|t| !t.trim().is_empty()),
+            "el resumen se expone para persistirlo"
+        );
+    }
+
+    #[test]
+    fn forzado_sin_material_no_hace_nada() {
+        let mut cm = AgentContextManager::new(ContextoConfig::default());
+        let msgs = vec![
+            mensaje("system", "Eres un asistente."),
+            mensaje("user", "hola"),
+            mensaje("assistant", "hola"),
+        ];
+        let r = cm.compactar_forzado(&msgs, 0, None);
+        assert!(!r.compactado, "un historial mínimo no se compacta");
+        assert!(r.metricas.is_none());
+        assert!(r.resumen_texto.is_none());
+        assert_eq!(r.mensajes.len(), msgs.len());
+        assert_eq!(cm.compactaciones(), 0, "no cuenta como compactación");
+    }
+
+    #[test]
+    fn forzado_con_todo_en_la_cola_no_compacta() {
+        /* Historial largo pero con la cola por defecto (10K tokens) absorbiendo
+         * todo: compactar solo añadiría el mensaje de continuación. */
+        let mut cm = AgentContextManager::new(ContextoConfig::default());
+        let msgs = historial_largo(5);
+        let r = cm.compactar_forzado(&msgs, 0, None);
+        assert!(
+            !r.compactado,
+            "sin tramo fuera de la cola no hay nada que resumir"
+        );
+        assert_eq!(r.mensajes.len(), msgs.len());
+    }
+
+    #[test]
+    fn forzado_repetido_sin_mensajes_nuevos_no_recompacta() {
+        let mut cm = AgentContextManager::new(config_con_tramo());
+        let msgs = historial_con_tramo();
+        assert!(cm.compactar_forzado(&msgs, 0, None).compactado);
+        let r = cm.compactar_forzado(&msgs, 0, None);
+        assert!(!r.compactado, "mismo material: nada que resumir");
+        assert_eq!(cm.compactaciones(), 1);
+        /* Con material nuevo (dos mensajes más) vuelve a compactar. */
+        let mut crecido = msgs.clone();
+        crecido.push(mensaje("user", "sigo aquí"));
+        crecido.push(mensaje("assistant", "te escucho"));
+        assert!(cm.compactar_forzado(&crecido, 0, None).compactado);
+        assert_eq!(cm.compactaciones(), 2);
+    }
+
+    #[test]
+    fn forzado_usa_el_resumen_aportado_por_el_gancho() {
+        let mut cm = AgentContextManager::new(config_con_tramo());
+        let msgs = historial_con_tramo();
+        let r = cm.compactar_forzado(&msgs, 0, Some("resumen del gancho".into()));
+        assert!(r.compactado);
+        let resumen = r.resumen_texto.expect("resumen presente");
+        assert!(resumen.contains("resumen del gancho"));
     }
 }

@@ -210,3 +210,55 @@ pub(crate) fn config_guardar(
         .config_guardar(&clave, &valor)
         .map_err(|e| e.to_string())
 }
+
+/// [109A-4 F3] Resultado de `/compactar` para la UI. **Sin el resumen**: se
+/// persiste como punto de compactación y no se pinta en el chat (el historial
+/// visible no cambia). Campos en snake_case, como el resto de la frontera.
+#[derive(serde::Serialize)]
+pub(super) struct ResumenCompactacion {
+    compactado: bool,
+    motivo: Option<String>,
+    tokens_antes: u32,
+    tokens_despues: u32,
+    ahorro_pct: f32,
+    ocupacion_pct: f32,
+    tramos: u32,
+}
+
+/// [109A-4 F3] Compacta por demanda la conversación del panel (`/compactar`).
+///
+/// No abre canal de eventos: es una operación corta y el resultado entero
+/// (métricas o motivo del no-op) se devuelve para que la UI lo pinte. Falla con
+/// turno en curso: compactar el contexto que un turno está usando dejaría al
+/// modelo con un historial que ya no corresponde a su iteración.
+#[tauri::command]
+pub(crate) async fn compactar_conversacion(
+    estado: State<'_, Estado>,
+    panel_id: Option<String>,
+    instruccion: Option<String>,
+) -> Result<ResumenCompactacion, String> {
+    let sesion = sesion_actual(&estado)?;
+    if estado.turno.lock().map(|t| t.activo).unwrap_or(true) {
+        return Err("hay un turno en curso".into());
+    }
+    let panel = normalizar_panel(panel_id);
+    let conv_id = super::conversaciones::conv_id_de_panel_obligatoria(&sesion, &panel)?;
+    let comun = sesion
+        .comun
+        .lock()
+        .map_err(|_| "sesión bloqueada".to_string())?
+        .clone();
+    let resultado = comun
+        .compactar_conversacion(conv_id, instruccion)
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(ResumenCompactacion {
+        compactado: resultado.compactado,
+        motivo: resultado.motivo,
+        tokens_antes: resultado.tokens_antes,
+        tokens_despues: resultado.tokens_despues,
+        ahorro_pct: resultado.ahorro_pct,
+        ocupacion_pct: resultado.ocupacion_pct,
+        tramos: resultado.tramos,
+    })
+}

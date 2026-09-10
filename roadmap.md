@@ -270,7 +270,7 @@ Orden propuesto (dependencias de abajo arriba):
       cerrada como 109A-3; plan completo en
       `Agente/planes/completados/plan-109A-memorias-por-proyecto-2026-09-10.md`.
 - [ ] **109A-4 — Comandos `/` estilo VS Code (`/compactar`, `/meta`)** (10-09,
-       F1+F2 HECHOS: relevadas las 5 referencias y catálogo v1 cerrado a 8 comandos
+       F1–F3 HECHOS: relevadas las 5 referencias y catálogo v1 cerrado a 8 comandos
        — `/ayuda /modelo /compactar /contexto /limpiar /revisar /iniciar /meta` —;
        F2 menú flotante `/` completo en `dominio/comandosSlash.ts`,
        `componentes/menuComandos.ts`, `entradaComandos.ts`, `panelChatComandos.ts`
@@ -279,11 +279,19 @@ Orden propuesto (dependencias de abajo arriba):
        0 warnings, E2E real de los 8 comandos (incluido el bug de teclado
        `preventDefault` detectado y corregido) y gate `check 109A-4` con
        `coverage`/`sentinel` PASS (10 warnings preexistentes) y único error
-       ajeno `sccache-no-configurado`. Pendientes F3 `/compactar` bajo demanda
-       (respeta gancho 109A-1, no-op explícito) y F4 `/meta <texto>` como override
-       de turno (solo lectura) retirando `meta` del modo global (migración a
-       `predeterminado` + aviso). Plan:
+       ajeno `sccache-no-configurado`.
+       F3 HECHA: `/compactar` compacta bajo demanda con `compactar_forzado`
+       (core) + `compactar_manual` (runtime, ganchos `PreCompact`/`PostCompact`),
+       y el resumen queda como punto persistido (`conversaciones.compactado_en`/
+       `resumen_compactado`) que `preparar_turno` aplica enviando
+       `[resumen] + posteriores`; los mensajes no se borran. Comando Tauri
+       `compactar_conversacion`; en web se declara ausente. Evidencia: 122+281
+       tests verdes (incluida la migración del esquema anterior), clippy 0,
+       type-check/build EXIT 0 y E2E web con motivo explícito. Detalle en
        `Agente/planes/plan-109A-comandos-slash-2026-09-10.md`.
+       Pendiente F4 `/meta <texto>` como override de turno (solo lectura)
+       retirando `meta` del modo global (migración a `predeterminado` + aviso).
+       Plan: `Agente/planes/plan-109A-comandos-slash-2026-09-10.md`.
 - [ ] **109A-5 — Meta con ciclo de vida (tareas visibles + cierre con
       evidencia)** (10-09, **activo**, F1 HECHO: meta como objeto por
       conversación con `resolver_meta`, persistencia
