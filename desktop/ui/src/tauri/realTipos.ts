@@ -1,7 +1,7 @@
 /* Tipos del adaptador real (contrato AgenteEvento, sesión, transporte).
  * Solo tipos + `esEntornoTauri`; sin runtime salvo esa guarda. */
 import type { EstadoGit } from '../componentes/panelGit';
-import type { ListadoWorkspace, ResultadoBusqueda, Workspace } from '../dominio/tipos';
+import type { ListadoWorkspace, ResultadoBusqueda, TareaVisible, Workspace } from '../dominio/tipos';
 
 /**
  * Contrato AgenteEvento del núcleo (tag `tipo`, snake_case). Fiel a
@@ -42,6 +42,10 @@ export type AgenteEvento =
       ocupacion_pct: number;
     }
   | { tipo: 'telemetria'; subagentes_parciales: number; herramientas: Array<{ tool: string; usos: number; fallos: number; duracion_ms_total: number }> }
+  /** [109A-5 F2] Plan visible de la conversación: llega tras cada acción de la
+   * tool `todo` y al arrancar un turno con plan vigente (resume). Trae la lista
+   * COMPLETA, no un delta. */
+  | { tipo: 'tareas_actualizadas'; items: TareaVisible[] }
   | { tipo: 'error'; mensaje: string; retryable: boolean }
   | { tipo: 'done'; turno_id: string }
   /** [069A-1 F6] El agente ejecutó una operación del navegador interno.

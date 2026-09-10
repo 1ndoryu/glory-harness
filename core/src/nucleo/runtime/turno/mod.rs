@@ -153,6 +153,13 @@ impl AgentRuntime {
          * nuevo en modo plan se sustituye (la UI decidió aplicar o descartar
          * entre turnos). Fuera de modo plan, `None`. */
         self.resetear_plan_para_modo();
+        /* [109A-5 F2] Resume del plan visible: se carga la lista de ESTA
+         * conversación (el runtime atiende a varias) y, si ya tenía tareas de
+         * turnos anteriores, se publican al arrancar para que el usuario las
+         * vea sin esperar a que el modelo vuelva a llamar `todo`. Lista vacía
+         * = sin evento (no hay nada que mostrar). */
+        self.cargar_plan_de(conversacion_id);
+        self.emitir_tareas(tx, true).await;
 
         let tokens_prompt_total = 0u32;
         let tokens_complecion_total = 0u32;

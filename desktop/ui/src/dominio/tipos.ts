@@ -141,6 +141,21 @@ export type Bloque =
   | BloqueAprobacion
   | BloqueAvisoSistema;
 
+// ---------- Plan visible (tareas de la conversación) ----------
+
+/** [109A-5 F2] Estado de una tarea visible. Mismo vocabulario que el evento
+ * `tareas_actualizadas` del núcleo (`pendiente|en_curso|completada`): el front
+ * no traduce estados de la tool `todo`, los recibe ya resueltos. */
+export type EstadoTareaVisible = 'pendiente' | 'en_curso' | 'completada';
+
+/** [109A-5 F2] Tarea del plan visible de la conversación (tool `todo`). El
+ * evento llega con la lista COMPLETA, así que la UI pinta verdad absoluta. */
+export interface TareaVisible {
+  id: number;
+  texto: string;
+  estado: EstadoTareaVisible;
+}
+
 // ---------- Iconos (nombres; el SVG lo resuelve componentes/iconos) ----------
 
 export type IconoNombre =

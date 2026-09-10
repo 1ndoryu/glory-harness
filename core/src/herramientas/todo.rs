@@ -8,7 +8,15 @@
  * actualizado completo, así el siguiente turno del loop lo ve en contexto.
  *
  * Agnóstica al consumidor: no toca persistencia (el plan es efímero del
- * runtime/conversación, no se escribe en BD en v1). */
+ * runtime/conversación, no se escribe en BD en v1).
+ *
+ * [109A-5 F2] El plan gana el estado `en_curso` y una vista serializable
+ * (`TareaVisible`) para que el runtime lo emita como evento `TareasActualizadas`
+ * y la UI lo pinte en vivo. La lista sigue siendo UNA por runtime, así que
+ * sobrevive entre turnos de la misma conversación (resume) y desaparece al
+ * cerrar la meta (`AgentRuntime::olvidar_tareas`). */
+
+use crate::contrato::evento::{EstadoTareaVisible, TareaVisible};
 
 use crate::error::{Error, Result};
 use crate::tool::{AgentTool, AgentToolContext, AgentToolRegistry, AgentToolResult};
@@ -17,13 +25,62 @@ use serde_json::{json, Value};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
+/// Estado de un ítem del plan visible.
+///
+/// [109A-5 F2] Tres estados (paridad `normalizeRuntimeTaskStatus`: pendiente /
+/// en curso / completada). `Pendiente` es el estado inicial de todo ítem nuevo;
+/// no hay estado "cancelado" porque un paso descartado se actualiza o se queda
+/// en pendiente, sin inventar un cuarto valor que la UI tendría que aprender.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EstadoTodo {
+    Pendiente,
+    EnCurso,
+    Completada,
+}
+
+impl EstadoTodo {
+    /// Marca textual del estado. Contrato visible: la usa `a_texto` (lo que ve
+    /// el modelo) y la UI replica las MISMAS marcas, así que un cambio aquí es
+    /// un cambio de contrato para los dos.
+    #[must_use]
+    pub fn marca(&self) -> &'static str {
+        match self {
+            EstadoTodo::Pendiente => "[ ]",
+            EstadoTodo::EnCurso => "[/]",
+            EstadoTodo::Completada => "[x]",
+        }
+    }
+
+    /// ¿El ítem está cerrado? (para validaciones y tests de consumidores).
+    #[must_use]
+    pub fn completada(&self) -> bool {
+        matches!(self, EstadoTodo::Completada)
+    }
+}
+
 /// Ítem del plan de la tarea.
 #[derive(Debug, Clone)]
 pub struct ItemTodo {
     /// ID estable dentro de la lista (1-based, asignado al crear).
     pub id: usize,
     pub texto: String,
-    pub completado: bool,
+    pub estado: EstadoTodo,
+}
+
+impl ItemTodo {
+    /// Vista de contrato del ítem (la que viaja en `TareasActualizadas`).
+    #[must_use]
+    pub fn visible(&self) -> TareaVisible {
+        TareaVisible {
+            id: self.id as u32,
+            texto: self.texto.clone(),
+            estado: match self.estado {
+                EstadoTodo::Pendiente => EstadoTareaVisible::Pendiente,
+                EstadoTodo::EnCurso => EstadoTareaVisible::EnCurso,
+                EstadoTodo::Completada => EstadoTareaVisible::Completada,
+            },
+        }
+    }
 }
 
 /// Lista ordenada de ítems del plan (estado efímero del runtime).
@@ -50,7 +107,7 @@ impl ListaTodo {
         self.items.push(ItemTodo {
             id,
             texto: texto.to_string(),
-            completado: false,
+            estado: EstadoTodo::Pendiente,
         });
         id
     }
@@ -74,13 +131,53 @@ impl ListaTodo {
 
     /// Marca un ítem como completado.
     pub fn completar(&mut self, id: usize) -> Result<()> {
+        self.mutar_estado(id, EstadoTodo::Completada)
+    }
+
+    /// Marca un ítem como EN CURSO y devuelve a pendiente cualquier otro ítem
+    /// que estuviera en curso.
+    ///
+    /// Invariante: como mucho un ítem en curso a la vez. Sin él, la UI puede
+    /// mostrar dos pasos "en curso" simultáneos y el plan deja de ser un plan
+    /// (paridad con la task-list de Synara, donde el estado es único).
+    pub fn en_curso(&mut self, id: usize) -> Result<()> {
+        self.mutar_estado(id, EstadoTodo::EnCurso)?;
+        for item in &mut self.items {
+            if item.id != id && item.estado == EstadoTodo::EnCurso {
+                item.estado = EstadoTodo::Pendiente;
+            }
+        }
+        Ok(())
+    }
+
+    /// Aplica un estado a un ítem existente (una sola búsqueda y un solo
+    /// mensaje de error para las tres transiciones).
+    fn mutar_estado(&mut self, id: usize, estado: EstadoTodo) -> Result<()> {
         let item = self
             .items
             .iter_mut()
             .find(|item| item.id == id)
             .ok_or_else(|| Error::NoEncontrado(format!("todo: no existe el ítem {id}")))?;
-        item.completado = true;
+        item.estado = estado;
         Ok(())
+    }
+
+    /// ¿La lista está vacía? (el runtime la usa para decidir si emitir el plan
+    /// visible al arrancar un turno).
+    #[must_use]
+    pub fn vacia(&self) -> bool {
+        self.items.is_empty()
+    }
+
+    /// Vista de contrato de la lista completa (evento `TareasActualizadas`).
+    #[must_use]
+    pub fn visibles(&self) -> Vec<TareaVisible> {
+        self.items.iter().map(ItemTodo::visible).collect()
+    }
+
+    /// Vacía la lista (la meta se cerró: el plan ya no persigue nada).
+    pub fn vaciar(&mut self) {
+        self.items.clear();
     }
 
     /// Representación textual del plan para el contexto del modelo.
@@ -91,25 +188,35 @@ impl ListaTodo {
         }
         let mut lineas: Vec<String> = Vec::with_capacity(self.items.len());
         for item in &self.items {
-            let marca = if item.completado { "[x]" } else { "[ ]" };
-            lineas.push(format!("{}. {marca} {}", item.id, item.texto));
+            lineas.push(format!(
+                "{}. {} {}",
+                item.id,
+                item.estado.marca(),
+                item.texto
+            ));
         }
         format!("Plan actual (tool todo):\n{}", lineas.join("\n"))
     }
 }
 
 /// Store compartida del plan: una por runtime (o por turno en consumidores que
-/// construyen runtime por turno), nunca global entre conversaciones.
+/// construyen runtime por turno). El runtime atiende a varias conversaciones,
+/// así que solo deja cargada aquí la de la conversación ACTIVA y guarda las
+/// demás en `AgentRuntime::planes`: el plan nunca es global entre
+/// conversaciones (ver `cargar_plan_de`).
 pub type TodoCompartida = Arc<Mutex<ListaTodo>>;
 
-/// Aplica una acción `todo { crear|actualizar|completar }` sobre la lista y
-/// devuelve el plan actualizado (se refleja así en el contexto del modelo).
+/// Aplica una acción `todo { crear|actualizar|en_curso|completar }` sobre la
+/// lista y devuelve el plan actualizado (se refleja así en el contexto del
+/// modelo).
 fn aplicar_todo(lista: &mut ListaTodo, argumentos: &Value) -> Result<String> {
     let accion = argumentos
         .get("accion")
         .and_then(Value::as_str)
         .ok_or_else(|| {
-            Error::Argumentos("todo: accion requerida (crear|actualizar|completar)".into())
+            Error::Argumentos(
+                "todo: accion requerida (crear|actualizar|en_curso|completar)".into(),
+            )
         })?;
     match accion {
         "crear" => {
@@ -144,9 +251,17 @@ fn aplicar_todo(lista: &mut ListaTodo, argumentos: &Value) -> Result<String> {
                 as usize;
             lista.completar(id)?;
         }
+        "en_curso" => {
+            let id = argumentos
+                .get("id")
+                .and_then(Value::as_u64)
+                .ok_or_else(|| Error::Argumentos("todo: id requerido para en_curso".into()))?
+                as usize;
+            lista.en_curso(id)?;
+        }
         otra => {
             return Err(Error::Argumentos(format!(
-                "todo: accion desconocida '{otra}' (crear|actualizar|completar)"
+                "todo: accion desconocida '{otra}' (crear|actualizar|en_curso|completar)"
             )));
         }
     }
@@ -162,12 +277,14 @@ impl AgentTool for ToolTodo {
     }
     fn descripcion(&self) -> &'static str {
         "Mantiene el plan visible de la tarea actual (lista de pasos).\
-\nQUÉ HACE: crea, actualiza o completa ítems de un plan de varios pasos.\
+\nQUÉ HACE: crea, actualiza o cambia de estado ítems de un plan de varios pasos.\
 \nFORMATO DE SALIDA: devuelve el plan completo actualizado, cada línea \
-'ID. [ ] texto' o 'ID. [x] texto'.\
+'ID. [ ] texto' pendiente, 'ID. [/] texto' en curso o 'ID. [x] texto' completada.\
 \nCUÁNDO USARLA: al recibir una tarea con 2+ pasos o ediciones, crea el plan \
-antes de tocar archivos; completa cada ítem al terminarlo; actualiza el texto \
-si el paso cambia. Para tareas de un solo paso no hace falta.\
+antes de tocar archivos; con una meta activa SIEMPRE (el usuario debe ver el \
+plan); marca 'en_curso' el paso que estás haciendo ahora (uno solo a la vez) y \
+'completar' cada uno al terminarlo; actualiza el texto si el paso cambia. Para \
+tareas de un solo paso sin meta no hace falta.\
 \nERRORES: accion desconocida, texto vacío o id inexistente."
     }
     fn schema(&self) -> Value {
@@ -176,8 +293,8 @@ si el paso cambia. Para tareas de un solo paso no hace falta.\
             "properties": {
                 "accion": {
                     "type": "string",
-                    "enum": ["crear", "actualizar", "completar"],
-                    "description": "Operación: crear (nuevo paso), actualizar (cambiar texto), completar (marcar hecho)"
+                    "enum": ["crear", "actualizar", "en_curso", "completar"],
+                    "description": "Operación: crear (nuevo paso), actualizar (cambiar texto), en_curso (estoy trabajando en él), completar (marcar hecho)"
                 },
                 "texto": {
                     "type": "string",
@@ -185,7 +302,7 @@ si el paso cambia. Para tareas de un solo paso no hace falta.\
                 },
                 "id": {
                     "type": "integer",
-                    "description": "ID del ítem (actualizar/completar); se obtiene del plan devuelto"
+                    "description": "ID del ítem (actualizar/en_curso/completar); se obtiene del plan devuelto"
                 }
             },
             "required": ["accion"]
@@ -262,6 +379,38 @@ mod tests {
         assert!(texto.contains("2. [x] Probar en el preview"));
     }
 
+    #[test]
+    fn en_curso_es_unico_y_las_marcas_lo_reflejan() {
+        let mut lista = ListaTodo::nueva();
+        lista.crear("Primero");
+        lista.crear("Segundo");
+        lista.en_curso(1).expect("en curso");
+        assert!(lista.a_texto().contains("1. [/] Primero"));
+        // Solo un ítem en curso: marcar el segundo devuelve el primero a [ ].
+        lista.en_curso(2).expect("en curso");
+        let texto = lista.a_texto();
+        assert!(texto.contains("1. [ ] Primero"), "texto: {texto}");
+        assert!(texto.contains("2. [/] Segundo"), "texto: {texto}");
+        assert!(lista.en_curso(99).is_err(), "id inexistente falla");
+    }
+
+    #[test]
+    fn visibles_expone_estado_serializable_y_vaciar_limpia() {
+        let mut lista = ListaTodo::nueva();
+        lista.crear("Uno");
+        lista.en_curso(1).expect("en curso");
+        let visibles = lista.visibles();
+        assert_eq!(visibles.len(), 1);
+        assert_eq!(visibles[0].id, 1);
+        assert_eq!(visibles[0].estado, EstadoTareaVisible::EnCurso);
+        lista.completar(1).expect("completa");
+        assert_eq!(lista.visibles()[0].estado, EstadoTareaVisible::Completada);
+        assert!(!lista.vacia());
+        lista.vaciar();
+        assert!(lista.vacia());
+        assert_eq!(lista.a_texto(), "Plan actual: vacío (sin ítems).");
+    }
+
     #[tokio::test]
     async fn tool_todo_muta_la_lista_y_devuelve_el_plan() {
         let store = Arc::new(Mutex::new(ListaTodo::nueva()));
@@ -282,7 +431,7 @@ mod tests {
             .expect("completar");
         assert!(r2.contenido.contains("[x] Paso uno"));
         let lista = store.lock().await;
-        assert!(lista.items()[0].completado);
+        assert!(lista.items()[0].estado.completada());
     }
 
     #[tokio::test]

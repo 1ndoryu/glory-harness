@@ -1,7 +1,7 @@
 # Plan 109A-5 — Meta con ciclo de vida (tareas visibles + cierre con evidencia)
 
-> ID roadmap: **109A-5** · Fecha: 2026-09-10 · Estado: activo (plan creado 10-09,
-> F1–F4 pendientes)
+> ID roadmap: **109A-5** · Fecha: 2026-09-10 · Estado: activo (plan creado 10-09;
+> F1 y F2 HECHAS 10-09, F3–F4 pendientes)
 > Origen: petición usuario — la representación de meta en Synara es mejor
 > (tareas visibles + pie "Goal achieved in 1m 17s"); revisar cuál asegura mejor
 > el cumplimiento y planificar las mejoras en GH con Synara como inspiración.
@@ -166,6 +166,71 @@ pie con evidencia ("Meta lograda en 1m 17s"). La garantía negativa actual
   `[ ]/[/]/[x]` que `a_texto` ya usa.
 - Verificación: tests de transiciones + evento; `tsc` EXIT 0 + `vite build`;
   E2E navegador (todos visibles y actualizándose en vivo).
+
+**Estado: HECHO (10-09).** Evidencia:
+
+- Contrato aditivo en `core/src/contrato/evento.rs`: `EstadoTareaVisible`
+  (`pendiente|en_curso|completada` en snake_case), `TareaVisible { id, texto,
+  estado }` y variante `TareasActualizadas { items }`; los consumidores viejos
+  la ignoran (el reenvío SSE de `cli/src/comandos/web_turnos.rs` es genérico
+  por `serde_json::to_value(&ev)`, sin cambios).
+- Dominio en `core/src/herramientas/todo.rs`: `EstadoTodo::EnCurso` con marca
+  `[/]` (`a_texto` mantiene el formato que ya consumían los tests), `en_curso`
+  exclusivo (los demás vuelven a `Pendiente`), `visibles()` y `vaciar()`.
+- Emisión: `AgentRuntime::emitir_tareas(tx, solo_si_hay)` publica tras cada
+  acción `todo` (`turno/permisos.rs`, con la lista completa aunque quede vacía)
+  y al abrir turno (`turno/mod.rs`, solo si hay tareas) para dar el resume.
+- **Defecto real encontrado y corregido en F2 (alcance del plan):** la lista
+  vivía en el `registry` del `AgentRuntime`, que es **por sesión**, no por
+  conversación, así que al cambiar de hilo la UI mostraba el plan del anterior
+  y el modelo podía seguir editando tareas ajenas. Se añadió
+  `PlanesConversacion { activa, listas: HashMap<Uuid, ListaTodo> }` en
+  `core/src/nucleo/runtime/mod.rs` con `cargar_plan_de(conversacion_id)`
+  (adopta la store si es el primer turno del runtime, sin vaciarla; si no,
+  guarda la anterior y extrae la nueva) y `olvidar_tareas(conversacion_id)`.
+  Semántica de reset (antes implícita): **al cerrar o lograr la meta** se
+  olvida el plan de esa conversación (`sesion.rs::meta_aplicar`, warning si la
+  lista está bloqueada); cambiar de conversación no lo borra, lo conserva.
+- UI: `desktop/ui/src/componentes/tareasMeta.ts` (94 líneas, estado vivo
+  `crearTareasViva()` con cabecera icono `flujo` + contador `hechas/total` con
+  `aria-live="polite"` y `<ol class="tareasLista">`; marcas `[ ]/[/]/[x]` con
+  los mismos glifos que `a_texto`; iconos Lucide de `iconos.ts`), estilos en
+  `estilos/tareasMeta.css` con tokens (sin literales), cableado en
+  `tauri/aplicarEventos.ts` (crea el nodo una vez, lo re-ancla al final del
+  transcript en cada actualización, hace scroll y se oculta con lista vacía) y
+  tipos en `dominio/tipos.ts`/`realTipos.ts`/`turnoReal.ts`.
+- Tests: 4 nuevos en `runtime/mod.rs` (`f2_el_plan_no_se_filtra_entre_conversaciones`,
+  `f2_volver_a_una_conversacion_restaura_su_plan`,
+  `f2_olvidar_tareas_solo_borra_la_conversacion_indicada`,
+  `f2_emitir_tareas_publica_la_lista_completa_y_respeta_el_silencio`) + tests de
+  serialización del contrato y de transiciones de `en_curso` en `todo.rs`.
+- Verificación: `cargo test -p glory-harness-core --lib` **290 verdes** (0
+  fallos), `cargo test -p glory-harness --lib` **124 verdes**, `cargo clippy
+  -p glory-harness-core -p glory-harness --all-targets -- -D warnings` limpio,
+  `npm --prefix desktop/ui run build` EXIT 0 (99 módulos, 159.03 kB JS + 48.63
+  kB CSS).
+- **E2E navegador real (10-09, `glory-harness web --puerto 8799` + build
+  recién compilado, modelo real):** turno que pide descomponer en 3 pasos →
+  7 filas `Actualizando tareas` y el bloque "Tareas" visible actualizándose en
+  vivo (`0/3` con `[/]` → `2/3` con `[x][x][ ]`), re-anclado tras el último
+  mensaje; conversación **nueva** con un turno trivial → **sin** bloque
+  (no se hereda el plan ajeno); vuelta a la primera conversación + turno de
+  seguimiento → el bloque **reaparece con el estado 2/3 restaurado**.
+- Límite honesto del E2E: el bloque es estado **vivo** del runtime, así que al
+  reentrar en una conversación desde el historial no se repinta hasta el
+  siguiente turno, y no sobrevive a reiniciar la app (el plan no se persiste en
+  SQLite; eso es alcance de F1 solo para la meta, no para los todos). No se
+  declara persistencia de tareas.
+- Gate canónico (`sentinel check 109A-5 --stages scripts/quality/stages.json`):
+  `coverage` PASS, `sentinel` PASS (**0 errores, 10 warnings, 1 hint** = el
+  baseline exacto del repo) y **FAIL solo** por `sccache-no-configurado`, que es
+  el hallazgo de entorno ya registrado como tarea independiente "Gate: etapa Rust
+  y sccache". Nota de paso: la regla `todo-pendiente` del medidor dispara con
+  `//`+`TODO|FIXME|HACK|PENDIENTE|XXX` inmediatos, así que un comentario
+  `/// pendiente, …` se contaba como marcador de deuda; se reformuló la frase
+  (`/// … se queda` / `/// en pendiente`) para no añadir ruido que enmascare
+  deuda real. El hint restante (`core/src/nucleo/context.rs:971`) es preexistente
+  en un fichero ajeno a este bloque.
 
 ### F3 — Cierre con evidencia (pie "Meta lograda en Xs")
 

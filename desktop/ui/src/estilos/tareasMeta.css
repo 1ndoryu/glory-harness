@@ -1,0 +1,77 @@
+/*
+   Plan visible de la conversación ([109A-5 F2]).
+   Monocromo y sin adornos, como el resto del chrome: borde de 1px,
+   tokens de `variables.css`, estados por marca textual + icono.
+   ============================================================ */
+
+.tareas {
+  border: 1px solid var(--borde);
+  margin: var(--sp-sm) 0;
+  padding: var(--sp-sm);
+  font-size: var(--sm);
+}
+
+.tareas[hidden] { display: none; }
+
+.tareasCabecera {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-xs);
+  margin-bottom: var(--sp-xs);
+}
+
+.tareasIcono { color: var(--texto); }
+
+.tareasTitulo { flex: 1 1 auto; }
+
+.tareasCuenta {
+  flex: none;
+  font-size: var(--xs);
+  color: var(--texto-tenue);
+}
+
+.tareasLista {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.tarea {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-xs);
+}
+
+.tareaIcono {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+}
+
+/* La marca textual es la misma que ve el modelo en su contexto. */
+.tareaMarca {
+  flex: none;
+  color: var(--texto-tenue);
+}
+
+.tareaTexto {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* Estados: pendiente apagado, en curso destacado con trama, hecha atenuada. */
+.tareaPendiente .tareaTexto { color: var(--texto-tenue); }
+
+.tareaEnCurso .tareaTexto { color: var(--texto); }
+
+.tareaEnCurso .tareaMarca {
+  color: var(--texto);
+  background-image: repeating-linear-gradient(45deg, var(--borde) 0 1px, transparent 1px 4px);
+}
+
+.tareaCompletada .tareaTexto {
+  color: var(--texto-tenue);
+  text-decoration: line-through;
+}

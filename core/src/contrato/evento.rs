@@ -23,6 +23,27 @@ pub struct TelemetriaTool {
     pub duracion_ms_total: u64,
 }
 
+/// [109A-5 F2] Estado de una tarea visible en la UI. Los nombres serializados
+/// (`pendiente`/`en_curso`/`completada`) son contrato con el front; la marca
+/// textual equivalente vive en `EstadoTodo::marca` del dominio (`[ ]`/`[/]`/`[x]`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EstadoTareaVisible {
+    Pendiente,
+    EnCurso,
+    Completada,
+}
+
+/// [109A-5 F2] Tarea del plan visible de la conversación (tool `todo`): DTO del
+/// contrato, sin acoplar el front al tipo interno de la herramienta.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TareaVisible {
+    /// ID estable dentro de la lista del runtime (1-based).
+    pub id: u32,
+    pub texto: String,
+    pub estado: EstadoTareaVisible,
+}
+
 /// Un evento emitido durante un turno del agente. Este es el contrato público
 /// estable; el transporte (SSE de task, daemon loopback) serializa estos
 /// eventos igual en todos los consumidores.
@@ -183,4 +204,58 @@ pub enum AgenteEvento {
         captura_base64: Option<String>,
         descripcion: String,
     },
+    /// [109A-5 F2] Plan visible de la conversación: se emite tras cada acción
+    /// de la tool `todo` y también al arrancar un turno que ya tenía plan
+    /// vigente (resume entre turnos por conversación). Lleva la lista COMPLETA,
+    /// no un delta: el front pinta verdad absoluta y no acumula estados
+    /// divergentes. Aditivo: los consumidores que no lo conocen lo ignoran.
+    TareasActualizadas { items: Vec<TareaVisible> },
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /* [109A-5 F2] La UI compara literales (`tareas_actualizadas`, `en_curso`)
+     * para decidir qué pintar, así que el nombre serializado es contrato: si
+     * alguien renombra una variante o el `rename_all`, este test lo caza antes
+     * de que el bloque de tareas deje de aparecer en el transcript. */
+    #[test]
+    fn tareas_actualizadas_serializa_con_el_contrato_que_espera_la_ui() {
+        let evento = AgenteEvento::TareasActualizadas {
+            items: vec![
+                TareaVisible {
+                    id: 1,
+                    texto: "leer el plan".into(),
+                    estado: EstadoTareaVisible::Completada,
+                },
+                TareaVisible {
+                    id: 2,
+                    texto: "escribir la fase".into(),
+                    estado: EstadoTareaVisible::EnCurso,
+                },
+                TareaVisible {
+                    id: 3,
+                    texto: "verificar".into(),
+                    estado: EstadoTareaVisible::Pendiente,
+                },
+            ],
+        };
+        let json = serde_json::to_value(&evento).expect("serializa");
+        assert_eq!(json["tipo"], "tareas_actualizadas");
+        assert_eq!(json["items"][0]["estado"], "completada");
+        assert_eq!(json["items"][1]["estado"], "en_curso");
+        assert_eq!(json["items"][2]["estado"], "pendiente");
+        assert_eq!(json["items"][1]["id"], 2);
+        assert_eq!(json["items"][1]["texto"], "escribir la fase");
+
+        let vuelta: AgenteEvento = serde_json::from_value(json).expect("deserializa");
+        match vuelta {
+            AgenteEvento::TareasActualizadas { items } => {
+                assert_eq!(items.len(), 3);
+                assert_eq!(items[1].estado, EstadoTareaVisible::EnCurso);
+            }
+            otro => panic!("variante inesperada: {otro:?}"),
+        }
+    }
 }

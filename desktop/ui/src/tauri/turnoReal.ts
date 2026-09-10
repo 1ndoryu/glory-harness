@@ -46,7 +46,13 @@ export function crearTurnoReal(hooks: HooksAdaptador, transporte: Transporte): T
   // [039A-3 P1] Cómo terminó el último turno (para que el pie distinga
   // un corte real de un cancelado/error, que no muestran tokens de fin).
   let ultimoResultado: ResultadoTurno = 'ok';
-  const estado: EstadoTurno = { herramienta: null, rutaHerramienta: null, uso, huboPeticiones: false };
+  const estado: EstadoTurno = {
+    herramienta: null,
+    rutaHerramienta: null,
+    uso,
+    huboPeticiones: false,
+    tareas: null,
+  };
   let ultimaOpcion: OpcionesTurno = { proveedor: '', modelo: '', modo: '', razonamiento: '' };
 
   function aviso(texto: string, meta: string, detalle: string): void {

@@ -35,6 +35,7 @@ use crate::ports::{
 };
 use crate::pregunta::{procesar_pregunta, registrar_tool_ask_user};
 use crate::sandbox::SandboxArchivos;
+use std::collections::HashMap;
 use std::collections::HashSet;
 
 use crate::subagente::{
@@ -168,6 +169,24 @@ pub struct PuertosHarness {
     pub navegador: Option<Arc<dyn NavegadorPort>>,
 }
 
+/// [109A-5 F2] Reparto del plan visible entre conversaciones.
+///
+/// La store de la tool `todo` vive en el REGISTRY del runtime
+/// (`Arc<Mutex<ListaTodo>>`), y un runtime atiende a varias conversaciones a lo
+/// largo de su vida (el escritorio reusa la sesión al cambiar de hilo). Por eso
+/// el runtime guarda aquí la lista de cada conversación y solo deja cargada en
+/// el registry la de la conversación ACTIVA: sin este reparto, cambiar de hilo
+/// mostraría el plan del anterior y el modelo de la conversación nueva podría
+/// seguir editando tareas ajenas (el plan es de la conversación, no del
+/// proceso).
+#[derive(Default)]
+struct PlanesConversacion {
+    /// Conversación cuya lista está ahora mismo cargada en el registry.
+    activa: Option<Uuid>,
+    /// Listas de las demás conversaciones atendidas por este runtime.
+    listas: HashMap<Uuid, crate::todo::ListaTodo>,
+}
+
 pub struct AgentRuntime {
     pub registry: AgentToolRegistry,
     pub contexto: Arc<tokio::sync::Mutex<AgentContextManager>>,
@@ -194,6 +213,9 @@ pub struct AgentRuntime {
     /// runtime (efímera, nunca en BD): el consumidor la lee tras el turno
     /// para mostrar el diff acumulado (CLI) o descartarla.
     plan_actual: std::sync::Mutex<Option<crate::plan::PlanCompartida>>,
+    /// [109A-5 F2] Plan visible repartido por conversación (ver
+    /// [`PlanesConversacion`]). Efímero y acotado al uso de la sesión.
+    planes: std::sync::Mutex<PlanesConversacion>,
     /// [109A-4 F4] Modo FORZADO para el turno en curso (`/meta <texto>`): un
     /// turno solo-lectura sin tocar el modo de la sesión. `None` = usar
     /// `turno_config.modo`. Interior-mutable porque `ejecutar_turno` toma
@@ -289,6 +311,7 @@ impl AgentRuntime {
             reglas: std::sync::Mutex::new(String::new()),
             tool_en_curso: std::sync::atomic::AtomicBool::new(false),
             plan_actual: std::sync::Mutex::new(None),
+            planes: std::sync::Mutex::new(PlanesConversacion::default()),
             modo_turno: std::sync::Mutex::new(None),
             guardas: std::sync::Mutex::new(GuardasTurno::default()),
             hooks: std::sync::Mutex::new(Arc::new(DispatcherHooks::vacia())),
@@ -318,7 +341,7 @@ impl AgentRuntime {
             .clone()
     }
 
-    /// [109A-4 F4] Modo efectivo AHORA: el forzado del turno en curso si lo
+    /// [109A-5 F2] Modo efectivo AHORA: el forzado del turno en curso si lo
     /// hay, el modo de la sesión si no. Todo el turno (schemas que ve el
     /// modelo, permisos, subagente, store del plan) lee de aquí, así que un
     /// `/meta` afecta a un turno entero y a nada más. Mutex envenenado → modo
@@ -331,6 +354,89 @@ impl AgentRuntime {
             .ok()
             .and_then(|g| g.clone())
             .unwrap_or_else(|| self.turno_config.modo.clone())
+    }
+
+    /// [109A-5 F2] Carga en el registry la lista de ESTA conversación, dejando
+    /// guardada la de la anterior (ver [`PlanesConversacion`]). Se llama al
+    /// arrancar cada turno: un turno de otra conversación nunca ve ni publica
+    /// las tareas de la previa, y volver a una conversación ya visitada
+    /// restaura su plan en vez de perderlo.
+    ///
+    /// Si una tool tiene la lista bloqueada (no debería: los turnos son
+    /// secuenciales) se deja el reparto como está y se registra; forzar el
+    /// cambio con `lock()` desde un camino síncrono bloquearía el runtime.
+    fn cargar_plan_de(&self, conversacion_id: Uuid) {
+        let Some(store) = self.registry.todo() else {
+            return;
+        };
+        let mut planes = self.planes.lock().unwrap_or_else(|p| p.into_inner());
+        if planes.activa == Some(conversacion_id) {
+            return;
+        }
+        /* Primer turno del runtime: la store todavía no pertenece a ninguna
+         * conversación, así que se ADOPTA su contenido en vez de vaciarlo
+         * (vaciarlo aquí perdería el plan del turno anterior en consumidores
+         * que construyen el runtime por turno). */
+        let Some(anterior) = planes.activa else {
+            planes.activa = Some(conversacion_id);
+            return;
+        };
+        let Ok(mut lista) = store.try_lock() else {
+            tracing::warn!(
+                %conversacion_id,
+                "plan visible no reasignado: la lista de tareas estaba bloqueada"
+            );
+            return;
+        };
+        planes.listas.insert(anterior, lista.clone());
+        let nueva = planes.listas.remove(&conversacion_id).unwrap_or_default();
+        *lista = nueva;
+        planes.activa = Some(conversacion_id);
+    }
+
+    /// [109A-5 F2] Publica el plan visible COMPLETO al canal del turno como
+    /// evento `TareasActualizadas`. Se emite tras cada acción de la tool
+    /// `todo` y al arrancar un turno que ya tenía plan vigente (resume).
+    ///
+    /// `solo_si_hay` evita el ruido del arranque: una lista vacía al empezar un
+    /// turno haría que la UI dibujara un bloque de tareas sin tareas. Tras una
+    /// acción de `todo` sí se publica aunque quede vacía: el usuario debe ver
+    /// que el plan terminó. Sin store de `todo` (defensivo: siempre está
+    /// registrada) no emite.
+    pub(crate) async fn emitir_tareas(&self, tx: &Sender<AgenteEvento>, solo_si_hay: bool) {
+        let Some(store) = self.registry.todo() else {
+            return;
+        };
+        let items = store.lock().await.visibles();
+        if solo_si_hay && items.is_empty() {
+            return;
+        }
+        let _ = tx.send(AgenteEvento::TareasActualizadas { items }).await;
+    }
+
+    /// [109A-5 F2] Vacía el plan de la conversación porque su meta se CERRÓ
+    /// (lograda o limpiada): el plan perseguía esa meta y ya no aplica.
+    ///
+    /// El scope importa: se vacía el de ESA conversación (guardado o cargado),
+    /// no "el que esté activo". Devuelve `false` solo si la lista activa estaba
+    /// bloqueada por una tool en ese instante; el llamador lo registra en vez de
+    /// fingir que se limpió. Con turnos secuenciales no puede ocurrir entre
+    /// turnos, así que no propaga error.
+    #[must_use]
+    pub fn olvidar_tareas(&self, conversacion_id: Uuid) -> bool {
+        let Some(store) = self.registry.todo() else {
+            return true;
+        };
+        let mut planes = self.planes.lock().unwrap_or_else(|p| p.into_inner());
+        planes.listas.remove(&conversacion_id);
+        if planes.activa != Some(conversacion_id) {
+            return true;
+        }
+        let Ok(mut lista) = store.try_lock() else {
+            return false;
+        };
+        lista.vaciar();
+        true
     }
 
     /// [109A-4 F4] Fija (o limpia) el modo forzado del turno y devuelve el
@@ -413,12 +519,23 @@ impl AgentRuntime {
     /// [318A-15 F1/F2] Ensambla el system prompt de capas para el turno actual
     /// (base estática → ranura [REGLAS] con las reglas del consumidor → bloque
     /// [ENTORNO] con la fecha real).
+    ///
+    /// [109A-5 F2] En modo `meta` (turno de persecución) se anexan las reglas de
+    /// meta a la ranura del consumidor: la obligación de mantener las tareas
+    /// visibles la tiene el modelo, así que no puede depender de que el
+    /// consumidor las escriba en su AGENTS.md.
     fn prompt_sistema(&self) -> String {
-        let reglas = self
+        let mut reglas = self
             .reglas
             .lock()
             .unwrap_or_else(|p| p.into_inner())
             .clone();
+        if self.modo_efectivo() == "meta" {
+            if !reglas.trim().is_empty() {
+                reglas.push_str("\n\n");
+            }
+            reglas.push_str(crate::nucleo::prompt::REGLAS_META);
+        }
         ensamblar_prompt_sistema(&self.turno_config, &reglas, &fecha_hoy())
     }
 
@@ -543,6 +660,7 @@ mod tests {
     use super::{mensajes_usuario_resumen, DesgloseContexto};
     use crate::context::ContextoConfig;
     use crate::llm::AiMessage;
+    use uuid::Uuid;
 
     #[test]
     fn resumen_acota_prompt() {
@@ -889,5 +1007,111 @@ mod tests {
             Permiso::Allow
         );
         assert!(nombres.iter().any(|n| n == "memoria_recordar"));
+    }
+
+    /* [109A-5 F2] El plan visible es de la CONVERSACIÓN, no del proceso: un
+     * runtime atiende a varias y la store vive en su registry. Estos tests
+     * fijan el reparto (sin él, cambiar de hilo mostraba el plan del anterior
+     * y el modelo podía editar tareas ajenas). */
+
+    /// Crea un runtime de prueba con tareas ya en el plan (como si un turno
+    /// anterior las hubiera dejado).
+    async fn runtime_con_plan(modo: &str, textos: &[&str]) -> super::AgentRuntime {
+        let runtime = runtime_de_prueba(modo);
+        let store = runtime.registry.todo().expect("store de todo registrada");
+        let mut lista = store.lock().await;
+        for texto in textos {
+            lista.crear(texto);
+        }
+        drop(lista);
+        runtime
+    }
+
+    /// Textos del plan cargado ahora mismo en el registry.
+    async fn plan_cargado(runtime: &super::AgentRuntime) -> Vec<String> {
+        let store = runtime.registry.todo().expect("store de todo registrada");
+        /* El guard se liga a una local para que se suelte ANTES de que muera el
+         * `Arc` que lo presta (un temporal al final del bloque lo haría tarde). */
+        let guard = store.lock().await;
+        let textos: Vec<String> = guard.visibles().into_iter().map(|t| t.texto).collect();
+        drop(guard);
+        textos
+    }
+
+    #[tokio::test]
+    async fn f2_el_plan_no_se_filtra_entre_conversaciones() {
+        let conv_a = Uuid::new_v4();
+        let conv_b = Uuid::new_v4();
+        /* Se prepara el plan de A y luego se visita B: B no debe heredarlo. */
+        let runtime = runtime_con_plan("predeterminado", &["paso de A"]).await;
+        runtime.cargar_plan_de(conv_a);
+        assert_eq!(plan_cargado(&runtime).await, vec!["paso de A".to_string()]);
+
+        runtime.cargar_plan_de(conv_b);
+        assert!(
+            plan_cargado(&runtime).await.is_empty(),
+            "una conversación nueva arranca sin plan ajeno"
+        );
+    }
+
+    #[tokio::test]
+    async fn f2_volver_a_una_conversacion_restaura_su_plan() {
+        let conv_a = Uuid::new_v4();
+        let conv_b = Uuid::new_v4();
+        let runtime = runtime_con_plan("predeterminado", &["paso de A"]).await;
+        runtime.cargar_plan_de(conv_a);
+        runtime.cargar_plan_de(conv_b);
+        runtime.cargar_plan_de(conv_a);
+        assert_eq!(
+            plan_cargado(&runtime).await,
+            vec!["paso de A".to_string()],
+            "el resume es por conversación: volver a A conserva su plan"
+        );
+        /* Y el plan de A no se duplicó al ir y volver. */
+        runtime.cargar_plan_de(conv_a);
+        assert_eq!(plan_cargado(&runtime).await.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn f2_olvidar_tareas_solo_borra_la_conversacion_indicada() {
+        let conv_a = Uuid::new_v4();
+        let conv_b = Uuid::new_v4();
+        let runtime = runtime_con_plan("predeterminado", &["paso de B"]).await;
+        runtime.cargar_plan_de(conv_b);
+        /* Cerrar la meta de A (que no está activa) no debe tocar el plan de B. */
+        assert!(runtime.olvidar_tareas(conv_a));
+        assert_eq!(plan_cargado(&runtime).await, vec!["paso de B".to_string()]);
+        /* Cerrar la de B sí vacía el plan cargado. */
+        assert!(runtime.olvidar_tareas(conv_b));
+        assert!(plan_cargado(&runtime).await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn f2_emitir_tareas_publica_la_lista_completa_y_respeta_el_silencio() {
+        let conv = Uuid::new_v4();
+        let runtime = runtime_con_plan("predeterminado", &["uno", "dos"]).await;
+        runtime.cargar_plan_de(conv);
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<crate::evento::AgenteEvento>(8);
+        runtime.emitir_tareas(&tx, true).await;
+        drop(tx);
+        match rx.try_recv() {
+            Ok(crate::evento::AgenteEvento::TareasActualizadas { items }) => {
+                assert_eq!(items.len(), 2);
+                assert_eq!(items[0].texto, "uno");
+            }
+            otro => panic!("se esperaba TareasActualizadas, llegó {otro:?}"),
+        }
+
+        /* Lista vacía + `solo_si_hay`: no se emite nada (el arranque de un
+         * turno sin plan no debe pintar un bloque huérfano). */
+        let vacio = Uuid::new_v4();
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<crate::evento::AgenteEvento>(8);
+        runtime.cargar_plan_de(vacio);
+        runtime.emitir_tareas(&tx, true).await;
+        drop(tx);
+        assert!(
+            rx.try_recv().is_err(),
+            "sin tareas y sin acción previa no hay evento"
+        );
     }
 }

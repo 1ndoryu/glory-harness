@@ -8,6 +8,7 @@ import {
   type AsistenteVivo,
   type HerramientaViva,
 } from '../componentes/mensajes';
+import { crearTareasViva, type TareasViva } from '../componentes/tareasMeta';
 import type { DecisionAprobacion } from '../dominio/tipos';
 import { compacto, descripcionDeTool, iconoDeTool, rutaDeArgumentos } from './descripcionHerramientas';
 import type { AgenteEvento, HooksAdaptador, Transporte, UsoTurno } from './realTipos';
@@ -24,6 +25,10 @@ export interface EstadoTurno {
   rutaHerramienta: string | null;
   uso: UsoTurno;
   huboPeticiones: boolean;
+  /** [109A-5 F2] Bloque del plan visible. Sobrevive al fin del turno a
+   * propósito: el plan es de la CONVERSACIÓN, así que el mismo bloque se
+   * actualiza en los turnos siguientes (resume) en vez de duplicarse. */
+  tareas: TareasViva | null;
 }
 
 /** Lo que el render necesita del adaptador (DOM + hooks + transporte). */
@@ -125,6 +130,20 @@ export function aplicarEvento(ev: AgenteEvento, st: EstadoTurno, d: EventosDeps)
     case 'plan_propuesto':
       d.aviso(`propuesta del modo plan: ${ev.cambios} cambios pendientes`, 'plan', '');
       break;
+    case 'tareas_actualizadas': {
+      /* [109A-5 F2] Un solo bloque por conversación: si el nodo ya no está
+       * montado (cambió el contenedor de mensajes) se crea uno nuevo; si sigue
+       * vivo, `appendChild` lo MUEVE al final del transcript, junto al último
+       * mensaje, para que el plan vigente no quede perdido arriba mientras el
+       * modelo lo actualiza. */
+      if (!st.tareas || !st.tareas.montado()) {
+        st.tareas = crearTareasViva();
+      }
+      st.tareas.actualizar(ev.items);
+      d.mensajes()?.appendChild(st.tareas.raiz);
+      d.bajarScroll();
+      break;
+    }
     case 'usage':
       st.uso.tokensPrompt += typeof ev.tokens_prompt === 'number' ? ev.tokens_prompt : 0;
       st.uso.tokensComplecion += typeof ev.tokens_complecion === 'number' ? ev.tokens_complecion : 0;

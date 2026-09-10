@@ -288,16 +288,24 @@ Orden propuesto (dependencias de abajo arriba):
        `Agente/completados/tareas-2026-09-10.md`; plan cerrado en
        `Agente/planes/completados/plan-109A-comandos-slash-2026-09-10.md`.
 - [ ] **109A-5 — Meta con ciclo de vida (tareas visibles + cierre con
-      evidencia)** (10-09, **activo**, F1 HECHO: meta como objeto por
+      evidencia)** (10-09, **activo**, F1+F2 HECHO). **F1:** meta como objeto por
       conversación con `resolver_meta`, persistencia
       `meta_texto/iniciada_en/pausada_en/logros`, `meta_aplicar` con `&mut` y
       comandos fijar/limpiar/pausar/reanudar/lograr fail-closed en el PATCH
-      web y en el comando Tauri; 365 tests + clippy 0; evidencia en el plan.
-      Pendientes F2 tareas visibles (`en_curso` + evento
-      `TareasActualizadas`), F3 pie "Meta lograda en Xs" anclado al turno,
-      F4 regla de bloqueo ×3; deny de `meta` intacto. F3/F4 quedaron
-      **desbloqueadas** al cerrarse F4 de 109A-4 (10-09), que ya retiró `meta`
-      del modo global y añadió `soloLectura` a `OpcionesTurno`.
+      web y en el comando Tauri. **F2:** `EstadoTodo::EnCurso` (`[/]`), evento
+      aditivo `TareasActualizadas`, `emitir_tareas` tras cada `todo` y al abrir
+      turno, y componente `tareasMeta.ts` + `tareasMeta.css` cableado en
+      `aplicarEventos.ts`. **Fix de alcance en F2:** la lista vivía en el
+      `registry` (por sesión), así que se filtraba entre conversaciones; ahora
+      `PlanesConversacion` + `cargar_plan_de(conv)` + `olvidar_tareas(conv)`
+      (reset al limpiar/lograr la meta). Evidencia: 290+124 tests verdes,
+      clippy 0, `tsc`/`vite build` EXIT 0 (99 módulos) y E2E navegador real
+      (bloque visible con `0/3`→`2/3` en vivo; conversación nueva sin herencia;
+      vuelta con plan restaurado). Límite: el plan es estado vivo, no
+      persiste en SQLite. Gate `check 109A-5`: `coverage`/`sentinel` PASS con
+      0 errores y el baseline de 10 warnings + 1 hint; único error el ajeno
+      `sccache-no-configurado`. Pendientes F3 pie "Meta lograda en Xs" anclado
+      al turno, F4 regla de bloqueo ×3; deny de `meta` intacto.
       Plan: `Agente/planes/plan-109A-meta-ciclo-vida-2026-09-10.md`.
 - [ ] **Gate: etapa Rust y sccache** (10-09, pendiente, independiente):
       el gate de glory-harness no compila Rust (las etapas `coverage`,
@@ -322,17 +330,32 @@ Orden propuesto (dependencias de abajo arriba):
       llegado a 506 efectivas y su subconjunto de compactación se movió a
       `cli/src/servicio/sesion/compactacion.rs`, con la segunda pasada del gate de vuelta
       al baseline de 10 warnings.~~
+      Matiz (10-09, ver Notas): el build **compartido** (`902c45e`) sigue marcando ese fichero en
+      506 efectivas, mientras el build que **fija** este repo (`1587c59`) no lo marca; el corte
+      canónico son **2** `limite-lineas` (`main.ts` 304, `panelDerecho.ts` 307).
 
 > **Corte de referencia de los pendientes 109A-7…109A-10** (10-09 11:41Z, `1aff7e0`, con WIP en el
-> árbol): gate de glory-harness con **Sentinel 0.7.8 + VarSense 2.2.1** = **371 hallazgos**
-> (**101 errores** + 269 warnings + 1 hint). Errores: `cssInlineScript` **52** ·
-> `unwrap-produccion-rs` **30** · `axum-ruta-sintaxis-rs` **19**. Warnings: `claseHuerfana` **258** ·
-> `console-production` **8** · `limite-lineas` **3**. Las cifras se mueven con el WIP (el mismo día:
-> 366/102 → 371/101), así que lo estable es la familia y el veredicto de cada una, no el número.
-> Auditoría del 10-09: **de los 101 errores, 52 son reales y 49 son falsos positivos** de dos reglas.
+> árbol): es el corte de la **CONSOLA** (workspace-manager) = **371 hallazgos** (**101 errores** + 269
+> warnings + 1 hint), medido con **VarSense 2.2.1** + **Sentinel del checkout compartido**
+> (`area-trabajo/.quality-tools/sentinel`, 0.7.8 @ `902c45e`). Errores: `cssInlineScript` **52**
+> (VarSense) · `unwrap-produccion-rs` **30** (Sentinel) · `axum-ruta-sintaxis-rs` **19** (Sentinel).
+> Warnings: `claseHuerfana` **258** (VarSense) · `console-production` **8** (Sentinel) ·
+> `limite-lineas` **3** (Sentinel). Las cifras se mueven con el WIP (el mismo día: 366/102 → 371/101),
+> así que lo estable es la familia y el veredicto de cada una, no el número.
+> **Corte del GATE canónico de este repo** (mismo árbol y mismos 224 archivos): `scripts/quality/
+> stages.json` ejecuta Sentinel 0.7.8 @ **`1587c59`** — el commit que este repo fija en
+> `quality-tools.json` (`provisionPath: ../.quality-tools-harness/sentinel`) — y **no ejecuta VarSense**
+> (no hay etapa `varsense`), así que su único corte propio es **0 errores, 10 warnings, 1 hint**.
+> Verificado el 10-09 ejecutando los dos binarios sobre el mismo árbol: `902c45e` → **49 errores**;
+> `1587c59` → **0**. Los 49 del corte de consola **ya están corregidos upstream** (`08aaf25`,
+> `axum-ruta-sintaxis-rs` version-aware; `1587c59`, `unwrap-produccion-rs` en fichero solo-test): son
+> **falsos positivos del medidor, no deuda de este repo** (ver 109A-10). De los 101 errores de la
+> consola, **52 son reales** (`cssInlineScript`) y **49 son falsos positivos**.
 
-- [ ] **109A-7 — Sacar los estilos inline del TS (`cssInlineScript`, 52 errores reales)**
-      (10-09, independiente): **52 de 52 verificados 1:1 contra el código** (aplicando el desfase de
+- [ ] **109A-7 — Sacar los estilos inline del TS (`cssInlineScript`, 52 errores reales de VarSense)**
+      (10-09, independiente; regla de **VarSense 2.2.1**, que el gate de este repo **no ejecuta** — no
+      hay etapa `varsense` en `scripts/quality/stages.json`, así que esta familia nunca aparece en su
+      reporte): **52 de 52 verificados 1:1 contra el código** (aplicando el desfase de
       línea, ver Notas) — cero falsos positivos. Reparto por fichero: `componentes/panelMeta.ts` 8,
       `anotaciones.ts` 7, `selectorModelo.ts` 7, `entradaBarras.ts` 5, `entradaContexto.ts` 4,
       `menu.ts` 4, `plataforma/webview.ts` 4, `modalProyecto.ts` 3, `panelNavegador.ts` 3,
@@ -345,11 +368,12 @@ Orden propuesto (dependencias de abajo arriba):
       DoD: 0 `cssInlineScript`; `tsc --noEmit` + build UI verdes; verificación visual del menú
       contextual, el panel meta y el selector de modelo. Crear plan activo al abordarlo (13 ficheros
       con verificación visual lo justifican).
-- [ ] **109A-8 — Retirar el CSS muerto confirmado (`claseHuerfana`, 258 marcas)**
-      (10-09, independiente): VarSense marca 258 clases de `desktop/ui/src/estilos/*.css` como
+- [ ] **109A-8 — Retirar el CSS muerto confirmado (`claseHuerfana`, 258 marcas; regla de VarSense)**
+      (10-09, independiente): VarSense 2.2.1 marca 258 clases de `desktop/ui/src/estilos/*.css` como
       «definida pero no usada», pero **234 de 258 sí se usan** (`el('div','barra-superior')`,
       `querySelector('.selector-workspace-box')`, plantillas y concatenación tipo
-      `'ic' + (pequeno ? ' ic-xs' : '')`) → falso positivo de la regla, no deuda del proyecto.
+      `'ic' + (pequeno ? ' ic-xs' : '')`) → falso positivo de una regla **de VarSense** (se reporta al
+      core de VarSense, no al checkout de Sentinel), no deuda del proyecto.
       Quedan **≤22 candidatos de CSS muerto real**, a confirmar nombre a nombre antes de borrar:
       `ctx-pista`, `ctx-lleno`, `files-visor-aviso`, `git-adiciones`, `git-eliminaciones`,
       `git-diff-adicion`, `git-diff-eliminacion`, `barra`, `archivada`, `conv-proyecto`,
@@ -370,23 +394,31 @@ Orden propuesto (dependencias de abajo arriba):
       «todo» en prosa («todo el historial…»); los 4 hint del área son el mismo caso (TASKS,
       RESTAURANTE, coolify-manager-rs). No hay nada que arreglar aquí: va a 109A-10. DoD: 0
       `console-production`; el hint se cierra corrigiendo la regla, no el código.
-- [ ] **109A-10 — Falsos positivos del gate: `unwrap-produccion-rs` ×30 y `axum-ruta-sintaxis-rs` ×19**
-      (10-09, depende del checkout compartido de Sentinel — ver plan de área `039A-1` §9/§10):
-      **49 de los 101 errores no son defectos de este código**. (a) `unwrap-produccion-rs` ×30 —
-      `cli/src/comandos/web_datos/pruebas.rs` (24) y `core/src/herramientas/navegador/pruebas.rs` (6);
-      los dos son módulos solo-test con `#![cfg(test)]` en su cabecera, y el analizador contextual
-      (`rustAnalyzer.js` → `calcularRangosTest`) solo reconoce la línea suelta `#[cfg(test)]` y descarta
-      rutas `/tests/`, así que el atributo interno no lo silencia. Lo añadió a propósito `079A-1 F6`
-      («marca `#![cfg(test)]` en modulos de tests partidos») y el propio fichero lo documenta: la
-      intención era exactamente esta, es el mecanismo el que no cubre la regla. (b)
-      `axum-ruta-sintaxis-rs` ×19 — todo en `cli/src/comandos/web.rs` (`router()`); el mensaje afirma
-      que «esta versión de matchit (0.7.3) parsea `:param`», pero el proyecto resuelve **axum 0.8.9 →
-      matchit 0.8.4** (`Cargo.lock`), donde `{id}` es la sintaxis correcta y `:id` sería un segmento
-      literal: **aplicar el consejo del mensaje rompería las rutas**. La regla no consulta la versión
-      resuelta. Acción: reportar las dos al checkout compartido (defecto de regla, no de proyecto) y,
-      mientras no se corrijan, decidir si se mitigan con `sentinel-disable-file` justificado para que el
-      gate no cuente 49 errores inexistentes que enmascaran la deuda real. DoD: el gate cuenta solo
-      errores reales.
+- [ ] **109A-10 — Falsos positivos del MEDIDOR: los 49 errores que el gate canónico no cuenta**
+      (10-09; **no hay nada que arreglar en este repo**, la acción es de `workspace-manager`):
+      **49 de los 101 errores del corte de consola no son defectos de este código y ya están
+      corregidos upstream.** (a) `unwrap-produccion-rs` ×30 — `cli/src/comandos/web_datos/pruebas.rs`
+      (24) y `core/src/herramientas/navegador/pruebas.rs` (6); los dos son módulos solo-test con
+      `#![cfg(test)]` en su cabecera (lo añadió a propósito `079A-1 F6`), y el analizador que los
+      marcaba (`rustAnalyzer.js` → `calcularRangosTest`) solo reconocía la línea suelta `#[cfg(test)]` y
+      descartaba rutas `/tests/`, así que el atributo interno no lo silenciaba; lo corrigió `1587c59`
+      («ignorar fichero solo-test con `#![cfg(test)]`»). (b) `axum-ruta-sintaxis-rs` ×19 — todo en
+      `cli/src/comandos/web.rs` (`router()`); el mensaje afirmaba que «esta versión de matchit (0.7.3)
+      parsea `:param`», pero el proyecto resuelve **axum 0.8.9 → matchit 0.8.4** (`Cargo.lock`), donde
+      `{id}` es la sintaxis correcta y `:id` sería un segmento literal: **aplicar el consejo habría
+      roto las rutas**; lo corrigió `08aaf25` (regla version-aware según `Cargo.lock`). Esos dos
+      arreglos son exactamente los que fija `quality-tools.json` (`provisionPath:
+      ../.quality-tools-harness/sentinel`, 0.7.8 @ `1587c59`, dos días más nuevo que el checkout
+      compartido `902c45e` que usa la consola), así que **este repo no tiene deuda pendiente por ellos
+      y no hacen falta `sentinel-disable-file`**: la consola resolvía el binario por el checkout
+      compartido sin mirar el `provisionPath` que fija cada proyecto (pendiente registrado en
+      `workspace-manager/roadmap.md` como `039A-4`).
+      Queda **un** defecto de regla real que sí hay que reportar al checkout compartido:
+      `todo-pendiente` marca el `///` de un doc comentario en español (`core/src/nucleo/context.rs:972`,
+      «todo el historial…») porque su patrón `/\s*(TODO|…|PENDIENTE|XXX)\b/i` deja pasar la palabra
+      «todo» en prosa; el mismo falso positivo aparece en los 4 hints del área (TASKS, RESTAURANTE,
+      coolify-manager-rs). DoD: la cifra que se documente es la del corte del gate canónico (0 errores)
+      y el hint deja de contarse.
 - [x] **089A-12 — Files estilo Synara: árbol + visor integrado** (09-09,
       HECHO): Files es un único pane dividido (árbol a la izquierda y preview
       a la derecha al seleccionar un archivo); se eliminaron `21 entradas`,
@@ -575,3 +607,9 @@ Orden propuesto (dependencias de abajo arriba):
   guarda `range.start.line` del LSP (0-based) sin sumar 1 y
   `workspace-manager/src/v2/paneles/PanelConsola.tsx:123` lo imprime tal cual. Afecta a todo el área,
   así que al triar un hallazgo hay que mirar la línea siguiente.
+- **Un conteo no es comparable sin el build (commit) y el alcance** (10-09, verificado en este repo):
+  el **mismo** 0.7.8 dio **49 errores** con el checkout compartido `902c45e` y **0** con `1587c59` (el
+  commit que fija `quality-tools.json`), sobre el **mismo árbol y los mismos 224 archivos**; en
+  WANDORIUS (8) y GLORYPORT (5) los dos builds coinciden, así que la diferencia **no** es subreporte
+  del nuevo, son las dos reglas ya corregidas ahí. Por eso toda cifra de este roadmap debe decir con
+  qué binario y con qué alcance se midió, y por eso `109A-10` se cierra sin tocar código de este repo.

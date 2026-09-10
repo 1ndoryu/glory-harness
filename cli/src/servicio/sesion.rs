@@ -369,6 +369,10 @@ impl SesionComun {
         conversacion_id: Uuid,
         comando: ComandoMeta,
     ) -> Result<ResultadoMeta, ErrorMeta> {
+        /* [109A-5 F2] `Limpiar` y `Lograr` CIERRAN la meta; `Fijar` (meta nueva
+         * sobre un plan vigente) y `Pausar`/`Reanudar` no. Se decide antes de
+         * mover el comando a `resolver_meta`. */
+        let cierra_la_meta = matches!(comando, ComandoMeta::Limpiar | ComandoMeta::Lograr { .. });
         let estado = self.meta_leer(conversacion_id)?;
         let resultado = resolver_meta(comando, &estado, Utc::now())?;
         let fila = resultado.estado.a_persistida()?;
@@ -378,6 +382,18 @@ impl SesionComun {
             .map_err(|e| ErrorMeta::Persistencia(e.to_string()))?;
         if !guardado {
             return Err(ErrorMeta::ConversacionInexistente);
+        }
+        /* [109A-5 F2] La meta cerrada se lleva su plan: las tareas visibles
+         * perseguían esa meta y seguir mostrándolas daría a entender que el
+         * trabajo sigue en curso. Si la lista estaba bloqueada por una tool en
+         * ejecución no se finge que se vació: se registra (entre turnos el lock
+         * siempre está libre, así que un `false` aquí sería un solapamiento
+         * real que hay que poder ver en los logs). */
+        if cierra_la_meta && !self.runtime.olvidar_tareas(conversacion_id) {
+            tracing::warn!(
+                %conversacion_id,
+                "plan visible no vaciado: la lista de tareas estaba bloqueada"
+            );
         }
         Ok(resultado)
     }

@@ -75,6 +75,19 @@ impl DesgloseContexto {
     }
 }
 
+/// [109A-5 F2] Reglas del turno con META vigente (se anexan a la ranura
+/// `[REGLAS]` cuando el modo efectivo es `meta`, que es cuando el servicio
+/// antepone el bloque `[META: …]` al mensaje del usuario).
+///
+/// Vive en el prompt de sistema y no en el prefijo `[META]` a propósito: el
+/// prefijo se persiste como mensaje del usuario (queda en el historial y viaja
+/// en cada turno posterior), mientras que la regla de operación solo aplica
+/// mientras el turno se ejecuta en modo meta.
+pub const REGLAS_META: &str = "Trabajas bajo una META activa (bloque [META] del último mensaje del usuario).\
+\n- Descompón la meta en tareas visibles con la tool `todo` ANTES de actuar, y mantenla al día: marca `en_curso` el paso que estás haciendo ahora (uno solo a la vez) y `completar` cada paso terminado. El usuario ve esas tareas en vivo.\
+- Trabaja paso a paso hacia la meta; si un paso no se puede completar, dilo explícitamente en vez de cerrar el turno como si estuviera hecho.\
+- Este turno es de SOLO LECTURA: no hay tools con efecto disponibles. Si la meta exige modificar algo, explica el cambio propuesto y espera a un turno normal.";
+
 /// [318A-15 F1] Ensambla el system prompt por capas (patrón claurst
 /// `SYSTEM_PROMPT_DYNAMIC_BOUNDARY`: lo estático/cacheable primero, lo
 /// dinámico al final). Orden:
