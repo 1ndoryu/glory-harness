@@ -272,6 +272,15 @@ Orden propuesto (dependencias de abajo arriba):
       borrar/curar/exportar/importar **solo del proyecto activo**, con
       distintivo de ámbito y confirmación en borrado; IPC Tauri nuevos;
       E2E manual con 2 proyectos sin mezcla. Plan F3.
+- [ ] **109A-4 — Comandos `/` estilo VS Code (`/compactar`, `/meta`)** (10-09,
+      pendiente): F1 relevar slash en referencias (opencode/claurst/grok +
+      VS Code ya hecho) y cerrar catálogo v1; F2 menú flotante `/` en la
+      entrada (filtrado + teclado, `componentes/menuComandos.ts`); F3
+      `/compactar` bajo demanda (respeta gancho 109A-1, no-op explícito);
+      F4 `/meta <texto>` como override de turno (solo lectura) y retirar
+      `meta` del modo global (migración a `predeterminado` + aviso). Base
+      existente: `ComandoSlash` markdown en `core/src/herramientas/skill.rs`.
+      Plan: `Agente/planes/plan-109A-comandos-slash-2026-09-10.md`.
 - [x] **089A-12 — Files estilo Synara: árbol + visor integrado** (09-09,
       HECHO): Files es un único pane dividido (árbol a la izquierda y preview
       a la derecha al seleccionar un archivo); se eliminaron `21 entradas`,
