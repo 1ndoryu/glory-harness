@@ -84,10 +84,9 @@ export const OPCIONES_EJECUCION: GrupoOpciones = {
       etiqueta: 'Modo',
       tipo: 'segmentado',
       valor: 'predeterminado',
-      nota: 'Autónomo ejecuta las tools sin aprobar; meta solo lee (deniega cambios).',
+      nota: 'Autónomo ejecuta las tools sin aprobar. Para UN turno de solo lectura usa «/meta <texto>».',
       opciones: [
         { valor: 'predeterminado', etiqueta: 'Predeterminado' },
-        { valor: 'meta', etiqueta: 'Meta' },
         { valor: 'autonomo', etiqueta: 'Autónomo' },
       ],
     },

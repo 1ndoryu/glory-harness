@@ -32,7 +32,7 @@ impl AgentRuntime {
         let permiso = self.registry.permiso_para_llamada(
             &call.nombre,
             &call.argumentos,
-            &self.turno_config.modo,
+            &self.modo_efectivo(),
         );
         let verdicto = decidir_permiso(permiso, estado.denegadas_en_turno.contains(&call.nombre));
         if verdicto != VerdictoPermiso::Ejecutar {
@@ -120,7 +120,7 @@ impl AgentRuntime {
                  * se propone (override cambiado a mitad de turno, modo meta,
                  * hook que vetó la petición, etc.). Motivo para la UI. */
                 let motivo = if vetada_por_hook || (self.registry.tiene_efecto(&call.nombre)
-                    && self.turno_config.modo == "meta")
+                    && self.modo_efectivo() == "meta")
                 {
                     "denegada_por_politica".to_string()
                 } else {

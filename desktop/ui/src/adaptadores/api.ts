@@ -23,6 +23,7 @@ import { crearClienteApi } from './apiCliente';
 import { transporteMemoriasNoDisponibles } from './apiMemorias';
 import { transporteComandosNoDisponibles } from './apiComandos';
 import { transporteCompactarNoDisponible } from './apiCompactar';
+import { errorCapacidadAusente } from '../util/capacidad';
 
 /** Claves que viven en el servidor; el resto cae a localStorage (igual que
  * el mock): la superficie configLeer/Guardar no cambia. */
@@ -67,7 +68,13 @@ export function crearTransporteApi(base: string, hooks: HooksAdaptador = {}): Tr
       await http('PATCH', `/api/v1/session/${cliente.getSid()}/config`, parche);
       return cliente.componerSesion();
     },
-    enviarTurno: async (mensaje, _panelId) => {
+    /* [109A-4 F4] El servidor web no acepta política por turno: `/meta` se
+     * rechaza aquí (y el comando lo avisa antes por `soportaSoloLectura`) en
+     * vez de correr un turno normal que el usuario leería como solo-lectura. */
+    enviarTurno: async (mensaje, _panelId, soloLectura) => {
+      if (soloLectura) {
+        throw errorCapacidadAusente('el turno solo-lectura requiere la aplicación de escritorio');
+      }
       const r = await http<{ turn_id: string }>('POST', `/api/v1/session/${cliente.getSid()}/turns`, {
         message: mensaje,
       });
@@ -87,6 +94,8 @@ export function crearTransporteApi(base: string, hooks: HooksAdaptador = {}): Tr
     pendientesAprobacion: () => Promise.resolve([]),
     // HTTP resuelve aprobaciones en vivo durante el turno: nunca reenvía.
     requiereReenvioTrasAprobar: () => false,
+    /* [109A-4 F4] Sin política por turno en el modo web. */
+    soportaSoloLectura: () => false,
     escucharTurno: async (onEvento, onFin) => {
       cliente.abrirFuente(onEvento, onFin);
     },

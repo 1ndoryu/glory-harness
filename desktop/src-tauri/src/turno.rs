@@ -16,23 +16,35 @@ fn marcar_turno_terminado(estado: &Estado) {
 /// `principal`): M1 tiene UN turno a la vez (guard global), así que el panel
 /// que está ejecutando es siempre el destino de los eventos que emite esta
 /// ventana (no hace falta etiquetar el payload: nunca hay 2 streams vivos).
+///
+/// [109A-4 F4] `solo_lectura` = este turno corre en modo `meta` (deniega toda
+/// tool con efecto) SIN cambiar el modo de la sesión. La UI lo usa para
+/// `/meta <texto>`. El transporte no elige el modo: manda un booleano y el
+/// backend traduce (una superficie con menos grados de libertad).
 #[tauri::command]
 pub(crate) async fn enviar_turno(
     estado: State<'_, Estado>,
     window: tauri::Window,
     mensaje: String,
     panel_id: Option<String>,
+    solo_lectura: Option<bool>,
 ) -> Result<(), String> {
     let sesion = sesion_actual(&estado)?;
     let panel_id = normalizar_panel(panel_id);
     reclamar_turno(&estado)?;
+    /* `Option<String>` (no `&str`): el valor tiene que moverse a la tarea. */
+    let modo_turno: Option<String> = if solo_lectura == Some(true) {
+        Some("meta".to_string())
+    } else {
+        None
+    };
     let PaqueteTurno {
         conv_id,
         turno_id,
         historial_previo,
         mensaje_efectivo,
         runtime,
-    } = preparar_paquete(&sesion, &panel_id, mensaje).await?;
+    } = preparar_paquete(&sesion, &panel_id, mensaje, modo_turno.as_deref()).await?;
     let (tx_ev, rx_ev) = tokio::sync::mpsc::channel::<AgenteEvento>(64);
     let w = window.clone();
     fijar_contexto_turno(&sesion, &panel_id, conv_id, turno_id);
@@ -47,12 +59,15 @@ pub(crate) async fn enviar_turno(
         // propaga al cierre para persistirlo en `turnos`.
         let reenvio = tauri::async_runtime::spawn(reenviar_eventos(w_fw, rx_ev, uso_reenvio));
         let resultado = runtime
-            .ejecutar_turno(
-                sesion.user_id,
-                turno_id,
-                conv_id,
-                historial_previo,
-                mensaje_efectivo,
+            .ejecutar_turno_con_modo(
+                PeticionTurno {
+                    user_id: sesion.user_id,
+                    turno_id,
+                    conversacion_id: conv_id,
+                    historial: historial_previo,
+                    mensaje_usuario: mensaje_efectivo,
+                    modo_forzado: modo_turno.as_deref(),
+                },
                 &tx_ev,
             )
             .await;
@@ -95,6 +110,7 @@ async fn preparar_paquete(
     sesion: &Sesion,
     panel_id: &str,
     mensaje: String,
+    modo_turno: Option<&str>,
 ) -> Result<PaqueteTurno, String> {
     /* [069A-7] El turno exige conversación: el front la crea (create-on-write)
      * antes de enviar el primer mensaje. Un panel en borrador no puede enviar
@@ -105,6 +121,15 @@ async fn preparar_paquete(
         .lock()
         .map(|g| g.clone())
         .map_err(|_| "sesión bloqueada".to_string())?;
+    /* [109A-4 F4] En un turno forzado a solo lectura el texto del comando es
+     * la meta del turno (`/meta <texto>`): el usuario pide "trabaja con esta
+     * meta, sin escribir". La meta durable de la conversación, si existe,
+     * gana (la elige `preparar_turno_con_modo`). */
+    let meta_borrador = if modo_turno.is_some() {
+        Some(mensaje.clone())
+    } else {
+        meta
+    };
     let preparacion = {
         let comun = sesion
             .comun
@@ -112,7 +137,7 @@ async fn preparar_paquete(
             .map_err(|_| "sesión bloqueada".to_string())?
             .clone();
         comun
-            .preparar_turno(conv_id, mensaje, meta)
+            .preparar_turno_con_modo(conv_id, mensaje, meta_borrador, modo_turno)
             .await
             .map_err(|e| e.to_string())?
     };

@@ -269,29 +269,24 @@ Orden propuesto (dependencias de abajo arriba):
       `Agente/completados/tareas-2026-09-10.md`. F3 (sección en Configuración)
       cerrada como 109A-3; plan completo en
       `Agente/planes/completados/plan-109A-memorias-por-proyecto-2026-09-10.md`.
-- [ ] **109A-4 — Comandos `/` estilo VS Code (`/compactar`, `/meta`)** (10-09,
-       F1–F3 HECHOS: relevadas las 5 referencias y catálogo v1 cerrado a 8 comandos
-       — `/ayuda /modelo /compactar /contexto /limpiar /revisar /iniciar /meta` —;
-       F2 menú flotante `/` completo en `dominio/comandosSlash.ts`,
-       `componentes/menuComandos.ts`, `entradaComandos.ts`, `panelChatComandos.ts`
-       + IPC `comandos_listar`/`comando_expandir` (`desktop/src-tauri/src/comandos/mod.rs`)
-       reutilizando `core::skill`. Evidencia: type-check/build EXIT 0, clippy
-       0 warnings, E2E real de los 8 comandos (incluido el bug de teclado
-       `preventDefault` detectado y corregido) y gate `check 109A-4` con
-       `coverage`/`sentinel` PASS (10 warnings preexistentes) y único error
-       ajeno `sccache-no-configurado`.
-       F3 HECHA: `/compactar` compacta bajo demanda con `compactar_forzado`
-       (core) + `compactar_manual` (runtime, ganchos `PreCompact`/`PostCompact`),
-       y el resumen queda como punto persistido (`conversaciones.compactado_en`/
-       `resumen_compactado`) que `preparar_turno` aplica enviando
-       `[resumen] + posteriores`; los mensajes no se borran. Comando Tauri
-       `compactar_conversacion`; en web se declara ausente. Evidencia: 122+281
-       tests verdes (incluida la migración del esquema anterior), clippy 0,
-       type-check/build EXIT 0 y E2E web con motivo explícito. Detalle en
-       `Agente/planes/plan-109A-comandos-slash-2026-09-10.md`.
-       Pendiente F4 `/meta <texto>` como override de turno (solo lectura)
-       retirando `meta` del modo global (migración a `predeterminado` + aviso).
-       Plan: `Agente/planes/plan-109A-comandos-slash-2026-09-10.md`.
+- [x] **109A-4 — Comandos `/` estilo VS Code (`/compactar`, `/meta`)** (10-09,
+       **HECHO** F1–F4): catálogo v1 de 8 comandos
+       (`/ayuda /modelo /compactar /contexto /limpiar /revisar /iniciar /meta`),
+       menú flotante `/` (`dominio/comandosSlash.ts`, `menuComandos.ts`,
+       `entradaComandos.ts`, `panelChatComandos.ts` + IPC
+       `comandos_listar`/`comando_expandir` reutilizando `core::skill`),
+       `/compactar` con punto de compactación persistido que `preparar_turno`
+       aplica como `[resumen] + posteriores` (sin borrar mensajes) y
+       `/meta <texto>` como override de modo **por turno** (guard RAII
+       `GuardaModoTurno` + `modo_efectivo()`, `PeticionTurno`,
+       `solo_lectura` en el transporte Tauri) con retiro del modo global `meta`
+       (migración a `predeterminado` + aviso único). Evidencia: 124+283 tests
+       verdes, clippy `-D warnings` limpio, type-check/build EXIT 0 (97 módulos),
+       E2E web de `/compactar`, `/meta` y del segmentado de modo reducido, y gate
+       `check 109A-4` con `coverage`/`sentinel` PASS (10 warnings preexistentes) y
+       único error ajeno `sccache-no-configurado`. Detalle en
+       `Agente/completados/tareas-2026-09-10.md`; plan cerrado en
+       `Agente/planes/completados/plan-109A-comandos-slash-2026-09-10.md`.
 - [ ] **109A-5 — Meta con ciclo de vida (tareas visibles + cierre con
       evidencia)** (10-09, **activo**, F1 HECHO: meta como objeto por
       conversación con `resolver_meta`, persistencia
@@ -300,8 +295,9 @@ Orden propuesto (dependencias de abajo arriba):
       web y en el comando Tauri; 365 tests + clippy 0; evidencia en el plan.
       Pendientes F2 tareas visibles (`en_curso` + evento
       `TareasActualizadas`), F3 pie "Meta lograda en Xs" anclado al turno,
-      F4 regla de bloqueo ×3 y migración del modo global; deny de `meta`
-      intacto. F3/F4 tras F4 de 109A-4 (mismos ficheros UI).
+      F4 regla de bloqueo ×3; deny de `meta` intacto. F3/F4 quedaron
+      **desbloqueadas** al cerrarse F4 de 109A-4 (10-09), que ya retiró `meta`
+      del modo global y añadió `soloLectura` a `OpcionesTurno`.
       Plan: `Agente/planes/plan-109A-meta-ciclo-vida-2026-09-10.md`.
 - [ ] **Gate: etapa Rust y sccache** (10-09, pendiente, independiente):
       el gate de glory-harness no compila Rust (las etapas `coverage`,
@@ -310,9 +306,9 @@ Orden propuesto (dependencias de abajo arriba):
       que ejecute clippy/tests y decidir la configuración de `sccache`
       (`rustc-wrapper` + `SCCACHE_CACHE_SIZE`), hoy en rojo por
       `sccache-no-configurado`.
-- [ ] **109A-6 — Deuda: dividir `main.ts` y `panelDerecho.ts`** (10-09,
+- [ ] **109A-6 — Deuda: dividir `main.ts`, `panelDerecho.ts` y `sesion.rs`** (10-09,
       independiente): el gate sigue marcando `limite-lineas` en
-      `desktop/ui/src/main.ts` (305 efectivas) y
+      `desktop/ui/src/main.ts` (304 efectivas) y
       `desktop/ui/src/orquestador/panelDerecho.ts` (307 efectivas), por encima
       del techo de 300 para componentes. Es deuda **preexistente** (ya estaba
       en 109A-1/109A-2 con 304/307) y 109A-3 solo añadió 1 línea de cableado;
@@ -322,6 +318,75 @@ Orden propuesto (dependencias de abajo arriba):
       tras `109A-4` F2 (`comandos.rs` → `comandos/mod.rs`), así que el próximo
       módulo plano disparará `directorio-abarrotado`; toca agrupar por dominio
       (p. ej. `archivos/` y `sesion/`) en una fase propia.
+      ~~Resuelto (10-09) en el cierre de 109A-4: `cli/src/servicio/sesion.rs` había
+      llegado a 506 efectivas y su subconjunto de compactación se movió a
+      `cli/src/servicio/sesion/compactacion.rs`, con la segunda pasada del gate de vuelta
+      al baseline de 10 warnings.~~
+
+> **Corte de referencia de los pendientes 109A-7…109A-10** (10-09 11:41Z, `1aff7e0`, con WIP en el
+> árbol): gate de glory-harness con **Sentinel 0.7.8 + VarSense 2.2.1** = **371 hallazgos**
+> (**101 errores** + 269 warnings + 1 hint). Errores: `cssInlineScript` **52** ·
+> `unwrap-produccion-rs` **30** · `axum-ruta-sintaxis-rs` **19**. Warnings: `claseHuerfana` **258** ·
+> `console-production` **8** · `limite-lineas` **3**. Las cifras se mueven con el WIP (el mismo día:
+> 366/102 → 371/101), así que lo estable es la familia y el veredicto de cada una, no el número.
+> Auditoría del 10-09: **de los 101 errores, 52 son reales y 49 son falsos positivos** de dos reglas.
+
+- [ ] **109A-7 — Sacar los estilos inline del TS (`cssInlineScript`, 52 errores reales)**
+      (10-09, independiente): **52 de 52 verificados 1:1 contra el código** (aplicando el desfase de
+      línea, ver Notas) — cero falsos positivos. Reparto por fichero: `componentes/panelMeta.ts` 8,
+      `anotaciones.ts` 7, `selectorModelo.ts` 7, `entradaBarras.ts` 5, `entradaContexto.ts` 4,
+      `menu.ts` 4, `plataforma/webview.ts` 4, `modalProyecto.ts` 3, `panelNavegador.ts` 3,
+      `menuComandos.ts` 2, `panelNavegadorControles.ts` 2, `util/portapapeles.ts` 2, `panelChat.ts` 1.
+      Remedio: clase CSS + variables del sistema (regla del proyecto: prohibido estilo literal en
+      componentes; CSS en ficheros separados y clases en español camelCase). Candidatos a excepción
+      justificada con `sentinel-disable` en vez de refactor: los valores que dependen de una **medida
+      en tiempo de ejecución** y no de diseño — ocultar antes de medir el menú contextual (`menu.ts`,
+      `menuComandos.ts`) y el textarea fuera de pantalla de `util/portapapeles.ts` (`position:fixed`).
+      DoD: 0 `cssInlineScript`; `tsc --noEmit` + build UI verdes; verificación visual del menú
+      contextual, el panel meta y el selector de modelo. Crear plan activo al abordarlo (13 ficheros
+      con verificación visual lo justifican).
+- [ ] **109A-8 — Retirar el CSS muerto confirmado (`claseHuerfana`, 258 marcas)**
+      (10-09, independiente): VarSense marca 258 clases de `desktop/ui/src/estilos/*.css` como
+      «definida pero no usada», pero **234 de 258 sí se usan** (`el('div','barra-superior')`,
+      `querySelector('.selector-workspace-box')`, plantillas y concatenación tipo
+      `'ic' + (pequeno ? ' ic-xs' : '')`) → falso positivo de la regla, no deuda del proyecto.
+      Quedan **≤22 candidatos de CSS muerto real**, a confirmar nombre a nombre antes de borrar:
+      `ctx-pista`, `ctx-lleno`, `files-visor-aviso`, `git-adiciones`, `git-eliminaciones`,
+      `git-diff-adicion`, `git-diff-eliminacion`, `barra`, `archivada`, `conv-proyecto`,
+      `lateral-grip`, `redimensionando-sidebar`, `redimensionando-lateral`, `memorias-chip`,
+      `memorias-nota`, `rotulo-cambios`, `navegador-grip`, `redimensionando-navegador`, `trama-45`,
+      `trama-135`, `trama-puntos`, `global`. Ojo: es un **techo**, no una cifra exacta — `ic-xs` e
+      `ic-spin` salían en esa lista y sí se usan por concatenación. No borrar a ciegas ni por parecido:
+      el resto de las 258 es deuda de la regla (109A-10). DoD: cada nombre cotejado con uso real antes
+      de borrar; build UI verde.
+- [ ] **109A-9 — Avisos reales del gate: `console-production` ×8 y `todo-pendiente` ×1**
+      (10-09, independiente): los 8 `console.*` están todos en el panel del navegador —
+      `panelNavegadorSeleccion.ts` 4 (`console.error` en 77 y 116, `console.warn` en 127 y 131),
+      `panelNavegador.ts` 3 (capturar/atrás/adelante, en 101/140/156) y `orquestador/navegadorVista.ts`
+      1 (97) — y chocan con la regla de «sin fallos silenciosos»: pasarlos a aviso visible al usuario o
+      a estado explícito. El único hint `todo-pendiente` (`core/src/nucleo/context.rs:972`) es un
+      **falso positivo**: la regla casa `/\/\/\s*(TODO|…|PENDIENTE|XXX)\b/i` y el `///` de un doc
+      comentario en español deja los dos últimos caracteres como marca, así que salta con la palabra
+      «todo» en prosa («todo el historial…»); los 4 hint del área son el mismo caso (TASKS,
+      RESTAURANTE, coolify-manager-rs). No hay nada que arreglar aquí: va a 109A-10. DoD: 0
+      `console-production`; el hint se cierra corrigiendo la regla, no el código.
+- [ ] **109A-10 — Falsos positivos del gate: `unwrap-produccion-rs` ×30 y `axum-ruta-sintaxis-rs` ×19**
+      (10-09, depende del checkout compartido de Sentinel — ver plan de área `039A-1` §9/§10):
+      **49 de los 101 errores no son defectos de este código**. (a) `unwrap-produccion-rs` ×30 —
+      `cli/src/comandos/web_datos/pruebas.rs` (24) y `core/src/herramientas/navegador/pruebas.rs` (6);
+      los dos son módulos solo-test con `#![cfg(test)]` en su cabecera, y el analizador contextual
+      (`rustAnalyzer.js` → `calcularRangosTest`) solo reconoce la línea suelta `#[cfg(test)]` y descarta
+      rutas `/tests/`, así que el atributo interno no lo silencia. Lo añadió a propósito `079A-1 F6`
+      («marca `#![cfg(test)]` en modulos de tests partidos») y el propio fichero lo documenta: la
+      intención era exactamente esta, es el mecanismo el que no cubre la regla. (b)
+      `axum-ruta-sintaxis-rs` ×19 — todo en `cli/src/comandos/web.rs` (`router()`); el mensaje afirma
+      que «esta versión de matchit (0.7.3) parsea `:param`», pero el proyecto resuelve **axum 0.8.9 →
+      matchit 0.8.4** (`Cargo.lock`), donde `{id}` es la sintaxis correcta y `:id` sería un segmento
+      literal: **aplicar el consejo del mensaje rompería las rutas**. La regla no consulta la versión
+      resuelta. Acción: reportar las dos al checkout compartido (defecto de regla, no de proyecto) y,
+      mientras no se corrijan, decidir si se mitigan con `sentinel-disable-file` justificado para que el
+      gate no cuente 49 errores inexistentes que enmascaran la deuda real. DoD: el gate cuenta solo
+      errores reales.
 - [x] **089A-12 — Files estilo Synara: árbol + visor integrado** (09-09,
       HECHO): Files es un único pane dividido (árbol a la izquierda y preview
       a la derecha al seleccionar un archivo); se eliminaron `21 entradas`,
@@ -413,6 +478,12 @@ Orden propuesto (dependencias de abajo arriba):
 
 ## Historial de planes cerrados
 
+- `Agente/planes/completados/plan-109A-comandos-slash-2026-09-10.md` (109A-4) —
+  **cerrado 10-09** con F1–F4 completas (menú `/`, `/compactar` con punto de
+  compactación persistido, `/meta` como override de turno y retiro del modo global).
+  Gate con `coverage`/`sentinel` PASS en el baseline de 10 warnings preexistentes.
+- `Agente/planes/completados/plan-109A-memorias-por-proyecto-2026-09-10.md` (109A-2/109A-3) —
+  **cerrado 10-09**.
 - `Agente/planes/plan-glory-harness-desktop-2026-09-03.md` (039A-1) — **cerrado 06-09**; las
   fases F1–F6 y el Bloque A (backend + cableado + panel meta real) están cerrados; los 7
   hallazgos del primer `tauri dev` quedaron corregidos (H1–H7) y el E2E en la ventana
@@ -497,3 +568,10 @@ Orden propuesto (dependencias de abajo arriba):
   respuesta; el mensaje del usuario lo debe persistir el consumidor — el desktop lo hace, pero
   `chat`/`run`/`tui` del CLI hoy no llaman a `guardar_mensaje` para el usuario (su historial
   entre turnos pierde el lado usuario). No se tocó por ser carril ajeno.
+- **Los números de línea de la consola van 0-based** (10-09; defecto de `workspace-manager`, no de
+  este proyecto): la línea que se muestra es la **anterior** a la real (verificado en 4 reglas y 4
+  ficheros: `web.rs` 499→500, `pruebas.rs` 28→29, `anotaciones.ts` 52→53,
+  `panelNavegadorSeleccion.ts` 76→77). Causa: `workspace-manager/src/server/gate/analizador.ts:259`
+  guarda `range.start.line` del LSP (0-based) sin sumar 1 y
+  `workspace-manager/src/v2/paneles/PanelConsola.tsx:123` lo imprime tal cual. Afecta a todo el área,
+  así que al triar un hallazgo hay que mirar la línea siguiente.

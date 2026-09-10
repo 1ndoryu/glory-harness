@@ -169,7 +169,7 @@ export function crearTurnoReal(hooks: HooksAdaptador, transporte: Transporte): T
         escuchando = true;
       }
       await asegurarSesion(opts);
-      await transporte.enviarTurno(texto, opts.panelId ?? null);
+      await transporte.enviarTurno(texto, opts.panelId ?? null, opts.soloLectura === true);
     } catch (e: unknown) {
       await cerrar(false, String(e));
     }

@@ -25,7 +25,12 @@ import type { ResumenCompactacion } from '../tauri/real';
 export type ResultadoComando =
   | { tipo: 'no-es-comando' }
   | { tipo: 'consumido' }
-  | { tipo: 'prompt'; texto: string }
+  | {
+      tipo: 'prompt';
+      texto: string;
+      /** [109A-4 F4] Este turno corre en política meta (solo lectura). */
+      soloLectura?: boolean;
+    }
   | { tipo: 'error'; mensaje: string };
 
 export interface ComandosDeps {
@@ -47,6 +52,10 @@ export interface ComandosDeps {
   /** [109A-4 F3] Compacta el contexto de este panel (backend decide con el
    * historial real; `instruccion` dirige el resumen como argumento). */
   compactar(instruccion: string | null): Promise<ResumenCompactacion>;
+  /** [109A-4 F4] ¿El transporte soporta un turno solo-lectura? Si no (modo
+   * web), `/meta` se rechaza con motivo explícito en vez de degradar a un
+   * turno normal que el usuario leería como de lectura. */
+  soportaSoloLectura(): boolean;
 }
 
 export interface EjecutorComandos {
@@ -164,6 +173,31 @@ export function crearEjecutorComandos(deps: ComandosDeps): EjecutorComandos {
     return { tipo: 'prompt', texto };
   }
 
+  /** [109A-4 F4] `/meta <texto>`: UN turno en política meta (solo lectura)
+   * usando el texto como meta del turno. NO cambia el modo global: el backend
+   * fuerza el modo de ese turno y lo revierte al terminar. */
+  function metaDeTurno(argumentos: string): ResultadoComando {
+    const texto = argumentos.trim();
+    if (!texto) {
+      return {
+        tipo: 'error',
+        mensaje: 'uso: «/meta <texto>» (un turno solo-lectura con esa meta)',
+      };
+    }
+    if (!deps.soportaSoloLectura()) {
+      return {
+        tipo: 'error',
+        mensaje: 'el turno solo-lectura requiere la aplicación de escritorio',
+      };
+    }
+    deps.aviso(
+      'turno en modo meta: solo lectura, ninguna tool con efecto se ejecuta',
+      'meta',
+      'el modo global de la sesión no cambia',
+    );
+    return { tipo: 'prompt', texto, soloLectura: true };
+  }
+
   async function resolver(texto: string): Promise<ResultadoComando> {
     const partes = partirComando(texto);
     if (!partes) return { tipo: 'no-es-comando' };
@@ -186,10 +220,7 @@ export function crearEjecutorComandos(deps: ComandosDeps): EjecutorComandos {
       case 'compactar':
         return compactarAhora(argumentos);
       case 'meta':
-        return {
-          tipo: 'error',
-          mensaje: `«/${nombre}» aún no está activo (llega en la fase siguiente del plan 109A-4)`,
-        };
+        return metaDeTurno(argumentos);
       default:
         break;
     }

@@ -1,7 +1,9 @@
 # Plan 109A-4 — Comandos `/` estilo VS Code (`/compactar`, `/meta`)
 
-> ID roadmap: **109A-4** · Fecha: 2026-09-10 · Estado: activo (F1–F3 HECHOS
-> 10-09; F4 pendiente)
+> ID roadmap: **109A-4** · Fecha: 2026-09-10 · Estado: **CERRADO 10-09** (F1–F4
+> HECHAS; evidencia en `Agente/completados/tareas-2026-09-10.md`). Gate canónico
+> con `coverage`/`sentinel` PASS en el baseline de 10 warnings preexistentes y el
+> único error ajeno `sccache-no-configurado`.
 > Origen: petición usuario — menú `/` como VS Code; `/compactar`; `meta` pasa de
 > modo de ejecución a comando; luego relevar comandos útiles en las referencias.
 
@@ -150,13 +152,55 @@ Evidencia (10-09):
 Interacción documentada: un `rewind` posterior sigue funcionando; el punto no se
 limpia porque el resumen cubre justamente el material anterior a la marca.
 
-### F4 — `/meta <texto>` y retiro del modo
-- El comando ejecuta **un turno** con política meta (solo lectura) como override
-  de turno, no como modo global. `permiso_por_modo("meta")` se conserva como
-  política interna de turno.
-- Retirar `meta` del segmentado de `OPCIONES_EJECUCION`; migración de config:
-  `modo: meta` → `predeterminado` + aviso visible una vez.
-- Tests de política (deny con efecto, allow lectura) + E2E en ventana real.
+### F4 — `/meta <texto>` y retiro del modo (HECHO 10-09)
+
+- **Núcleo**: override de modo POR TURNO. `AgentRuntime.modo_turno:
+  Mutex<Option<String>>` + `GuardaModoTurno` (RAII: `Drop` limpia el override
+  aunque el future se cancele o el turno falle) y `modo_efectivo()`. Todas las
+  lecturas de política del turno pasan por ahí —esquemas de tools,
+  `permiso_para_llamada`, subagente y plan store—, así que un `/meta` afecta a
+  EXACTAMENTE un turno. `permiso_por_modo("meta")` se conserva como política
+  interna del turno forzado. `ejecutar_turno_con_modo` recibe `PeticionTurno`
+  (identidad + entrada + `modo_forzado`) para no añadir un séptimo argumento
+  posicional (clippy) y dejar legible la llamada del transporte.
+- **Servicio**: `preparar_turno_con_modo(..., modo_turno: Option<&str>)`; el
+  prefijo `[META: …]` se decide con el modo EFECTIVO del turno, así que un
+  `/meta` sin modo global sigue anteponiendo la meta vigente.
+- **Transporte**: comando Tauri `enviar_turno(..., solo_lectura: Option<bool>)`
+  —un booleano, no una cadena de modo: el transporte no elige política, solo
+  pide «sin efectos»—; `preparar_paquete` usa el texto del comando como meta del
+  turno. `Transporte.soportaSoloLectura()` (Tauri `true` / web `false`) hace que
+  el modo web RECHACE `/meta` con motivo explícito en vez de simularlo.
+- **UI**: `panelChatComandos` implementa `/meta <texto>`; el flag `soloLectura`
+  viaja en `OpcionesTurno` hasta `enviar_turno` (el reenvío tras aprobar conserva
+  `ultimaOpcion`, así que la política no se pierde). El texto se refleja en la
+  fila de meta y se persiste como meta de la conversación (109A-5 F1), que es la
+  que el backend antepone en los siguientes turnos solo-lectura.
+- **Retiro del modo global**: `ModoEjecucion = 'predeterminado' | 'autonomo'`
+  (`entradaTipos.ts`, `OPCIONES_EJECUCION` con nota que apunta a `/meta`);
+  `VistaMetaDeps.getModo` desaparece y la fila de meta ya no depende del modo;
+  `aplicarSesionGuardada` MIGRA `modo: meta` → `predeterminado`, reescribe la
+  config y avisa UNA vez por ejecución (`vistaModal.migrarModoRetirado`).
+
+Evidencia (10-09):
+
+- `cargo test -p glory-harness-core -p glory-harness`: 124 + 283 verdes,
+  incluidos `f4_modo_forzado_no_toca_el_modo_de_la_sesion` y
+  `f4_modo_forzado_deniega_efectos_y_deja_leer` (deny con efecto, allow de
+  lectura).
+- `cargo clippy -p glory-harness-desktop --all-targets -- -D warnings` limpio;
+  `npm run type-check` limpio; `npm run build` EXIT 0 (97 módulos,
+  `index-*.js` 157.69 kB).
+- E2E en navegador (modo web): el segmentado «Modo» ya solo ofrece
+  «Predeterminado»/«Autónomo» con la nota nueva, y `/meta revisar el roadmap`
+  falla con «el turno solo-lectura requiere la aplicación de escritorio /
+  comando no ejecutado» en vez de correr un turno normal.
+- Límites reales: el camino Tauri no se puede ejercer en ventana (la
+  infraestructura de tests del escritorio no monta un runtime Tauri) —cubierto
+  por los tests del núcleo, que consumen la misma política, y clippy—; la
+  migración de config `meta → predeterminado` no se pudo reproducir contra el
+  backend web (la instancia local devuelve 429 «demasiadas sesiones abiertas»),
+  así que queda verificada por type-check y revisión de la rama.
 
 ## 3. No alcance
 

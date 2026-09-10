@@ -105,7 +105,6 @@ const vistaMeta = montarVistaMeta({
   detenerReal: () => adaptador.detener(),
   detenerMock: () => simulacion.detener(),
   paneles: () => panelesRegistrados,
-  getModo: () => todoVistaModal.estado.modo,
   avisar: avisoGlobal,
 });
 const panelMeta = vistaMeta.panelMeta;

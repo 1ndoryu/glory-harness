@@ -190,6 +190,7 @@ export function montarPanelChat(opts: PanelChatOpciones): PanelChat {
     modeloActual: () => d.getModelo(),
     cambiarModelo: (modelo) => opts.onModeloCambiado?.(modelo),
     compactar: (instruccion) => d.adaptador.sesion.compactar(tipo, instruccion),
+    soportaSoloLectura: () => d.adaptador.sesion.soportaSoloLectura(),
   });
 
   const turno = crearTurno({

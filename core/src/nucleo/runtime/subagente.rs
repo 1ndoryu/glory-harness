@@ -143,7 +143,7 @@ impl AgentRuntime {
             AiMessage::texto("system", perfil.instruccion_sistema),
             AiMessage::texto("user", instruccion),
         ];
-        let schemas = schema_hijo(&self.registry, &perfil, &self.turno_config.modo);
+        let schemas = schema_hijo(&self.registry, &perfil, &self.modo_efectivo());
 
         let mut texto_final = String::new();
         let mut pasos = 0usize;
@@ -287,7 +287,7 @@ impl AgentRuntime {
             let permiso = self.registry.permiso_para_llamada(
                 &call.nombre,
                 &call.argumentos,
-                &self.turno_config.modo,
+                &self.modo_efectivo(),
             );
             let verdicto = decidir_permiso(permiso, denegadas_hijo.contains(&call.nombre));
             let mensaje_tool = self

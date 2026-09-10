@@ -8,7 +8,11 @@ import type {
 } from '../dominio/tipos';
 import type { ComandoProyecto } from '../dominio/comandosSlash';
 
-export type ModoEjecucion = 'predeterminado' | 'meta' | 'autonomo';
+/* [109A-4 F4] El modo `meta` se retiró del segmentado: ahora es el comando
+ * `/meta <texto>`, que fuerza la política solo-lectura de UN turno sin cambiar
+ * el modo de la sesión. `permiso_por_modo("meta")` sigue siendo la política
+ * interna de ese turno en el core. */
+export type ModoEjecucion = 'predeterminado' | 'autonomo';
 
 /** [039A-3 P5] Variante 'completa' (controles: modelo/razonamiento/modo) o
  * 'minima' (solo textarea + enviar/detener; hereda el runtime M1). */
@@ -17,13 +21,11 @@ export type VarianteEntrada = 'completa' | 'minima';
 /** Modos reales del core (permiso.rs) con su etiqueta visible. */
 export const MODOS_EJECUCION: Array<{ valor: ModoEjecucion; etiqueta: string }> = [
   { valor: 'predeterminado', etiqueta: 'Predeterminado' },
-  { valor: 'meta', etiqueta: 'Meta' },
   { valor: 'autonomo', etiqueta: 'Autónomo' },
 ];
 
 export const ETIQUETA_MODO: Record<ModoEjecucion, string> = {
   predeterminado: 'Predeterminado',
-  meta: 'Meta',
   autonomo: 'Autónomo',
 };
 

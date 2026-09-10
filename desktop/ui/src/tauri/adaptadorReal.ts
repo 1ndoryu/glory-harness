@@ -112,6 +112,12 @@ export function crearAdaptadorReal(hooks: HooksAdaptador = {}, transporte: Trans
       async compactar(panelId?: string, instruccion?: string | null): Promise<ResumenCompactacion> {
         return transporte.compactarConversacion(panelId ?? null, instruccion ?? null);
       },
+      /** [109A-4 F4] ¿Este transporte sabe correr un turno solo-lectura
+       * (`/meta`)? Tauri sí (política del núcleo); el modo web no expone
+       * política por turno y el comando lo avisa en vez de simularlo. */
+      soportaSoloLectura(): boolean {
+        return transporte.soportaSoloLectura();
+      },
       // [069A-Proyectos] Proyectos (áreas de trabajo).
       workspaces: {
         async listar(): Promise<{ workspaces: Workspace[]; activa: Workspace | null }> {

@@ -58,6 +58,10 @@ export interface OpcionesTurno {
    * el panel lateral pasa `'lateral'`). En M1 solo hay un turno a la vez y
    * este panel es el que recibe los eventos (el adaptador es compartido). */
   panelId?: string;
+  /** [109A-4 F4] Turno SOLO LECTURA (`/meta <texto>`): el backend lo corre en
+   * modo meta (deniega toda tool con efecto) sin cambiar el modo de la sesión.
+   * `undefined`/`false` = turno normal. */
+  soloLectura?: boolean;
 }
 
 export interface InfoConversacion {
@@ -240,7 +244,11 @@ export interface HooksAdaptador {
 export interface Transporte {
   abrirSesion(opts: OpcionesTurno): Promise<InfoSesion>;
   reconfigurarSesion(opts: OpcionesTurno): Promise<InfoSesion>;
-  enviarTurno(mensaje: string, panelId: string | null): Promise<void>;
+  enviarTurno(mensaje: string, panelId: string | null, soloLectura?: boolean): Promise<void>;
+  /** [109A-4 F4] ¿Este transporte sabe correr un turno solo-lectura? Tauri sí
+   * (política del núcleo); el modo web no tiene esa política por turno, así
+   * que `/meta` se rechaza con motivo explícito en vez de simularlo. */
+  soportaSoloLectura(): boolean;
   detenerTurno(panelId: string | null): void;
   responderAprobacion(id: string, respuesta: string): Promise<void>;
   pendientesAprobacion(): Promise<unknown[]>;

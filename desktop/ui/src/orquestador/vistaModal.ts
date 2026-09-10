@@ -156,6 +156,32 @@ export function montarVistaModal(deps: VistaModalDeps): VistaModal {
     },
   });
 
+  /* [109A-4 F4] El modo global `meta` se retiró: ahora es el comando
+   * `/meta <texto>`, que aplica solo lectura a UN turno sin tocar la sesión.
+   * Un `modo` guardado en `meta` migra a `predeterminado`, se reescribe para no
+   * volver a avisar y se explica UNA vez por ejecución (bandera del cierre). El
+   * guardado es best-effort: si falla, el aviso ya explicó el cambio. */
+  let migracionModoAvisada = false;
+  function migrarModoRetirado(modo: string | null): ModoEjecucion | null {
+    if (modo === 'meta') {
+      if (!migracionModoAvisada) {
+        migracionModoAvisada = true;
+        deps.avisar(
+          'el modo «meta» ahora es el comando «/meta <texto>»',
+          'migración 109A-4',
+          'aplicaba solo lectura a TODA la sesión; ahora la aplica a un turno. Tu modo queda en «Predeterminado».',
+        );
+        if (deps.usaReal) {
+          void deps
+            .configGuardar('modo', 'predeterminado')
+            .catch((e: unknown) => deps.avisar(`no se pudo guardar modo: ${String(e)}`, '', ''));
+        }
+      }
+      return 'predeterminado';
+    }
+    return modo === 'predeterminado' || modo === 'autonomo' ? modo : null;
+  }
+
   function aplicarSesionGuardada(sesion: SesionGuardadaVista): void {
     if (sesion.modelo) {
       estado.modelo = {
@@ -166,12 +192,9 @@ export function montarVistaModal(deps: VistaModalDeps): VistaModal {
       deps.paneles.forEach((p) => p.setModelo(estado.modelo));
       modal.setModelo(estado.modelo);
     }
-    if (
-      sesion.modo === 'predeterminado' ||
-      sesion.modo === 'meta' ||
-      sesion.modo === 'autonomo'
-    ) {
-      estado.modo = sesion.modo;
+    const modoSesion = migrarModoRetirado(sesion.modo);
+    if (modoSesion !== null) {
+      estado.modo = modoSesion;
       deps.paneles.forEach((p) => p.setModo(estado.modo));
       modal.asignarValor('modo', estado.modo);
       deps.sincronizarPanelMeta();

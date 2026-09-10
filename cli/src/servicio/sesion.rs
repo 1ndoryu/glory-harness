@@ -3,10 +3,10 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use chrono::{DateTime, SecondsFormat, Utc};
+use chrono::Utc;
 use glory_harness_core::llm::{AiMessage, LlavesProveedor};
 use glory_harness_core::ports::{MensajePersistido, NavegadorPort};
-use glory_harness_core::runtime::{AgentRuntime, CompactarManual};
+use glory_harness_core::runtime::AgentRuntime;
 use glory_harness_core::{AgentPersistence, ProgramadorTareas};
 use serde::Serialize;
 use uuid::Uuid;
@@ -18,6 +18,9 @@ use crate::{
 
 use super::meta::{resolver_meta, ComandoMeta, ErrorMeta, EstadoMeta, ResultadoMeta};
 use super::sesion_config::{leer_gancho_pre_compact, leer_max_ventana, resolver_opciones};
+/* La compactación por demanda ([109A-4 F3]) vive en `sesion/compactacion.rs`:
+ * crece con su flujo (punto de compactación persistido) y no con la sesión. */
+mod compactacion;
 
 /// Error de una operación del servicio común.
 #[derive(Debug)]
@@ -391,6 +394,23 @@ impl SesionComun {
         mensaje: String,
         meta_borrador: Option<String>,
     ) -> Result<PreparacionTurno, Error> {
+        self.preparar_turno_con_modo(conversacion_id, mensaje, meta_borrador, None)
+            .await
+    }
+
+    /// [109A-4 F4] Igual que `preparar_turno` pero con un modo FORZADO para
+    /// este turno (`/meta <texto>`: solo lectura, sin cambiar el modo de la
+    /// sesión). El modo decide aquí una sola cosa —si la meta vigente se
+    /// antepone al mensaje—; la política de permisos la aplica el runtime con
+    /// el mismo valor (`ejecutar_turno_con_modo`), así que mensaje y permisos
+    /// nunca discrepan.
+    pub async fn preparar_turno_con_modo(
+        &self,
+        conversacion_id: Uuid,
+        mensaje: String,
+        meta_borrador: Option<String>,
+        modo_turno: Option<&str>,
+    ) -> Result<PreparacionTurno, Error> {
         if mensaje.trim().is_empty() {
             return Err(Error::Turno("mensaje vacío".into()));
         }
@@ -463,7 +483,10 @@ impl SesionComun {
             .await
             .map_err(|e| Error::Persistencia(e.to_string()))?;
 
-        let mensaje_efectivo = match (self.modo.as_str(), meta_efectiva.as_deref()) {
+        /* El modo del TURNO (si lo hay) manda sobre el de la sesión: es el
+         * único punto donde la meta vigente se antepone al mensaje. */
+        let modo_efectivo = modo_turno.unwrap_or(self.modo.as_str());
+        let mensaje_efectivo = match (modo_efectivo, meta_efectiva.as_deref()) {
             ("meta", Some(m)) if !m.trim().is_empty() => {
                 format!("[META: {}]\n{}", m.trim(), mensaje)
             }
@@ -476,78 +499,6 @@ impl SesionComun {
             mensaje_efectivo,
             runtime: Arc::clone(&self.runtime),
         })
-    }
-
-    /// [109A-4 F3] Compactación pedida por el usuario (`/compactar`).
-    ///
-    /// El historial se reconstruye desde la persistencia (igual que un turno) y
-    /// se compacta con el runtime de la sesión: mismo gestor de contexto y
-    /// mismos ganchos `PreCompact`/`PostCompact` que la pasada automática. Si
-    /// compacta, el resumen queda PERSISTIDO como punto de compactación de la
-    /// conversación y los turnos siguientes arrancan de él; los mensajes no se
-    /// borran (historial visible y rewind intactos). Si no hay material, no se
-    /// escribe nada y el resultado lo explica con `motivo`.
-    pub async fn compactar_conversacion(
-        &self,
-        conversacion_id: Uuid,
-        instruccion: Option<String>,
-    ) -> Result<CompactarManual, Error> {
-        let mensajes = self
-            .persistencia
-            .listar_mensajes(conversacion_id)
-            .await
-            .map_err(|e| Error::Persistencia(e.to_string()))?;
-        let historial = historial_desde_persistencia(mensajes);
-        let instruccion = instruccion
-            .map(|texto| texto.trim().to_owned())
-            .filter(|texto| !texto.is_empty());
-        let resultado = self
-            .runtime
-            .compactar_manual(&historial, instruccion.as_deref())
-            .await;
-        if let Some(resumen) = resultado.resumen.as_deref() {
-            let guardado = self
-                .persistencia
-                .conversacion_compactar(
-                    self.user_id,
-                    conversacion_id,
-                    /* Misma precisión que `PersistenciaSqlite` usa para los
-                     * mensajes: comparar nano segundos contra segundos haría
-                     * perder los mensajes del mismo segundo. */
-                    &Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true),
-                    resumen,
-                )
-                .map_err(|e| Error::Persistencia(e.to_string()))?;
-            if !guardado {
-                return Err(Error::Sesion(
-                    "la conversación no existe o no es del usuario".into(),
-                ));
-            }
-        }
-        Ok(resultado)
-    }
-
-    /// [109A-4 F3] Punto de compactación vigente, resuelto a (instante,
-    /// resumen). Una marca de tiempo ilegible se ignora con aviso en vez de
-    /// romper el turno: enviar el historial completo es la degradación segura.
-    fn punto_de_compactacion(
-        &self,
-        conversacion_id: Uuid,
-    ) -> Result<Option<(DateTime<Utc>, String)>, Error> {
-        let punto = self
-            .persistencia
-            .conversacion_compactacion(self.user_id, conversacion_id)
-            .map_err(|e| Error::Persistencia(e.to_string()))?;
-        let Some(punto) = punto else {
-            return Ok(None);
-        };
-        match DateTime::parse_from_rfc3339(&punto.compactado_en) {
-            Ok(cuando) => Ok(Some((cuando.with_timezone(&Utc), punto.resumen))),
-            Err(e) => {
-                tracing::warn!(error = %e, "compactación con fecha inválida; se envía el historial completo");
-                Ok(None)
-            }
-        }
     }
 
     pub async fn cancelar_turno(&self, turno_id: Uuid) -> Result<(), Error> {

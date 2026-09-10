@@ -87,7 +87,14 @@ export function crearTurno(deps: TurnoDeps): TurnoChat {
       deps.aviso(comando.mensaje, 'comando no ejecutado', 'prueba /ayuda');
       return;
     }
-    if (comando.tipo === 'prompt') texto = comando.texto;
+    /* [109A-4 F4] `/meta <texto>` marca el turno como solo-lectura: viaja en
+     * las opciones (el backend fuerza el modo meta de ESE turno y lo revierte
+     * al terminar), así que el reenvío tras aprobar conserva la política. */
+    let soloLectura = false;
+    if (comando.tipo === 'prompt') {
+      texto = comando.texto;
+      soloLectura = comando.soloLectura === true;
+    }
     ultimoTextoEnviado = texto;
     inicioTurno = Date.now();
     d.registrarUltimoEnvio(deps.getPanel());
@@ -170,8 +177,21 @@ export function crearTurno(deps: TurnoDeps): TurnoChat {
 
     if (d.usaReal) {
       void (async () => {
-        if (d.getModo() === 'meta') await empujarMeta();
-        await d.adaptador.montar(mensajes, texto, opcionesTurno(), alTerminar);
+        // [109A-4 F4] La meta del turno la aporta el comando: `/meta <texto>`
+        // fuerza solo lectura en ESE turno (el backend aplica el modo y lo
+        // revierte al terminar). El texto se refleja en la fila y se persiste
+        // como meta de la conversación, que es la que el backend antepone en
+        // los siguientes turnos solo-lectura; fuera de ellos no se antepone.
+        if (soloLectura) {
+          d.panelMeta.setMeta(texto);
+          await empujarMeta();
+        }
+        await d.adaptador.montar(
+          mensajes,
+          texto,
+          { ...opcionesTurno(), soloLectura },
+          alTerminar,
+        );
       })();
     } else if (d.usaMock) {
       d.simulacion.montar(mensajes, texto, d.getModo() === 'autonomo', alTerminar);

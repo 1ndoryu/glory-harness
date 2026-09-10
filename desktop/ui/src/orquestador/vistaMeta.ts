@@ -5,7 +5,6 @@
 
 import { montarPanelMeta, type PanelMeta } from '../componentes/panelMeta';
 import type { PanelChat } from '../componentes/panelChat';
-import type { ModoEjecucion } from '../componentes/entrada';
 
 export interface VistaMetaDeps {
   usaReal: boolean;
@@ -13,7 +12,6 @@ export interface VistaMetaDeps {
   detenerReal: () => void;
   detenerMock: () => void;
   paneles: () => PanelChat[];
-  getModo: () => ModoEjecucion;
   avisar: (texto: string, meta: string, detalle: string) => void;
 }
 
@@ -81,11 +79,13 @@ export function montarVistaMeta(deps: VistaMetaDeps): VistaMeta {
   });
 
   function sincronizarPanelMeta(): void {
-    // La meta solo es editable y aplicable en ese modo. Mantener el panel
-    // oculto fuera de `meta` evita sugerir que un turno autónomo la ejecutará;
-    // el backend también la ignora fuera de ese modo como segunda barrera.
+    /* [109A-4 F4] El modo global `meta` se retiró, así que la fila ya no depende
+     * de él: vive con la conversación y muestra estado/tiempo/tokens del turno
+     * M1. La meta que hay ahí se aplica al turno solo-lectura —`/meta <texto>`
+     * la refleja y la persiste— y el backend la ignora fuera de esos turnos
+     * (segunda barrera, no la única). */
     const hayConversacion = deps.paneles().some((p) => p.conversaId !== null);
-    panelMeta.mostrar(deps.getModo() === 'meta' && hayConversacion);
+    panelMeta.mostrar(hayConversacion);
   }
 
   return {

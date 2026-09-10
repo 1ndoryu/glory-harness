@@ -56,6 +56,9 @@ use crate::tools_web::registrar_tools_red;
 mod subagente;
 mod tools;
 mod turno;
+/// [109A-4 F4] Petición de turno con política forzada opcional: el transporte
+/// la construye para `/meta <texto>` sin tocar el modo de la sesión.
+pub use turno::PeticionTurno;
 
 /// Configuración por turno del runtime (mismo contrato que task: el front la
 /// persiste por conversación y viaja aislada entre tabs).
@@ -191,6 +194,13 @@ pub struct AgentRuntime {
     /// runtime (efímera, nunca en BD): el consumidor la lee tras el turno
     /// para mostrar el diff acumulado (CLI) o descartarla.
     plan_actual: std::sync::Mutex<Option<crate::plan::PlanCompartida>>,
+    /// [109A-4 F4] Modo FORZADO para el turno en curso (`/meta <texto>`): un
+    /// turno solo-lectura sin tocar el modo de la sesión. `None` = usar
+    /// `turno_config.modo`. Interior-mutable porque `ejecutar_turno` toma
+    /// `&self`; el guard del turno lo limpia al terminar (también si el
+    /// future se cancela o el turno entra en pánico), de modo que nunca
+    /// sobrevive a su turno.
+    modo_turno: std::sync::Mutex<Option<String>>,
     /// [Bloque 3, F1] Guardas de turno (respuesta vacía → reintento único;
     /// repetición → aviso). Configurables por el consumidor; activas por
     /// defecto. Deterministas y sin I/O (guardas.rs).
@@ -199,6 +209,23 @@ pub struct AgentRuntime {
     /// interior-mutable; vacíos por defecto = emisión no-op. El consumidor
     /// los fija con [`AgentRuntime::set_hooks`] tras construir el runtime.
     hooks: std::sync::Mutex<Arc<DispatcherHooks>>,
+}
+
+/// [109A-4 F4] Guard del modo forzado de un turno: al dropearse deja el
+/// runtime sin override, pase lo que pase con el turno (fin, error,
+/// cancelación del cliente o panic). Vive solo dentro de `ejecutar_turno`.
+pub(crate) struct GuardaModoTurno<'a> {
+    runtime: &'a AgentRuntime,
+}
+
+impl Drop for GuardaModoTurno<'_> {
+    fn drop(&mut self) {
+        *self
+            .runtime
+            .modo_turno
+            .lock()
+            .unwrap_or_else(|p| p.into_inner()) = None;
+    }
 }
 
 impl AgentRuntime {
@@ -262,6 +289,7 @@ impl AgentRuntime {
             reglas: std::sync::Mutex::new(String::new()),
             tool_en_curso: std::sync::atomic::AtomicBool::new(false),
             plan_actual: std::sync::Mutex::new(None),
+            modo_turno: std::sync::Mutex::new(None),
             guardas: std::sync::Mutex::new(GuardasTurno::default()),
             hooks: std::sync::Mutex::new(Arc::new(DispatcherHooks::vacia())),
         }
@@ -288,6 +316,29 @@ impl AgentRuntime {
             .lock()
             .unwrap_or_else(|p| p.into_inner())
             .clone()
+    }
+
+    /// [109A-4 F4] Modo efectivo AHORA: el forzado del turno en curso si lo
+    /// hay, el modo de la sesión si no. Todo el turno (schemas que ve el
+    /// modelo, permisos, subagente, store del plan) lee de aquí, así que un
+    /// `/meta` afecta a un turno entero y a nada más. Mutex envenenado → modo
+    /// de sesión (el override es una restricción adicional, no un permiso:
+    /// caer al modo global nunca abre más de lo que el usuario configuró).
+    #[must_use]
+    pub fn modo_efectivo(&self) -> String {
+        self.modo_turno
+            .lock()
+            .ok()
+            .and_then(|g| g.clone())
+            .unwrap_or_else(|| self.turno_config.modo.clone())
+    }
+
+    /// [109A-4 F4] Fija (o limpia) el modo forzado del turno y devuelve el
+    /// guard que lo limpia al soltarse (auxiliar de `ejecutar_turno_con_modo`).
+    fn guarda_modo_turno(&self, modo: Option<&str>) -> GuardaModoTurno<'_> {
+        *self.modo_turno.lock().unwrap_or_else(|p| p.into_inner()) =
+            modo.map(str::to_string);
+        GuardaModoTurno { runtime: self }
     }
 
     /// [318A-15 F2] Fija las reglas del consumidor (contenido de AGENTS.md o
@@ -740,5 +791,103 @@ mod tests {
         let rama = info_git(sin_repo.to_str().expect("ruta utf8"));
         assert_eq!(rama, None);
         std::fs::remove_dir_all(&sin_repo).ok();
+    }
+
+    /* [109A-4 F4] `/meta <texto>`: UN turno solo-lectura. El modo forzado vive
+     * en el runtime (no en la config de la sesión) y el guard del turno lo
+     * limpia al salir, así que no se filtra al turno siguiente. */
+
+    /// Runtime mínimo para tests del override: sin tools de dominio (las
+    /// agnósticas de memoria/web las añade `nuevo`), LLM sin claves (no se
+    /// llama) y persistencia en memoria.
+    fn runtime_de_prueba(modo: &str) -> super::AgentRuntime {
+        use crate::llm::{LlavesProveedor, LlmProviderService};
+        use crate::nucleo::memoria::soporte::TiendaPrueba;
+        use crate::tool::AgentToolRegistry;
+        use std::sync::Arc;
+
+        super::AgentRuntime::nuevo(
+            AgentToolRegistry::new(),
+            super::PuertosHarness {
+                persistencia: Arc::new(TiendaPrueba::default()),
+                llm: Arc::new(LlmProviderService::new(LlavesProveedor::from_env())),
+                web_search: None,
+                web_fetch: None,
+                dominio: None,
+                ejecutor_comando: None,
+                programador_tareas: None,
+                navegador: None,
+            },
+            super::TurnoConfig {
+                modo: modo.into(),
+                ..super::TurnoConfig::default()
+            },
+        )
+    }
+
+    #[test]
+    fn f4_modo_forzado_no_toca_el_modo_de_la_sesion() {
+        let runtime = runtime_de_prueba("predeterminado");
+        assert_eq!(runtime.modo_efectivo(), "predeterminado");
+
+        let guarda = runtime.guarda_modo_turno(Some("meta"));
+        assert_eq!(runtime.modo_efectivo(), "meta");
+        /* El modo de la sesión sigue intacto: el override es del turno. */
+        assert_eq!(runtime.turno_config.modo, "predeterminado");
+        drop(guarda);
+
+        /* Soltado el guard (fin, error o cancelación del turno) el runtime
+         * vuelve al modo de la sesión: nada se filtra al turno siguiente. */
+        assert_eq!(runtime.modo_efectivo(), "predeterminado");
+
+        /* Un turno normal posterior tampoco hereda un override previo. */
+        let guarda = runtime.guarda_modo_turno(Some("meta"));
+        drop(guarda);
+        let guarda = runtime.guarda_modo_turno(None);
+        assert_eq!(runtime.modo_efectivo(), "predeterminado");
+        drop(guarda);
+    }
+
+    #[test]
+    fn f4_modo_forzado_deniega_efectos_y_deja_leer() {
+        use crate::permiso::Permiso;
+
+        let runtime = runtime_de_prueba("autonomo");
+        /* Sin override manda la sesión (autónomo): no se pregunta nada. */
+        assert_eq!(
+            runtime
+                .registry
+                .permiso_para("memoria_guardar", &runtime.modo_efectivo()),
+            Permiso::Allow
+        );
+
+        let _guarda = runtime.guarda_modo_turno(Some("meta"));
+        let modo = runtime.modo_efectivo();
+
+        /* Con efecto → deny, y la tool NI SE OFRECE en el schema del turno
+         * (deny silencioso: el modelo no la ve en ese turno). */
+        assert_eq!(
+            runtime.registry.permiso_para("memoria_guardar", &modo),
+            Permiso::Deny
+        );
+        assert!(runtime.registry.esta_denegada("memoria_guardar", &modo));
+        let nombres: Vec<String> = runtime
+            .registry
+            .schemas_openai(None, &modo)
+            .iter()
+            .map(|s| s["function"]["name"].as_str().unwrap_or("").to_string())
+            .collect();
+        assert!(
+            !nombres.iter().any(|n| n == "memoria_guardar"),
+            "una tool con efecto no debe verse en un turno forzado a meta: {nombres:?}"
+        );
+
+        /* Sin efecto → allow, y sigue disponible para que el turno pueda
+         * leer y responder. */
+        assert_eq!(
+            runtime.registry.permiso_para("memoria_recordar", &modo),
+            Permiso::Allow
+        );
+        assert!(nombres.iter().any(|n| n == "memoria_recordar"));
     }
 }

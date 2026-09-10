@@ -34,7 +34,12 @@ export function transporteTauri(): Transporte {
         modo: opts.modo || null,
         razonamiento: opts.razonamiento || null,
       }),
-    enviarTurno: (mensaje, panelId) => invoke<void>('enviar_turno', { mensaje, panel_id: panelId }),
+    enviarTurno: (mensaje, panelId, soloLectura) =>
+      invoke<void>('enviar_turno', {
+        mensaje,
+        panel_id: panelId,
+        solo_lectura: soloLectura === true,
+      }),
     detenerTurno: (panelId) => {
       void invoke('cancelar_turno', { panel_id: panelId }).catch(() => {});
     },
@@ -42,6 +47,7 @@ export function transporteTauri(): Transporte {
       invoke<void>('responder_aprobacion', { id, respuesta }),
     pendientesAprobacion: () => invoke<unknown[]>('pendientes_aprobacion'),
     requiereReenvioTrasAprobar: () => true,
+    soportaSoloLectura: () => true,
     escucharTurno: async (onEvento, onFin) => {
       await listenTurno(onEvento, onFin);
     },

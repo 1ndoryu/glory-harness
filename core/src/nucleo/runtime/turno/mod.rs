@@ -86,6 +86,20 @@ pub(crate) enum PasoTool {
     PreguntaUsuario,
 }
 
+/// [109A-4 F4] Petición de un turno: identidad, entrada y política forzada.
+/// Agrupa lo que antes eran argumentos posicionales para que el override de
+/// modo no añada un séptimo parámetro a `ejecutar_turno_con_modo` (límite de
+/// clippy y, sobre todo, llamada legible desde el transporte Tauri).
+pub struct PeticionTurno<'a> {
+    pub user_id: Uuid,
+    pub turno_id: Uuid,
+    pub conversacion_id: Uuid,
+    pub historial: Vec<AiMessage>,
+    pub mensaje_usuario: String,
+    /// Modo de ESTE turno; `None` = modo de la sesión.
+    pub modo_forzado: Option<&'a str>,
+}
+
 impl AgentRuntime {
     /// Ejecuta un turno completo del agente: sistema + historial + mensaje del
     /// usuario → loop de tools → respuesta final. Emite eventos al `tx`.
@@ -98,6 +112,39 @@ impl AgentRuntime {
         mensaje_usuario: String,
         tx: &Sender<AgenteEvento>,
     ) -> Result<()> {
+        self.ejecutar_turno_con_modo(
+            PeticionTurno {
+                user_id,
+                turno_id,
+                conversacion_id,
+                historial,
+                mensaje_usuario,
+                modo_forzado: None,
+            },
+            tx,
+        )
+        .await
+    }
+
+    /// [109A-4 F4] Igual que `ejecutar_turno` pero acepta un modo FORZADO para
+    /// este turno (`/meta <texto>`: solo lectura sin cambiar el modo de la
+    /// sesión). `None` = modo de la sesión. El override dura exactamente lo
+    /// que dura el turno: `guarda_modo_turno` lo limpia al salir, incluso si
+    /// el future se cancela.
+    pub async fn ejecutar_turno_con_modo(
+        &self,
+        peticion: PeticionTurno<'_>,
+        tx: &Sender<AgenteEvento>,
+    ) -> Result<()> {
+        let PeticionTurno {
+            user_id,
+            turno_id,
+            conversacion_id,
+            historial,
+            mensaje_usuario,
+            modo_forzado,
+        } = peticion;
+        let _guarda = self.guarda_modo_turno(modo_forzado);
         let inicio = std::time::Instant::now();
         let mut estado =
             EstadoTurno::nuevo(self.prompt_sistema(), historial, mensaje_usuario.clone());
@@ -209,7 +256,7 @@ impl AgentRuntime {
     /// `plan_actual` (o `None` fuera de modo plan).
     fn resetear_plan_para_modo(&self) {
         let mut plan = self.plan_actual.lock().unwrap_or_else(|p| p.into_inner());
-        *plan = if self.turno_config.modo == "plan" {
+        *plan = if self.modo_efectivo() == "plan" {
             Some(Arc::new(std::sync::RwLock::new(
                 crate::plan::PlanPropuesto::default(),
             )))
@@ -247,7 +294,7 @@ impl AgentRuntime {
          * schema del modelo. */
         let schemas = self
             .registry
-            .schemas_openai(Some(&ids_ref), &self.turno_config.modo);
+            .schemas_openai(Some(&ids_ref), &self.modo_efectivo());
         /* [318A-7] Desglose de contexto: emitir el desglose de la ventana
          * (system, tools, mensajes, resultados, reserva de salida) para que el
          * front muestre la barra de uso con secciones. */

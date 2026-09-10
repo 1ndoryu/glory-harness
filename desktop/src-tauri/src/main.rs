@@ -25,7 +25,7 @@ use glory_harness_core::aprobacion::{PeticionAprobacion, RespuestaAprobacion};
 use glory_harness_core::evento::AgenteEvento;
 use glory_harness_core::llm::{catalogo_proveedores, AiMessage, LlavesProveedor};
 use glory_harness_core::ports::MensajePersistido;
-use glory_harness_core::runtime::AgentRuntime;
+use glory_harness_core::runtime::{AgentRuntime, PeticionTurno};
 use glory_harness_core::sandbox::RespaldoArchivos;
 use glory_harness_core::AgentPersistence;
 use tauri::{AppHandle, Emitter, Manager, State};
