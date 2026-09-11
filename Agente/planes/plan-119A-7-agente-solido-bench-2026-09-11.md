@@ -167,8 +167,20 @@ fixtures que se vuelven obsoletos; referencias que divergen de su upstream.
   "Permitir siempre" persiste regla de CLASE con confirmación
   (`gate.rs:68`) — no usar en bench. Lección operativa: modo
   MODO BENCH (5 líneas, sin tablas) + turnos de objetivo único +
-  ~30 `si` por invocación; `session resume <id>` recompone y sigue.
-- Siguiente: F2 runs 2-3 con protocolo v2 (jaulas frescas).
+  ~30 `si` por invocación;   `session resume <id>` recompone y sigue.
+- F2 run 2 (11-09 noche, jaula `C:\tmp\jaula-f2-r2`): INVÁLIDO por
+  desincronización del protocolo, no por el modelo. El guion de stdin
+  fijo se desfasó (el `/undo` llegó antes de que el flujo
+  terminara) y el run colapsó a solo `nota.txt`. Conclusión: el
+  stdin guionizado no sirve para flujos de 11 pasos; el bench
+  necesita driver adaptativo (responder al diálogo inline cuando
+  aparece) o flag `--yes` de jaula. Candidato F4 nº1 (empareja con
+  gap F1 nº4 allowlist/dry-run). Dato lateral: este run el modelo
+  afirmó "no existe herramienta de deshacer" e improvisó con `del`
+  (en run 1 `/undo` SÍ revirtió el patch) — gap undo expuesto
+  confirmado, candidato F4 nº6.
+- Siguiente: F2 runs 2-3 válidos con driver adaptativo (o flag de
+  jaula si se decide implementarlo); criterio sigue 11/11 en ≥2/3.
 
 ## 10. Reto F0/F1 (11-09, verificado contra el código)
 
