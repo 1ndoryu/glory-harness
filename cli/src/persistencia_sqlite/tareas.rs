@@ -22,8 +22,8 @@ impl ProgramadorTareas for PersistenciaSqlite {
         let id = Uuid::new_v4();
         bloquear(&self.conn)
             .execute(
-                "INSERT INTO tareas (id, user_id, nombre, prompt, tipo, cron_expr, proxima_ejecucion, estado, creado_en)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'pendiente', ?8)",
+                "INSERT INTO tareas (id, user_id, nombre, prompt, tipo, cron_expr, programacion, zona_horaria, notificacion, reintentos, proxima_ejecucion, estado, creado_en)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, 'pendiente', ?12)",
                 params![
                     id.as_hyphenated().to_string(),
                     nueva.user_id.as_hyphenated().to_string(),
@@ -31,6 +31,10 @@ impl ProgramadorTareas for PersistenciaSqlite {
                     nueva.prompt,
                     nueva.tipo,
                     nueva.cron_expr,
+                    nueva.programacion,
+                    nueva.zona_horaria,
+                    nueva.notificacion.as_deref().unwrap_or("fallos"),
+                    nueva.reintentos.unwrap_or(0),
                     nueva.proxima_ejecucion.to_rfc3339_opts(SecondsFormat::Secs, true),
                     ahora_rfc3339(),
                 ],
@@ -43,7 +47,7 @@ impl ProgramadorTareas for PersistenciaSqlite {
         let conn = bloquear(&self.conn);
         let mut stmt = conn
             .prepare(
-                "SELECT id, nombre, prompt, tipo, cron_expr, proxima_ejecucion, estado, creado_en
+                "SELECT id, nombre, prompt, tipo, cron_expr, programacion, zona_horaria, notificacion, reintentos, proxima_ejecucion, estado, creado_en
                  FROM tareas WHERE user_id = ?1 ORDER BY creado_en ASC",
             )
             .map_err(|e| Error::Persistencia(e.to_string()))?;
@@ -55,15 +59,19 @@ impl ProgramadorTareas for PersistenciaSqlite {
                     f.get::<_, String>(2)?,
                     f.get::<_, String>(3)?,
                     f.get::<_, Option<String>>(4)?,
-                    f.get::<_, Option<String>>(5)?,
+                    f.get::<_, String>(5)?,
                     f.get::<_, String>(6)?,
                     f.get::<_, String>(7)?,
+                    f.get::<_, i64>(8)?,
+                    f.get::<_, Option<String>>(9)?,
+                    f.get::<_, String>(10)?,
+                    f.get::<_, String>(11)?,
                 ))
             })
             .map_err(|e| Error::Persistencia(e.to_string()))?;
         let mut out = Vec::new();
         for fila in filas {
-            let (id, nombre, prompt, tipo, cron_expr, proxima, estado, creado) =
+            let (id, nombre, prompt, tipo, cron_expr, programacion, zona, notif, reint, proxima, estado, creado) =
                 fila.map_err(|e| Error::Persistencia(e.to_string()))?;
             out.push(TareaProgramada {
                 id: a_uuid(id)?,
@@ -72,12 +80,16 @@ impl ProgramadorTareas for PersistenciaSqlite {
                 prompt,
                 tipo,
                 cron_expr,
+                programacion,
+                zona_horaria: zona,
                 proxima_ejecucion: match proxima {
                     Some(s) => Some(a_fecha(s)?),
                     None => None,
                 },
                 estado,
                 creado_en: a_fecha(creado)?,
+                notificacion: notif,
+                reintentos: u32::try_from(reint).unwrap_or(0),
             });
         }
         Ok(out)
@@ -120,7 +132,7 @@ impl ProgramadorTareas for PersistenciaSqlite {
         }
         let mut stmt = conn
             .prepare(
-                "SELECT id, ok, resumen, ejecutada_en FROM tarea_logs
+                "SELECT id, ok, resumen, ejecutada_en, iniciado_en, finalizado_en, resultado FROM tarea_logs
                  WHERE tarea_id = ?1 ORDER BY ejecutada_en DESC LIMIT ?2",
             )
             .map_err(|e| Error::Persistencia(e.to_string()))?;
@@ -133,13 +145,16 @@ impl ProgramadorTareas for PersistenciaSqlite {
                         f.get::<_, i64>(1)?,
                         f.get::<_, String>(2)?,
                         f.get::<_, String>(3)?,
+                        f.get::<_, Option<String>>(4)?,
+                        f.get::<_, Option<String>>(5)?,
+                        f.get::<_, Option<String>>(6)?,
                     ))
                 },
             )
             .map_err(|e| Error::Persistencia(e.to_string()))?;
         let mut out = Vec::new();
         for fila in filas {
-            let (lid, ok, resumen, ejecutada) =
+            let (lid, ok, resumen, ejecutada, iniciado, finalizado, resultado) =
                 fila.map_err(|e| Error::Persistencia(e.to_string()))?;
             out.push(LogTareaEjecucion {
                 id: a_uuid(lid)?,
@@ -147,6 +162,15 @@ impl ProgramadorTareas for PersistenciaSqlite {
                 ok: ok != 0,
                 resumen,
                 ejecutada_en: a_fecha(ejecutada)?,
+                iniciado_en: match iniciado {
+                    Some(s) => Some(a_fecha(s)?),
+                    None => None,
+                },
+                finalizado_en: match finalizado {
+                    Some(s) => Some(a_fecha(s)?),
+                    None => None,
+                },
+                resultado,
             });
         }
         out.reverse();
@@ -212,7 +236,11 @@ mod tests {
                 prompt: "p".into(),
                 tipo: "una_vez".into(),
                 cron_expr: "@once".into(),
+                programacion: "una_vez:@once@UTC".into(),
+                zona_horaria: "UTC".into(),
                 proxima_ejecucion: Utc::now(),
+                notificacion: None,
+                reintentos: None,
             })
             .await
             .expect("crear tarea");
@@ -237,7 +265,11 @@ mod tests {
                 prompt: "p".into(),
                 tipo: "una_vez".into(),
                 cron_expr: "@once".into(),
+                programacion: "una_vez:@once@UTC".into(),
+                zona_horaria: "UTC".into(),
                 proxima_ejecucion: Utc::now(),
+                notificacion: None,
+                reintentos: None,
             })
             .await
             .expect("crear tarea");
@@ -257,5 +289,34 @@ mod tests {
             .await
             .expect("leer ajeno")
             .is_empty());
+    }
+
+    #[tokio::test]
+    async fn tarea_programacion_zona_y_politicas_roundtrip() {
+        let p = PersistenciaSqlite::en_memoria().expect("BD en memoria");
+        let user = Uuid::new_v4();
+        let id = p
+            .tarea_crear(&NuevaTareaProgramada {
+                user_id: user,
+                nombre: "diaria".into(),
+                prompt: "resume".into(),
+                tipo: "recurrente".into(),
+                cron_expr: "0 9 * * *".into(),
+                programacion: "diario:0 9@Europe/Madrid".into(),
+                zona_horaria: "Europe/Madrid".into(),
+                proxima_ejecucion: Utc::now(),
+                notificacion: Some("fallos".into()),
+                reintentos: Some(2),
+            })
+            .await
+            .expect("crear tarea");
+        let tareas = p.tareas_listar(user).await.expect("listar");
+        assert_eq!(tareas.len(), 1);
+        assert_eq!(tareas[0].id, id);
+        assert_eq!(tareas[0].programacion, "diario:0 9@Europe/Madrid");
+        assert_eq!(tareas[0].zona_horaria, "Europe/Madrid");
+        assert_eq!(tareas[0].notificacion, "fallos");
+        assert_eq!(tareas[0].reintentos, 2);
+        assert_eq!(tareas[0].cron_expr.as_deref(), Some("0 9 * * *"));
     }
 }

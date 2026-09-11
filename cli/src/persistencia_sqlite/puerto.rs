@@ -357,7 +357,7 @@ impl AgentPersistence for PersistenciaSqlite {
         let conn = bloquear(&self.conn);
         let mut stmt = conn
             .prepare(
-                "SELECT id, user_id, nombre, prompt, tipo, cron_expr FROM tareas
+                "SELECT id, user_id, nombre, prompt, tipo, cron_expr, programacion FROM tareas
                  WHERE estado = 'pendiente' ORDER BY creado_en ASC LIMIT ?1",
             )
             .map_err(|e| Error::Persistencia(e.to_string()))?;
@@ -370,12 +370,13 @@ impl AgentPersistence for PersistenciaSqlite {
                     f.get::<_, String>(3)?,
                     f.get::<_, String>(4)?,
                     f.get::<_, Option<String>>(5)?,
+                    f.get::<_, String>(6)?,
                 ))
             })
             .map_err(|e| Error::Persistencia(e.to_string()))?;
         let mut out = Vec::new();
         for fila in filas {
-            let (id, user_id, nombre, prompt, tipo, cron_expr) =
+            let (id, user_id, nombre, prompt, tipo, cron_expr, programacion) =
                 fila.map_err(|e| Error::Persistencia(e.to_string()))?;
             out.push(TareaProgramadaPendiente {
                 id: a_uuid(id)?,
@@ -384,6 +385,13 @@ impl AgentPersistence for PersistenciaSqlite {
                 prompt,
                 tipo,
                 cron_expr,
+                /* Fila legacy (programacion '') → None: el scheduler cae al
+                 * espejo `tipo`+`cron_expr` heredado. */
+                programacion: if programacion.is_empty() {
+                    None
+                } else {
+                    Some(programacion)
+                },
             });
         }
         Ok(out)

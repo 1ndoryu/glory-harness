@@ -25,6 +25,7 @@ use uuid::Uuid;
 use crate::extraer_opcion;
 
 /// Resultado del subcomando `schedule`: `Uso` = error de argumentos (exit 2).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum SalidaSchedule {
     Ok,
     Uso,
@@ -39,7 +40,8 @@ fn abrir_tiendas_schedule() -> Result<(Arc<PersistenciaSqlite>, Uuid), HarnessEr
 }
 
 /// Filtro puro de vencimiento: pendientes con próxima pasada (las
-/// desprogramadas —`proxima` ausente— y las canceladas/completadas no tocan).
+/// desprogramadas —`proxima` ausente—, las `manual` (solo `run <id>`
+/// explícito, nunca vencen solas) y las canceladas/completadas no tocan).
 fn seleccionar_vencidas(
     tareas: &[TareaProgramada],
     ahora: DateTime<Utc>,
@@ -47,7 +49,9 @@ fn seleccionar_vencidas(
     tareas
         .iter()
         .filter(|t| {
-            t.estado == "pendiente" && t.proxima_ejecucion.map(|p| p <= ahora).unwrap_or(false)
+            t.estado == "pendiente"
+                && t.tipo != "manual"
+                && t.proxima_ejecucion.map(|p| p <= ahora).unwrap_or(false)
         })
         .map(|t| TareaProgramadaPendiente {
             id: t.id,
@@ -56,6 +60,11 @@ fn seleccionar_vencidas(
             prompt: t.prompt.clone(),
             tipo: t.tipo.clone(),
             cron_expr: t.cron_expr.clone(),
+            programacion: if t.programacion.is_empty() {
+                None
+            } else {
+                Some(t.programacion.clone())
+            },
         })
         .collect()
 }
@@ -112,20 +121,21 @@ async fn cmd_schedule_impl(
     }
 }
 
-/// `schedule run [--limite N]`: ejecuta las tareas vencidas como turnos del
-/// agente y entrega el resumen en `tarea_logs` ([B3-F8a]). Construye el
-/// harness sobre la misma BD (sin MCP en v1: registry base; documentado como
-/// límite). Sin claves LLM los turnos fallan con error presentable y la
-/// tarea queda pendiente con el fallo registrado (reintento visible).
+/// `schedule run [--limite N]` o `schedule run <id>`: ejecuta las tareas
+/// vencidas como turnos del agente y entrega el resumen en `tarea_logs`
+/// ([B3-F8a]). Construye el harness sobre la misma BD (sin MCP en v1:
+/// registry base; documentado como límite). Sin claves LLM los turnos fallan
+/// con error presentable y la tarea queda pendiente con el fallo registrado
+/// (reintento visible).
+///
+/// [119A-6 F2] `run <id>` ejecuta ESA tarea aunque no esté vencida (vía
+/// explícita para `manual`, que nunca vence sola, y para forzar una
+/// `una_vez`/recurrente). Sin id, corre la pasada de vencidas de siempre.
 async fn accion_run(
     args: &[String],
     tiendas: &Arc<PersistenciaSqlite>,
     user_id: Uuid,
 ) -> Result<SalidaSchedule, HarnessError> {
-    let limite = extraer_opcion(args, &["--limite", "--limit"])
-        .and_then(|s| s.parse::<u32>().ok())
-        .unwrap_or(10)
-        .clamp(1, 100);
     let persistencia: Arc<dyn AgentPersistence> = tiendas.clone();
     let programador: Arc<dyn ProgramadorTareas> = tiendas.clone();
     // Recupera ejecuciones interrumpidas (proceso muerto a mitad de turno)
@@ -136,8 +146,47 @@ async fn accion_run(
         println!("schedule run: {recuperadas} interrumpida(s) recuperada(s)");
     }
     let todas = programador.tareas_listar(user_id).await?;
-    let mut vencidas = seleccionar_vencidas(&todas, Utc::now());
-    vencidas.truncate(limite as usize);
+    let id_explicito = match id_opt_desde_args(args) {
+        Ok(id) => id,
+        Err(salida) => return Ok(salida),
+    };
+    let vencidas: Vec<TareaProgramadaPendiente> = match id_explicito {
+        Some(id) => {
+            let Some(t) = todas.iter().find(|t| t.id == id) else {
+                eprintln!("schedule run: no existe la tarea {id}");
+                return Ok(SalidaSchedule::Uso);
+            };
+            if t.estado != "pendiente" {
+                eprintln!(
+                    "schedule run: la tarea {id} está '{}' (solo las pendientes se ejecutan)",
+                    t.estado
+                );
+                return Ok(SalidaSchedule::Uso);
+            }
+            vec![TareaProgramadaPendiente {
+                id: t.id,
+                user_id: t.user_id,
+                nombre: t.nombre.clone(),
+                prompt: t.prompt.clone(),
+                tipo: t.tipo.clone(),
+                cron_expr: t.cron_expr.clone(),
+                programacion: if t.programacion.is_empty() {
+                    None
+                } else {
+                    Some(t.programacion.clone())
+                },
+            }]
+        }
+        None => {
+            let limite = extraer_opcion(args, &["--limite", "--limit"])
+                .and_then(|s| s.parse::<u32>().ok())
+                .unwrap_or(10)
+                .clamp(1, 100);
+            let mut vencidas = seleccionar_vencidas(&todas, Utc::now());
+            vencidas.truncate(limite as usize);
+            vencidas
+        }
+    };
     if vencidas.is_empty() {
         println!("(sin tareas vencidas)");
         return Ok(SalidaSchedule::Ok);
@@ -198,54 +247,131 @@ async fn accion_listar(
             .proxima_ejecucion
             .map(|p| p.format("%Y-%m-%d %H:%M UTC").to_string())
             .unwrap_or_else(|| "—".into());
+        /* [119A-6 F2] La programación canónica manda; en filas legacy (sin
+         * ella) se muestra el espejo `cron_expr` heredado. La política F3 se
+         * muestra (dormida: no actúa hasta F3). */
+        let programa = if t.programacion.is_empty() {
+            format!("cron='{}'", t.cron_expr.as_deref().unwrap_or("—"))
+        } else {
+            format!(
+                "programacion='{}' zona={} aviso={} reintentos={}",
+                t.programacion, t.zona_horaria, t.notificacion, t.reintentos
+            )
+        };
         println!(
-            "{} [{}] cron='{}' próximo='{proxima}' estado={} \"{}\"",
-            t.id,
-            t.nombre,
-            t.cron_expr.as_deref().unwrap_or("—"),
-            t.estado,
-            t.prompt
+            "{} [{}] {programa} próximo='{proxima}' estado={} \"{}\"",
+            t.id, t.nombre, t.estado, t.prompt
         );
     }
     Ok(SalidaSchedule::Ok)
 }
 
-/// `schedule create`: valida argumentos, traduce NL→cron y registra la tarea.
+/// `schedule create`: valida argumentos, resuelve la programación a un
+/// `ScheduleTarea` canónico tz-aware y registra la tarea.
+///
+/// Formas (en orden de precedencia):
+/// - `--programacion "diario:0 9@Europe/Madrid"`: texto canónico directo
+///   (clases: manual, una_vez, intervalo, diario, entre_semana, semanal,
+///   cron; la zona viaja dentro del texto).
+/// - `--en <RFC3339>`: una sola vez en ese instante (+ `--zona` opcional).
+/// - `--cuando "<NL>"`: lenguaje natural heredado (`frase_a_cron`) +
+///   `--zona` opcional (defecto UTC).
 async fn accion_crear(
     args: &[String],
     programador: Arc<dyn ProgramadorTareas>,
     user_id: Uuid,
 ) -> Result<SalidaSchedule, HarnessError> {
     use glory_harness_core::ports::NuevaTareaProgramada;
+    use glory_harness_core::schedule::ScheduleTarea;
     use glory_harness_core::tareas::frase_a_cron;
 
     let nombre = extraer_opcion(args, &["--nombre", "--name"]);
     let prompt = extraer_opcion(args, &["--prompt", "--mensaje"]);
-    let cuando = extraer_opcion(args, &["--cuando", "--cron", "--programacion"]);
-    let (Some(nombre), Some(prompt), Some(cuando)) = (nombre, prompt, cuando) else {
-        eprintln!("uso: glory-harness schedule create --nombre <n> --prompt <p> --cuando \"cada lunes a las 9\"");
+    let (Some(nombre), Some(prompt)) = (nombre, prompt) else {
+        eprintln!("uso: glory-harness schedule create --nombre <n> --prompt <p> (--programacion <canónico> | --en <RFC3339> | --cuando \"cada lunes a las 9\") [--zona <IANA>]");
         return Ok(SalidaSchedule::Uso);
     };
-    let cron = match frase_a_cron(&cuando) {
-        Ok(c) => c,
+    let zona = extraer_opcion(args, &["--zona", "--zone"]).unwrap_or_else(|| "UTC".into());
+    let schedule: ScheduleTarea =
+        if let Some(texto) = extraer_opcion(args, &["--programacion"]) {
+            match ScheduleTarea::parse(&texto) {
+                Ok(s) => s,
+                Err(e) => {
+                    eprintln!("schedule create: {e}");
+                    return Ok(SalidaSchedule::Uso);
+                }
+            }
+        } else if let Some(instante) = extraer_opcion(args, &["--en", "--at"]) {
+            match ScheduleTarea::nueva(
+                glory_harness_core::schedule::ClaseTarea::UnaVez,
+                &instante,
+                &zona,
+            ) {
+                Ok(s) => s,
+                Err(e) => {
+                    eprintln!("schedule create: {e}");
+                    return Ok(SalidaSchedule::Uso);
+                }
+            }
+        } else if let Some(cuando) = extraer_opcion(args, &["--cuando", "--cron"]) {
+            let cron = match frase_a_cron(&cuando) {
+                Ok(c) => c,
+                Err(e) => {
+                    eprintln!("schedule create: {e}");
+                    return Ok(SalidaSchedule::Uso);
+                }
+            };
+            let clase = if cron.starts_with("cada") {
+                glory_harness_core::schedule::ClaseTarea::Intervalo
+            } else {
+                glory_harness_core::schedule::ClaseTarea::Cron
+            };
+            match ScheduleTarea::nueva(clase, &cron, &zona) {
+                Ok(s) => s,
+                Err(e) => {
+                    eprintln!("schedule create: {e}");
+                    return Ok(SalidaSchedule::Uso);
+                }
+            }
+        } else {
+            eprintln!("uso: glory-harness schedule create --nombre <n> --prompt <p> (--programacion <canónico> | --en <RFC3339> | --cuando \"cada lunes a las 9\") [--zona <IANA>]");
+            return Ok(SalidaSchedule::Uso);
+        };
+    /* Espejo legible heredado: `manual`→"manual", `una_vez`→"una_vez", el
+     * resto→"recurrente". `manual` nunca vence sola (ver
+     * `seleccionar_vencidas`); se guarda `ahora` como próxima placeholder. */
+    let tipo = if schedule.clase == glory_harness_core::schedule::ClaseTarea::Manual {
+        "manual"
+    } else if schedule.clase == glory_harness_core::schedule::ClaseTarea::UnaVez {
+        "una_vez"
+    } else {
+        "recurrente"
+    };
+    let proxima = match schedule.proxima(chrono::Utc::now()) {
+        Ok(Some(p)) => p,
+        Ok(None) => chrono::Utc::now(),
         Err(e) => {
             eprintln!("schedule create: {e}");
             return Ok(SalidaSchedule::Uso);
         }
     };
-    let proxima = glory_harness_core::scheduler::proxima_ejecucion(&cron, chrono::Utc::now())?;
     let id = programador
         .tarea_crear(&NuevaTareaProgramada {
             user_id,
             nombre,
             prompt,
-            tipo: "recurrente".into(),
-            cron_expr: cron.clone(),
+            tipo: tipo.into(),
+            cron_expr: schedule.expresion.clone(),
+            programacion: schedule.texto(),
+            zona_horaria: schedule.zona_horaria.name().into(),
             proxima_ejecucion: proxima,
+            notificacion: None,
+            reintentos: None,
         })
         .await?;
     println!(
-        "tarea creada: {id} — cron '{cron}' — próxima ejecución {}",
+        "tarea creada: {id} — programacion '{}' — próxima ejecución {}",
+        schedule.texto(),
         proxima.format("%Y-%m-%d %H:%M UTC")
     );
     Ok(SalidaSchedule::Ok)
@@ -270,6 +396,25 @@ fn id_desde_args(args: &[String], comando: &str) -> Result<Uuid, SalidaSchedule>
             Err(SalidaSchedule::Uso)
         }
     }
+}
+
+/// Id opcional para `schedule run [<id>]`: `Ok(Some)` si el posicional o
+/// `--id` parsea como UUID; `Ok(None)` si no hay id (pasada de vencidas);
+/// `Err(Uso)` si hay un posicional no-flag que no es UUID (typo visible, no
+/// pasada silenciosa).
+fn id_opt_desde_args(args: &[String]) -> Result<Option<Uuid>, SalidaSchedule> {
+    if let Some(v) = args.get(1) {
+        if !v.starts_with("--") {
+            match Uuid::parse_str(v) {
+                Ok(id) => return Ok(Some(id)),
+                Err(_) => {
+                    eprintln!("schedule run: id inválido '{v}' (o usa --limite N)");
+                    return Err(SalidaSchedule::Uso);
+                }
+            }
+        }
+    }
+    Ok(extraer_opcion(args, &["--id"]).and_then(|v| Uuid::parse_str(&v).ok()))
 }
 
 /// `schedule remove`: cancela la tarea indicada.
@@ -329,9 +474,13 @@ mod tests {
             prompt: "p".into(),
             tipo: "recurrente".into(),
             cron_expr: Some("0 9 * * *".into()),
+            programacion: "cron:0 9 * * *@UTC".into(),
+            zona_horaria: "UTC".into(),
             proxima_ejecucion: proxima,
             estado: estado.into(),
             creado_en: Utc::now(),
+            notificacion: "fallos".into(),
+            reintentos: 0,
         }
     }
 
@@ -340,15 +489,43 @@ mod tests {
         let ahora = Utc::now();
         let pasado = ahora - chrono::Duration::hours(1);
         let futuro = ahora + chrono::Duration::hours(1);
+        let mut manual = tarea("pendiente", Some(pasado));
+        manual.tipo = "manual".into();
+        manual.programacion = "manual@UTC".into();
         let tareas = vec![
             tarea("pendiente", Some(pasado)),
             tarea("pendiente", Some(futuro)),
             tarea("pendiente", None),
             tarea("cancelada", Some(pasado)),
             tarea("completada", Some(pasado)),
+            manual,
         ];
         let vencidas = seleccionar_vencidas(&tareas, ahora);
         assert_eq!(vencidas.len(), 1, "solo la pendiente vencida toca");
         assert_eq!(vencidas[0].id, tareas[0].id);
+        assert_eq!(
+            vencidas[0].programacion.as_deref(),
+            Some("cron:0 9 * * *@UTC"),
+            "la programacion canónica viaja al ejecutor"
+        );
+    }
+
+    #[test]
+    fn id_opt_solo_uuid_posicional_o_flag() {
+        let id = Uuid::new_v4();
+        assert_eq!(
+            id_opt_desde_args(&["run".into(), id.to_string()])
+                .expect("uuid válido"),
+            Some(id)
+        );
+        assert_eq!(
+            id_opt_desde_args(&["run".into(), "--limite".into(), "5".into()])
+                .expect("flags no son id"),
+            None
+        );
+        assert!(
+            id_opt_desde_args(&["run".into(), "no-es-uuid".into()]).is_err(),
+            "un posicional no-UUID es error de uso, no pasada silenciosa"
+        );
     }
 }

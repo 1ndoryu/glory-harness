@@ -98,9 +98,13 @@ F1 (Copy Path / Edit name / Remove con confirmación) verificado con
       transcript a zona fija colapsable como la meta; F3 distingue «sin
       meta» y no dispara comandos en blur sin cambios.
       Plan: `Agente/planes/plan-119A-5-meta-leer-tareas-fijas-2026-09-11.md`.
-- [ ] **119A-6 — Automatizaciones estilo Synara** (F1 hecho 11-09, F2–F5
-      planificados): copiar schedule `manual|once|interval|daily|weekly|cron`
-      +timezone, modos standalone/dedicated (+heartbeat si es seguro con M1),
+- [ ] **119A-6 — Automatizaciones estilo Synara** (F1 hecho 11-09, F2
+      implementado y verificado 11-09 —gate `sentinel check 119A-6` PASS:
+      456 tests ok, 0 fallidos, clippy 0—; F3–F5 planificados): `ScheduleTarea`
+      (`manual|una_vez|intervalo|diario|entre_semana|semanal|cron`) + zona
+      IANA (`chrono-tz`), `tarea_logs` extendida (no tabla nueva),
+      reprogramación tz-aware en `ejecutar_lista`/`ciclo_scheduler`,
+      `schedule run <id>` explícito, modos standalone/dedicated (+heartbeat
       runs con estados, políticas y resultado taxonomizado, autoría por el
       modelo y       vista UI; base GH (`ProgramadorTareas` + `schedule run`) se
       reutiliza; worktree/Environment/Studio no entran. Nav temporal sin

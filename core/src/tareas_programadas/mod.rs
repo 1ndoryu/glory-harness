@@ -5,4 +5,5 @@
 //! [069A-5 F4] Extraído de `herramientas/` (directorio-abarrotado: 11
 //! ficheros) a dominio propio sin cambiar ningún path público.
 
+pub mod schedule;
 pub mod scheduler;

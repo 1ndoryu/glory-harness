@@ -191,15 +191,67 @@ fn empaquetar_entrega(salida: &SalidaTurnoCron) -> (bool, String) {
     (ok, resumen)
 }
 
+/// Qué hacer con una tarea reclamada antes de gastar un turno de LLM.
+/// Se calcula ANTES de ejecutar (fail-closed por tarea): una recurrente con
+/// programación inválida llega como `Rota` y se finaliza como fallo sin
+/// ejecutar ni reprogramar (reintento visible que el operador cancela).
+enum Plan {
+    Repetir(Option<chrono::DateTime<chrono::Utc>>),
+    UnaVez,
+    Rota(String),
+}
+
+/// [119A-6 F2] Decide el plan de una tarea: con `programacion` la próxima
+/// sale de `ScheduleTarea::proxima` (en la zona de la tarea); sin ella (fila
+/// legacy) se cae al `tipo` + `cron_expr` heredados.
+fn planificar(tarea: &TareaProgramadaPendiente, ahora: chrono::DateTime<chrono::Utc>) -> Plan {
+    match tarea.programacion.as_deref() {
+        Some(texto) => match crate::tareas_programadas::schedule::ScheduleTarea::parse(texto) {
+            Ok(schedule) => match schedule.proxima(ahora) {
+                Ok(prox) => {
+                    if schedule.clase.repite() {
+                        Plan::Repetir(prox)
+                    } else {
+                        Plan::UnaVez
+                    }
+                }
+                Err(e) => Plan::Rota(format!(
+                    "programación inválida: '{texto}' ({e}; tarea no ejecutada)"
+                )),
+            },
+            Err(e) => Plan::Rota(format!(
+                "programación inválida: '{texto}' ({e}; tarea no ejecutada)"
+            )),
+        },
+        None => {
+            if tarea.tipo == "recurrente" {
+                match tarea.cron_expr.as_deref() {
+                    Some(expr) => match scheduler::proxima_ejecucion(expr, ahora) {
+                        Ok(fecha) => Plan::Repetir(Some(fecha)),
+                        Err(_) => {
+                            Plan::Rota(format!("cron inválido: '{expr}' (tarea no ejecutada)"))
+                        }
+                    },
+                    None => Plan::Repetir(None),
+                }
+            } else {
+                Plan::UnaVez
+            }
+        }
+    }
+}
+
 /// Ejecuta una pasada sobre las tareas dadas: reclamar → turno → entregar →
 /// reprogramar recurrentes. Complementa a [`scheduler::ciclo_scheduler`]
 /// (cola del store + runner del consumidor): aquí el llamador ya filtró por
 /// vencimiento con la cara CRUD (que sí ve `proxima_ejecucion`) y el motor
-/// ejecuta turnos con entrega durable. La reprogramación usa
-/// [`scheduler::proxima_ejecucion`]; una recurrente con cron inválido NO se
-/// ejecuta (fail-closed: se finaliza como fallo y se registra el motivo, sin
-/// quemar un turno de LLM) y NO se reprograma (queda pendiente con su
-/// próxima anterior: reintento visible que el operador cancela).
+/// ejecuta turnos con entrega durable. La reprogramación sale de
+/// `ScheduleTarea::proxima` (tz-aware) cuando la tarea trae `programacion`,
+/// o de [`scheduler::proxima_ejecucion`] en filas legacy; una recurrente con
+/// programación inválida NO se ejecuta (fail-closed: se finaliza como fallo
+/// y se registra el motivo, sin quemar un turno de LLM) y NO se reprograma
+/// (queda pendiente con su próxima anterior: reintento visible que el
+/// operador cancela).
 pub async fn ejecutar_lista(
     motor: &dyn MotorTurno,
     persistencia: &Arc<dyn AgentPersistence>,
@@ -215,34 +267,31 @@ pub async fn ejecutar_lista(
             resumen.omitidas += 1;
             continue;
         }
-        // Recurrente con cron inválido: fallo sin ejecutar (ver doc superior).
-        let proxima = if tarea.tipo == "recurrente" {
-            match tarea.cron_expr.as_deref() {
-                Some(expr) => match scheduler::proxima_ejecucion(expr, Utc::now()) {
-                    Ok(fecha) => Some(fecha),
-                    Err(_) => {
-                        let motivo = format!("cron inválido: '{expr}' (tarea no ejecutada)");
-                        persistencia
-                            .tarea_finalizar(tarea.id, false, Some(&motivo))
-                            .await?;
-                        programador
-                            .tarea_registrar_log(tarea.id, tarea.user_id, false, &motivo)
-                            .await?;
-                        resumen.fallidas += 1;
-                        None
-                    }
-                },
-                None => None,
+        // El plan se decide antes de gastar el turno (ver `planificar`).
+        let plan = planificar(tarea, Utc::now());
+        let proxima = match plan {
+            Plan::Rota(motivo) => {
+                persistencia
+                    .tarea_finalizar(tarea.id, false, Some(&motivo))
+                    .await?;
+                programador
+                    .tarea_registrar_log(tarea.id, tarea.user_id, false, &motivo)
+                    .await?;
+                resumen.fallidas += 1;
+                continue;
             }
-        } else {
-            None
+            Plan::Repetir(prox) => prox,
+            Plan::UnaVez => None,
         };
-        // Si la recurrente traía cron inválido ya se entregó el fallo arriba.
-        let cron_roto =
-            tarea.tipo == "recurrente" && tarea.cron_expr.is_some() && proxima.is_none();
-        if cron_roto {
-            continue;
-        }
+        let es_recurrente = tarea
+            .programacion
+            .as_deref()
+            .and_then(|t| {
+                crate::tareas_programadas::schedule::ScheduleTarea::parse(t)
+                    .ok()
+                    .map(|s| s.clase.repite())
+            })
+            .unwrap_or(tarea.tipo == "recurrente");
         let salida = match motor.ejecutar(tarea.user_id, tarea.prompt.clone()).await {
             Ok(salida) => salida,
             Err(err) => SalidaTurnoCron {
@@ -262,9 +311,10 @@ pub async fn ejecutar_lista(
         } else {
             resumen.fallidas += 1;
         }
-        // Solo la recurrente con cron válido avanza su próxima ejecución; la
-        // `una_vez` queda en el estado que `tarea_finalizar` le dio.
-        if tarea.tipo == "recurrente" {
+        // Solo la recurrente con programación válida avanza su próxima
+        // ejecución; la `una_vez`/`manual` queda en el estado que
+        // `tarea_finalizar` le dio.
+        if es_recurrente {
             if let Some(fecha) = proxima {
                 persistencia
                     .tarea_reprogramar(tarea.id, tarea.user_id, Some(fecha))
@@ -459,6 +509,9 @@ mod tests {
                 ok,
                 resumen: resumen.to_string(),
                 ejecutada_en: chrono::Utc::now(),
+                iniciado_en: None,
+                finalizado_en: None,
+                resultado: None,
             });
             Ok(())
         }
@@ -472,6 +525,7 @@ mod tests {
             prompt: "haz algo".into(),
             tipo: tipo.into(),
             cron_expr: cron.map(String::from),
+            programacion: None,
         }
     }
 
@@ -580,6 +634,49 @@ mod tests {
         let entregas = programador.entregas.lock().expect("lock");
         assert_eq!(entregas.len(), 1);
         assert!(entregas[0].resumen.contains("cron inválido"));
+    }
+
+    #[tokio::test]
+    async fn programacion_tz_aware_reprograma_y_manual_no() {
+        use crate::tareas_programadas::schedule::ScheduleTarea;
+        let schedule =
+            ScheduleTarea::parse("diario:0 9@Europe/Madrid").expect("schedule válido");
+        let mut diurna = pendiente("recurrente", Some("0 9 * * *"));
+        diurna.programacion = Some(schedule.texto());
+        let mut manual = pendiente("manual", None);
+        manual.programacion = Some(
+            ScheduleTarea::parse("manual@UTC")
+                .expect("válido")
+                .texto(),
+        );
+        let (p, g, persistencia, _) =
+            arnes(vec![diurna.clone(), manual.clone()], HashSet::new());
+        let motor = MotorStub::sano("hecho");
+        let resumen = ejecutar_lista(&motor, &p, &g, &[diurna, manual])
+            .await
+            .expect("ejecuta");
+        assert_eq!(resumen.ejecutadas, 2);
+        assert_eq!(resumen.reprogramadas, 1, "solo la diaria reprograma");
+        let reprog = persistencia.reprogramadas.lock().expect("lock");
+        assert_eq!(reprog.len(), 1);
+        assert!(reprog[0].1.is_some());
+    }
+
+    #[tokio::test]
+    async fn programacion_rota_no_ejecuta_y_entrega_fallo() {
+        let mut tarea = pendiente("recurrente", Some("0 9 * * *"));
+        tarea.programacion = Some("cron:61 9 * * *@UTC".to_string());
+        let (p, g, _, programador) = arnes(vec![tarea.clone()], HashSet::new());
+        let motor = MotorStub::sano("x");
+        let resumen = ejecutar_lista(&motor, &p, &g, &[tarea])
+            .await
+            .expect("ejecuta");
+        assert_eq!(resumen.fallidas, 1);
+        assert_eq!(resumen.ejecutadas, 0);
+        assert!(motor.ejecutadas.lock().expect("lock").is_empty());
+        let entregas = programador.entregas.lock().expect("lock");
+        assert_eq!(entregas.len(), 1);
+        assert!(entregas[0].resumen.contains("programación inválida"));
     }
 
     #[test]

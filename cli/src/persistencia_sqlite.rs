@@ -107,6 +107,14 @@ CREATE TABLE IF NOT EXISTS tareas (
     prompt TEXT NOT NULL,
     tipo TEXT NOT NULL,
     cron_expr TEXT,
+    /* [119A-6 F2] Programación canónica tz-aware (`clase:expresion@Zona`,
+     * fuente de verdad para reprogramar) + zona duplicada para mostrar sin
+     * reparsear. `tipo`/`cron_expr` quedan como espejo legible heredado. */
+    programacion TEXT NOT NULL DEFAULT '',
+    zona_horaria TEXT NOT NULL DEFAULT 'UTC',
+    /* [119A-6 F2 C10] Políticas F3 (se persisten y muestran, no actúan). */
+    notificacion TEXT NOT NULL DEFAULT 'fallos',
+    reintentos INTEGER NOT NULL DEFAULT 0,
     proxima_ejecucion TEXT,
     estado TEXT NOT NULL,
     creado_en TEXT NOT NULL
@@ -116,7 +124,12 @@ CREATE TABLE IF NOT EXISTS tarea_logs (
     tarea_id TEXT NOT NULL,
     ok INTEGER NOT NULL,
     resumen TEXT NOT NULL,
-    ejecutada_en TEXT NOT NULL
+    ejecutada_en TEXT NOT NULL,
+    /* [119A-6 F2 C8] Ventana de ejecución + clasificación declarada por la
+     * propia tarea; NULL = fila legacy (sin clasificar, no inventar). */
+    iniciado_en TEXT,
+    finalizado_en TEXT,
+    resultado TEXT
 );
 CREATE TABLE IF NOT EXISTS config (
     clave TEXT PRIMARY KEY,
@@ -199,6 +212,15 @@ const MIGRACIONES: &[&str] = &[
      * enviarse al modelo, que arranca del resumen. NULL = sin compactar. */
     "ALTER TABLE conversaciones ADD COLUMN compactado_en TEXT",
     "ALTER TABLE conversaciones ADD COLUMN resumen_compactado TEXT",
+    /* [119A-6 F2] Programación canónica + políticas (BDs creadas antes de F2:
+     * `''` = legacy, cae al espejo `tipo`+`cron_expr`; zona `UTC`). */
+    "ALTER TABLE tareas ADD COLUMN programacion TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE tareas ADD COLUMN zona_horaria TEXT NOT NULL DEFAULT 'UTC'",
+    "ALTER TABLE tareas ADD COLUMN notificacion TEXT NOT NULL DEFAULT 'fallos'",
+    "ALTER TABLE tareas ADD COLUMN reintentos INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE tarea_logs ADD COLUMN iniciado_en TEXT",
+    "ALTER TABLE tarea_logs ADD COLUMN finalizado_en TEXT",
+    "ALTER TABLE tarea_logs ADD COLUMN resultado TEXT",
 ];
 
 /// [109A-4 F3] Punto de compactación manual de una conversación.

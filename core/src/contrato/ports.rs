@@ -156,30 +156,65 @@ pub struct TareaProgramadaPendiente {
     pub prompt: String,
     pub tipo: String,
     pub cron_expr: Option<String>,
+    /// [119A-6 F2] Texto canónico `ScheduleTarea` (`clase:expresion@Zona`);
+    /// `None` = fila legacy (anterior a F2): el scheduler cae al `tipo` +
+    /// `cron_expr` heredados. Las filas nuevas siempre lo traen.
+    #[serde(default)]
+    pub programacion: Option<String>,
 }
 
 /// [318A-16 F6] Registro completo de una tarea programada (cara CRUD de la
 /// tool `programar_tarea` y del subcomando `schedule`). El scheduler solo ve
 /// la vista [`TareaProgramadaPendiente`]; este registro añade estado,
 /// próxima ejecución y fechas para listar/cancelar/auditar.
+///
+/// [119A-6 F2] `programacion` (texto canónico `ScheduleTarea`) es la fuente
+/// de verdad para reprogramar (tz-aware); `tipo` + `cron_expr` quedan como
+/// espejo legible heredado. `zona_horaria` duplica la zona para mostrar sin
+/// reparsear. `notificacion` (`fallos`, defecto 069A-3) y `reintentos`
+/// (defecto 0) se persisten y validan en F2 pero duermen hasta F3 (C10).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TareaProgramada {
     pub id: Uuid,
     pub user_id: Uuid,
     pub nombre: String,
     pub prompt: String,
-    /// "recurrente" | "una_vez".
+    /// "recurrente" | "una_vez" (+ "manual" desde F2; espejo de la clase).
     pub tipo: String,
     pub cron_expr: Option<String>,
+    /// Texto canónico (`clase:expresion@Zona`); filas legacy traen "".
+    #[serde(default)]
+    pub programacion: String,
+    /// Zona IANA (p. ej. "Europe/Madrid"); filas legacy traen "UTC".
+    #[serde(default = "zona_utc_por_defecto")]
+    pub zona_horaria: String,
     /// Próxima ejecución calculada (cron v1/v2); `None` = desprogramada.
     pub proxima_ejecucion: Option<DateTime<Utc>>,
     /// "pendiente" | "ejecutando" | "cancelada" | "completada" | "fallida".
     pub estado: String,
     pub creado_en: DateTime<Utc>,
+    /// Política de aviso F3 (F2: se guarda y muestra, no actúa).
+    #[serde(default = "notificacion_por_defecto")]
+    pub notificacion: String,
+    /// Reintentos tras fallo (F2: se guarda y muestra, no actúa).
+    #[serde(default)]
+    pub reintentos: u32,
+}
+
+fn zona_utc_por_defecto() -> String {
+    "UTC".to_string()
+}
+
+fn notificacion_por_defecto() -> String {
+    "fallos".to_string()
 }
 
 /// [318A-16 F6] Datos para crear una tarea programada. La próxima ejecución
 /// la calcula el núcleo (lógica agnóstica de cron) antes de llamar al puerto.
+///
+/// [119A-6 F2] `programacion` + `zona_horaria` son obligatorios; `tipo` y
+/// `cron_expr` viajan como espejo legible (los deriva el llamador desde el
+/// `ScheduleTarea` ya validado).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NuevaTareaProgramada {
     pub user_id: Uuid,
@@ -187,10 +222,27 @@ pub struct NuevaTareaProgramada {
     pub prompt: String,
     pub tipo: String,
     pub cron_expr: String,
+    /// Texto canónico validado (`ScheduleTarea::texto()`).
+    #[serde(default)]
+    pub programacion: String,
+    /// Zona IANA validada (coincide con la del texto canónico).
+    #[serde(default = "zona_utc_por_defecto")]
+    pub zona_horaria: String,
     pub proxima_ejecucion: DateTime<Utc>,
+    /// `None` = defecto `fallos` (069A-3); solo `fallos|siempre|nunca` (F3).
+    #[serde(default)]
+    pub notificacion: Option<String>,
+    /// `None` = 0 reintentos; tope F3 = 5.
+    #[serde(default)]
+    pub reintentos: Option<u32>,
 }
 
 /// [318A-16 F6] Registro de una ejecución de una tarea programada (log).
+///
+/// [119A-6 F2 C8] Taxonomía honesta: `resultado` es `None` = sin clasificar
+/// (el ejecutor mecánico no inventa `hallazgos`/`sin_hallazgos`; esa
+/// autodeclaración llega en F4). `iniciado_en`/`finalizado_en` acotan la
+/// ejecución; los lectores toleran `None` en filas legacy.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LogTareaEjecucion {
     pub id: Uuid,
@@ -198,6 +250,14 @@ pub struct LogTareaEjecucion {
     pub ok: bool,
     pub resumen: String,
     pub ejecutada_en: DateTime<Utc>,
+    #[serde(default)]
+    pub iniciado_en: Option<DateTime<Utc>>,
+    #[serde(default)]
+    pub finalizado_en: Option<DateTime<Utc>>,
+    /// Clasificación declarada por la propia tarea (`hallazgos` /
+    /// `sin_hallazgos` / `necesita_atencion`); `None` = sin clasificar.
+    #[serde(default)]
+    pub resultado: Option<String>,
 }
 
 /// Acción auditada de un turno (tool ejecutada).

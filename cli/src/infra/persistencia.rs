@@ -353,9 +353,13 @@ impl ProgramadorTareas for ProgramadorMemoria {
             prompt: nueva.prompt.clone(),
             tipo: nueva.tipo.clone(),
             cron_expr: Some(nueva.cron_expr.clone()),
+            programacion: nueva.programacion.clone(),
+            zona_horaria: nueva.zona_horaria.clone(),
             proxima_ejecucion: Some(nueva.proxima_ejecucion),
             estado: "pendiente".into(),
             creado_en: Utc::now(),
+            notificacion: nueva.notificacion.clone().unwrap_or_else(|| "fallos".into()),
+            reintentos: nueva.reintentos.unwrap_or(0),
         });
         Ok(id)
     }
@@ -438,6 +442,9 @@ impl ProgramadorTareas for ProgramadorMemoria {
             ok,
             resumen: resumen.to_string(),
             ejecutada_en: Utc::now(),
+            iniciado_en: None,
+            finalizado_en: None,
+            resultado: None,
         });
         Ok(())
     }
