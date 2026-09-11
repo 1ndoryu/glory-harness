@@ -356,14 +356,6 @@ Orden propuesto (dependencias de abajo arriba):
       «todo» en prosa; el mismo falso positivo aparece en los 4 hints del área (TASKS, RESTAURANTE,
       coolify-manager-rs). DoD: la cifra que se documente es la del corte del gate canónico (0 errores)
       y el hint deja de contarse.
-- [ ] **109A-11 — Atrás/Adelante del panel del navegador en modo web (cross-origin)**
-      (11-09, hallazgo al verificar 109A-9): en modo web el panel pilota un `<iframe>` y
-      `iframe.contentWindow.history.back()`/`forward()` lanza `SecurityError` cuando la página es de
-      otro origen (el caso normal: se arranca en `https://example.com`), así que los dos botones nunca
-      navegaban — antes en silencio (`console.error`) y ahora con aviso visible. DoD: pila propia de
-      URLs en el panel (la web no deja leer el historial ajeno) y navegación por `iframe.src`, con
-      prueba en navegador sobre una página de otro origen; en la app de escritorio se mantiene el
-      camino por CDP.
 - [x] **089A-12 — Files estilo Synara: árbol + visor integrado** (09-09,
       HECHO): Files es un único pane dividido (árbol a la izquierda y preview
       a la derecha al seleccionar un archivo); se eliminaron `21 entradas`,

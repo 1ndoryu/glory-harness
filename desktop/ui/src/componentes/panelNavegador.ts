@@ -7,6 +7,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { esEntornoTauri } from '../tauri/real';
 import { crearControlesNav } from './panelNavegadorControles';
+import { crearHistorialNavegador } from './panelNavegadorHistorial';
 import { crearSeleccionNav } from './panelNavegadorSeleccion';
 import { codigoHistorialAdelante, codigoHistorialAtras } from '../plataforma/webview';
 import type { PanelNavegador, PanelNavegadorOpciones } from './panelNavegadorTipos';
@@ -36,6 +37,9 @@ export function montarPanelNavegador(opts: PanelNavegadorOpciones): PanelNavegad
   // Estado interno.
   let urlActual = '';
   let ventanaAbierta = false;
+  /* [109A-11] Pila de URLs propia para el modo web: el iframe puede ser de otro
+   * origen y entonces el padre no puede tocar su `history` (SecurityError). */
+  const historial = crearHistorialNavegador();
 
   function actualizarCaptura(base64: string): void {
     imgCaptura.src = `data:image/png;base64,${base64}`;
@@ -69,11 +73,15 @@ export function montarPanelNavegador(opts: PanelNavegadorOpciones): PanelNavegad
     return `https://${t}`;
   }
 
-  /** [069A-2 fix] Navega el iframe (solo modo web). */
-  function navegarWeb(url: string): void {
+  /** [069A-2 fix] Navega el iframe (solo modo web).
+   * [109A-11] `registrar` deja la URL que se abandona en la pila propia: solo
+   * se registra en navegaciones nuevas (Ir, `irA`), no al volver/avanzar, que
+   * ya mueven las pilas en su propio paso. */
+  function navegarWeb(url: string, registrar = true): void {
     if (!iframe) return;
     const destino = urlConEsquema(url);
     if (!destino) return;
+    if (registrar && urlActual && urlActual !== destino) historial.registrar(urlActual);
     urlActual = destino;
     inputURL.value = destino;
     iframe.src = destino;
@@ -82,11 +90,14 @@ export function montarPanelNavegador(opts: PanelNavegadorOpciones): PanelNavegad
   function navegarURL(): void {
     const url = inputURL.value.trim();
     if (!url) return;
-    urlActual = url;
     if (esTauri) {
+      urlActual = url;
       seleccion.apagar();
       void invocarNavegadorComando('navegador_navegar', { url }).catch(() => {});
     } else {
+      // [109A-11] En web no se asigna `urlActual` aquí: `navegarWeb` necesita
+      // la URL abandonada para apilarla, y la asignación previa la borraría
+      // (el aviso de "no hay páginas anteriores" era el síntoma).
       navegarWeb(url);
     }
   }
@@ -143,8 +154,15 @@ export function montarPanelNavegador(opts: PanelNavegadorOpciones): PanelNavegad
           // CDP: Runtime.evaluate con history.back()
           await invoke('navegador_js', { codigo: codigoHistorialAtras() });
         } else {
-          // [069A-2 fix] El historial del iframe se controla desde el padre.
-          iframe?.contentWindow?.history.back();
+          // [109A-11] El iframe suele ser de otro origen: `history.back()` del
+          // padre lanza SecurityError y no hay forma de leer el historial
+          // ajeno. Se vuelve por la pila propia, con aviso si está vacía.
+          const anterior = historial.atras(urlActual);
+          if (anterior === null) {
+            avisar('no hay páginas anteriores en el panel');
+            return;
+          }
+          navegarWeb(anterior, false);
         }
       } catch (error) {
         avisar('no se pudo navegar atrás', String(error));
@@ -159,8 +177,13 @@ export function montarPanelNavegador(opts: PanelNavegadorOpciones): PanelNavegad
         if (esTauri) {
           await invoke('navegador_js', { codigo: codigoHistorialAdelante() });
         } else {
-          // [069A-2 fix] El historial del iframe se controla desde el padre.
-          iframe?.contentWindow?.history.forward();
+          // [109A-11] Igual que Atrás: pila propia, nunca el historial ajeno.
+          const siguiente = historial.adelante(urlActual);
+          if (siguiente === null) {
+            avisar('no hay páginas siguientes en el panel');
+            return;
+          }
+          navegarWeb(siguiente, false);
         }
       } catch (error) {
         avisar('no se pudo navegar adelante', String(error));
