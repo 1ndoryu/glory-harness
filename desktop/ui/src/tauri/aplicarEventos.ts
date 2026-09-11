@@ -5,6 +5,7 @@ import {
   crearHerramientaViva,
   crearTarjetaAprobacion,
   formatearResultadoHerramienta,
+  pintarLogroEnPie,
   type AsistenteVivo,
   type HerramientaViva,
 } from '../componentes/mensajes';
@@ -29,6 +30,10 @@ export interface EstadoTurno {
    * propósito: el plan es de la CONVERSACIÓN, así que el mismo bloque se
    * actualiza en los turnos siguientes (resume) en vez de duplicarse. */
   tareas: TareasViva | null;
+  /** [109A-5 F3] Id del último turno cerrado (llega en `done`). El evento
+   * `meta_lograda` puede llegar DESPUÉS del cierre, así que hace falta el id
+   * para localizar el pie de ese turno y anclar ahí el badge. */
+  ultimoTurnoId: string | null;
 }
 
 /** Lo que el render necesita del adaptador (DOM + hooks + transporte). */
@@ -171,7 +176,30 @@ export function aplicarEvento(ev: AgenteEvento, st: EstadoTurno, d: EventosDeps)
     case 'done':
       d.olvidarAsistente();
       st.herramienta = null;
+      st.ultimoTurnoId = ev.turno_id;
       break;
+    case 'meta_lograda': {
+      /* [109A-5 F3] El logro se ancla al pie del turno que lo respalda
+       * (`turno_id`), no al final del transcript: con varios turnos abiertos,
+       * un badge suelto no diría QUÉ turno cerró la meta. Se busca el pie por
+       * su `data-turno` en vez de por selector CSS para no depender del
+       * escapado del id. */
+      const contenedor = d.mensajes();
+      const pie = Array.from(contenedor?.querySelectorAll<HTMLElement>('.pie-turno') ?? []).find(
+        (nodo) => nodo.dataset.turno === ev.turno_id,
+      );
+      if (pie) {
+        pintarLogroEnPie(pie, ev);
+        d.bajarScroll();
+        break;
+      }
+      /* Sin pie donde anclarlo (ese turno terminó en error/cancelado, que no
+       * pinta pie, o el logro es de otra conversación): el aviso evita que el
+       * cierre de la meta desaparezca en silencio. El historial durable sigue
+       * en el panel meta. */
+      d.aviso(`meta lograda: ${ev.meta}`, 'sin pie de turno donde anclarla', '');
+      break;
+    }
     case 'tool_navegador':
       d.hooks.onToolNavegador?.(ev);
       break;

@@ -3,9 +3,10 @@
 // (historial). Los bloques reutilizables viven en `mensajesBloques.ts` y
 // las utilidades en `mensajesUtil.ts`; `mensajes.ts` re-exporta todo.
 
-import type { Bloque } from '../dominio/tipos';
+import type { Bloque, LogroMetaVisible } from '../dominio/tipos';
 import { icono } from './iconos';
 import { el } from '../util/dom';
+import { formatearDuracion } from '../util/duracion';
 import {
   crearAvisoSistema,
   crearHerramienta,
@@ -80,8 +81,35 @@ export interface PieTurno {
   maxVentana: number | null;
   /** Reserva de salida (se descuenta de la ventana para el cálculo). */
   reservaSalida: number | null;
+  /** [109A-5 F3] Id del turno que este pie cierra. El evento `meta_lograda`
+   * llega entre turnos y ancla el badge al pie de ESE turno, así que el id
+   * tiene que estar en el DOM (`data-turno`); sin él no habría dónde
+   * colocarlo cuando el logro se declara después de cerrar el turno. */
+  turnoId?: string | null;
   /** Copiar desde el último mensaje de usuario hasta el último assistant. */
   alCopiar: () => void;
+}
+
+/**
+ * [109A-5 F3] Pinta el badge "meta lograda" en el pie de un turno.
+ *
+ * Se llama desde el evento (no al crear el pie) porque el logro puede
+ * declararse entre turnos: el pie ya existe y solo hay que añadirle el badge.
+ * El reloj procede de `elapsed_ms` (neto de pausas, calculado por el dominio)
+ * y se OMITE si es 0: sin dato real, el badge dice "Meta lograda" en vez de un
+ * `00:00` que parecería una medición.
+ */
+export function pintarLogroEnPie(pie: HTMLElement, logro: LogroMetaVisible): void {
+  const badge = el('span', 'pie-logro');
+  badge.title = logro.meta;
+  badge.appendChild(icono('meta', true));
+  const texto = el('span');
+  texto.textContent =
+    logro.elapsed_ms > 0
+      ? `Meta lograda en ${formatearDuracion(logro.elapsed_ms)}`
+      : 'Meta lograda';
+  badge.appendChild(texto);
+  pie.appendChild(badge);
 }
 
 /** Número corto con sufijo k (redondeo hacia abajo, mínimo 1). */
@@ -101,6 +129,8 @@ export function tokensCortos(n: number): string {
  */
 export function crearPieTurno(datos: PieTurno): HTMLElement {
   const raiz = el('div', 'pie-turno');
+  // [109A-5 F3] Ancla del badge de meta lograda (ver `pintarLogroEnPie`).
+  if (datos.turnoId) raiz.dataset.turno = datos.turnoId;
 
   const meta = el('div', 'pie-meta');
   const txt = el('span', 'pie-texto');

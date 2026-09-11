@@ -40,8 +40,11 @@ export interface HistorialChat {
       tokens_complecion: number;
     } | null,
   ): void;
-  /** Añade el pie de turno (tokens/modelo reales) como último bloque. */
-  anadirPieTurno(u: UsoTurno): void;
+  /** Añade el pie de turno (tokens/modelo reales) como último bloque.
+   * [109A-5 F3] `turnoId` queda en el DOM (`data-turno`) para que el evento
+   * `meta_lograda` pueda anclar el badge a este pie, que se crea al CERRAR el
+   * turno y no cuando llega el logro. */
+  anadirPieTurno(u: UsoTurno, turnoId?: string | null): void;
   /** Vacía mensajes, mapa de usuario y cambios (sin tocar la entrada). */
   limpiarHistorial(): void;
   /** Texto original de un mensaje de usuario (para edición). */
@@ -162,7 +165,7 @@ export function crearHistorial(deps: HistorialDeps): HistorialChat {
   }
 
   /** Añade el pie de turno (tokens/modelo reales) como último bloque. */
-  function anadirPieTurno(u: UsoTurno): void {
+  function anadirPieTurno(u: UsoTurno, turnoId?: string | null): void {
     mensajes.appendChild(
       crearPieTurno({
         tokensPrompt: u.tokensPrompt,
@@ -171,6 +174,7 @@ export function crearHistorial(deps: HistorialDeps): HistorialChat {
         ocupacionPct: u.ocupacionPct,
         maxVentana: u.maxVentana,
         reservaSalida: u.reservaSalida,
+        turnoId: turnoId ?? null,
         alCopiar: deps.copiarUltimoTramo,
       }),
     );

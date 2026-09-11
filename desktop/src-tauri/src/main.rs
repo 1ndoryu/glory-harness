@@ -487,6 +487,10 @@ fn main() {
             workspaces::workspace_renombrar,
             workspaces::workspace_eliminar,
             workspaces::actualizar_meta,
+            // [109A-5 F3] Ciclo de vida de la meta por conversación: aplicar
+            // (devuelve estado completo + emite `MetaLograda`) y leer.
+            workspaces::meta_aplicar,
+            workspaces::meta_leer,
             // [109A-3] Memorias del proyecto activo (panel "Memorias").
             memoria::memoria_listar_proyecto,
             memoria::memoria_borrar,

@@ -227,3 +227,19 @@
 .pie-turno .pie-copiar:hover { opacity: 1; }
 .pie-turno .pie-copiar .ic { display: block; }
 
+/* [109A-5 F3] Badge "meta lograda". Se ANEXA al pie cuando el logro llega
+ * (puede ser entre turnos, con el pie ya cerrado), así que el divisor va en el
+ * propio badge y no como nodo previo: así funciona igual si hay uno o varios
+ * logros anclados al mismo turno. `flex:none` evita que el texto del pie
+ * (que sí se recorta) lo comprima. */
+.pie-turno .pie-logro {
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    margin-left: var(--sp-xs);
+    padding-left: var(--sp-xs);
+    border-left: 1px solid var(--borde);
+    white-space: nowrap;
+}
+

@@ -1,0 +1,109 @@
+/*
+   Ciclo de vida de la meta ([109A-5 F3]): persecución neta de pausas, cierre
+   declarado e historial de logros. Se monta DENTRO de `.panel-meta`, debajo de
+   la fila, separado por una línea: es información del OBJETIVO, no del turno.
+   Monocromo con tokens de `variables.css`, igual que `tareasMeta.css`.
+   ============================================================ */
+
+.metaLogros {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-xs);
+  border-top: 1px solid var(--borde);
+  padding: var(--sp-sm);
+  font-size: var(--xs);
+}
+
+/* El atributo `hidden` pierde contra el `display:flex` de arriba. */
+.metaLogros[hidden] { display: none; }
+
+.metaLogrosCabecera {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-sm);
+}
+
+.metaLogrosTitulo {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--texto-tenue);
+}
+
+.metaPersecucion {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+/* En pausa el reloj está congelado: se apaga para que no parezca que corre. */
+.metaLogrosEnPausa .metaPersecucion { color: var(--texto-tenue); }
+
+.metaBtnLograr {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px var(--sp-xs);
+  border: 1px solid var(--borde);
+  background: var(--fondo);
+  color: var(--texto);
+  font-family: inherit;
+  font-size: var(--xs);
+  cursor: pointer;
+}
+
+.metaBtnLograr:hover:not(:disabled) { background: var(--superficie-hover); }
+
+.metaBtnLograr:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.metaHistorialTitulo {
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--texto-tenue);
+}
+
+.metaHistorialTitulo[hidden] { display: none; }
+
+.metaHistorial {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  /* Historial acotado: el bloque no puede empujar la entrada del chat fuera
+     de la pantalla por muchos logros que acumule la conversación. */
+  max-height: 96px;
+  overflow-y: auto;
+}
+
+.metaHistorial[hidden] { display: none; }
+
+.metaLogro {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-xs);
+}
+
+.metaLogroTexto {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.metaLogroTiempo,
+.metaLogroFecha {
+  flex: none;
+  color: var(--texto-tenue);
+  font-variant-numeric: tabular-nums;
+}

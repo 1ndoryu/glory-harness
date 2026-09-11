@@ -304,8 +304,21 @@ Orden propuesto (dependencias de abajo arriba):
       vuelta con plan restaurado). Límite: el plan es estado vivo, no
       persiste en SQLite. Gate `check 109A-5`: `coverage`/`sentinel` PASS con
       0 errores y el baseline de 10 warnings + 1 hint; único error el ajeno
-      `sccache-no-configurado`. Pendientes F3 pie "Meta lograda en Xs" anclado
-      al turno, F4 regla de bloqueo ×3; deny de `meta` intacto.
+      `sccache-no-configurado`. **F3 (11-09, HECHO):** evento aditivo
+      `MetaLograda{turno_id}` (emitido también por el handler web: en navegador
+      el badge no se pintaba porque solo viajaba en el cuerpo HTTP), `GET/PATCH
+      /meta` con estado completo + logro, `metaAplicar/metaLeer` en Tauri,
+      `duracion.ts`, badge en el pie (`span.pie-logro`) y panel con reloj de
+      persecución, historial y botones fijar/pausar/reanudar/lograr. Evidencia:
+      128 tests verdes, clippy 0, `tsc`/`vite build` EXIT 0 y E2E navegador real
+      (pausar congeló 02:20 → reanudar 02:20→02:33 → lograr pintó `Meta lograda
+      en 01:01` en el pie del turno) más E2E post-refactor sin modelo. Límite
+      honesto: el badge es estado de ejecución (no se repinta al reentrar en la
+      conversación); el historial sí es durable. De paso: el turno `--fixture`
+      no reenviaba `Done` (rompía la paridad del oráculo) y `limite-lineas`
+      obligó a partir `comandos/web/` y `adaptadores/apiMeta.ts` para volver al
+      baseline. Pendiente F4 regla de bloqueo ×3 y migración del modo global;
+      deny de `meta` intacto.
       Plan: `Agente/planes/plan-109A-meta-ciclo-vida-2026-09-10.md`.
 - [ ] **Gate: etapa Rust y sccache** (10-09, pendiente, independiente):
       el gate de glory-harness no compila Rust (las etapas `coverage`,

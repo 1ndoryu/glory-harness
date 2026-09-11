@@ -1,7 +1,14 @@
 /* Tipos del adaptador real (contrato AgenteEvento, sesión, transporte).
  * Solo tipos + `esEntornoTauri`; sin runtime salvo esa guarda. */
 import type { EstadoGit } from '../componentes/panelGit';
-import type { ListadoWorkspace, ResultadoBusqueda, TareaVisible, Workspace } from '../dominio/tipos';
+import type {
+  ComandoMetaVisible,
+  EstadoMetaVisible,
+  ListadoWorkspace,
+  ResultadoBusqueda,
+  TareaVisible,
+  Workspace,
+} from '../dominio/tipos';
 
 /**
  * Contrato AgenteEvento del núcleo (tag `tipo`, snake_case). Fiel a
@@ -46,6 +53,10 @@ export type AgenteEvento =
    * tool `todo` y al arrancar un turno con plan vigente (resume). Trae la lista
    * COMPLETA, no un delta. */
   | { tipo: 'tareas_actualizadas'; items: TareaVisible[] }
+  /** [109A-5 F3] Meta declarada como lograda: llega al marcar la meta (no al
+   * cerrar el turno, porque `lograr` puede ocurrir entre turnos). `turno_id`
+   * ancla el badge al pie de ESE turno. */
+  | { tipo: 'meta_lograda'; meta: string; lograda_en: string; elapsed_ms: number; turno_id: string }
   | { tipo: 'error'; mensaje: string; retryable: boolean }
   | { tipo: 'done'; turno_id: string }
   /** [069A-1 F6] El agente ejecutó una operación del navegador interno.
@@ -279,6 +290,11 @@ export interface Transporte {
   elegirWorkspace(): Promise<InfoSesion>;
   fijarWorkspace(ruta: string): Promise<InfoSesion>;
   fijarMeta(meta: string | null): Promise<string | null>;
+  /** [109A-5 F3] Ciclo de vida de la meta por conversación. `metaLeer` es la
+   * fuente del panel (persecución + historial): sin ella la UI solo tendría el
+   * texto del textarea. `null` = sin fila durable todavía (borrador). */
+  metaAplicar(comando: ComandoMetaVisible): Promise<EstadoMetaVisible | null>;
+  metaLeer(conversacionId: string): Promise<EstadoMetaVisible | null>;
   // [069A-Proyectos] Gestión de proyectos (áreas de trabajo).
   workspacesListar(): Promise<{ workspaces: Workspace[]; activa: Workspace | null }>;
   proyectoGuardar(nombre: string, ruta: string): Promise<InfoSesion>;

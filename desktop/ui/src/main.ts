@@ -101,7 +101,12 @@ const sesionVista = crearSesionVista({
 // cierres de runtime (se crean más abajo), fuera de la TDZ.
 const vistaMeta = montarVistaMeta({
   usaReal: USA_REAL,
-  actualizarMeta: (valor) => adaptador.sesion.actualizarMeta(valor),
+  sesion: {
+    actualizarMeta: (valor) => adaptador.sesion.actualizarMeta(valor),
+    aplicarMeta: (comando) => adaptador.sesion.metaAplicar(comando),
+    leerMeta: (id) => adaptador.sesion.metaLeer(id),
+    ultimoTurnoId: () => adaptador.ultimoTurnoId(),
+  },
   detenerReal: () => adaptador.detener(),
   detenerMock: () => simulacion.detener(),
   paneles: () => panelesRegistrados,

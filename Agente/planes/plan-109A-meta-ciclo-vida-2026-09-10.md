@@ -1,7 +1,7 @@
 # Plan 109A-5 — Meta con ciclo de vida (tareas visibles + cierre con evidencia)
 
 > ID roadmap: **109A-5** · Fecha: 2026-09-10 · Estado: activo (plan creado 10-09;
-> F1 y F2 HECHAS 10-09, F3–F4 pendientes)
+> F1–F3 HECHAS 10-09/11, F4 pendiente)
 > Origen: petición usuario — la representación de meta en Synara es mejor
 > (tareas visibles + pie "Goal achieved in 1m 17s"); revisar cuál asegura mejor
 > el cumplimiento y planificar las mejoras en GH con Synara como inspiración.
@@ -244,6 +244,58 @@ pie con evidencia ("Meta lograda en 1m 17s"). La garantía negativa actual
   del tiempo de turno, y el estado de pausa real de la meta.
 - Verificación: tests del evento + render; E2E ventana real (fijar →
   pausar/reanudar congela → lograr pinta badge con tiempo correcto).
+
+**Estado: HECHO (11-09).** Evidencia:
+
+- Contrato: `AgenteEvento::MetaLograda { meta, lograda_en, elapsed_ms,
+  turno_id }` aditivo al final del enum (`core/src/contrato/evento.rs`) + test
+  de serialización (`tipo == "meta_lograda"`, round-trip).
+- Transporte web: `PATCH/GET /api/v1/session/:id/meta` devuelve el estado
+  completo (activa + historial) y el logro recién creado; `GET` nuevo para que
+  el panel lea antes de pintar. El `agent.event` del badge se emite en el
+  handler web (antes solo viajaba en el cuerpo HTTP: en navegador el badge no
+  se pintaba — bug real encontrado por el E2E, con test de regresión
+  `meta_web_lograr_publica_el_evento_del_badge`).
+- Ventana Tauri: `meta_aplicar`/`meta_leer` emiten/leen por el mismo punto
+  único de eventos (`agente-evento`); registro en `main.rs`.
+- UI: `duracion.ts` (MM:SS, minutos sin truncar), `pintarLogroEnPie`
+  (`span.pie-logro`, icono `meta` Lucide, `title`=texto), `metaLogros.ts`
+  (cabecera `persecución/en pausa MM:SS`, botón `lograr`, historial invertido
+  con un solo intervalo de 1 s mientras la meta corre) y `vistaMeta.ts`
+  (fijar/pausar/reanudar/lograr + `setHayTurno` + refresco del estado durable,
+  con memo por conversación). El reloj se deriva SIEMPRE de `iniciada_en`
+  (neto de pausas): no se acumula en el cliente.
+- Tests: `cargo test -p glory-harness --lib` → **128 pasan**, 0 fallan (incluye
+  ciclo de vida, borrador vs estado durable, evento del badge y paridad por
+  socket); `cargo clippy -p glory-harness-core -p glory-harness --all-targets
+  -- -D warnings` limpio; `npm.cmd --prefix desktop/ui run build` (`tsc` +
+  `vite`) EXIT 0.
+- E2E navegador real (modelo real, `web` 8799): fijar → pausar congeló el
+  reloj en `en pausa 02:20` (tres muestras a 3 s) → reanudar reanudó
+  (`02:20 → 02:26 → 02:30 → 02:33`) → lograr pintó
+  `.pie-turno[data-turno="d62e3a18-…"] .pie-logro` = **`Meta lograda en
+  01:01`**, `title` = texto de la meta, y el panel volvió a `sin meta activa`.
+- E2E navegador post-reorganización (fixture, sin modelo): turno de fixture →
+  pie con `data-turno` → fijar `anclar badge en fixture` → lograr → badge
+  `Meta lograda en 00:41` dentro de `.pie-turno[data-turno="c710dd1a-…"]`,
+  historial durable con la entrada y panel de vuelta a `sin meta activa`.
+- Límites honestos del badge: es estado de ejecución — no se repinta al
+  reentrar en la conversación desde el historial ni sobrevive a reiniciar la
+  app; el **historial sí es durable** (columna de la conversación + panel).
+- Hallazgos corregidos de paso: (1) el turno de `--fixture` no reenviaba
+  `Done`, así que un E2E sin modelo no podía reproducir el anclaje del badge
+  (ahora reenvía la misma secuencia que el turno real, con test); (2) la caja
+  de meta no se repoblaba desde el estado durable al cambiar de conversación.
+- Refactor obligado por `limite-lineas` (el gate pasó de 10 a 12 warnings con
+  el código nuevo): `cli/src/comandos/web/` (mod.rs + meta.rs + sse.rs +
+  turnos.rs) y `desktop/ui/src/adaptadores/apiMeta.ts`, que devuelven el
+  recuento a los **10 warnings + 1 hint** de base (los 10 son preexistentes:
+  8 `console-production`, `main.ts` 309 y `panelDerecho.ts` 307, ya en 109A-6).
+- Gate: `sentinel check 109A-5 --stages scripts/quality/stages.json` →
+  coverage PASS, sentinel PASS (0 errores, 10 warnings, 1 hint); el veredicto
+  global es FAIL **solo** por `sccache-no-configurado`, hallazgo de entorno
+  preexistente y ya registrado como tarea independiente "Gate: etapa Rust y
+  sccache" (el gate no compila Rust).
 
 ### F4 — Regla de bloqueo + migración del modo global
 

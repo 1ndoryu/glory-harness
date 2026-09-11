@@ -25,6 +25,7 @@ export {
   crearMensajeAsistenteVivo,
   crearMensajeUsuario,
   crearPieTurno,
+  pintarLogroEnPie,
   renderizarBloque,
   tokensCortos,
 } from './mensajesNucleo';

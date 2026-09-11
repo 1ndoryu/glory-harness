@@ -18,8 +18,13 @@ import {
   type Transporte,
 } from '../tauri/real';
 import type { EstadoGit } from '../componentes/panelGit';
-import type { ListadoWorkspace, ResultadoBusqueda, Workspace } from '../dominio/tipos';
+import type {
+  ListadoWorkspace,
+  ResultadoBusqueda,
+  Workspace,
+} from '../dominio/tipos';
 import { crearClienteApi } from './apiCliente';
+import { crearTransporteMeta } from './apiMeta';
 import { transporteMemoriasNoDisponibles } from './apiMemorias';
 import { transporteComandosNoDisponibles } from './apiComandos';
 import { transporteCompactarNoDisponible } from './apiCompactar';
@@ -233,14 +238,9 @@ export function crearTransporteApi(base: string, hooks: HooksAdaptador = {}): Tr
       ),
     // [069A-Proyectos] Extraída a función compartida para workspaceActivarsPorRuta.
     fijarWorkspace: async (ruta) => cliente.fijarWorkspaceImpl(ruta),
-    fijarMeta: async (meta) => {
-      const r = await http<{ ok: boolean; meta: string | null }>(
-        'PATCH',
-        `/api/v1/session/${cliente.getSid()}/meta`,
-        { meta },
-      );
-      return r.meta;
-    },
+    // [109A-5 F3] fijarMeta + metaAplicar + metaLeer viven en `apiMeta` para
+    // no engordar este archivo por encima del límite de líneas.
+    ...crearTransporteMeta(cliente),
     // [069A-Proyectos] HTTP workspaces
     workspacesListar: async () => {
       const r = await http<{ ok: boolean; workspaces: Workspace[]; activa: Workspace | null }>(

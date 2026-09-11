@@ -2,7 +2,7 @@
 
 use super::*;
 
-use glory_harness::servicio::{aplicar_en_borrador, comando_desde_payload};
+use glory_harness::servicio::{aplicar_en_borrador, comando_desde_payload, ErrorMeta, EstadoMeta};
 
 /// Diálogo nativo de carpeta → reabre la sesión sobre ese workspace. Si el
 /// usuario cancela, devuelve la sesión actual sin cambios (no es un error).
@@ -264,4 +264,73 @@ pub(crate) fn actualizar_meta(
             Ok(borrador.clone())
         }
     }
+}
+
+/// [109A-5 F3] Ciclo de vida completo de la meta de una conversación.
+///
+/// `actualizar_meta` conserva el contrato del panel (texto ⇒ fijar, vacío ⇒
+/// limpiar) y devuelve solo el texto; este comando expone las cinco acciones
+/// (`fijar|limpiar|pausar|reanudar|lograr`), devuelve el estado COMPLETO (meta
+/// activa + historial) y **emite** `MetaLograda` cuando el comando registra un
+/// logro. Emitir aquí y no en el núcleo es deliberado: el núcleo no conoce
+/// ventanas, y `lograr` llega entre turnos (el panel cierra la meta fuera de
+/// un turno), así que el evento viaja por el mismo canal que los del turno
+/// (`agente-evento`) y la UI lo recibe con su listener ya vivo.
+///
+/// Sin `conversacion_id` no hay reloj durable: se rechaza con el mismo error
+/// del dominio en vez de simular un estado que luego no se podría consultar.
+#[tauri::command]
+pub(crate) fn meta_aplicar(
+    estado: State<'_, Estado>,
+    accion: String,
+    meta: Option<String>,
+    turno_id: Option<String>,
+    conversacion_id: Option<String>,
+    ventana: tauri::Window,
+) -> Result<EstadoMeta, String> {
+    let sesion = sesion_actual(&estado)?;
+    let comando = comando_desde_payload(meta, Some(accion.as_str()), turno_id.as_deref())
+        .map_err(|e| e.to_string())?;
+    let conv = conversacion_id
+        .map(|id| Uuid::parse_str(id.trim()).map_err(|_| "conversación inválida".to_string()))
+        .transpose()?
+        .ok_or_else(|| ErrorMeta::SinConversacion.to_string())?;
+    let mut comun = sesion
+        .comun
+        .lock()
+        .map_err(|_| "sesión bloqueada".to_string())?;
+    let resultado = comun.meta_aplicar(conv, comando).map_err(|e| e.to_string())?;
+    if let Some(logro) = &resultado.logro {
+        let _ = ventana.emit(
+            "agente-evento",
+            &AgenteEvento::MetaLograda {
+                meta: logro.meta.clone(),
+                lograda_en: logro.lograda_en.to_rfc3339(),
+                elapsed_ms: logro.elapsed_ms,
+                turno_id: logro.turno_id,
+            },
+        );
+    }
+    Ok(resultado.estado)
+}
+
+/// [109A-5 F3] Lee el estado durable de la meta de una conversación.
+///
+/// El panel necesita leer antes de pintar: la meta activa, su reloj neto de
+/// pausas y el historial de logros viven en la fila de la conversación, no en
+/// el DOM. Una conversación inexistente es error (`ConversacionInexistente`),
+/// no un estado vacío que parezca legítimo.
+#[tauri::command]
+pub(crate) fn meta_leer(
+    estado: State<'_, Estado>,
+    conversacion_id: String,
+) -> Result<EstadoMeta, String> {
+    let sesion = sesion_actual(&estado)?;
+    let conv = Uuid::parse_str(conversacion_id.trim())
+        .map_err(|_| "conversación inválida".to_string())?;
+    let comun = sesion
+        .comun
+        .lock()
+        .map_err(|_| "sesión bloqueada".to_string())?;
+    comun.meta_leer(conv).map_err(|e| e.to_string())
 }

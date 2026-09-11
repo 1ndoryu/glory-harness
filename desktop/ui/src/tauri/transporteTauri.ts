@@ -2,7 +2,12 @@
  * un `invoke` directo al comando del backend con el mismo nombre. */
 import { invoke } from '@tauri-apps/api/core';
 import type { EstadoGit } from '../componentes/panelGit';
-import type { ListadoWorkspace, ResultadoBusqueda, Workspace } from '../dominio/tipos';
+import type {
+  EstadoMetaVisible,
+  ListadoWorkspace,
+  ResultadoBusqueda,
+  Workspace,
+} from '../dominio/tipos';
 import type {
   CargaConversacion,
   ComandoArea,
@@ -77,6 +82,18 @@ export function transporteTauri(): Transporte {
         new Error('en Tauri el workspace se elige con el diálogo nativo (elegirWorkspace)'),
       ),
     fijarMeta: (meta) => invoke<string | null>('actualizar_meta', { meta }),
+    // [109A-5 F3] Ciclo de vida con estado durable: Tauri devuelve el
+    // `EstadoMeta` completo (activa + historial) y emite `MetaLograda` por
+    // `agente-evento` cuando el comando registra un logro.
+    metaAplicar: (comando) =>
+      invoke<EstadoMetaVisible | null>('meta_aplicar', {
+        accion: comando.accion,
+        meta: comando.meta ?? null,
+        turno_id: comando.turno_id ?? null,
+        conversacion_id: comando.conversacion_id ?? null,
+      }),
+    metaLeer: (conversacionId) =>
+      invoke<EstadoMetaVisible | null>('meta_leer', { conversacion_id: conversacionId }),
     // [069A-Proyectos] Tauri: invoke directo a comandos del backend.
     workspacesListar: () =>
       invoke<{ workspaces: Workspace[]; activa: Workspace | null }>('workspaces_listar'),

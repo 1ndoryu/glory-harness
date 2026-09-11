@@ -4,6 +4,8 @@
 
 import type { EstadoGit } from '../componentes/panelGit';
 import type {
+  ComandoMetaVisible,
+  EstadoMetaVisible,
   ListadoWorkspace,
   ResultadoBusqueda,
   Workspace,
@@ -32,6 +34,7 @@ export function crearAdaptadorReal(hooks: HooksAdaptador = {}, transporte: Trans
     detener: turno.detener,
     usoUltimoTurno: turno.usoUltimoTurno,
     resultadoUltimoTurno: turno.resultadoUltimoTurno,
+    ultimoTurnoId: turno.ultimoTurnoId,
     /** Abre la sesión si aún no existe (para listar/cargar al arrancar). */
     asegurarSesion: turno.asegurarSesion,
     sesion: {
@@ -104,6 +107,17 @@ export function crearAdaptadorReal(hooks: HooksAdaptador = {}, transporte: Trans
       },
       async actualizarMeta(meta: string | null): Promise<string | null> {
         return transporte.fijarMeta(meta);
+      },
+      /** [109A-5 F3] Ciclo de vida de la meta (`pausar`/`reanudar`/`lograr`…)
+       * con estado durable: devuelve el `EstadoMeta` completo para que el panel
+       * repinte persecución e historial sin una segunda consulta. `null` =
+       * todavía no hay fila de conversación donde anclar el reloj. */
+      async metaAplicar(comando: ComandoMetaVisible): Promise<EstadoMetaVisible | null> {
+        return transporte.metaAplicar(comando);
+      },
+      /** [109A-5 F3] Estado durable de la meta de una conversación. */
+      async metaLeer(conversacionId: string): Promise<EstadoMetaVisible | null> {
+        return transporte.metaLeer(conversacionId);
       },
       /** [109A-4 F3] Compacta el contexto de la conversación del panel
        * (`/compactar`). El backend decide con el historial real: devuelve el

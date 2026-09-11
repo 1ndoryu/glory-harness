@@ -8,6 +8,8 @@
 
 import { el } from '../util/dom';
 import { ponerIcono } from './iconos';
+import { crearMetaLogros } from './metaLogros';
+import type { EstadoMetaVisible } from '../dominio/tipos';
 
 /** Estado visible: inactivo (sin turno) · corriendo · pausado. */
 export type EstadoMeta = 'inactivo' | 'corriendo' | 'pausado';
@@ -21,6 +23,17 @@ export interface PanelMeta {
   setTokens(n: number): void;
   setMeta(texto: string): void;
   getMeta(): string;
+  /** [109A-5 F3] Repinta el ciclo de vida de la meta (persecución neta de
+   * pausas + historial de logros). `null` = sin fila de conversación. */
+  setEstadoMeta(estado: EstadoMetaVisible | null): void;
+  /** [109A-5 F3] ¿Existe un turno cerrado que pueda respaldar un logro? Sin él
+   * `lograr` se deshabilita: el backend lo rechazaría (`turno_requerido`). */
+  setHayTurno(hay: boolean): void;
+  /** [109A-5 F3] ¿Hay meta activa? Decide si pausar/reanudar toca el reloj. */
+  metaActiva(): boolean;
+  /** [109A-5 F3] ¿La meta activa está pausada? `reanudar` sobre una meta que
+   * corre es un error del dominio: el llamador no debe emitirlo a ciegas. */
+  metaPausada(): boolean;
   /** [039A-1 04-09 H1] Muestra/oculta el panel (modo meta o hay meta). */
   mostrar(visible: boolean): void;
   /** ¿Está visible el panel? */
@@ -34,6 +47,8 @@ export interface PanelMetaOpciones {
   onPausar: () => void;
   /** Reanudar: reenvía el último mensaje como turno nuevo. */
   onReanudar: () => void;
+  /** [109A-5 F3] Declara lograda la meta activa. */
+  onLograr: () => void;
 }
 
 const ETIQUETA_ESTADO: Record<EstadoMeta, string> = {
@@ -95,8 +110,15 @@ export function montarPanelMeta(opts: PanelMetaOpciones): PanelMeta {
   fila.appendChild(btnPlay);
   raiz.appendChild(fila);
 
+  /* [109A-5 F3] El ciclo de vida (reloj de la meta + logros) vive en su propio
+   * componente: este panel se queda con la fila del turno, que es otra
+   * responsabilidad y ya está en su límite de líneas. */
+  const logros = crearMetaLogros({ onLograr: () => opts.onLograr() });
+  raiz.appendChild(logros.raiz);
+
   let estadoActual: EstadoMeta = 'inactivo';
   let oculto = false;
+  let hayTurno = false;
 
   /** [039A-1 04-09 H1] Aplica la clase `.oculto` (display:none) sin colisión
    * con las clases de estado (corriendo/pausado/inactivo) ni margin colgando. */
@@ -115,6 +137,9 @@ export function montarPanelMeta(opts: PanelMetaOpciones): PanelMeta {
     ponerIcono(btnPlay, esPausa ? 'pausa' : 'reproducir', true);
     btnPlay.setAttribute('aria-label', esPausa ? 'pausar' : 'reanudar');
     btnPlay.title = esPausa ? 'pausar' : 'reanudar';
+    // El botón de cerrar la meta sigue al turno: no se declara lograda una
+    // meta con trabajo a medias ni sin un turno que la respalde.
+    logros.setContexto({ turnoActivo: estadoActual === 'corriendo', hayTurno });
   }
 
   btnPlay.addEventListener('click', () => {
@@ -159,6 +184,15 @@ export function montarPanelMeta(opts: PanelMetaOpciones): PanelMeta {
     }
   });
 
+  // ---- caja de meta: texto vigente de la conversación ----------------
+  /** Escribe el texto en la caja solo si cambia (evita perder el cursor) y
+   * recalcula la altura, que depende del contenido. */
+  function sincronizarCaja(texto: string): void {
+    if (meta.value === texto) return;
+    meta.value = texto;
+    pintarAltura();
+  }
+
   pintar();
   pintarVisible();
 
@@ -179,13 +213,28 @@ export function montarPanelMeta(opts: PanelMetaOpciones): PanelMeta {
       txtTokens.textContent = Math.max(0, Math.round(n)).toLocaleString('es');
     },
     setMeta(texto: string) {
-      if (meta.value !== texto) {
-        meta.value = texto;
-        pintarAltura();
-      }
+      sincronizarCaja(texto);
     },
     getMeta() {
       return meta.value;
+    },
+    setEstadoMeta(estado: EstadoMetaVisible | null) {
+      logros.actualizar(estado);
+      /* [109A-5 F3] La caja refleja la meta VIGENTE de la conversación: sin
+       * esto, al reentrar en una conversación (o tras recargar) el reloj sigue
+       * contando pero el usuario no ve qué meta persigue. No se escribe encima
+       * de una edición en curso. */
+      if (document.activeElement !== meta) sincronizarCaja(estado?.activa?.texto ?? '');
+    },
+    setHayTurno(hay: boolean) {
+      hayTurno = hay;
+      logros.setContexto({ turnoActivo: estadoActual === 'corriendo', hayTurno });
+    },
+    metaActiva() {
+      return logros.activa();
+    },
+    metaPausada() {
+      return logros.pausada();
     },
     mostrar(v: boolean) {
       oculto = !v;

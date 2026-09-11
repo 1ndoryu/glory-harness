@@ -21,7 +21,7 @@ use serde_json::Value;
 use tokio::sync::mpsc;
 use uuid::Uuid;
 
-use super::web::{autorizar_sesion, cable, error, ApiError, AppState, SesionWeb, TurnoActivo};
+use super::{autorizar_sesion, cable, error, ApiError, AppState, SesionWeb, TurnoActivo};
 
 /// Límite de mensaje (F6 fijará rate limits; el tamaño se valida desde F2).
 const MAX_MENSAJE_CHARS: usize = 32_000;
@@ -212,6 +212,12 @@ pub(crate) async fn responder_aprobacion(
 
 /// Turno sintético (`--fixture`): eco + `Done` sin proveedor. Comprueba el
 /// ciclo de vida (started → eventos → finished) y los caminos de error.
+///
+/// [109A-5 F3] La secuencia de eventos es la MISMA que en el turno real
+/// (`turno_real` y Tauri: `reenviar_eventos`): `Done` incluido. Ese evento es
+/// el que fija el turno en curso en la UI, y sin él un turno de fixture no
+/// podía reproducir el camino del badge de meta (que se ancla al pie por
+/// `turno_id`), así que el fixture dejaba de servir como oráculo.
 async fn turno_fixture(sesion: &Arc<SesionWeb>, turno_id: Uuid, mensaje: &str) {
     let eventos = vec![
         AgenteEvento::Token {
@@ -227,9 +233,6 @@ async fn turno_fixture(sesion: &Arc<SesionWeb>, turno_id: Uuid, mensaje: &str) {
         AgenteEvento::Done { turno_id },
     ];
     for ev in eventos {
-        if matches!(ev, AgenteEvento::Done { .. }) {
-            break;
-        }
         sesion
             .emitir(cable(
                 "agent.event",
@@ -349,8 +352,8 @@ async fn turno_real(
 
 #[cfg(test)]
 mod tests {
-    use super::super::web::tests::{sesion_memoria, state_test};
-    use super::super::web::COOKIE_SESION;
+    use super::super::tests::{sesion_memoria, state_test};
+    use super::super::COOKIE_SESION;
     use super::*;
     use axum::{
         body::Body,
@@ -392,7 +395,7 @@ mod tests {
         let state = state_test();
         let (sid, sesion) = sesion_memoria(&state).await;
         let mut rx = sesion.sse.lock().await.suscribir().1;
-        let app = super::super::web::router(Arc::clone(&state));
+        let app = super::super::router(Arc::clone(&state));
 
         let res = app
             .oneshot(post_turno(&sid, true, r#"{"message":"hola"}"#))
@@ -409,12 +412,46 @@ mod tests {
         assert_eq!(fin["turn_id"], body["turn_id"]);
 
         // El guard se liberó: un segundo turno arranca sin 409.
-        let app2 = super::super::web::router(state);
+        let app2 = super::super::router(state);
         let res2 = app2
             .oneshot(post_turno(&sid, true, r#"{"message":"otro"}"#))
             .await
             .unwrap();
         assert_eq!(res2.status(), axum::http::StatusCode::OK);
+    }
+
+    /// [109A-5 F3] El turno de fixture reenvía `done` igual que el real: es lo
+    /// que deja a la UI saber qué turno acaba de cerrarse y, con eso, anclar
+    /// el badge de meta. Sin este evento el fixture no podía reproducir el
+    /// camino del badge y dejaba de servir como oráculo.
+    #[tokio::test]
+    async fn turno_fixture_emite_done_con_el_turno() {
+        let state = state_test();
+        let (sid, sesion) = sesion_memoria(&state).await;
+        let mut rx = sesion.sse.lock().await.suscribir().1;
+        let app = super::super::router(Arc::clone(&state));
+        let res = app
+            .oneshot(post_turno(&sid, true, r#"{"message":"hola"}"#))
+            .await
+            .unwrap();
+        assert_eq!(res.status(), axum::http::StatusCode::OK);
+
+        let mut visto_done = false;
+        loop {
+            let en_cable = timeout(Duration::from_secs(10), rx.recv())
+                .await
+                .expect("eventos del fixture a tiempo")
+                .expect("canal abierto");
+            let v: Value = serde_json::from_str(&en_cable).expect("cable json");
+            if v["event"] == "agent.event" && v["data"]["tipo"] == "done" {
+                assert!(v["data"]["turno_id"].is_string(), "done lleva turno_id");
+                visto_done = true;
+            }
+            if v["event"] == "turn.finished" {
+                break;
+            }
+        }
+        assert!(visto_done, "el fixture debe emitir done antes de finished");
     }
 
     #[tokio::test]
@@ -425,7 +462,7 @@ mod tests {
             id: Uuid::new_v4(),
             handle: tokio::spawn(std::future::pending::<()>()),
         });
-        let app = super::super::web::router(Arc::clone(&state));
+        let app = super::super::router(Arc::clone(&state));
         let res = app
             .oneshot(post_turno(&sid, false, r#"{"message":"hola"}"#))
             .await
@@ -445,7 +482,7 @@ mod tests {
     async fn mensaje_vacio_devuelve_400() {
         let state = state_test();
         let (sid, _) = sesion_memoria(&state).await;
-        let app = super::super::web::router(state);
+        let app = super::super::router(state);
         let res = app
             .oneshot(post_turno(&sid, true, r#"{"message":"   "}"#))
             .await
@@ -457,7 +494,7 @@ mod tests {
     async fn cancelar_sin_turno_es_idempotente() {
         let state = state_test();
         let (sid, _) = sesion_memoria(&state).await;
-        let app = super::super::web::router(state);
+        let app = super::super::router(state);
         let tid = Uuid::new_v4();
         let res = app
             .oneshot(
@@ -481,7 +518,7 @@ mod tests {
     async fn aprobacion_desconocida_es_duplicada() {
         let state = state_test();
         let (sid, _) = sesion_memoria(&state).await;
-        let app = super::super::web::router(state);
+        let app = super::super::router(state);
         let res = app
             .oneshot(
                 Request::builder()
@@ -505,7 +542,7 @@ mod tests {
     async fn sse_con_cookie_devuelve_200() {
         let state = state_test();
         let (sid, _) = sesion_memoria(&state).await;
-        let app = super::super::web::router(state);
+        let app = super::super::router(state);
         let res = app
             .oneshot(
                 Request::builder()
@@ -523,7 +560,7 @@ mod tests {
     async fn mutacion_con_cookie_y_origen_ajeno_devuelve_403() {
         let state = state_test();
         let (sid, _) = sesion_memoria(&state).await;
-        let app = super::super::web::router(state);
+        let app = super::super::router(state);
         let mut req = post_turno(&sid, true, r#"{"message":"hola"}"#);
         req.headers_mut().insert(
             header::HOST,
@@ -544,7 +581,7 @@ mod tests {
     async fn paridad_socket_turno_fixture() {
         let state = state_test();
         let (sid, _) = sesion_memoria(&state).await;
-        let app = super::super::web::router(state);
+        let app = super::super::router(state);
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
             .await
             .expect("bind efímero");

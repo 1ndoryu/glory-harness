@@ -25,7 +25,9 @@ export interface TurnoDeps {
   getConversaId(): string | null;
   fijarConversaId(id: string | null): void;
   aplicarCarga(carga: CargaConversacion): void;
-  anadirPieTurno(u: UsoTurno): void;
+  /** [109A-5 F3] `turnoId` queda en el pie (`data-turno`) como ancla del
+   * badge de meta lograda; puede faltar en el camino mock. */
+  anadirPieTurno(u: UsoTurno, turnoId?: string | null): void;
   aviso(texto: string, meta: string, detalle: string): void;
   /** [109A-4] Resuelve un `/comando` antes de montar el turno. */
   comandos: EjecutorComandos;
@@ -109,7 +111,9 @@ export function crearTurno(deps: TurnoDeps): TurnoChat {
         const u = d.adaptador.usoUltimoTurno();
         d.panelMeta.setTokens(u.tokensPrompt + u.tokensComplecion);
         if (d.adaptador.resultadoUltimoTurno() === 'ok') {
-          deps.anadirPieTurno(u);
+          // [109A-5 F3] El pie lleva el id del turno: es el ancla del badge de
+          // meta lograda cuando el logro se declara con el turno ya cerrado.
+          deps.anadirPieTurno(u, d.adaptador.ultimoTurnoId());
         }
         void (async () => {
           await d.resincronizarSidebar();

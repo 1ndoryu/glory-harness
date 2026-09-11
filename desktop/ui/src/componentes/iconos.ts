@@ -77,6 +77,9 @@ const TRAZOS: Record<IconoNombre, string> = {
   maximizar: '<rect width="18" height="18" x="3" y="3" rx="2"></rect>',
   restaurar:
     '<rect x="9" y="9" width="11" height="11" rx="2"></rect><path d="M5 15V5a2 2 0 0 1 2-2h10"></path>',
+  // [109A-5 F3] Diana (Lucide "target"): cabecera del bloque de logros y del
+  // badge "meta lograda" del pie de turno.
+  meta: '<circle cx="12" cy="12" r="10"></circle><circle cx="12" cy="12" r="6"></circle><circle cx="12" cy="12" r="2"></circle>',
 };
 
 /** Crea un SVG de icono. `pequeno` añade .ic-xs (11px). */

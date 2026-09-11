@@ -206,7 +206,7 @@ export function montarPanelChat(opts: PanelChatOpciones): PanelChat {
       conversaId = id;
     },
     aplicarCarga: (c) => carga.aplicarCarga(c),
-    anadirPieTurno: (u) => historial.anadirPieTurno(u),
+    anadirPieTurno: (u, turnoId) => historial.anadirPieTurno(u, turnoId),
     aviso: (texto, meta, detalle) => acciones.avisoChat(texto, meta, detalle),
     comandos,
   });

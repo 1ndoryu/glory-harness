@@ -3,7 +3,7 @@
 //! cancelación y aprobaciones.
 //!
 //! [069A-2 F6] Límites: cuerpo HTTP 256 KiB, mensaje 32k chars
-//! (`web_turnos.rs`), 16 sesiones vivas con TTL 24 h (igual que la cookie).
+//! (`turnos.rs`), 16 sesiones vivas con TTL 24 h (igual que la cookie).
 //!
 //! # Contrato
 //!
@@ -45,11 +45,15 @@ use tokio_stream::StreamExt;
 use tower_http::limit::RequestBodyLimitLayer;
 use uuid::Uuid;
 
-use crate::servicio::{
-    aplicar_en_borrador, comando_desde_payload, OpcionesSesion, SesionComun,
-};
+use crate::servicio::{OpcionesSesion, SesionComun};
 
-use super::web_sse::DifusionSse;
+// Dominios del servidor web, en subdirectorio para no abarrotar `comandos/`.
+pub mod meta;
+pub mod sse;
+pub mod turnos;
+
+use self::meta::{actualizar_meta, leer_meta};
+use self::sse::DifusionSse;
 
 /// Token maestro opcional: solo crea sesiones. Nunca autoriza nada más.
 /// Sin token configurado, `web` funciona en modo local tokenless; `run` lo
@@ -86,7 +90,7 @@ pub(crate) struct SesionWeb {
     /// estado legítimo tras abrir con lista vacía o borrar la última.
     pub(crate) conversacion_id: Mutex<Option<Uuid>>,
     /// [079A-1 F1] Difusión SSE lock-free (un mpsc acotado por suscriptor,
-    /// ver `web_sse.rs`): el JSON de cable `{"event":..,"data":..}` compacto.
+    /// ver `sse.rs`): el JSON de cable `{"event":..,"data":..}` compacto.
     pub(crate) sse: Mutex<DifusionSse>,
     /// Objetivo vigente del modo `meta`, equivalente al estado IPC de Tauri.
     pub(crate) meta: Mutex<Option<String>>,
@@ -98,7 +102,7 @@ pub(crate) struct SesionWeb {
 
 impl SesionWeb {
     /// [079A-1 F1] Emite un cable a los suscriptores SSE (best-effort,
-    /// lock-free; ver `web_sse.rs`). Nunca bloquea ni falla.
+    /// lock-free; ver `sse.rs`). Nunca bloquea ni falla.
     pub(crate) async fn emitir(&self, cable: String) {
         self.sse.lock().await.emitir(cable);
     }
@@ -276,7 +280,7 @@ pub(crate) async fn autorizar_sesion(
     if sesion.creada.elapsed().as_secs() > SESION_TTL_SECS {
         sesiones.remove(&sid);
         drop(sesiones);
-        super::web_turnos::abortar_turno_activo(&sesion, "sesión expirada").await;
+        self::turnos::abortar_turno_activo(&sesion, "sesión expirada").await;
         return Err(error(
             "sesion_expirada",
             "sesión expirada (24 h): crea otra",
@@ -370,52 +374,9 @@ async fn crear_sesion(
     Ok((StatusCode::OK, [(header::SET_COOKIE, cookie)], cuerpo).into_response())
 }
 
-/// `PATCH /api/v1/session/:id/meta` — ciclo de vida de la meta ([109A-5 F1]).
-///
-/// `meta` sin `accion` conserva el contrato del panel (texto = fijar, ausente
-/// o vacío = limpiar); `accion` explícita permite pausar/reanudar/lograr. La
-/// meta vive en la conversación de la sesión y, mientras esa conversación no
-/// exista (create-on-write), en el borrador en memoria.
-#[derive(Debug, serde::Deserialize)]
-pub(crate) struct ActualizarMeta {
-    pub(crate) meta: Option<String>,
-    pub(crate) accion: Option<String>,
-    pub(crate) turno_id: Option<String>,
-}
-
-pub(crate) async fn actualizar_meta(
-    State(state): State<Arc<AppState>>,
-    headers: HeaderMap,
-    Path(id): Path<String>,
-    Json(peticion): Json<ActualizarMeta>,
-) -> Result<Json<Value>, ApiError> {
-    let (sesion, _) = autorizar_sesion(&headers, &Method::PATCH, &state, &id).await?;
-    let comando = comando_desde_payload(
-        peticion.meta,
-        peticion.accion.as_deref(),
-        peticion.turno_id.as_deref(),
-    )
-    .map_err(|e| error(e.codigo(), e.to_string()))?;
-    let conversacion = *sesion.conversacion_id.lock().await;
-    let meta = match conversacion {
-        Some(conversacion) => {
-            let mut comun = sesion.comun.lock().await;
-            comun
-                .meta_aplicar(conversacion, comando)
-                .map_err(|e| error(e.codigo(), e.to_string()))?
-                .estado
-                .texto_activo()
-                .map(str::to_owned)
-        }
-        None => {
-            let mut borrador = sesion.meta.lock().await;
-            *borrador = aplicar_en_borrador(comando)
-                .map_err(|e| error(e.codigo(), e.to_string()))?;
-            borrador.clone()
-        }
-    };
-    Ok(Json(serde_json::json!({ "ok": true, "meta": meta })))
-}
+/* [109A-5 F3] El ciclo de vida de la meta por HTTP (PATCH/GET `/meta`) vive
+ * en `meta.rs`: este archivo roza el límite de 500 líneas y ese par de
+ * handlers, con su carga y su emisión de `agent.event`, es autocontenido. */
 
 /// `DELETE /api/v1/session/:id` — cancela el turno activo y cierra.
 async fn cerrar_sesion(
@@ -424,7 +385,7 @@ async fn cerrar_sesion(
     Path(id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     let (sesion, _) = autorizar_sesion(&headers, &Method::DELETE, &state, &id).await?;
-    super::web_turnos::abortar_turno_activo(&sesion, "sesión cerrada").await;
+    self::turnos::abortar_turno_activo(&sesion, "sesión cerrada").await;
     state.sesiones.lock().await.remove(&id);
     Ok(Json(serde_json::json!({ "ok": true, "session_id": id })))
 }
@@ -458,7 +419,7 @@ async fn eventos_sse(
         .event("ready")
         .data(ready_json_data(&ready))))
     // [079A-1 F1] Sin `Lagged`: el mpsc acotado descarta ante lector lento
-    // en vez de avisar (ver `web_sse.rs`); el lector ve eventos contiguos.
+    // en vez de avisar (ver `sse.rs`); el lector ve eventos contiguos.
     .chain(ReceiverStream::new(rx).map(|cable| {
         let (tipo, data) = partir_cable(&cable);
         Ok(Event::default().event(tipo).data(data))
@@ -499,18 +460,18 @@ pub(crate) fn router(state: Arc<AppState>) -> Router {
         .route("/api/v1/session", post(crear_sesion))
         .route("/api/v1/session/{id}", delete(cerrar_sesion))
         .route("/api/v1/session/{id}/events", get(eventos_sse))
-        .route("/api/v1/session/{id}/meta", patch(actualizar_meta))
+        .route("/api/v1/session/{id}/meta", patch(actualizar_meta).get(leer_meta))
         .route(
             "/api/v1/session/{id}/turns",
-            post(super::web_turnos::iniciar_turno),
+            post(self::turnos::iniciar_turno),
         )
         .route(
             "/api/v1/session/{id}/turns/{turn_id}/cancel",
-            post(super::web_turnos::cancelar_turno),
+            post(self::turnos::cancelar_turno),
         )
         .route(
             "/api/v1/session/{id}/approvals/{approval_id}",
-            post(super::web_turnos::responder_aprobacion),
+            post(self::turnos::responder_aprobacion),
         )
         .route(
             "/api/v1/session/{id}/conversations",
@@ -877,6 +838,123 @@ pub(crate) mod tests {
             .await
             .unwrap();
         assert_eq!(res2.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    /// Lee el estado de meta por HTTP y devuelve (status, cuerpo).
+    async fn leer_meta_http(state: &Arc<AppState>, sid: &str) -> (StatusCode, Value) {
+        let app = router(Arc::clone(state));
+        let res = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri(format!("/api/v1/session/{sid}/meta"))
+                    .header(header::AUTHORIZATION, format!("Bearer {sid}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let status = res.status();
+        let bytes = axum::body::to_bytes(res.into_body(), 4096).await.unwrap();
+        (status, serde_json::from_slice(&bytes).unwrap_or(Value::Null))
+    }
+
+    /* [109A-5 F3] El panel pinta historial y badge con la respuesta del PATCH:
+     * si `logro` no viajara, la UI tendría que releer y podría perder el logro
+     * entre ambas llamadas. El turno lo ancla al pie del turno que lo respalda. */
+    #[tokio::test]
+    async fn meta_web_lograr_devuelve_logro_y_estado_completo() {
+        let state = state_test();
+        let (sid, _) = sesion_memoria(&state).await;
+        let (status, _) =
+            parchear_meta(&state, &sid, serde_json::json!({ "meta": "cerrar fase 3" })).await;
+        assert_eq!(status, StatusCode::OK);
+
+        let turno = Uuid::new_v4().to_string();
+        let (status, cuerpo) = parchear_meta(
+            &state,
+            &sid,
+            serde_json::json!({ "accion": "lograr", "turno_id": turno }),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(cuerpo["meta"], Value::Null);
+        assert_eq!(cuerpo["logro"]["meta"], "cerrar fase 3");
+        assert_eq!(cuerpo["logro"]["turno_id"], turno);
+        assert!(cuerpo["logro"]["elapsed_ms"].is_u64());
+        assert_eq!(cuerpo["estado"]["activa"], Value::Null);
+        assert_eq!(cuerpo["estado"]["logros"][0]["turno_id"], turno);
+    }
+
+    /* [109A-5 F3] El badge del pie no puede depender del cuerpo HTTP: en el
+     * navegador el logro viaja como `agent.event` por el SSE de la sesión, igual
+     * que en la ventana Tauri. Se suscribe ANTES de lograr para no perder el
+     * cable (la difusión descarta si no hay lector). */
+    #[tokio::test]
+    async fn meta_web_lograr_publica_el_evento_del_badge() {
+        let state = state_test();
+        let (sid, sesion) = sesion_memoria(&state).await;
+        let (status, _) =
+            parchear_meta(&state, &sid, serde_json::json!({ "meta": "cerrar fase 3" })).await;
+        assert_eq!(status, StatusCode::OK);
+
+        let mut rx = sesion.sse.lock().await.suscribir().1;
+        let turno = Uuid::new_v4().to_string();
+        let (status, _) = parchear_meta(
+            &state,
+            &sid,
+            serde_json::json!({ "accion": "lograr", "turno_id": turno }),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+
+        let cable = rx.recv().await.expect("cable del logro");
+        assert!(cable.contains(r#""event":"agent.event""#), "{cable}");
+        assert!(cable.contains(r#""tipo":"meta_lograda""#), "{cable}");
+        assert!(cable.contains(&turno), "{cable}");
+        assert!(cable.contains(r#""elapsed_ms":"#), "{cable}");
+
+        // Limpiar no registra logro: sin meta no hay badge que emitir.
+        let (status, _) =
+            parchear_meta(&state, &sid, serde_json::json!({ "accion": "limpiar" })).await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(rx.try_recv().is_err());
+    }
+
+    /* [109A-5 F3] Sin conversación no hay reloj durable: el panel debe recibir
+     * el borrador y `estado` nulo en vez de un estado inventado que luego no
+     * pueda pausar (el comando devolvería `sin_conversacion`). */
+    #[tokio::test]
+    async fn leer_meta_web_distingue_borrador_de_estado_durable() {
+        let state = state_test();
+        let (sid, sesion) = sesion_memoria(&state).await;
+
+        let (status, cuerpo) = leer_meta_http(&state, &sid).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(cuerpo["meta"], Value::Null);
+        // Con conversación el estado VACÍO es legítimo (sin meta, sin logros):
+        // no es `null`, que reservamos para el borrador sin fila durable.
+        assert_eq!(cuerpo["estado"]["activa"], Value::Null);
+        assert!(cuerpo["estado"]["logros"]
+            .as_array()
+            .is_some_and(|logros| logros.is_empty()));
+
+        let (status, _) =
+            parchear_meta(&state, &sid, serde_json::json!({ "meta": "meta viva" })).await;
+        assert_eq!(status, StatusCode::OK);
+        let (status, cuerpo) = leer_meta_http(&state, &sid).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(cuerpo["meta"], "meta viva");
+        assert_eq!(cuerpo["estado"]["activa"]["texto"], "meta viva");
+        assert_eq!(cuerpo["estado"]["activa"]["pausada_en"], Value::Null);
+        assert!(cuerpo["estado"]["logros"]
+            .as_array()
+            .is_some_and(|logros| logros.is_empty()));
+
+        *sesion.conversacion_id.lock().await = None;
+        let (status, cuerpo) = leer_meta_http(&state, &sid).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(cuerpo["estado"], Value::Null);
     }
 
     #[tokio::test]

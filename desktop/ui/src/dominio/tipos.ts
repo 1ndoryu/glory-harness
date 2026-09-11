@@ -156,6 +156,49 @@ export interface TareaVisible {
   estado: EstadoTareaVisible;
 }
 
+// ---------- Ciclo de vida de la meta por conversación [109A-5 F3] ----------
+// Todos los campos viajan en snake_case porque el contrato del núcleo lo es
+// (igual que `AgenteEvento`) y porque `EstadoMeta` se persiste serializado con
+// esos nombres: renombrarlos rompería el historial ya guardado en SQLite.
+
+/** Acciones del ciclo de vida. Vocabulario compartido con
+ * `comando_desde_payload` del backend: el front no traduce acciones. */
+export type AccionMeta = 'fijar' | 'limpiar' | 'pausar' | 'reanudar' | 'lograr';
+
+/** Comando que el panel envía al backend. `turno_id` es obligatorio para
+ * `lograr`: el logro queda anclado al turno que lo respalda. */
+export interface ComandoMetaVisible {
+  accion: AccionMeta;
+  meta?: string | null;
+  turno_id?: string | null;
+  conversacion_id?: string | null;
+}
+
+/** Meta vigente. El reloj neto de pausas se DERIVA de `iniciada_en`: el
+ * backend la desplaza al reanudar para excluir el intervalo pausado, así que
+ * mientras `pausada_en` sea `null`, `ahora - iniciada_en` es la persecución
+ * real; en pausa queda congelado en `pausada_en - iniciada_en`. */
+export interface MetaActivaVisible {
+  texto: string;
+  iniciada_en: string;
+  pausada_en: string | null;
+}
+
+/** Logro declarado. `elapsed_ms` lo calcula el dominio (neto de pausas); la
+ * UI solo lo formatea, nunca lo recalcula. */
+export interface LogroMetaVisible {
+  meta: string;
+  lograda_en: string;
+  elapsed_ms: number;
+  turno_id: string;
+}
+
+/** Estado completo de la meta: activa (si la hay) + historial de logros. */
+export interface EstadoMetaVisible {
+  activa: MetaActivaVisible | null;
+  logros: LogroMetaVisible[];
+}
+
 // ---------- Iconos (nombres; el SVG lo resuelve componentes/iconos) ----------
 
 export type IconoNombre =
@@ -200,7 +243,10 @@ export type IconoNombre =
   | 'abrir'
   | 'minimizar'
   | 'maximizar'
-  | 'restaurar';
+  | 'restaurar'
+  // [109A-5 F3] Diana de la meta: distingue el cierre de la meta del resto de
+  // acciones del pie de turno (paridad Lucide "target" del mockup).
+  | 'meta';
 
 // ---------- Elemento elegido en el navegador (feature seleccionar) ----------
 

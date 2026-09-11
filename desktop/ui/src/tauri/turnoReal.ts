@@ -27,6 +27,11 @@ export interface TurnoReal {
   usoUltimoTurno(): UsoTurno;
   /** [039A-3 P1] Cómo terminó el último turno (`ok`|`error`|`cancelado`). */
   resultadoUltimoTurno(): ResultadoTurno;
+  /** [109A-5 F3] Id del último turno cerrado (`done`), o `null` si aún no
+   * cerró ninguno. Lo usa `lograr`: el logro queda respaldado por el turno que
+   * hizo el trabajo, y sin id el backend lo rechaza (`turno_requerido`) en vez
+   * de inventarse una referencia. */
+  ultimoTurnoId(): string | null;
   /** Abre la sesión si aún no existe (para listar/cargar al arrancar). */
   asegurarSesion(opts: OpcionesTurno): Promise<InfoSesion | null>;
   /** Marca sesión abierta tras elegir/fijar workspace o guardar proyecto. */
@@ -52,6 +57,7 @@ export function crearTurnoReal(hooks: HooksAdaptador, transporte: Transporte): T
     uso,
     huboPeticiones: false,
     tareas: null,
+    ultimoTurnoId: null,
   };
   let ultimaOpcion: OpcionesTurno = { proveedor: '', modelo: '', modo: '', razonamiento: '' };
 
@@ -207,6 +213,9 @@ export function crearTurnoReal(hooks: HooksAdaptador, transporte: Transporte): T
     },
     resultadoUltimoTurno(): ResultadoTurno {
       return ultimoResultado;
+    },
+    ultimoTurnoId(): string | null {
+      return estado.ultimoTurnoId;
     },
     asegurarSesion,
     avisarSesionAbierta,

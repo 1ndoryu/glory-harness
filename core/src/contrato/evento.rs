@@ -210,6 +210,19 @@ pub enum AgenteEvento {
     /// no un delta: el front pinta verdad absoluta y no acumula estados
     /// divergentes. Aditivo: los consumidores que no lo conocen lo ignoran.
     TareasActualizadas { items: Vec<TareaVisible> },
+    /// [109A-5 F3] Meta declarada como lograda: cierra el ciclo de vida de la
+    /// meta de una conversación. Se emite en el momento de marcarla (no al
+    /// cerrar el turno), porque `lograr` puede llegar entre turnos; `turno_id`
+    /// es el turno que respalda el logro y ancla el badge al pie de ESE turno.
+    /// `elapsed_ms` es el tiempo de persecución NETO de pausas, calculado por
+    /// el dominio (`cli/src/servicio/meta.rs`), no por el front. Aditivo.
+    MetaLograda {
+        meta: String,
+        /// RFC 3339 en UTC; el front solo lo muestra en el `title`.
+        lograda_en: String,
+        elapsed_ms: u64,
+        turno_id: Uuid,
+    },
 }
 
 #[cfg(test)]
@@ -254,6 +267,41 @@ mod tests {
             AgenteEvento::TareasActualizadas { items } => {
                 assert_eq!(items.len(), 3);
                 assert_eq!(items[1].estado, EstadoTareaVisible::EnCurso);
+            }
+            otro => panic!("variante inesperada: {otro:?}"),
+        }
+    }
+
+    /* [109A-5 F3] Mismo motivo que el test anterior: la UI localiza el pie del
+     * turno por `turno_id` y muestra `elapsed_ms` tal cual, así que estos
+     * nombres y el tipo del id (string, no objeto) forman parte del contrato. */
+    #[test]
+    fn meta_lograda_serializa_con_el_contrato_que_espera_la_ui() {
+        let turno = Uuid::new_v4();
+        let evento = AgenteEvento::MetaLograda {
+            meta: "publicar la fase 3".into(),
+            lograda_en: "2026-09-10T12:00:00+00:00".into(),
+            elapsed_ms: 96_000,
+            turno_id: turno,
+        };
+        let json = serde_json::to_value(&evento).expect("serializa");
+        assert_eq!(json["tipo"], "meta_lograda");
+        assert_eq!(json["meta"], "publicar la fase 3");
+        assert_eq!(json["elapsed_ms"], 96_000);
+        assert_eq!(json["turno_id"], turno.to_string());
+        assert_eq!(json["lograda_en"], "2026-09-10T12:00:00+00:00");
+
+        let vuelta: AgenteEvento = serde_json::from_value(json).expect("deserializa");
+        match vuelta {
+            AgenteEvento::MetaLograda {
+                meta,
+                elapsed_ms,
+                turno_id,
+                ..
+            } => {
+                assert_eq!(meta, "publicar la fase 3");
+                assert_eq!(elapsed_ms, 96_000);
+                assert_eq!(turno_id, turno);
             }
             otro => panic!("variante inesperada: {otro:?}"),
         }
