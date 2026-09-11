@@ -350,12 +350,20 @@ Orden propuesto (dependencias de abajo arriba):
       y no hacen falta `sentinel-disable-file`**: la consola resolvía el binario por el checkout
       compartido sin mirar el `provisionPath` que fija cada proyecto (pendiente registrado en
       `workspace-manager/roadmap.md` como `039A-4`).
-      Queda **un** defecto de regla real que sí hay que reportar al checkout compartido:
-      `todo-pendiente` marca el `///` de un doc comentario en español (`core/src/nucleo/context.rs:972`,
-      «todo el historial…») porque su patrón `/\s*(TODO|…|PENDIENTE|XXX)\b/i` deja pasar la palabra
-      «todo» en prosa; el mismo falso positivo aparece en los 4 hints del área (TASKS, RESTAURANTE,
-      coolify-manager-rs). DoD: la cifra que se documente es la del corte del gate canónico (0 errores)
-      y el hint deja de contarse.
+      Queda **un** defecto de regla real, ya **registrado** con caso mínimo, capa responsable, detección
+      esperada, fix propuesto y workaround descartado en
+      `Agente/prevencion/prevencion-falsos-positivos-medidor-2026-09-11.md` (junto con la familia
+      `claseHuerfana` y el alcance de `orphan-classes`): `todo-pendiente` marca el `///` de un doc
+      comentario en español (`core/src/nucleo/context.rs:972`, «todo el historial…») porque el patrón
+      `/(?:\/\/|\/\*|#|<!--)\s*(?:TODO|…|XXX)\b/i` arranca en el segundo par de barras; el mismo falso
+      positivo aparece en los hints de TASKS, RESTAURANTE y coolify-manager-rs.
+      **Estado (11-09):** la parte de este repo está cerrada —la cifra documentada es la del corte del
+      gate canónico, **0 errores**, verificado en 109A-11 y 109A-12— y el dueño de la regla es
+      `glory-sentinel` (`src/config/defaultRules.ts:208`), no este repo: el hint desaparecerá cuando esa
+      herramienta publique el arreglo y este repo suba su commit fijado (`1587c59` = `v0.7.8`; la fuente
+      va por `v0.7.9`/`a3f5607`, que arregla otros falsos positivos pero no este), lo que exige el bump
+      único de consumidores. **No** se reformula la prosa del comentario para bajarlo: sería tapar el
+      medidor y dejaría el defecto vivo en el resto del área.
 - [x] **089A-12 — Files estilo Synara: árbol + visor integrado** (09-09,
       HECHO): Files es un único pane dividido (árbol a la izquierda y preview
       a la derecha al seleccionar un archivo); se eliminaron `21 entradas`,
