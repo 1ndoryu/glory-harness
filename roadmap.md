@@ -15,24 +15,35 @@
 
 ## Siguiente bloque ejecutable
 
-**Bloque A — Poner a funcionar la UI con la app Tauri real (debug primero).**
-Orden propuesto (dependencias de abajo arriba):
+**Bloque B — Pasada visual Tauri de la interfaz Paseo/Synara.** Es lo único que queda de
+089A-1/089A-2/089A-3: su parte web ya quedó verificada en navegador el 11-09 (ver cada entrada).
+Prerrequisito: **espacio en el volumen del target** — el shell añade ~2,3 GB al corte CLI/core
+(~5 GB) y el 11-09 el build falló por disco lleno (`C:` a 0 GB libres): ver
+`Agente/prevencion/prevencion-disco-lleno-build-2026-09-11.md`.
 
-1. **F3 PersistenciaSqlite** — historial durable (prerrequisito de conversaciones reales; B4). ✔ (04-09)
-2. **Comandos de conversación** en `desktop/src-tauri` (anexo §10.1). ✔ (04-09)
-3. **Bloqueos B1 (capabilities) y B2 (detección `__TAURI__`)**. ✔ (verificados en el primer `tauri dev`)
-4. **Cablear la UI** (`main.ts`/`sidebar.ts`/`modal.ts`). ✔ (04-09, F5) + panel meta real ✔ (`5dcefe4`)
-5. **Primer `tauri dev` en debug** (build en `C:\tmp`): verificar ciclo real completo. ◐ hecho —
-   el arranque real señaló 7 hallazgos (H1–H7), ya corregidos. 
-6. **Cierre del bloque:** HECHO 06-09 — E2E en la ventana real Todo OK (enviar →
-   streaming en vivo, tools → aprobación → `turno-fin`, P3 rewind+restaurar, P5 2
-   paneles, P6 150k tras reiniciar) + `tsc --noEmit` + build UI + `cargo test
-   --workspace` (284 verdes) + gate 039A-3 PASS + commit. Evidencia en
-   `Agente/completados/tareas-2026-09-06.md`.
+1. Comprobar espacio (`Get-PSDrive C`, ≥8 GB libres) y purgar
+   `C:\tmp\glory-target\glory-harness` si hiciera falta.
+2. `cargo build -p glory-harness-desktop` con `CARGO_TARGET_DIR` en
+   `C:\tmp\glory-target\glory-harness` y ejecutar el binario (la nota de «desktop
+   compilation bloqueada» de 069A-1 ya no aplica: el shell compila).
+3. Verificar en la ventana real: botonera caption min/max/cerrar (orden Paseo, hover rojo de
+   cerrar), arrastre por barra superior y por cabecera, barra de 38px, launcher del panel
+   derecho, grip único y el comando `navegador_mostrar` (ocultar la webview hija al cambiar
+   de tab).
+4. Cerrar 089A-1, 089A-2 y 089A-3 en `Agente/completados/tareas-<fecha>.md` con esa
+   evidencia y gate PASS.
 
-> Confirmado con el usuario: **revisar/ajustar el plan primero** (hecho, anexo §10) y **debug
-> primero** (no release). El panel «modo meta» real (anexo §10.5.2) entró en este Bloque A y ya
-> quedó implementado (commit `5dcefe4`).
+**Decisiones que requieren al usuario** (no bloquean al Bloque B):
+
+- **089A-5 (i):** qué historial gobiernan atrás/adelante de la barra superior —el del panel
+  activo (web) o el de áreas de trabajo (Synara)—; hoy siguen `disabled` a propósito.
+- **069A-6:** qué hacer con los sitios que bloquean iframes (`X-Frame-Options`): abrir en
+  pestaña, avisar en el log, o botón «abrir en pestaña» junto al iframe.
+
+> Bloque A (UI real con Tauri, F1–F6 + primer `tauri dev` en debug): cerrado 06-09 — E2E en la
+> ventana real (enviar → streaming, tools → aprobación → `turno-fin`, P3 rewind, P5/P6) +
+> `cargo test --workspace` (284 verdes) + gate 039A-3 PASS. Evidencia en
+> `Agente/completados/tareas-2026-09-06.md` (commits `5dcefe4`, `d013e03`).
 
 ## Tareas pendientes
 
@@ -84,8 +95,13 @@ Orden propuesto (dependencias de abajo arriba):
       ciclo COM) + F3 (panel UI) + F4 (anotaciones+ToolBrowser) + F5 (tool núcleo) + F6
       (pipeline multimodal: captura base64 + evento + runtime relay + frontend display).
       Commit `5f67e82`. Plan archivado en `Agente/planes/completados/`.
-      Excepcion conocida: desktop compilation bloqueada por errores pre-existentes en
-      navegador.rs (Tauri 2 IPC macros).
+      Nota de estado (11-09): la excepción «desktop compilation bloqueada por errores
+      pre-existentes en navegador.rs» describe el estado del 06-09 y **ya no aplica**: el
+      shell compila (`Compiling glory-harness-desktop v0.1.0` → `Finished dev profile
+      [unoptimized + debuginfo] target(s) in 3m 16s`, `.quality-reports/tmp-rust-desktop.log`,
+      10-09 02:14). El intento del 11-09 no falló por el código sino por **disco lleno**
+      (`Agente/prevencion/prevencion-disco-lleno-build-2026-09-11.md`), así que no hay
+      `glory-harness-desktop.exe` en el target y la pasada visual Tauri sigue pendiente.
 - [ ] **069A-6 — Navegador web: páginas que bloquean iframes (X-Frame-Options)**: pendiente
       de decisión del usuario (registrado 06-09 tras probar el Navegador en modo web). Causa:
       en el navegador el panel usa un `<iframe>` y muchos sitios (Google, YouTube, etc.)
@@ -156,10 +172,16 @@ Orden propuesto (dependencias de abajo arriba):
       `startDragging()` programático; los clics en botones/inputs no arrastran).
       Referencia guardada en `area-trabajo/paseo`
       (`components/desktop/window-controls.tsx`, `titlebar-drag-region.tsx`).
+      **Estado (11-09):** `tauri.conf.json` fija `decorations: false` (línea 19) y el
+      recorrido en navegador confirma que la botonera caption **no se monta en web**
+      (`botoneraTauriEnWeb: []`), que es justo lo que pide la entrada. Queda la pasada
+      visual **Tauri** (render, hover invertido y arrastre reales) —ver «Siguiente bloque
+      ejecutable»—.
 - [ ] **089A-2 — Layout Paseo: entrada flotante, toggles, tabs y preview** (08-09, en curso):
       (a) `.mensajes` sin `max-width`/centrado (todo el ancho); `.entrada`
-      flotante por encima (`absolute`, fondo sólido + borde superior) con
-      reserva inferior dinámica vía `ResizeObserver` en `panelChat`.
+      flotante por encima (`absolute`, `bottom: 0`; el fondo y el borde viven en
+      `.caja`, no en el contenedor —`entrada.css:8`—) con reserva inferior dinámica
+      vía `ResizeObserver` en `panelChat`.
       (b) Botón sidebar siempre visible y alterna (mostrar/ocultar); el
       preview de archivos vive dentro de Files; × en la barra de tabs cierra
       el panel.
@@ -176,14 +198,25 @@ Orden propuesto (dependencias de abajo arriba):
       principal, espejo del izquierdo; ocultar no destruye las tabs), ×
       propio por tab y multi-chat (una tab `chat:<id>` por conversación,
       máx. 8 laterales; reabrir una abierta solo activa su tab).
+      **Estado (11-09, verificado en navegador):** `.mensajes` con `max-width: none`,
+      `margin: 0` y `padding-bottom: 200px` (reserva del `ResizeObserver`); `.entrada`
+      absoluta, `bottom: 0`, sin fondo ni borde, y `.caja` blanca (borde 0.8px, alto
+      144px) como tarjeta flotante; el `×` de tab cierra y deja el inicio (`tabs=[]` con
+      el launcher montado), reabrir funciona, ocultar el panel lo saca del DOM y volver a
+      mostrarlo restaura las tabs y la activa (`Git local`), y el toggle del sidebar
+      alterna «mostrar/ocultar lista de conversaciones»; Files es un único pane con
+      `.files-arbol` (23 nodos) + `.files-visor` (`roadmap.md` → «565 líneas», 1698 nodos
+      de código). Queda la parte Tauri (grip único y `navegador_mostrar`).
 - [ ] **089A-3 — Barra superior global estilo Synara** (08-09, en curso, parte 1;
-      commit `d013e03`, verificación visual pendiente del usuario; ajustes 08-09:
+      commit `d013e03`, verificación visual **web** hecha el 11-09; falta la Tauri;
+      ajustes 08-09:
       orden fiel Synara —lista, atrás, adelante … marca … toggle derecho +
       botonera—; sin botón de visor (redundante); atrás/adelante presentes pero
       deshabilitados; botonera caption 100% Lucide):
-      Barra de 46px a todo el ancho por encima de sidebar/paneles/panel
-      derecho (nuevo `componentes/barraSuperior.ts` + `estilos/barraSuperior.css`,
-      primera hija de `#app`): toggle sidebar + atrás/adelante mudados
+      Barra de **38px** (`barraSuperior.css:12`; el plan decía 46px) a todo el ancho
+      por encima de sidebar/paneles/panel derecho (nuevo `componentes/barraSuperior.ts`
+      + `estilos/barraSuperior.css`, primera hija de `#app`): toggle sidebar +
+      atrás/adelante mudados
       desde la cabecera del principal, zona central arrastrable y botonera
       min/max/cerrar con iconos Lucide (46px, planos, orden Paseo;
       cerrar con hover rojo `#c42b1c` como la referencia —excepción explícita
@@ -192,7 +225,13 @@ Orden propuesto (dependencias de abajo arriba):
       `area-trabajo/synara` (`DesktopWindowControls.tsx`,
       `SidebarHeaderNavigationControls.tsx`, `AppNavigationButtons.tsx`). Plan en
       `Agente/planes/plan-089A-3-barra-superior-2026-09-08.md`.
-- [ ] **089A-4 — Launcher del panel derecho estilo Synara** (08-09, en curso, parte 2):
+      **Estado (11-09, medido en el DOM del modo web):** `.barra-superior` es la primera
+      hija de `#app`, mide 38px de alto y ocupa todo el ancho (926px en la ventana de
+      prueba); contiene el grupo izquierdo (lista + atrás + adelante, los dos últimos
+      `disabled`) y la zona derecha (tablist + toggle del panel derecho). La botonera
+      caption no existe en web (es Tauri). Pendiente: pasada visual Tauri (hover rojo de
+      cerrar y arrastre).
+- [x] **089A-4 — Launcher del panel derecho estilo Synara** (08-09, HECHO 11-09):
       Al abrir el panel derecho sin tabs muestra el inicio para elegir contenido
       (nuevo `estilos/launcher.css`, estado vacío en `panelDerecho.ts`): pantalla
       de opciones centrada (icono + etiqueta, full-width) al estilo
@@ -201,10 +240,17 @@ Orden propuesto (dependencias de abajo arriba):
       gating: el chat solo si hay conversación activa). El × global oculta el
       panel; cerrar la última tab deja el inicio (ya no se desmonta). Referencia:
       `RightDock.tsx` + `rightDockPaneMeta.tsx` en `area-trabajo/synara`.
-- [ ] **089A-5 — Pendiente Synara (lógica, no visual)** (08-09, pendiente):
-      historial de la app para atrás/adelante (misma lógica que Synara,
-      hoy deshabilitados) y Terminal/Files/Source control como opciones del
-      inicio cuando existan esos paneles.
+      **Estado (11-09, verificado en navegador):** el inicio muestra 4 opciones
+      etiquetadas (icono + `.inicio-etiqueta`): Files, Git local, Navegador y Chat
+      lateral; el `×` global oculta el panel y cerrar la última tab deja el inicio
+      (`tabs=[]` con el launcher montado). Con una conversación sin turnos, Chat lateral
+      aparece deshabilitado y las otras tres siguen activas (gating correcto).
+- [ ] **089A-5 — Pendiente Synara (lógica, no visual)** (08-09, pendiente; acotada
+      11-09): historial de la app para atrás/adelante (misma lógica que Synara, hoy
+      deshabilitados) y Terminal como opción del inicio cuando exista ese panel (Files y
+      Git local/Source control ya están: verificado 11-09 en el launcher). El historial
+      exige **decisión del usuario**: si los botones gobiernan el panel/área activa o las
+      áreas de trabajo.
 - [x] **089A-13 — Gate cubre frontend TS + Tauri en VarSense** (09-09,
       HECHO): el gate solo analizaba `.rs` de `core`/`cli` (herencia de fase 0);
       añadidos `desktop/ui/src/**/*.ts` a `sentinel.config.json` y
@@ -213,8 +259,8 @@ Orden propuesto (dependencias de abajo arriba):
       14 errores + 116 warnings + 7 info, todo deuda real del frontend).
       Evidencia: `.quality-reports/check/089A-13/latest.md` (+ `sentinel.json`
       con ubicaciones).
-- [ ] **089A-14 — Sanear hallazgos TS del gate (deuda revelada por 089A-13)**
-      (09-09, pendiente): 14 errores (`innerHTML` ×10 en
+- [x] **089A-14 — Sanear hallazgos TS del gate (deuda revelada por 089A-13)**
+      (09-09, HECHO 11-09 por superación): 14 errores (`innerHTML` ×10 en
       `entrada/mensajes/iconos/panelMeta/dom`: riesgo XSS; `catch` vacío ×3 en
       `panelNavegador.ts:423,491,521`; `main.ts` 1182 ef. triplica el límite
       300 de componentes) + 116 warnings (62 `barras-decorativas`, 22
@@ -223,6 +269,14 @@ Orden propuesto (dependencias de abajo arriba):
       (3 interfaces + 4 `todo-pendiente`). Detalle por fichero en
        `.quality-reports/check/089A-13/sentinel.json`. OJO: el árbol queda en
        rojo hasta sanearlo.
+      **Cierre (11-09):** la deuda ya no es visible en el corte propio del repo:
+      `npm run quality:analyze` sobre el alcance completo (236 archivos) sale **EXIT 0** con
+      **0 errores y 0 warnings**, y un único hint —el falso positivo `todo-pendiente` de
+      `core/src/nucleo/context.rs:972`, ajeno a este repo y seguido en 109A-10—
+      (`totalArchivosConViolaciones: 1` en `.quality-reports/analyze.json`). Las familias de
+      089A-13 se resolvieron en 089A-16 (F2-resto, B-ISP, F3) y los 101 errores del corte de
+      consola eran del checkout compartido (109A-10); lo que queda es el defecto de regla
+      externo, no deuda de este repo.
 - [x] **089A-15 — Gate con cobertura por defecto (nada fuente fuera en silencio)**
       (09-09, HECHO): etapa `coverage`
       (`scripts/quality/sentinel-coverage.mjs`, primera del gate, fail-closed)
@@ -363,7 +417,10 @@ Orden propuesto (dependencias de abajo arriba):
       herramienta publique el arreglo y este repo suba su commit fijado (`1587c59` = `v0.7.8`; la fuente
       va por `v0.7.9`/`a3f5607`, que arregla otros falsos positivos pero no este), lo que exige el bump
       único de consumidores. **No** se reformula la prosa del comentario para bajarlo: sería tapar el
-      medidor y dejaría el defecto vivo en el resto del área.
+      medidor y dejaría el defecto vivo en el resto del área. Confirmado el 11-09 sobre el alcance
+      completo (`npm run quality:analyze`, EXIT 0, 236 archivos): 0 errores, 0 warnings y
+      `totalArchivosConViolaciones: 1` —el hint del `todo-pendiente`—, cifra que coincide con el
+      corte del gate canónico.
 - [x] **089A-12 — Files estilo Synara: árbol + visor integrado** (09-09,
       HECHO): Files es un único pane dividido (árbol a la izquierda y preview
       a la derecha al seleccionar un archivo); se eliminaron `21 entradas`,
