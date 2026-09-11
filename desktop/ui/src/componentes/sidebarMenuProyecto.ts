@@ -17,6 +17,8 @@ export interface MenuProyectoDeps {
   onEliminar: (id: string) => void;
   /** [119A-2 F2] Abre la carpeta del proyecto en el Explorador. */
   onRevelar: (id: string) => void;
+  /** [119A-2 F3] Fija/suelta el proyecto (los fijados van primero). */
+  onFijar: (id: string, fijado: boolean) => void;
 }
 
 /** Convierte el nombre del grupo en un input inline para renombrar. */
@@ -103,6 +105,18 @@ export function abrirMenuProyecto(opts: {
           onClick() {
             cerrarMenuActual();
             deps.onRevelar(proyecto.id);
+          },
+        }),
+      );
+      // [119A-2 F3] Item con estado: la marca refleja si está fijado y el
+      // texto ofrece la acción contraria; el orquestador resincroniza.
+      m.appendChild(
+        crearItemMenu({
+          texto: proyecto.fijado ? 'Unpin project' : 'Pin project',
+          marcado: proyecto.fijado,
+          onClick() {
+            cerrarMenuActual();
+            deps.onFijar(proyecto.id, !proyecto.fijado);
           },
         }),
       );

@@ -21,6 +21,8 @@ pub struct Workspace {
     pub nombre: String,
     pub ruta: String,
     pub creada_en: DateTime<Utc>,
+    /// [119A-2 F3] Fijado: los fijados van primero en el sidebar.
+    pub fijado: bool,
 }
 
 impl PersistenciaSqlite {
@@ -60,6 +62,7 @@ impl PersistenciaSqlite {
             nombre: nombre.trim().to_string(),
             ruta: ruta.to_string(),
             creada_en: a_fecha(ahora)?,
+            fijado: false,
         })
     }
 
@@ -83,13 +86,13 @@ impl PersistenciaSqlite {
         Ok(n)
     }
 
-    /// Lista las áreas del usuario (recientes primero).
+    /// Lista las áreas del usuario (fijadas primero, luego recientes).
     pub fn workspaces_listar(&self, user_id: Uuid) -> HarnessResult<Vec<Workspace>> {
         let conn = bloquear(&self.conn);
         let mut stmt = conn
             .prepare(
-                "SELECT id, nombre, ruta, creada_en FROM workspaces
-                 WHERE user_id = ?1 ORDER BY creada_en DESC",
+                "SELECT id, nombre, ruta, creada_en, fijado FROM workspaces
+                 WHERE user_id = ?1 ORDER BY fijado DESC, creada_en DESC",
             )
             .map_err(|e| Error::Persistencia(e.to_string()))?;
         let filas = stmt
@@ -99,18 +102,20 @@ impl PersistenciaSqlite {
                     f.get::<_, String>(1)?,
                     f.get::<_, String>(2)?,
                     f.get::<_, String>(3)?,
+                    f.get::<_, i64>(4)?,
                 ))
             })
             .map_err(|e| Error::Persistencia(e.to_string()))?;
         let mut out = Vec::new();
         for fila in filas {
-            let (id, nombre, ruta, creada) =
+            let (id, nombre, ruta, creada, fijado) =
                 fila.map_err(|e| Error::Persistencia(e.to_string()))?;
             out.push(Workspace {
                 id: a_uuid(id)?,
                 nombre,
                 ruta,
                 creada_en: a_fecha(creada)?,
+                fijado: fijado != 0,
             });
         }
         Ok(out)
@@ -125,7 +130,7 @@ impl PersistenciaSqlite {
         let conn = bloquear(&self.conn);
         let fila = conn
             .query_row(
-                "SELECT id, nombre, ruta, creada_en FROM workspaces
+                "SELECT id, nombre, ruta, creada_en, fijado FROM workspaces
                  WHERE user_id = ?1 AND ruta = ?2",
                 params![user_id.as_hyphenated().to_string(), ruta],
                 |f| {
@@ -134,17 +139,19 @@ impl PersistenciaSqlite {
                         f.get::<_, String>(1)?,
                         f.get::<_, String>(2)?,
                         f.get::<_, String>(3)?,
+                        f.get::<_, i64>(4)?,
                     ))
                 },
             )
             .optional()
             .map_err(|e| Error::Persistencia(e.to_string()))?;
         match fila {
-            Some((id, nombre, ruta, creada)) => Ok(Some(Workspace {
+            Some((id, nombre, ruta, creada, fijado)) => Ok(Some(Workspace {
                 id: a_uuid(id)?,
                 nombre,
                 ruta,
                 creada_en: a_fecha(creada)?,
+                fijado: fijado != 0,
             })),
             None => Ok(None),
         }
@@ -155,7 +162,7 @@ impl PersistenciaSqlite {
         let conn = bloquear(&self.conn);
         let fila = conn
             .query_row(
-                "SELECT id, nombre, ruta, creada_en FROM workspaces
+                "SELECT id, nombre, ruta, creada_en, fijado FROM workspaces
                  WHERE user_id = ?1 AND id = ?2",
                 params![
                     user_id.as_hyphenated().to_string(),
@@ -167,17 +174,19 @@ impl PersistenciaSqlite {
                         f.get::<_, String>(1)?,
                         f.get::<_, String>(2)?,
                         f.get::<_, String>(3)?,
+                        f.get::<_, i64>(4)?,
                     ))
                 },
             )
             .optional()
             .map_err(|e| Error::Persistencia(e.to_string()))?;
         match fila {
-            Some((id, nombre, ruta, creada)) => Ok(Some(Workspace {
+            Some((id, nombre, ruta, creada, fijado)) => Ok(Some(Workspace {
                 id: a_uuid(id)?,
                 nombre,
                 ruta,
                 creada_en: a_fecha(creada)?,
+                fijado: fijado != 0,
             })),
             None => Ok(None),
         }
@@ -195,6 +204,26 @@ impl PersistenciaSqlite {
                 "UPDATE workspaces SET nombre = ?1 WHERE id = ?2 AND user_id = ?3",
                 params![
                     nombre.trim(),
+                    id.as_hyphenated().to_string(),
+                    user_id.as_hyphenated().to_string()
+                ],
+            )
+            .map_err(|e| Error::Persistencia(e.to_string()))?;
+        Ok(n > 0)
+    }
+
+    /// [119A-2 F3] Fija o suelta un área propia. Devuelve `false` si no existe.
+    pub fn workspace_fijar(
+        &self,
+        user_id: Uuid,
+        id: Uuid,
+        fijado: bool,
+    ) -> HarnessResult<bool> {
+        let n = bloquear(&self.conn)
+            .execute(
+                "UPDATE workspaces SET fijado = ?1 WHERE id = ?2 AND user_id = ?3",
+                params![
+                    i64::from(fijado),
                     id.as_hyphenated().to_string(),
                     user_id.as_hyphenated().to_string()
                 ],
@@ -348,5 +377,53 @@ mod tests {
             .conversaciones_listar_ws(user2, None)
             .expect("sin area vacio")
             .is_empty());
+    }
+
+    /// [119A-2 F3] Fijar ordena primero y persiste al releer; soltar
+    /// devuelve el orden por recencia; ajeno no toca nada.
+    #[test]
+    fn fijar_ordena_fijados_primero() {
+        let p = PersistenciaSqlite::en_memoria().expect("memoria");
+        let user = Uuid::new_v4();
+
+        let vieja = p
+            .workspace_crear(user, "Vieja", "C:\\tmp\\pin-vieja")
+            .expect("crear vieja");
+        let nueva = p
+            .workspace_crear(user, "Nueva", "C:\\tmp\\pin-nueva")
+            .expect("crear nueva");
+        // Sin fijar: las dos están, ninguna fijada (el orden por recencia no
+        // se afirma: dos creaciones seguidas pueden empatar en `creada_en`).
+        let lista = p.workspaces_listar(user).expect("listar");
+        assert_eq!(lista.len(), 2);
+        assert!(lista.iter().all(|w| !w.fijado));
+
+        // Fijar la vieja → primera aunque sea más antigua.
+        assert!(p.workspace_fijar(user, vieja.id, true).expect("fijar"));
+        let lista = p.workspaces_listar(user).expect("listar tras fijar");
+        assert_eq!(lista[0].id, vieja.id);
+        assert!(lista[0].fijado);
+        assert!(!lista[1].fijado);
+
+        // Soltar → ninguna fijada (el orden por recencia no se afirma por
+        // el posible empate en `creada_en`).
+        assert!(p.workspace_fijar(user, vieja.id, false).expect("soltar"));
+        let lista = p.workspaces_listar(user).expect("listar tras soltar");
+        assert!(lista.iter().all(|w| !w.fijado));
+        assert!(lista.iter().any(|w| w.id == vieja.id));
+        assert!(lista.iter().any(|w| w.id == nueva.id));
+
+        // Inexistente y ajeno → false, sin tocar nada.
+        assert!(!p
+            .workspace_fijar(user, Uuid::new_v4(), true)
+            .expect("fijar fake"));
+        assert!(!p
+            .workspace_fijar(Uuid::new_v4(), nueva.id, true)
+            .expect("fijar ajeno"));
+        assert!(!p
+            .workspace_por_id(user, nueva.id)
+            .expect("por id")
+            .expect("existe")
+            .fijado);
     }
 }

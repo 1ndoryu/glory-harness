@@ -18,13 +18,10 @@ import {
   type Transporte,
 } from '../tauri/real';
 import type { EstadoGit } from '../componentes/panelGit';
-import type {
-  ListadoWorkspace,
-  ResultadoBusqueda,
-  Workspace,
-} from '../dominio/tipos';
+import type { ListadoWorkspace, ResultadoBusqueda } from '../dominio/tipos';
 import { crearClienteApi } from './apiCliente';
 import { crearTransporteMeta } from './apiMeta';
+import { crearTransporteWorkspaces } from './apiWorkspaces';
 import { transporteMemoriasNoDisponibles } from './apiMemorias';
 import { transporteComandosNoDisponibles } from './apiComandos';
 import { transporteCompactarNoDisponible } from './apiCompactar';
@@ -241,57 +238,9 @@ export function crearTransporteApi(base: string, hooks: HooksAdaptador = {}): Tr
     // [109A-5 F3] fijarMeta + metaAplicar + metaLeer viven en `apiMeta` para
     // no engordar este archivo por encima del límite de líneas.
     ...crearTransporteMeta(cliente),
-    // [069A-Proyectos] HTTP workspaces
-    workspacesListar: async () => {
-      const r = await http<{ ok: boolean; workspaces: Workspace[]; activa: Workspace | null }>(
-        'GET',
-        `/api/v1/session/${cliente.getSid()}/workspaces`,
-      );
-      return { workspaces: r.workspaces, activa: r.activa };
-    },
-    proyectoGuardar: async (nombre, ruta) => {
-      // Web: POST /workspaces crea la fila + POST /workspace la activa
-      const creada = await http<{ ok: boolean; activa: Workspace; creada: Workspace; workspace: string }>(
-        'POST',
-        `/api/v1/session/${cliente.getSid()}/workspaces`,
-        { nombre, ruta },
-      );
-      const base_info: InfoSesion = cliente.getUltimoInfo() ?? {
-        modelo: '/',
-        workspace: creada.workspace,
-        proveedores: [],
-        conversacion: null,
-      };
-      // El backend ya cambió el workspace de la sesión; componer info limpia.
-      const info: InfoSesion = {
-        ...base_info,
-        workspace: creada.workspace,
-      };
-      return recordar(info);
-    },
-    workspaceActivarsPorRuta: async (ruta) => {
-      // Reusa fijarWorkspace (POST /workspace) que cambia la ruta activa.
-      return cliente.fijarWorkspaceImpl(ruta);
-    },
-    workspaceRenombrar: async (id, nombre) => {
-      const r = await http<{ ok: boolean; renombrada: boolean }>(
-        'PATCH',
-        `/api/v1/session/${cliente.getSid()}/workspaces/${encodeURIComponent(id)}`,
-        { nombre },
-      );
-      return r.renombrada;
-    },
-    workspaceEliminar: async (id) => {
-      const r = await http<{ ok: boolean; eliminada: boolean }>(
-        'DELETE',
-        `/api/v1/session/${cliente.getSid()}/workspaces/${encodeURIComponent(id)}`,
-      );
-      return r.eliminada;
-    },
-    // [119A-2 F2] Sin explorador local en web: aviso en vez de simular.
-    workspaceRevelar: async () => {
-      throw new Error('abrir en el Explorador solo está disponible en la app de escritorio');
-    },
+    // [119A-2 F3] Proyectos (listar/crear/activar/renombrar/quitar/revelar/
+    // fijar) en `apiWorkspaces` por el mismo límite.
+    ...crearTransporteWorkspaces(cliente),
     workspaceInfo: async () =>
       http<{ ruta: string; nombre: string }>(
         'GET',

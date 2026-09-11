@@ -45,6 +45,8 @@ export interface Workspace {
   nombre: string;
   ruta: string;
   creada_en: string;
+  /** [119A-2 F3] Fijado: los fijados van primero en el sidebar. */
+  fijado: boolean;
 }
 
 export interface EntradaWorkspace {

@@ -239,6 +239,8 @@ export function montarBarraLateral(deps: BarraLateralDeps): BarraLateral {
     onEliminarProyecto: accionesProyecto.onEliminarProyecto,
     // [119A-2 F2] Abre la carpeta del proyecto en el Explorador.
     onRevelarProyecto: accionesProyecto.onRevelarProyecto,
+    // [119A-2 F3] Fija/suelta el proyecto (reordena el sidebar).
+    onFijarProyecto: accionesProyecto.onFijarProyecto,
     abrirConfig: () => deps.abrirConfig(),
   });
 

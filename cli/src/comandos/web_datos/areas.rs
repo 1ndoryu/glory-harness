@@ -29,10 +29,13 @@ pub(crate) struct CrearWorkspace {
     pub(crate) ruta: String,
 }
 
-/// [069A-Proyectos] Cuerpo de `PATCH /workspaces/:wid`: renombrar.
+/// [069A-Proyectos] Cuerpo de `PATCH /workspaces/:wid`: renombrar
+/// (`nombre`) o fijar/soltar (`fijado`, [119A-2 F3]). Solo un campo por
+/// llamada: `fijado` tiene prioridad si vinieran los dos.
 #[derive(Debug, Deserialize)]
 pub(crate) struct ParcheWorkspace {
     pub(crate) nombre: Option<String>,
+    pub(crate) fijado: Option<bool>,
 }
 
 /// [069A-Proyectos] Nombre de área validado: no vacío, ≤200 caracteres.
@@ -197,7 +200,8 @@ pub(crate) async fn crear_workspace(
     })))
 }
 
-/// `PATCH /api/v1/workspaces/:wid` — renombra (no adopta ni reasigna).
+/// `PATCH /api/v1/workspaces/:wid` — renombra (no adopta ni reasigna) o
+/// fija/suelta ([119A-2 F3]) según el campo presente.
 pub(crate) async fn renombrar_workspace(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
@@ -205,12 +209,22 @@ pub(crate) async fn renombrar_workspace(
     Json(peticion): Json<ParcheWorkspace>,
 ) -> Result<Json<Value>, ApiError> {
     let (_, comun) = sesion_y_comun(&headers, &Method::PATCH, &state, &id).await?;
+    let wid = Uuid::parse_str(wid.trim())
+        .map_err(|_| error("peticion_invalida", "id de área malformado"))?;
+    if let Some(fijado) = peticion.fijado {
+        let ok = comun
+            .persistencia
+            .workspace_fijar(comun.user_id, wid, fijado)
+            .map_err(|e| error("sesion", e.to_string()))?;
+        if !ok {
+            return Err(error("no_encontrado", "área de trabajo no encontrada"));
+        }
+        return Ok(Json(serde_json::json!({ "ok": true, "fijada": true })));
+    }
     let nombre = match peticion.nombre {
         Some(n) => nombre_area_validado(Some(n))?,
         None => return Err(error("peticion_invalida", "nombre obligatorio")),
     };
-    let wid = Uuid::parse_str(wid.trim())
-        .map_err(|_| error("peticion_invalida", "id de área malformado"))?;
     let ok = comun
         .persistencia
         .workspace_renombrar(comun.user_id, wid, &nombre)

@@ -81,6 +81,8 @@ export interface SidebarProyectoNav {
   onEliminarProyecto?: (id: string) => void;
   /** [119A-2 F2] Se invoca al pedir abrir la carpeta del proyecto en el Explorador. */
   onRevelarProyecto?: (id: string) => void;
+  /** [119A-2 F3] Se invoca al fijar/soltar un proyecto. */
+  onFijarProyecto?: (id: string, fijado: boolean) => void;
   /** [039A-3 P5] Consulta si se puede ofrecer "Abrir en panel lateral"
    * (el orquestador decide: <2 chats abiertos y ancho suficiente). */
   puedeAbrirLateral?: () => boolean;
@@ -259,6 +261,7 @@ export function montarSidebar(opts: SidebarOpciones): Sidebar {
       onRenombrar: (id, nombre) => opts.onRenombrarProyecto?.(id, nombre),
       onEliminar: (id) => opts.onEliminarProyecto?.(id),
       onRevelar: (id) => opts.onRevelarProyecto?.(id),
+      onFijar: (id, fijado) => opts.onFijarProyecto?.(id, fijado),
     };
     boton.addEventListener('contextmenu', (e) => {
       e.preventDefault();

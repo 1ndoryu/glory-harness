@@ -251,6 +251,22 @@ pub(crate) fn workspace_revelar(estado: State<'_, Estado>, id: String) -> Result
     Ok(())
 }
 
+/// [119A-2 F3] Fija o suelta un proyecto propio (los fijados van primero
+/// en `workspaces_listar`). `false` = id ajeno o inexistente.
+#[tauri::command]
+pub(crate) fn workspace_fijar(
+    estado: State<'_, Estado>,
+    id: String,
+    fijado: bool,
+) -> Result<bool, String> {
+    let sesion = sesion_actual(&estado)?;
+    let id = Uuid::parse_str(id.trim()).map_err(|_| "id inválido".to_string())?;
+    sesion
+        .persistencia
+        .workspace_fijar(sesion.user_id, id, fijado)
+        .map_err(|e| e.to_string())
+}
+
 /// Fija o cambia la meta ([109A-5 F1]).
 ///
 /// `conversacion_id` es opcional: sin él la meta vive en memoria como

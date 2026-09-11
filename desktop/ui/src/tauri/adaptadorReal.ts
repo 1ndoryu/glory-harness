@@ -157,6 +157,10 @@ export function crearAdaptadorReal(hooks: HooksAdaptador = {}, transporte: Trans
         async revelar(id: string): Promise<void> {
           return transporte.workspaceRevelar(id);
         },
+        // [119A-2 F3] Fijar/soltar proyecto (los fijados van primero).
+        async fijar(id: string, fijado: boolean): Promise<boolean> {
+          return transporte.workspaceFijar(id, fijado);
+        },
       },
       filesystem: {
         async info(): Promise<{ ruta: string; nombre: string }> {

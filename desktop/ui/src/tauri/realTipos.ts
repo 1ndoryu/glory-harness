@@ -309,6 +309,8 @@ export interface Transporte {
   workspaceEliminar(id: string): Promise<boolean>;
   // [119A-2 F2] Abrir la carpeta del proyecto en el Explorador (solo app).
   workspaceRevelar(id: string): Promise<void>;
+  // [119A-2 F3] Fijar/soltar proyecto (los fijados van primero).
+  workspaceFijar(id: string, fijado: boolean): Promise<boolean>;
   workspaceInfo(): Promise<{ ruta: string; nombre: string }>;
   workspaceListarEntrada(ruta: string, profundidad?: number): Promise<ListadoWorkspace>;
   workspaceLeerArchivo(ruta: string): Promise<{ ruta: string; lineas: number; contenido: string }>;

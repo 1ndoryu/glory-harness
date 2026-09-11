@@ -56,7 +56,9 @@ CREATE TABLE IF NOT EXISTS workspaces (
     user_id TEXT NOT NULL,
     nombre TEXT NOT NULL,
     ruta TEXT NOT NULL UNIQUE,
-    creada_en TEXT NOT NULL
+    creada_en TEXT NOT NULL,
+    /* [119A-2 F3] Fijado del proyecto (1 = primero en el sidebar). */
+    fijado INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_workspaces_user ON workspaces (user_id);
 CREATE TABLE IF NOT EXISTS mensajes (
@@ -221,6 +223,8 @@ const MIGRACIONES: &[&str] = &[
     "ALTER TABLE tarea_logs ADD COLUMN iniciado_en TEXT",
     "ALTER TABLE tarea_logs ADD COLUMN finalizado_en TEXT",
     "ALTER TABLE tarea_logs ADD COLUMN resultado TEXT",
+    /* [119A-2 F3] Fijado de proyectos (BDs anteriores a F3: 0 = no fijado). */
+    "ALTER TABLE workspaces ADD COLUMN fijado INTEGER NOT NULL DEFAULT 0",
 ];
 
 /// [109A-4 F3] Punto de compactación manual de una conversación.

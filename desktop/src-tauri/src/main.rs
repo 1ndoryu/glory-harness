@@ -491,6 +491,8 @@ fn main() {
             workspaces::workspace_eliminar,
             // [119A-2 F2] Abrir la carpeta del proyecto en el Explorador.
             workspaces::workspace_revelar,
+            // [119A-2 F3] Fijar/soltar proyecto (orden del sidebar).
+            workspaces::workspace_fijar,
             workspaces::actualizar_meta,
             // [109A-5 F3] Ciclo de vida de la meta por conversación: aplicar
             // (devuelve estado completo + emite `MetaLograda`) y leer.
