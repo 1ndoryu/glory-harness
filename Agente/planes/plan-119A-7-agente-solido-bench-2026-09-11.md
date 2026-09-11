@@ -141,8 +141,34 @@ fixtures que se vuelven obsoletos; referencias que divergen de su upstream.
   cierra el turno; el bench F3 necesita vía de aprobación guionizada);
   (b) en `chat` con stdin guionizado valen respuestas `si`, pero el modelo
   puede vagar (run 2 creó `prueba.txt` y afirmó existencia falsa antes de
-  autocorregirse) y el presupuesto de pasos corta flujos largos.
-- Siguiente: F2 flujo 11 pasos (misma técnica stdin guionizado).
+  autocorregirse) y el    presupuesto de pasos corta flujos largos.
+- F2 run 1 (11-09 noche, `glory/auto`, jaula `C:\tmp\jaula-f2-r1`,
+  logs `jaula-f2-r1*.log`): 10/11. OK 1-5 (crear/leer/patch v2/buscar/
+  fecha), 7 (renombrado a `nota-final.txt`), 8 (`/undo` revierte y
+  reaplica; `chat_comandos.rs` NO tiene `/compactar` — solo
+  ayuda/export/nuevo/plan/salir/undo), 9 (auto-compactación disparó y
+  conservó lo esencial; telemetría `0 compactaciones`), 10 (one-shot
+  `run --prompt` SÍ ejecuta tools de solo lectura
+  file_search/comando/file_read, responde bien y no escribe),
+  11 (`/salir` y EOF limpios). FALLO solo paso 6: el modelo nunca
+  observó RC=0. Causas: (a) invocación `.bat` — `check.bat`/`call`
+  fallan con "no se reconoce", la forma válida es `.\check.bat`
+  (verdad de terreno: RC=0); el script además es cwd-dependiente
+  (ruta absoluta sin cwd → RC=1 FINDSTR); (b) fricción de
+  aprobación: cada tool = 1 diálogo, el modelo propone pero no
+  encadena ejecución tras concederla; "si" guionizado SÍ pulsa el
+  diálogo inline (varios `permitida (solo esta vez)` en log) pero el
+  modelo cree que no; (c) calibración: afirmó "edit aplicado con
+  código 0" por un eco sin verificar en disco (luego se corrigió
+  solo y pidió el `type`; honestidad parcial a favor). Hallazgo
+  diseño: paso 7 rompe paso 6 (check apunta a `nota.txt`) — el
+  modelo lo detectó solo y propuso actualizar el script; protocolo
+  v2: medir 6 ANTES de renombrar, o renombrar+actualizar juntos.
+  "Permitir siempre" persiste regla de CLASE con confirmación
+  (`gate.rs:68`) — no usar en bench. Lección operativa: modo
+  MODO BENCH (5 líneas, sin tablas) + turnos de objetivo único +
+  ~30 `si` por invocación; `session resume <id>` recompone y sigue.
+- Siguiente: F2 runs 2-3 con protocolo v2 (jaulas frescas).
 
 ## 10. Reto F0/F1 (11-09, verificado contra el código)
 
