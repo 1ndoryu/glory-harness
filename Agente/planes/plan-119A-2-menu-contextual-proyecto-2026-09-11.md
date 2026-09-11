@@ -98,5 +98,6 @@ siguen diferidos (089A-9).
 estilo del input en `estilos/layout.css`. `tsc --noEmit` EXIT 0 +
 `vite build` OK (109 módulos, 1.33s).
 **Siguiente paso:** verificación funcional en ventana `tauri dev` real (clic derecho + cada acción; pendiente de disco) → commit en español con ID (evidencia ya en `Agente/completados/tareas-2026-09-11.md`). Handlers extraídos a `orquestador/barraLateralProyecto.ts` (límite 300 líneas).
+**F2 implementado 11-09:** `workspace_revelar` (Tauri, por id, fail-closed si la carpeta falta; registrado en `main.rs`) + `workspaceRevelar` en `Transporte` (invoke Tauri; en web rechaza con aviso) + `revelar` en `sesion.workspaces` + ítem `Open in Finder` primero en el menú + `onRevelarProyecto` en `sidebar.ts`/`barraLateral.ts`/`barraLateralProyecto.ts` (sin resync, no muta estado). `tsc` EXIT 0 + `vite build` OK (111 módulos) + gate `sentinel check 119A-2` PASS (457 tests ok).
 F2–F4 sin implementar. Decisiones F5 cerradas el 11-09: Kanban eliminada,
 Start dev y Spaces diferidas.

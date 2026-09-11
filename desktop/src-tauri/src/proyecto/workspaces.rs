@@ -227,6 +227,30 @@ pub(crate) fn workspace_eliminar(estado: State<'_, Estado>, id: String) -> Resul
         .map_err(|e| e.to_string())
 }
 
+/// [119A-2 F2] Abre la carpeta del proyecto en el Explorador de Windows.
+///
+/// La ruta se resuelve por `id` desde la persistencia (nunca viaja por la
+/// UI): id inexistente o carpeta ausente en disco se rechazan sin efecto, y
+/// la apertura se delega a `explorer` sin bloquear el comando.
+#[tauri::command]
+pub(crate) fn workspace_revelar(estado: State<'_, Estado>, id: String) -> Result<(), String> {
+    let sesion = sesion_actual(&estado)?;
+    let id = Uuid::parse_str(id.trim()).map_err(|_| "id inválido".to_string())?;
+    let ws = sesion
+        .persistencia
+        .workspace_por_id(sesion.user_id, id)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "proyecto inexistente".to_string())?;
+    if !std::path::Path::new(&ws.ruta).is_dir() {
+        return Err("la carpeta del proyecto ya no existe".to_string());
+    }
+    std::process::Command::new("explorer")
+        .arg(&ws.ruta)
+        .spawn()
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 /// Fija o cambia la meta ([109A-5 F1]).
 ///
 /// `conversacion_id` es opcional: sin él la meta vive en memoria como

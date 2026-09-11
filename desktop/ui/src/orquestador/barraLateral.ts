@@ -237,6 +237,8 @@ export function montarBarraLateral(deps: BarraLateralDeps): BarraLateral {
     // [119A-2 F1] Renombra/quita el proyecto (ver barraLateralProyecto.ts).
     onRenombrarProyecto: accionesProyecto.onRenombrarProyecto,
     onEliminarProyecto: accionesProyecto.onEliminarProyecto,
+    // [119A-2 F2] Abre la carpeta del proyecto en el Explorador.
+    onRevelarProyecto: accionesProyecto.onRevelarProyecto,
     abrirConfig: () => deps.abrirConfig(),
   });
 

@@ -489,6 +489,8 @@ fn main() {
             workspaces::workspace_activar_por_ruta,
             workspaces::workspace_renombrar,
             workspaces::workspace_eliminar,
+            // [119A-2 F2] Abrir la carpeta del proyecto en el Explorador.
+            workspaces::workspace_revelar,
             workspaces::actualizar_meta,
             // [109A-5 F3] Ciclo de vida de la meta por conversación: aplicar
             // (devuelve estado completo + emite `MetaLograda`) y leer.

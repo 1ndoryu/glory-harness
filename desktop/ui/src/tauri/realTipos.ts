@@ -307,6 +307,8 @@ export interface Transporte {
   workspaceActivarsPorRuta(ruta: string): Promise<InfoSesion>;
   workspaceRenombrar(id: string, nombre: string): Promise<boolean>;
   workspaceEliminar(id: string): Promise<boolean>;
+  // [119A-2 F2] Abrir la carpeta del proyecto en el Explorador (solo app).
+  workspaceRevelar(id: string): Promise<void>;
   workspaceInfo(): Promise<{ ruta: string; nombre: string }>;
   workspaceListarEntrada(ruta: string, profundidad?: number): Promise<ListadoWorkspace>;
   workspaceLeerArchivo(ruta: string): Promise<{ ruta: string; lineas: number; contenido: string }>;

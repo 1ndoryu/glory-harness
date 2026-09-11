@@ -79,6 +79,8 @@ export interface SidebarProyectoNav {
   onRenombrarProyecto?: (id: string, nombre: string) => void;
   /** [119A-2 F1] Se invoca al quitar un proyecto del área (con confirmación). */
   onEliminarProyecto?: (id: string) => void;
+  /** [119A-2 F2] Se invoca al pedir abrir la carpeta del proyecto en el Explorador. */
+  onRevelarProyecto?: (id: string) => void;
   /** [039A-3 P5] Consulta si se puede ofrecer "Abrir en panel lateral"
    * (el orquestador decide: <2 chats abiertos y ancho suficiente). */
   puedeAbrirLateral?: () => boolean;
@@ -251,11 +253,12 @@ export function montarSidebar(opts: SidebarOpciones): Sidebar {
       if ((e.target as HTMLElement).tagName === 'INPUT') return;
       if (proyectoActivo?.id !== proyecto.id) opts.onSeleccionarProyecto?.(proyecto.ruta);
     });
-    // [119A-2 F1] Clic derecho = Copy Path / Edit name / Remove (misma
-    // mecánica de menu.ts que las celdas de conversación).
+    // [119A-2 F1] Clic derecho = Copy Path / Open in Finder / Edit name /
+    // Remove (misma mecánica de menu.ts que las celdas de conversación).
     const depsMenu: MenuProyectoDeps = {
       onRenombrar: (id, nombre) => opts.onRenombrarProyecto?.(id, nombre),
       onEliminar: (id) => opts.onEliminarProyecto?.(id),
+      onRevelar: (id) => opts.onRevelarProyecto?.(id),
     };
     boton.addEventListener('contextmenu', (e) => {
       e.preventDefault();

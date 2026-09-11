@@ -104,6 +104,8 @@ export function transporteTauri(): Transporte {
     workspaceRenombrar: (id, nombre) =>
       invoke<boolean>('workspace_renombrar', { id, nombre }),
     workspaceEliminar: (id) => invoke<boolean>('workspace_eliminar', { id }),
+    // [119A-2 F2] Abrir la carpeta del proyecto en el Explorador (solo app).
+    workspaceRevelar: (id) => invoke<void>('workspace_revelar', { id }),
     workspaceInfo: () => invoke<{ ruta: string; nombre: string }>('workspace_info'),
     workspaceListarEntrada: (ruta, profundidad) =>
       invoke<ListadoWorkspace>('workspace_listar_entrada', { rutaRelativa: ruta, profundidad }),

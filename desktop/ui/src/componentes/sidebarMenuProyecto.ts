@@ -1,6 +1,7 @@
 // [119A-2 F1] Menú contextual del grupo proyecto (Copy Path / Edit name /
-// Remove con confirmación). Mecánica compartida de menu.ts (la misma que las
-// celdas de conversación): sin menús paralelos ni HTML inyectado.
+// Remove con confirmación; F2 añade Open in Finder primero). Mecánica
+// compartida de menu.ts (la misma que las celdas de conversación): sin
+// menús paralelos ni HTML inyectado.
 import type { Workspace } from '../dominio/tipos';
 import {
   abrirMenuContextual,
@@ -14,6 +15,8 @@ import { copiarAlPortapapeles } from '../util/portapapeles';
 export interface MenuProyectoDeps {
   onRenombrar: (id: string, nombre: string) => void;
   onEliminar: (id: string) => void;
+  /** [119A-2 F2] Abre la carpeta del proyecto en el Explorador. */
+  onRevelar: (id: string) => void;
 }
 
 /** Convierte el nombre del grupo en un input inline para renombrar. */
@@ -89,6 +92,17 @@ export function abrirMenuProyecto(opts: {
           onClick() {
             cerrarMenuActual();
             void copiarAlPortapapeles(proyecto.ruta);
+          },
+        }),
+      );
+      // [119A-2 F2] Primero el atajo más usado; cierra el menú y delega al
+      // orquestador (en web el transporte rechaza con aviso visible).
+      m.appendChild(
+        crearItemMenu({
+          texto: 'Open in Finder',
+          onClick() {
+            cerrarMenuActual();
+            deps.onRevelar(proyecto.id);
           },
         }),
       );

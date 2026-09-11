@@ -153,6 +153,10 @@ export function crearAdaptadorReal(hooks: HooksAdaptador = {}, transporte: Trans
         async eliminar(id: string): Promise<boolean> {
           return transporte.workspaceEliminar(id);
         },
+        // [119A-2 F2] Abrir la carpeta en el Explorador (en web rechaza con aviso).
+        async revelar(id: string): Promise<void> {
+          return transporte.workspaceRevelar(id);
+        },
       },
       filesystem: {
         async info(): Promise<{ ruta: string; nombre: string }> {

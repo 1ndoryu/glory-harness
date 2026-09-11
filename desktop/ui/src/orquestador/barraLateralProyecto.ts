@@ -1,12 +1,14 @@
 /* Acciones de proyecto de la barra lateral (extraído de barraLateral.ts [119A-2 F1]).
- * Handlers del menú contextual de proyecto: renombrar y quitar. Todo el
- * estado compartido llega por `deps`; sin importes del orquestador. */
+ * Handlers del menú contextual de proyecto: renombrar, quitar y revelar en
+ * el Explorador. Todo el estado compartido llega por `deps`; sin importes
+ * del orquestador. */
 
 import type { BarraLateralDeps } from './barraLateralTipos';
 
 export interface AccionesProyecto {
   onRenombrarProyecto(id: string, nombre: string): void;
   onEliminarProyecto(id: string): void;
+  onRevelarProyecto(id: string): void;
 }
 
 /** [119A-2 F1] Renombra el proyecto (backend + resync si falla) y quita el
@@ -39,6 +41,18 @@ export function crearAccionesProyecto(deps: BarraLateralDeps): AccionesProyecto 
         } catch (e: unknown) {
           deps.avisar(`no se pudo quitar el proyecto: ${String(e)}`, '', '');
           await deps.resincronizarSidebar();
+        }
+      })();
+    },
+    // [119A-2 F2] Abre la carpeta en el Explorador; sin resync (no muta
+    // estado) y en web el transporte rechaza con aviso visible.
+    onRevelarProyecto(id) {
+      if (!deps.usaReal) return;
+      void (async () => {
+        try {
+          await deps.adaptador.sesion.workspaces.revelar(id);
+        } catch (e: unknown) {
+          deps.avisar(`no se pudo abrir la carpeta: ${String(e)}`, '', '');
         }
       })();
     },

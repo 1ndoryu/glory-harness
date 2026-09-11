@@ -288,6 +288,10 @@ export function crearTransporteApi(base: string, hooks: HooksAdaptador = {}): Tr
       );
       return r.eliminada;
     },
+    // [119A-2 F2] Sin explorador local en web: aviso en vez de simular.
+    workspaceRevelar: async () => {
+      throw new Error('abrir en el Explorador solo está disponible en la app de escritorio');
+    },
     workspaceInfo: async () =>
       http<{ ruta: string; nombre: string }>(
         'GET',
