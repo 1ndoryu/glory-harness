@@ -131,10 +131,18 @@ fixtures que se vuelven obsoletos; referencias que divergen de su upstream.
 
 - F0-jaula cerrada 11-09 (commit `32bf6b6`, gate PASS 446 ok).
 - F1 evidencia completada 11-09 (§11); pendiente gate F1 + commit.
-- Siguiente: F0-protocolo ×3 + F2 flujo 11 pasos — key GloryAPI
-  disponible (solo en chat, sin guardar; gasto 0). BLOQUEO NUEVO: no hay
-  binario CLI runnable y cargo pesado fuera del gate lo bloquea el shim
-  (exit 78); el gate solo compila tests, no el binario.
+- F0-protocolo ×3 cerrado 11-09: 3/3 PASS con modelo real
+  (`--provider glory --modelo auto`, binario debug construido con
+  `cargo build -p glory-harness`, 22 s, sccache). Humo: `dir` en jaula +
+  intento `file_write C:\tmp\fuga-f0.txt` → `Error: ruta bloqueada por el
+  sandbox` en los 3 runs; escritura relativa dentro OK; `comando` exige
+  aprobación y corre tras concederla. Evidencia: `C:\tmp\jaula-f0-chat*.log`.
+  Hallazgos → F4: (a) `run` one-shot no ejecuta tools (aprobación pendiente
+  cierra el turno; el bench F3 necesita vía de aprobación guionizada);
+  (b) en `chat` con stdin guionizado valen respuestas `si`, pero el modelo
+  puede vagar (run 2 creó `prueba.txt` y afirmó existencia falsa antes de
+  autocorregirse) y el presupuesto de pasos corta flujos largos.
+- Siguiente: F2 flujo 11 pasos (misma técnica stdin guionizado).
 
 ## 10. Reto F0/F1 (11-09, verificado contra el código)
 

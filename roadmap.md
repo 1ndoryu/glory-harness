@@ -120,12 +120,12 @@ F1 (Copy Path / Edit name / Remove con confirmación) verificado con
       SWE-bench/Terminal-Bench y construir mini-bench propio congelado con
       25% ciego); F4 corrección en `core` + re-medición; F5 regresión manual.
       Aceptación: F2 11/11 en ≥2 de 3 runs + bench antes/después con costo.
-      Siguiente: F0-protocolo ×3 y luego F2 (F1 cerrada 11-09: matriz en
-      §11 del plan, gate PASS 446 ok; jaula F0 verificada 11-09 tarde con
-      gate: `EjecutorCliente::en_raiz` + cableado en `run`, humo
-      `en_raiz_arranca_los_comandos_en_la_jaula`; bloqueador: sin
-      credencial de modelo utilizable para F0-protocolo/F2;
-      autorizado ciclo local; SSH prohibido).
+      Siguiente: F2 flujo 11 pasos (F0-protocolo ×3 cerrado 11-09 noche:
+      3/3 PASS con glory/auto, sandbox bloquea fuga en los 3 runs,
+      evidencia `C:\tmp\jaula-f0-chat*.log`; `cargo build` SÍ permitido —
+      el guard solo bloquea check/clippy/test/bench/fmt; `run` one-shot no
+      ejecuta tools, `chat` con stdin guionizado sí; autorizado ciclo
+      local; SSH prohibido).
       Plan: `Agente/planes/plan-119A-7-agente-solido-bench-2026-09-11.md`.
 - [x] **F3 — PersistenciaSqlite** (`cli/src/persistencia_sqlite.rs`, 04-09): `AgentPersistence` +
       `ProgramadorTareas` sobre rusqlite bundled (WAL, `%APPDATA%/glory-harness/glory-harness.db`).
