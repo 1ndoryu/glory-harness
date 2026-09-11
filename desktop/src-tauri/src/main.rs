@@ -31,17 +31,20 @@ use glory_harness_core::AgentPersistence;
 use tauri::{AppHandle, Emitter, Manager, State};
 use uuid::Uuid;
 
-mod archivo;
+/* [109A-6] Módulos agrupados por dominio: `src/` estaba en el techo de 10
+ * ficheros planos de `directorio-abarrotado`. Los `use` reexportan los
+ * submódulos con su nombre corto para que las rutas ya escritas en este
+ * fichero (`vault::VaultArchivos`, `turno::enviar_turno`, `git::…`) sigan
+ * siendo válidas: el movimiento no cambia el contrato ni los comandos. */
+mod archivos;
+mod chat;
 mod comandos;
-mod conversaciones;
-mod filesystem;
-mod git;
-mod memoria;
 mod navegador;
+mod proyecto;
 mod sesion;
-mod turno;
-mod vault;
-mod workspaces;
+use archivos::{archivo, filesystem, vault};
+use chat::{conversaciones, turno};
+use proyecto::{git, memoria, workspaces};
 
 /// [039A-3 P3] Tramo rebobinado pendiente de restaurar archivos (acción
 /// EXPLÍCITA tras "volver a punto"; nunca automática). `turnos` son los ids

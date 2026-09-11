@@ -1,6 +1,7 @@
 //! Comandos de turno del desktop (enviar/cancelar + auxiliares F5).
 
-use super::*;
+// [109A-6] El módulo vive en `chat/`: `super` ya no es la raíz del crate.
+use crate::*;
 
 /// Marca el turno como terminado (lo llama la propia tarea al cerrar).
 fn marcar_turno_terminado(estado: &Estado) {

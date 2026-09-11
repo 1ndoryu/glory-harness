@@ -12,7 +12,8 @@ use tauri::State;
 use tokio::io::{AsyncRead, AsyncReadExt};
 use tokio::process::Command;
 
-use super::{area_activa, sesion_actual, Estado, Sesion};
+// [109A-6] El módulo vive en `proyecto/`: `super` ya no es la raíz del crate.
+use crate::{area_activa, sesion_actual, Estado, Sesion};
 
 const GIT_TIMEOUT: Duration = Duration::from_secs(5);
 const MAX_OUTPUT_BYTES: usize = 1024 * 1024;

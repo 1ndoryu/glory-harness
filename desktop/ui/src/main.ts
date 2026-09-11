@@ -16,6 +16,7 @@ import { montarVistaModal } from './orquestador/vistaModal';
 import { ejecutarArranque } from './orquestador/arranque';
 import { crearGanchos } from './orquestador/ganchos';
 import { crearSesionVista } from './orquestador/sesionVista';
+import { crearGestorPaneles } from './orquestador/paneles';
 import { montarVistaBarra } from './orquestador/vistaBarra';
 import { montarVistaMeta } from './orquestador/vistaMeta';
 import './estilos/modalProyecto.css';
@@ -59,13 +60,26 @@ cuerpo.id = 'cuerpo';
 const paneles = el('div');
 paneles.id = 'paneles';
 
+// ---------- Paneles: registro y activación ----------
+/* [109A-6] `panelActivo`/`activarPanel`/`avisoGlobal` viven en
+ * `orquestador/paneles`. Se crean AQUÍ, antes de la barra, porque la barra
+ * recibe `avisar` en su montaje: con una declaración de función bastaba el
+ * hoisting, con el gestor hay que inicializarlo antes de usarlo. La sidebar y
+ * el panel derecho aún no existen y llegan como cierres perezosos de runtime. */
+const panelesRegistrados: PanelChat[] = [];
+const gestorPaneles = crearGestorPaneles({
+  paneles: panelesRegistrados,
+  getSidebar: () => sidebar,
+  getPanelDerecho: () => panelDerecho,
+});
+const { panelActivo, activarPanel, avisoGlobal } = gestorPaneles;
+
 // [089A-3] Barra superior global estilo Synara (toggles + arrastre +
 // botonera caption). Vive en `orquestador/vistaBarra`; los toggles son
 // cierres de runtime (sidebar y panel derecho se crean más abajo).
 const barra = montarVistaBarra({
   alternarSidebar: () => alternarSidebar(),
   alternarPanelDerecho: () => alternarPanelDerecho(),
-  // `avisoGlobal` es declaración de función (hoisted): referencia directa segura.
   avisar: avisoGlobal,
 });
 
@@ -137,34 +151,6 @@ const adaptador = USA_TAURI
 // ---------- Gestión de paneles (1 principal + 0..N laterales) ----------
 // [089A-2] Cada lateral vive en su propia tab `chat:<conversaId>` del panel
 // derecho (multi-chat estilo Paseo): ya no hay límite de 2 paneles.
-const panelesRegistrados: PanelChat[] = [];
-
-function panelActivo(): PanelChat | null {
-  // Último panel enfocado; si ninguno, el principal.
-  return (
-    panelesRegistrados.find((p) => p.raiz.classList.contains('enfocado')) ??
-    panelesRegistrados.find((p) => p.tipo === 'principal') ??
-    null
-  );
-}
-
-function activarPanel(panel: PanelChat | null): void {
-  if (!panel) return;
-  panelesRegistrados.forEach((p) => {
-    if (p !== panel) p.desenfocar();
-  });
-  panel.activar();
-  const id = panel.conversaId;
-  // [069A-7] `null` = borrador (sin conversación): deselecciona la sidebar.
-  if (id) sidebar.seleccionar(id);
-  else sidebar.seleccionar('');
-  // [089A-4] Gating del inicio: "Chat lateral" solo con conversación activa.
-  panelDerecho.fijarInicioChatDisponible(id != null);
-}
-
-function avisoGlobal(texto: string, meta: string, detalle: string): void {
-  panelActivo()?.avisoLocal(texto, meta, detalle);
-}
 
 // Persistencia de preferencias: se resuelve contra el adaptador una vez
 // creado (las llamadas son todas en runtime, tras el montaje).

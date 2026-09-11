@@ -294,25 +294,6 @@ Orden propuesto (dependencias de abajo arriba):
       que ejecute clippy/tests y decidir la configuración de `sccache`
       (`rustc-wrapper` + `SCCACHE_CACHE_SIZE`), hoy en rojo por
       `sccache-no-configurado`.
-- [ ] **109A-6 — Deuda: dividir `main.ts`, `panelDerecho.ts` y `sesion.rs`** (10-09,
-      independiente): el gate sigue marcando `limite-lineas` en
-      `desktop/ui/src/main.ts` (304 efectivas) y
-      `desktop/ui/src/orquestador/panelDerecho.ts` (307 efectivas), por encima
-      del techo de 300 para componentes. Es deuda **preexistente** (ya estaba
-      en 109A-1/109A-2 con 304/307) y 109A-3 solo añadió 1 línea de cableado;
-      extraer responsabilidades sin cambiar comportamiento (p. ej. el montaje
-      del modal y el árbol de paneles) con `tsc` + build verdes. Incluye además
-      la densidad de `desktop/src-tauri/src/`: quedó en **10 archivos** (techo 10)
-      tras `109A-4` F2 (`comandos.rs` → `comandos/mod.rs`), así que el próximo
-      módulo plano disparará `directorio-abarrotado`; toca agrupar por dominio
-      (p. ej. `archivos/` y `sesion/`) en una fase propia.
-      ~~Resuelto (10-09) en el cierre de 109A-4: `cli/src/servicio/sesion.rs` había
-      llegado a 506 efectivas y su subconjunto de compactación se movió a
-      `cli/src/servicio/sesion/compactacion.rs`, con la segunda pasada del gate de vuelta
-      al baseline de 10 warnings.~~
-      Matiz (10-09, ver Notas): el build **compartido** (`902c45e`) sigue marcando ese fichero en
-      506 efectivas, mientras el build que **fija** este repo (`1587c59`) no lo marca; el corte
-      canónico son **2** `limite-lineas` (`main.ts` 304, `panelDerecho.ts` 307).
 
 > **Corte de referencia de los pendientes 109A-7…109A-10** (10-09 11:41Z, `1aff7e0`, con WIP en el
 > árbol): es el corte de la **CONSOLA** (workspace-manager) = **371 hallazgos** (**101 errores** + 269
@@ -325,7 +306,9 @@ Orden propuesto (dependencias de abajo arriba):
 > **Corte del GATE canónico de este repo** (mismo árbol y mismos 224 archivos): `scripts/quality/
 > stages.json` ejecuta Sentinel 0.7.8 @ **`1587c59`** — el commit que este repo fija en
 > `quality-tools.json` (`provisionPath: ../.quality-tools-harness/sentinel`) — y **no ejecuta VarSense**
-> (no hay etapa `varsense`), así que su único corte propio es **0 errores, 10 warnings, 1 hint**.
+> (no hay etapa `varsense`), así que su único corte propio es **0 errores, 8 warnings, 1 hint**
+> (11-09, tras 109A-6: los dos `limite-lineas` —`main.ts` y `panelDerecho.ts`— y la densidad de
+> `desktop/src-tauri/src/` ya están resueltos; el corte anterior era de 10 warnings).
 > Verificado el 10-09 ejecutando los dos binarios sobre el mismo árbol: `902c45e` → **49 errores**;
 > `1587c59` → **0**. Los 49 del corte de consola **ya están corregidos upstream** (`08aaf25`,
 > `axum-ruta-sintaxis-rs` version-aware; `1587c59`, `unwrap-produccion-rs` en fichero solo-test): son

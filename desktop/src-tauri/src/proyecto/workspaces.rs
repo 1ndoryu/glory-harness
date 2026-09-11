@@ -1,6 +1,7 @@
 //! Comandos de workspaces y seleccion de carpeta del desktop.
 
-use super::*;
+// [109A-6] El módulo vive en `proyecto/`: `super` ya no es la raíz del crate.
+use crate::*;
 
 use glory_harness::servicio::{aplicar_en_borrador, comando_desde_payload, ErrorMeta, EstadoMeta};
 
@@ -68,7 +69,7 @@ pub(crate) fn workspaces_listar(estado: State<'_, Estado>) -> Result<ValorWorksp
 }
 
 #[derive(serde::Serialize)]
-pub(super) struct ValorWorkspaces {
+pub(crate) struct ValorWorkspaces {
     workspaces: Vec<Workspace>,
     activa: Option<Workspace>,
 }

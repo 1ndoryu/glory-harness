@@ -6,8 +6,7 @@
  * y solo se invocan desde eventos de UI, fuera de la TDZ. */
 
 import { invoke } from '@tauri-apps/api/core';
-import { el, marcarCuerpo, porId } from '../util/dom';
-import { seguirPuntero } from '../plataforma/ventana';
+import { porId } from '../util/dom';
 import { montarPanelDerecho, type PanelDerecho } from '../componentes/panelDerecho';
 import { montarPanelFiles, type PanelFiles } from '../componentes/panelFiles';
 import { montarPanelGit, type PanelGit } from '../componentes/panelGit';
@@ -15,13 +14,13 @@ import { montarToastGlobal, type ToastGlobal } from '../componentes/toastGlobal'
 import type { PanelChat } from '../componentes/panelChat';
 import type { BarraSuperior } from '../componentes/barraSuperior';
 import type { AdaptadorReal } from '../tauri/real';
+import { crearAnchoPanelDerecho } from './panelDerechoAncho';
 import type { PersistenciaDeps } from './persistencia';
 import {
   CLAVE_LATERAL_ANCHO,
   CLAVE_PANEL_DERECHO,
   guardarSidebar,
   leerPreferencia,
-  leerSidebar,
 } from './persistencia';
 
 /** Núcleo del panel derecho: montaje, adaptador y paneles. */
@@ -80,67 +79,14 @@ export interface PanelDerechoTodo
   extends PanelDerechoPiezas, PanelDerechoVisibilidad, PanelDerechoAperturas {}
 
 export function montarPanelDerechoTodo(deps: PanelDerechoDeps): PanelDerechoTodo {
-  // [089A-2] Divisor vertical arrastrable entre #paneles y el panel derecho.
-  // Vive en #cuerpo (hijo flex de 9px, no absolute) y fija
-  // `--panel-derecho-ancho` en #cuerpo dentro de [260, 70%]; se persiste en
-  // la misma clave de siempre (sigue siendo "el ancho del panel derecho").
+  /* [109A-6] Ancho + grip viven en `panelDerechoAncho` (medir, aplicar y
+   * persistir); aquí solo se monta el divisor y se restaura lo guardado. */
+  const ancho = crearAnchoPanelDerecho({
+    cuerpo: deps.cuerpo,
+    app: deps.app,
+    persistencia: deps.persistencia,
+  });
   let gripPanelDerecho: HTMLElement | null = null;
-  let anchoPanelDerechoFijado: number | null = null;
-  function medirAnchoCuerpo(): number {
-    return deps.cuerpo.getBoundingClientRect().width;
-  }
-  function aplicarPanelDerechoAncho(px: number): void {
-    anchoPanelDerechoFijado = px;
-    deps.cuerpo.style.setProperty('--panel-derecho-ancho', `${px}px`);
-    deps.app.style.setProperty('--panel-derecho-ancho', `${px}px`);
-  }
-  function crearGripPanelDerecho(): HTMLElement {
-    const g = el('div', 'panel-derecho-grip');
-    g.setAttribute('aria-hidden', 'true');
-    let arrastrando = false;
-    g.addEventListener('mousedown', (e) => {
-      e.preventDefault();
-      arrastrando = true;
-      marcarCuerpo('redimensionando-lateral', true);
-    });
-    seguirPuntero(
-      (e) => {
-        if (!arrastrando) return;
-        const rect = deps.cuerpo.getBoundingClientRect();
-        // El panel derecho está ANCLADO al borde derecho de #cuerpo: su ancho
-        // es la distancia del cursor hasta el borde derecho (igual que antes
-        // con el lateral en #paneles).
-        const ancho = rect.right - e.clientX;
-        const MIN = 260;
-        const MAX = Math.round(rect.width * 0.7);
-        const clampeado = Math.min(MAX, Math.max(MIN, Math.round(ancho)));
-        aplicarPanelDerechoAncho(clampeado);
-      },
-      () => {
-        if (!arrastrando) return;
-        arrastrando = false;
-        marcarCuerpo('redimensionando-lateral', false);
-      if (anchoPanelDerechoFijado !== null) {
-        guardarSidebar(deps.persistencia, CLAVE_LATERAL_ANCHO, String(anchoPanelDerechoFijado));
-      }
-    });
-    return g;
-  }
-
-  // Al abrir el panel derecho se restaura el ancho persistido (si cabe en el
-  // 70% disponible).
-  function restaurarPanelDerechoAncho(): void {
-    if (anchoPanelDerechoFijado !== null) return;
-    const base = leerSidebar(deps.persistencia, CLAVE_LATERAL_ANCHO);
-    const anchoCuerpo = medirAnchoCuerpo();
-    const MAX = Math.round(anchoCuerpo * 0.7);
-    let px = Math.round(anchoCuerpo * 0.5); // parte de la mitad
-    if (base) {
-      const n = Number(base);
-      if (Number.isFinite(n)) px = Math.round(Math.min(MAX, Math.max(260, n)));
-    }
-    aplicarPanelDerechoAncho(Math.min(MAX, Math.max(260, px)));
-  }
 
   // Files es un pane único estilo Synara: árbol a la izquierda + preview a la
   // derecha; el preview forma parte del mismo pane.
@@ -219,8 +165,8 @@ export function montarPanelDerechoTodo(deps: PanelDerechoDeps): PanelDerechoTodo
   // Monta el panel derecho en #cuerpo (con su grip) si aún no está.
   function asegurarPanelDerecho(): void {
     if (!gripPanelDerecho) {
-      gripPanelDerecho = crearGripPanelDerecho();
-      restaurarPanelDerechoAncho();
+      gripPanelDerecho = ancho.crearGrip();
+      ancho.restaurar();
     }
     if (!gripPanelDerecho.parentNode) deps.cuerpo.appendChild(gripPanelDerecho);
     if (!panelDerecho.raiz.parentNode) deps.cuerpo.appendChild(panelDerecho.raiz);
@@ -293,13 +239,11 @@ export function montarPanelDerechoTodo(deps: PanelDerechoDeps): PanelDerechoTodo
 
   async function restaurarEstado(): Promise<void> {
     try {
-      const ancho = await leerPreferencia(deps.persistencia, CLAVE_LATERAL_ANCHO);
-      if (ancho) {
-        const n = Number(ancho);
+      const anchoPreferido = await leerPreferencia(deps.persistencia, CLAVE_LATERAL_ANCHO);
+      if (anchoPreferido) {
+        const n = Number(anchoPreferido);
         if (Number.isFinite(n)) {
-          const anchoCuerpo = medirAnchoCuerpo();
-          const max = Math.round(anchoCuerpo * 0.7);
-          aplicarPanelDerechoAncho(Math.min(max, Math.max(260, Math.round(n))));
+          ancho.aplicar(ancho.acotar(n));
         }
       }
       const serializado = await leerPreferencia(deps.persistencia, CLAVE_PANEL_DERECHO);

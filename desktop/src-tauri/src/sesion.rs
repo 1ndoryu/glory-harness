@@ -242,7 +242,8 @@ pub(crate) async fn compactar_conversacion(
         return Err("hay un turno en curso".into());
     }
     let panel = normalizar_panel(panel_id);
-    let conv_id = super::conversaciones::conv_id_de_panel_obligatoria(&sesion, &panel)?;
+    // [109A-6] `conversaciones` vive ahora en el dominio `chat/`.
+    let conv_id = crate::chat::conversaciones::conv_id_de_panel_obligatoria(&sesion, &panel)?;
     let comun = sesion
         .comun
         .lock()

@@ -1,10 +1,13 @@
 //! Comandos CRUD de conversaciones del desktop.
 
-use super::*;
+// [109A-6] El módulo vive en `chat/`: `super` ya no es la raíz del crate.
+use crate::*;
 
 /// [069A-7] Conversación actual de un panel. `Ok(None)` = el panel está en
 /// borrador (sin conversación creada todavía); `Err` = panel inexistente.
-pub(super) fn conv_id_de_panel(sesion: &Sesion, panel_id: &str) -> Result<Option<Uuid>, String> {
+/* [109A-6] `pub(crate)`: antes el módulo colgaba de la raíz y `pub(super)` ya
+alcanzaba todo el crate; sigue usándose desde `main.rs` y `sesion.rs`. */
+pub(crate) fn conv_id_de_panel(sesion: &Sesion, panel_id: &str) -> Result<Option<Uuid>, String> {
     sesion
         .paneles
         .lock()
@@ -19,7 +22,8 @@ pub(super) fn conv_id_de_panel(sesion: &Sesion, panel_id: &str) -> Result<Option
 /// [069A-7] Id de conversación de un panel que DEBE tener una (los turnos
 /// requieren conversación: el front crea antes de enviar). Devuelve error
 /// claro si el panel está en borrador.
-pub(super) fn conv_id_de_panel_obligatoria(
+// [109A-6] `pub(crate)`: se usa desde `chat/turno.rs` y `sesion.rs`.
+pub(crate) fn conv_id_de_panel_obligatoria(
     sesion: &Sesion,
     panel_id: &str,
 ) -> Result<Uuid, String> {
@@ -109,7 +113,7 @@ pub(crate) fn listar_conversaciones(
 }
 
 #[derive(serde::Serialize)]
-pub(super) struct CargaConversacion {
+pub(crate) struct CargaConversacion {
     id: Uuid,
     titulo: String,
     mensajes: Vec<MensajePersistido>,
@@ -418,7 +422,7 @@ pub(crate) fn restaurar_archivos_tramo(
 /// [039A-3 P3] Resultado de la restauración explícita de un tramo, para que
 /// el front muestre qué se restauró y qué se omitió (y por qué).
 #[derive(serde::Serialize)]
-pub(super) struct RestauracionTramo {
+pub(crate) struct RestauracionTramo {
     /// Rutas del tramo que se intentaron restaurar (para el aviso).
     archivos: Vec<String>,
     restaurados: Vec<vault::RestauracionArchivo>,

@@ -14,7 +14,8 @@ use tauri::State;
 use windows::core::PCWSTR;
 use windows::Win32::UI::Shell::{SHOpenWithDialog, OAIF_EXEC, OPENASINFO};
 
-use super::{area_activa, sesion_actual, Estado, Sesion};
+// [109A-6] El módulo vive en `archivos/`: `super` ya no es la raíz del crate.
+use crate::{area_activa, sesion_actual, Estado, Sesion};
 
 const MAX_FILE_BYTES: u64 = 256 * 1024;
 const MAX_ENTRIES: usize = 500;
