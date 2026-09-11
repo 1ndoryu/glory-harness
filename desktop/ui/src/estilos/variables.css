@@ -57,11 +57,6 @@ input,
 textarea,
 select { font-weight: inherit; }
 
-/* ---------- Patrones monocromo ---------- */
-.trama-45  { background-image: repeating-linear-gradient(45deg,  #000 0 1.5px, transparent 1.5px 6px); }
-.trama-135 { background-image: repeating-linear-gradient(-45deg, #000 0 1.5px, transparent 1.5px 6px); }
-.trama-puntos { background-image: radial-gradient(#000 1px, transparent 1.5px); background-size: 4px 4px; }
-
 /* ---------- Iconos lucide (svg en línea, monocromo) ---------- */
 .ic {
     display: inline-block;

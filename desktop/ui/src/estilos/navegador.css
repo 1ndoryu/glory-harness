@@ -3,7 +3,7 @@
    Monocromo estricto, mismo diseño que el resto de la app.
    El panel es el último hijo flex de #cuerpo (anclado a la
    derecha); su ancho lo fija `--navegador-ancho` (px, por defecto
-   480) que arrastra el `.navegador-grip` de su borde izquierdo.
+   480), que hoy nadie ajusta desde JS.
    ============================================================ */
 
 /* Valor por defecto del ancho; el JS lo fija en px al arrastrar y
@@ -30,29 +30,6 @@
    `display:flex` de arriba gana al `[hidden]` del navegador, así que se repone. */
 .panel-navegador[hidden] { display: none; }
 
-/* [069A-2 fix] Área de captura del grip del navegador: igual que los
-   grips de sidebar/lateral, no ocupa layout y se centra sobre el borde
-   izquierdo del panel (línea divisoria con #paneles). #cuerpo es el ancla
-   (position: relative en layout.css). */
-#cuerpo .navegador-grip {
-    position: absolute;
-    top: 0;
-    bottom: 0;
-    /* El navegador ocupa los últimos `--navegador-ancho` px de #cuerpo; su
-       borde izquierdo queda a esa distancia del borde derecho del ancla. */
-    right: var(--navegador-ancho, 480px);
-    width: 9px;
-    transform: translateX(50%);
-    cursor: col-resize;
-    z-index: 5;
-}
-
-body.redimensionando-navegador {
-    cursor: col-resize;
-    user-select: none;
-}
-
-/* Barra URL */
 .nav-url-barra {
     display: flex;
     gap: var(--sp-xs);

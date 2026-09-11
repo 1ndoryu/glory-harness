@@ -123,16 +123,6 @@ html[data-tema='oscuro'] .msg-asis {
     color: var(--texto) !important;
 }
 
-html[data-tema='oscuro'] .trama-45 {
-    background-image: repeating-linear-gradient(45deg, var(--texto) 0 1.5px, transparent 1.5px 6px) !important;
-}
-html[data-tema='oscuro'] .trama-135 {
-    background-image: repeating-linear-gradient(-45deg, var(--texto) 0 1.5px, transparent 1.5px 6px) !important;
-}
-html[data-tema='oscuro'] .trama-puntos {
-    background-image: radial-gradient(var(--texto) 1px, transparent 1.5px) !important;
-}
-
 html[data-tema='oscuro'] .cursor,
 html[data-tema='oscuro'] .panel-meta.corriendo .pm-estado .punto {
     background-color: var(--texto) !important;

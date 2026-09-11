@@ -136,7 +136,6 @@
     opacity: .7;
 }
 .files-abrir { margin-left: auto; }
-.files-visor-aviso[hidden] { display: none; }
 .files-visor-codigo {
     flex: 1;
     min-height: 0;

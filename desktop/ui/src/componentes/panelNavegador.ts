@@ -15,8 +15,8 @@ export type { PanelNavegador, PanelNavegadorOpciones } from './panelNavegadorTip
 
 export function montarPanelNavegador(opts: PanelNavegadorOpciones = {}): PanelNavegador {
   const idP = opts.idPrefijo ?? 'navegador';
-  // El ancho lo controla el CSS (panel-navegador, redimensionable por grip);
-  // la opción se conserva en la interfaz por contrato, hoy es inerte.
+  // El ancho lo fija el CSS (panel-navegador, 480px): no hay grip de arrastre,
+  // así que la opción se conserva en la interfaz por contrato, hoy es inerte.
   void opts.ancho;
 
   // [069A-2 fix] La webview nativa (WebView2 child + IPC de Tauri) solo existe

@@ -284,9 +284,7 @@
         border-left: none;
         border-top: 1px solid var(--borde);
     }
-    /* [039A-3 P6b] En columna el grip vertical no aplica (se oculta) y el
-       lateral recupera flex 1 (ancho completo apilado). */
-    #paneles .lateral-grip { display: none; }
+    /* [039A-3 P6b] En columna el lateral recupera flex 1 (ancho completo apilado). */
     #paneles .chat[data-panel='lateral'] { flex: 1 1 auto; }
 }
 
@@ -401,23 +399,9 @@ body.redimensionando-sidebar {
     user-select: none;
 }
 
-/* ---------- Grip de redimensionado del panel lateral ---------- */
-/* [039A-3 P6b] Cuando hay 2 chats (principal + lateral) se inserta un grip
-   vertical entre ambos; arrastrarlo cambia `--lateral-ancho`.
-   [039A-3 retoque 3] Igual que el de la sidebar: área de captura ABSOLUTA
-   centrada sobre la línea divisoria (border-left de 1px del lateral), sin
-   ocupar layout y sin franja negra al hover/arrastrar. Al encoger la ventana
-   <900px se sigue ocultando (media query de #paneles en columna). */
-#paneles .lateral-grip {
-    position: absolute;
-    top: 0;
-    bottom: 0;
-    right: var(--lateral-ancho);
-    width: 9px;
-    transform: translateX(50%);
-    cursor: col-resize;
-    z-index: 5;
-}
+/* ---------- Arrastre del divisor del panel derecho ---------- */
+/* El panel lateral no tiene grip propio: el único grip de la derecha lo crea
+   `panel-derecho-grip` (`orquestador/panelDerechoAncho.ts`). */
 body.redimensionando-lateral {
     cursor: col-resize;
     user-select: none;

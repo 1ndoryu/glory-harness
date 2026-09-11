@@ -295,7 +295,7 @@ Orden propuesto (dependencias de abajo arriba):
       (`rustc-wrapper` + `SCCACHE_CACHE_SIZE`), hoy en rojo por
       `sccache-no-configurado`.
 
-> **Corte de referencia de los pendientes 109A-7…109A-10** (10-09 11:41Z, `1aff7e0`, con WIP en el
+> **Corte de referencia del bloque 109A** (10-09 11:41Z, `1aff7e0`, con WIP en el
 > árbol): es el corte de la **CONSOLA** (workspace-manager) = **371 hallazgos** (**101 errores** + 269
 > warnings + 1 hint), medido con **VarSense 2.2.1** + **Sentinel del checkout compartido**
 > (`area-trabajo/.quality-tools/sentinel`, 0.7.8 @ `902c45e`). Errores: `cssInlineScript` **52**
@@ -316,21 +316,6 @@ Orden propuesto (dependencias de abajo arriba):
 > **falsos positivos del medidor, no deuda de este repo** (ver 109A-10). De los 101 errores de la
 > consola, **52 son reales** (`cssInlineScript`) y **49 son falsos positivos**.
 
-- [ ] **109A-8 — Retirar el CSS muerto confirmado (`claseHuerfana`, 258 marcas; regla de VarSense)**
-      (10-09, independiente): VarSense 2.2.1 marca 258 clases de `desktop/ui/src/estilos/*.css` como
-      «definida pero no usada», pero **234 de 258 sí se usan** (`el('div','barra-superior')`,
-      `querySelector('.selector-workspace-box')`, plantillas y concatenación tipo
-      `'ic' + (pequeno ? ' ic-xs' : '')`) → falso positivo de una regla **de VarSense** (se reporta al
-      core de VarSense, no al checkout de Sentinel), no deuda del proyecto.
-      Quedan **≤22 candidatos de CSS muerto real**, a confirmar nombre a nombre antes de borrar:
-      `ctx-pista`, `ctx-lleno`, `files-visor-aviso`, `git-adiciones`, `git-eliminaciones`,
-      `git-diff-adicion`, `git-diff-eliminacion`, `barra`, `archivada`, `conv-proyecto`,
-      `lateral-grip`, `redimensionando-sidebar`, `redimensionando-lateral`, `memorias-chip`,
-      `memorias-nota`, `rotulo-cambios`, `navegador-grip`, `redimensionando-navegador`, `trama-45`,
-      `trama-135`, `trama-puntos`, `global`. Ojo: es un **techo**, no una cifra exacta — `ic-xs` e
-      `ic-spin` salían en esa lista y sí se usan por concatenación. No borrar a ciegas ni por parecido:
-      el resto de las 258 es deuda de la regla (109A-10). DoD: cada nombre cotejado con uso real antes
-      de borrar; build UI verde.
 - [ ] **109A-9 — Avisos reales del gate: `console-production` ×8 y `todo-pendiente` ×1**
       (10-09, independiente): los 8 `console.*` están todos en el panel del navegador —
       `panelNavegadorSeleccion.ts` 4 (`console.error` en 77 y 116, `console.warn` en 127 y 131),
@@ -342,8 +327,20 @@ Orden propuesto (dependencias de abajo arriba):
       «todo» en prosa («todo el historial…»); los 4 hint del área son el mismo caso (TASKS,
       RESTAURANTE, coolify-manager-rs). No hay nada que arreglar aquí: va a 109A-10. DoD: 0
       `console-production`; el hint se cierra corrigiendo la regla, no el código.
-- [ ] **109A-10 — Falsos positivos del MEDIDOR: los 49 errores que el gate canónico no cuenta**
+- [ ] **109A-10 — Falsos positivos del MEDIDOR (`unwrap-produccion-rs`, `axum-ruta-sintaxis-rs`, `claseHuerfana`)**
       (10-09; **no hay nada que arreglar en este repo**, la acción es de `workspace-manager`):
+      **suma la familia `claseHuerfana` de VarSense** (tras 109A-8: la medición de `orphan-classes`
+      sobre `desktop/ui/src/estilos` da **302 marcas**, y el cotejo nombre a nombre no encuentra
+      ninguna otra sin uso fuera de las hojas; las 7 que sí eran CSS muerto real se retiraron en esa
+      tarea). Dos casos confirmados al cotejar en 109A-8: (i) **composición por plantilla** —
+      `gitDiff.ts` escribe `` `git-diff-linea git-diff-${tipo}` `` con
+      `tipo ∈ {adicion, eliminacion, contexto}`, así que `.git-diff-adicion` y `.git-diff-eliminacion`
+      sí se aplican y la regla no las resuelve; (ii) **concatenación por ternario** —
+      `'ic' + (pequeno ? ' ic-xs' : '')`, ya conocida.
+      Ojo al alcance de la medición: `orphan-classes` barre el workspace entero (**4516 archivos hoy**,
+      `data/referencias-cli/**` incluido), así que su total global no es comparable con el corte de la
+      consola de 10-09 (258 marcas sobre 224 archivos); el número útil es el recuento por carpeta
+      propia.
       **49 de los 101 errores del corte de consola no son defectos de este código y ya están
       corregidos upstream.** (a) `unwrap-produccion-rs` ×30 — `cli/src/comandos/web_datos/pruebas.rs`
       (24) y `core/src/herramientas/navegador/pruebas.rs` (6); los dos son módulos solo-test con
