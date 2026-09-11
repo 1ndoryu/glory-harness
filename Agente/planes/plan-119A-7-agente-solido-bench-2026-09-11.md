@@ -129,6 +129,12 @@ fixtures que se vuelven obsoletos; referencias que divergen de su upstream.
 
 ## 9. Estado y siguiente paso
 
+- F0-jaula cerrada 11-09 (commit `32bf6b6`, gate PASS 446 ok).
+- F1 evidencia completada 11-09 (§11); pendiente gate F1 + commit.
+- Siguiente: F0-protocolo ×3 + F2 flujo 11 pasos — BLOQUEADO por
+  credencial de modelo (`LlavesProveedor::from_env` no consume
+  `GEMINI_API_KEY`; resto de keys ausentes).
+
 ## 10. Reto F0/F1 (11-09, verificado contra el código)
 
 Sin código tocado; correcciones al plan antes de arrancar:
@@ -173,3 +179,99 @@ puntos 1–6 incorporados. Sin cambios en fases, gate ni DoD.
 solo lectura). **AUTORIZADO PARA EJECUTAR** el ciclo local (investigar,
 editar, probar, gate, commit) cuando se arranque; nunca deploy ni
 escrituras fuera de la jaula; SSH prohibido siempre.
+
+## 11. F1 matriz contrato (11-09, solo lectura, sin código tocado)
+
+Ejes §2 × 5 referencias. Rutas de evidencia bajo
+`data/referencias-cli/<ref>/` (intocable).
+
+**Herramientas.** Glory: registro+permisos en `tool.rs`, `mcp.rs`,
+`skill.rs`, `navegador/`, planes/todo/tareas (53 `impl AgentTool`).
+opencode `packages/opencode/src/tool/` (bash,read,edit,write,glob,
+grep,list,patch,todowrite,todoread,webfetch,websearch,task,skill) con
+descripción+límite+truncado. grok `src/tools/` (bash,file,grep,
+schedule,computer). claurst `src-rust/crates/tools/src/` (41 ficheros:
+agent_tool,apply_patch,ask_user,batch_edit,brief,bundled_skills,
+computer_use,config_tool,cron,enter/exit_plan_mode,file_*,
+formatter,glob,goal_complete,grep,lsp_tool,mcp_auth,mcp_resources,
+monitor_tool,notebook_edit,powershell,pty_bash,remote_trigger,
+repl_tool,send_message,skill_tool,sleep,synthetic_output,tasks,
+team_tool,todo_write,tool_search,web_fetch,web_search,worktree).
+hermes `tools/*.py` con auto-descubrimiento (`registry.py`,
+`discover_builtin_tools`, `check_fn` reachability, todo toolset
+debe nombrar la tool para exponerla). vscode `LanguageModelToolsService`
++ toolsets por modelo (`chatToolPicker.ts`, `toolSetsContribution`).
+Pareja candidata F4: `monitor_tool`, `lsp_tool`, `worktree` (glory YA
+tiene `ask_user`: `contrato/evento.rs:88`, `cli/src/ui/chat.rs:457).
+
+**Delegación/subagentes — GAP GRANDE.** opencode `task` (subagentes).
+grok `agent/delegations.ts` + hooks `SubagentStart/Stop`, hijos en modo
+ask (`agent.ts:1212`). hermes `delegate_tool.py` (roles leaf/
+orchestrator, `max_spawn_depth` 2, `max_concurrent_children` 3,
+completions async, handoff de procesos al padre). claurst `team_tool.rs`
++ `send_message.rs` + `remote_trigger.rs`. Glory: nada equivalente.
+
+**Permisos/allowlist — GAP PARCIAL.** opencode allow/ask/deny +
+denylist de paths en sandbox. hermes `approvals suggest/test/--apply`
+(mina session DB → propone `command_allowlist`, dry-run del veredicto
+contra guards reales: blocklist, deny rules, dangerous-patterns,
+yolo/off). vscode include/exclude de toolsets (`chatActions.ts:1607`).
+Glory tiene clasificación+aprobación pero sin allowlist persistente,
+sin dry-run, sin minería de aprobaciones pasadas.
+
+**Modos — GAP GRANDE.** grok `AgentMode agent|plan|ask`
+(`types/index.ts:244`). vscode `ChatModeKind Ask|Edit|Agent`
+(`common/constants.js`). claurst `enter/exit_plan_mode.rs`. opencode
+modos build/plan. Glory: sin modos.
+
+**Sandbox.** Glory F0: cwd fijado (ver §10.5). grok `SandboxMode
+off|shuru` (`utils/settings.ts:16`) + `workspace-trust.ts`; `BashTool`
+con cwd propio, fondo máx 8 con logPath (`tools/bash.ts:11-12`).
+opencode sandbox = timeout/workdir/denylist. hermes backends
+local/docker/ssh/modal/daytona/singularity
+(`tools/terminal_tool_backends.py`, `environments/`). Pareja F4:
+perfiles de sandbox; backends remotos descartados (CLI local).
+
+**Skills — GAP (verificar `skill.rs`).** opencode `skills/` + frontmatter
++ `skills.sh`. grok `utils/skills.ts`. hermes `skills/` +
+`agent/curator*.py` + gate `write_approval` (staging en
+`pending/{memory,skills}/` para review). claurst `bundled_skills.rs` +
+`skill_tool.rs`. Glory `skill.rs` existe: F1 debe medir cobertura vs
+esto, no asumir ausencia.
+
+**Memoria — PARIDAD PARCIAL.** Glory tiene memoria. hermes MEMORY.md +
+USER.md + `write_approval` + curator; opencode MEMORY.md. Pareja F4:
+gate de escritura + curaduría, no el almacén.
+
+**Compactación — PARIDAD.** Glory auto+manual+PreCompact (§10.2). grok
+`agent/compaction.ts` + hooks Pre/PostCompact; hermes compression +
+curator. F2-paso 9 mide calidad.
+
+**Rewind — GAP PARCIAL (ya candidato §10.3).** Ninguna referencia
+expone undo de archivos al modelo como primitiva con checkpoint;
+glory lo tiene interno. F4: exponer driver.
+
+**Cron — PARIDAD.** Glory `ScheduleTarea` (119A-6). grok
+`tools/schedule.ts` (`ScheduleManager`). hermes `cronjob` tool + `cron/`.
+claurst `cron.rs`.
+
+**MCP — VERIFICAR (`mcp.rs` existe).** grok `buildMcpToolSet` +
+`mcp/runtime`. hermes cliente MCP + catálogo. claurst crate `mcp/`.
+opencode servidores MCP. Medir si `mcp.rs` glory es cliente completo
+o solo tipos.
+
+**Hooks — GAP PARCIAL.** Glory tiene hooks + PreCompact. grok:
+SessionStart/End, UserPromptSubmit, TaskCreated/Completed,
+SubagentStart/Stop, Stop(Failure), Notification. hermes gateway hooks
+always-registered. Pareja F4: ampliar catálogo.
+
+**Salida/truncado — VERIFICAR.** opencode truncado con marcas;
+grok `MAX_TAIL_BYTES` 8192. Medir qué hace glory con salidas largas.
+
+**Top-10 por impacto (candidatos F4, a confirmar en F2/F3):**
+1 modos ask/plan/agent; 2 delegación task/subagentes; 3 skills +
+curaduría + gate escritura; 4 allowlist/denylist + dry-run + minería;
+5 MCP (si `mcp.rs` incompleto); 6 rewind expuesto; 7 hooks ampliados;
+8 truncado con marcas (si falta); 9 sesiones multi + conteo tokens
+(verificar vs `SessionStore` grok); 10 monitor/lsp/worktree
+(menor; `ask_user` ya existe). Descartado: backends remotos, telemetría, skins.
