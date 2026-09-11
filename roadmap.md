@@ -120,7 +120,8 @@ F1 (Copy Path / Edit name / Remove con confirmación) verificado con
       SWE-bench/Terminal-Bench y construir mini-bench propio congelado con
       25% ciego); F4 corrección en `core` + re-medición; F5 regresión manual.
       Aceptación: F2 11/11 en ≥2 de 3 runs + bench antes/después con costo.
-      Siguiente: F0 y luego F1 (autorizado ciclo local; SSH prohibido).
+      Siguiente: F0 y luego F1 (retado 11-09, ver §10 del plan;
+      autorizado ciclo local; SSH prohibido).
       Plan: `Agente/planes/plan-119A-7-agente-solido-bench-2026-09-11.md`.
 - [x] **F3 — PersistenciaSqlite** (`cli/src/persistencia_sqlite.rs`, 04-09): `AgentPersistence` +
       `ProgramadorTareas` sobre rusqlite bundled (WAL, `%APPDATA%/glory-harness/glory-harness.db`).
