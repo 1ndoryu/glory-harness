@@ -26,6 +26,11 @@
     font-size: var(--xs);
 }
 
+/* La nota de ruta del modo web nace oculta y solo aparece cuando el usuario ya
+   usó el picker (modalProyecto.ts). `display:flex` gana al `[hidden]` del
+   navegador, así que hay que reponerlo explícitamente. */
+.proyecto-modal-label[hidden] { display: none; }
+
 .proyecto-modal-input {
     border: 1px solid #000;
     background: #fff;

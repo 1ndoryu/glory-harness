@@ -44,7 +44,7 @@ export function crearControlesNav(idP: string, esTauri: boolean): NodosNav {
   const raiz = el('section');
   raiz.className = 'panel-navegador';
   raiz.id = `${idP}-panel`;
-  raiz.style.display = 'none'; // oculto por defecto
+  raiz.hidden = true; // oculto por defecto (navegador.css respeta [hidden])
 
   // Barra de URL.
   const barraURL = el('div', 'nav-url-barra');
@@ -93,7 +93,7 @@ export function crearControlesNav(idP: string, esTauri: boolean): NodosNav {
   // Captura (imagen previsualizada).
   const capturaArea = el('div', 'nav-captura');
   capturaArea.id = `${idP}-captura`;
-  capturaArea.style.display = 'none';
+  capturaArea.hidden = true;
   const imgCaptura = el('img') as HTMLImageElement;
   imgCaptura.id = `${idP}-captura-img`;
   imgCaptura.alt = 'Captura del navegador';

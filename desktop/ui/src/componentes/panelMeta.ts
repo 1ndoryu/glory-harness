@@ -120,11 +120,10 @@ export function montarPanelMeta(opts: PanelMetaOpciones): PanelMeta {
   let hayTurno = false;
 
   /** [039A-1 04-09 H1] Aplica la clase `.oculto` (display:none) sin colisión
-   * con las clases de estado (corriendo/pausado/inactivo) ni margin colgando. */
+   * con las clases de estado (corriendo/pausado/inactivo) ni margin colgando:
+   * la hoja apaga el panel y anula su `margin-bottom` en la misma regla. */
   function pintarVisible(): void {
     raiz.classList.toggle('oculto', oculto);
-    // El panel oculto no debe dejar el hueco del margin-bottom en #entrada.
-    raiz.style.marginBottom = oculto ? '0' : '';
   }
 
   function pintar(): void {
@@ -147,22 +146,19 @@ export function montarPanelMeta(opts: PanelMetaOpciones): PanelMeta {
   });
 
   // ---- expansión: colapsado 1 línea → al enfocar crece hasta 3 líneas ----
+  // El textarea no crece solo: se mide `scrollHeight` y se publica como
+  // variable. La hoja aplica el alto y deja el scroll para el caso recortado.
+  const LINEAS_MAX_META = 3;
   function pintarAltura(): void {
-    if (raiz.classList.contains('expandido')) {
-      meta.style.height = 'auto';
-      const lh = parseFloat(getComputedStyle(meta).lineHeight) || 18;
-      const max = lh * 3;
-      if (meta.scrollHeight > max) {
-        meta.style.height = max + 'px';
-        meta.style.overflowY = 'auto';
-      } else {
-        meta.style.height = meta.scrollHeight + 'px';
-        meta.style.overflowY = 'hidden';
-      }
-    } else {
-      meta.style.height = '';
-      meta.style.overflowY = 'hidden';
+    if (!raiz.classList.contains('expandido')) {
+      meta.style.removeProperty('--pm-alto');
+      return;
     }
+    meta.style.setProperty('--pm-alto', 'auto');
+    const lh = parseFloat(getComputedStyle(meta).lineHeight) || 18;
+    const max = lh * LINEAS_MAX_META;
+    const alto = meta.scrollHeight > max ? max : meta.scrollHeight;
+    meta.style.setProperty('--pm-alto', `${alto}px`);
   }
   meta.addEventListener('input', pintarAltura);
   meta.addEventListener('focus', () => {

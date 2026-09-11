@@ -55,10 +55,12 @@ export function crearMenuComandos(deps: MenuComandosDeps): MenuComandosPanel {
     // El compositor vive al fondo, así que casi siempre hay más sitio arriba.
     const espacioAbajo = vh - rect.bottom - margen;
     const top = alto <= espacioAbajo ? rect.bottom + 4 : Math.max(margen, rect.top - alto - 4);
-    raiz.style.top = `${top}px`;
+    // Anclaje medido contra el rect del textarea y el viewport: no es diseño,
+    // así que viaja como variable y la hoja lo aplica (ver menuComandos.css).
+    raiz.style.setProperty('--menu-cmd-top', `${top}px`);
     let left = rect.left;
     if (left + ancho > vw - margen) left = Math.max(margen, vw - ancho - margen);
-    raiz.style.left = `${left}px`;
+    raiz.style.setProperty('--menu-cmd-left', `${left}px`);
   }
 
   function pintar(): void {

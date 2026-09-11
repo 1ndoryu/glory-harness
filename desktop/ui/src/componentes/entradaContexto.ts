@@ -146,10 +146,11 @@ export function crearIndicadorContexto(): IndicadorContexto {
       espacioAbajo < altura && rect.top > altura + margen ? rect.top - altura - 4 : rect.bottom + 4;
     if (top < margen) top = margen;
     if (top + altura > vh - margen) top = vh - altura - margen;
-    d.style.top = top + 'px';
+    // Posición medida (no de diseño): viaja como variable y la hoja la aplica.
+    d.style.setProperty('--ctx-detalle-top', `${top}px`);
     let left = rect.left;
     if (left + ancho > vw - margen) left = Math.max(margen, vw - ancho - margen);
-    d.style.left = left + 'px';
+    d.style.setProperty('--ctx-detalle-left', `${left}px`);
   }
 
   function alClicFueraDetalle(): void {
@@ -176,8 +177,9 @@ export function crearIndicadorContexto(): IndicadorContexto {
   /** Abre el pequeño menú de detalle bajo el círculo (hover/enfoque). */
   function abrirDetalle(): void {
     cerrarDetalle();
+    // Nace oculto por la hoja (`visibility`, para poder medirlo) y `.visible`
+    // lo destapa al final, ya colocado.
     const d = el('div', 'ctx-detalle');
-    d.style.visibility = 'hidden';
     construirDetalle(d);
     cuerpo().appendChild(d);
     posicionarDetalle(d, indicador.getBoundingClientRect());
@@ -187,7 +189,7 @@ export function crearIndicadorContexto(): IndicadorContexto {
     alRedimensionar(alCambioLayoutDetalle);
     alDesplazar(alCambioLayoutDetalle);
     alDesenfocar(alCambioLayoutDetalle);
-    d.style.visibility = '';
+    d.classList.add('visible');
   }
 
   pintarContexto({ pct: null, maxVentana: null, reservaSalida: null, totalEntrada: null });

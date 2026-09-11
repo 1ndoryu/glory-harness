@@ -26,6 +26,10 @@
     overflow: hidden;
 }
 
+/* El panel arranca oculto y lo muestra `mostrar()` (panelNavegador.ts). El
+   `display:flex` de arriba gana al `[hidden]` del navegador, así que se repone. */
+.panel-navegador[hidden] { display: none; }
+
 /* [069A-2 fix] Área de captura del grip del navegador: igual que los
    grips de sidebar/lateral, no ocupa layout y se centra sobre el borde
    izquierdo del panel (línea divisoria con #paneles). #cuerpo es el ancla
@@ -149,6 +153,19 @@ body.redimensionando-navegador {
     background: var(--fondo);
     max-height: 300px;
     overflow: auto;
+}
+
+/* Igual que el panel: oculta hasta que hay una captura que previsualizar. */
+.nav-captura[hidden] { display: none; }
+
+/* Canvas de anotaciones sobre la captura (069A-1 F4). El HWND nativo de la
+   webview queda por encima, así que se anota sobre el PNG y no en vivo. La
+   proporción real de la imagen la publica anotaciones.ts como variable;
+   oculto mientras no haya nada que anotar. */
+.nav-anotaciones {
+    width: 100%;
+    height: auto;
+    aspect-ratio: var(--anotaciones-aspecto, 4 / 3);
 }
 
 .nav-captura img {

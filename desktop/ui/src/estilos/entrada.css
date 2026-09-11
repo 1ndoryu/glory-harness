@@ -76,7 +76,12 @@
     font-weight: inherit;
     line-height: 1.45;
     padding: 0;
-    overflow-y: hidden;
+    /* Autoexpandible hasta 5 líneas: el alto lo mide `ajustarEntrada()`
+       (entradaBarras.ts) contra `scrollHeight` y lo publica como variable;
+       aquí solo se aplica. Con `auto` el scrollbar sale justo cuando el texto
+       supera el tope. */
+    height: var(--entrada-alto, auto);
+    overflow-y: auto;
 }
 /* barra de controles bajo el textarea, dentro de la misma caja */
 .entrada .controles {
@@ -198,7 +203,15 @@
     color: #000;
     white-space: nowrap;
     pointer-events: none;
+    /* Nace oculto y `.visible` lo destapa al final de abrirDetalle(), ya
+       colocado. Se usa `visibility` (no `display:none`) porque el detalle se
+       MIDE antes de posicionarse; la posición es una medida en runtime y
+       llega por variable: ver entradaContexto.ts. */
+    visibility: hidden;
+    top: var(--ctx-detalle-top, auto);
+    left: var(--ctx-detalle-left, auto);
 }
+.ctx-detalle.visible { visibility: visible; }
 .ctx-detalle-titulo {
     opacity: 0.6;
     margin-bottom: 4px;
@@ -253,7 +266,16 @@
     border: 1px solid #000;
     min-width: 230px;
     padding: 4px 0;
+    /* Nace oculto y `.visible` lo destapa al final de abrirMenuContextual(),
+       ya posicionado. Con `visibility` (no `display:none`) el menú se puede
+       MEDIR antes de colocarlo: es lo que hace posible el vuelco sin
+       parpadeo. La posición es una medida en runtime, así que llega por
+       variable y no como estilo inline (ver menu.ts). */
+    visibility: hidden;
+    top: var(--menu-ctx-top, auto);
+    left: var(--menu-ctx-left, auto);
 }
+.menu-ctx.visible { visibility: visible; }
 .menu-ctx .menu-grupo { position: relative; }
 .menu-ctx .menu-item {
     display: flex;
@@ -293,6 +315,11 @@
     z-index: 101;
 }
 .menu-ctx .menu-sub.voltear { left: auto; right: 100%; margin-left: 0; margin-right: -1px; }
+/* Estado del submenú de un proveedor: `abierto` lo pinta (hover sobre la fila)
+   y `abajo` lo ancla al borde inferior de la fila cuando no cabe debajo. Antes
+   los tres valores los escribía selectorModelo.ts como estilo inline. */
+.menu-ctx .menu-sub.abierto { display: block; }
+.menu-ctx .menu-sub.abajo { top: auto; bottom: 0; }
 .menu-ctx .menu-grupo:hover > .menu-item,
 .menu-ctx .menu-grupo:hover > .menu-sub .menu-item:hover { background: #000; color: #fff; }
 

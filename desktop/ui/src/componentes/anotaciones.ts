@@ -50,10 +50,11 @@ export function crearAnotacionesUI(ancho = 800, alto = 600): AnotacionesUI {
   canvas.width = ancho;
   canvas.height = alto;
   canvas.className = 'nav-anotaciones';
-  canvas.style.width = '100%';
-  canvas.style.height = 'auto';
-  canvas.style.aspectRatio = `${ancho} / ${alto}`;
-  canvas.style.display = 'none'; // oculto hasta que haya anotaciones
+  // El tamaño base (100% del ancho, alto automático) lo declara `navegador.css`.
+  // La proporción sale del tamaño de la imagen, así que viaja como variable:
+  // la hoja decide cómo aplicarla.
+  canvas.style.setProperty('--anotaciones-aspecto', `${ancho} / ${alto}`);
+  canvas.hidden = true; // oculto hasta que haya anotaciones
 
   const ctx = canvas.getContext('2d');
   if (!ctx) throw new Error('no se pudo crear el contexto 2D del canvas');
@@ -61,8 +62,8 @@ export function crearAnotacionesUI(ancho = 800, alto = 600): AnotacionesUI {
   function dibujar(anotaciones: Anotacion[], imgW: number, imgH: number): void {
     canvas.width = imgW;
     canvas.height = imgH;
-    canvas.style.aspectRatio = `${imgW} / ${imgH}`;
-    canvas.style.display = '';
+    canvas.style.setProperty('--anotaciones-aspecto', `${imgW} / ${imgH}`);
+    canvas.hidden = false;
 
     if (!ctx) return;
     ctx.clearRect(0, 0, imgW, imgH);
@@ -87,7 +88,7 @@ export function crearAnotacionesUI(ancho = 800, alto = 600): AnotacionesUI {
   function limpiar(): void {
     if (!ctx) return;
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    canvas.style.display = 'none';
+    canvas.hidden = true;
   }
 
   return { canvas, dibujar, limpiar };

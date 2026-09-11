@@ -35,7 +35,7 @@ export function montarPanelNavegador(opts: PanelNavegadorOpciones = {}): PanelNa
 
   function actualizarCaptura(base64: string): void {
     imgCaptura.src = `data:image/png;base64,${base64}`;
-    capturaArea.style.display = '';
+    capturaArea.hidden = false;
   }
 
   async function invocarNavegadorComando(
@@ -159,7 +159,7 @@ export function montarPanelNavegador(opts: PanelNavegadorOpciones = {}): PanelNa
   });
 
   n.cerrarCaptura.addEventListener('click', () => {
-    capturaArea.style.display = 'none';
+    capturaArea.hidden = true;
     imgCaptura.src = '';
   });
 
@@ -167,7 +167,7 @@ export function montarPanelNavegador(opts: PanelNavegadorOpciones = {}): PanelNa
     raiz,
     contenedor,
     mostrar(visible: boolean) {
-      raiz.style.display = visible ? '' : 'none';
+      raiz.hidden = !visible;
       if (visible) {
         ventanaAbierta = true;
       } else {

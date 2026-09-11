@@ -80,8 +80,9 @@ export function abrirMenuContextual(opts: {
 }): void {
   cerrarMenuActual();
 
+  // La hoja deja el menú en `visibility: hidden` (no `display: none`: hay que
+  // poder medirlo) y `.visible` lo destapa al final, ya posicionado.
   const m = el('div', 'menu-ctx');
-  m.style.visibility = 'hidden'; // se mide y posiciona antes de pintar (sin parpadeo)
   opts.construir(m);
   cuerpo().appendChild(m);
 
@@ -100,11 +101,13 @@ export function abrirMenuContextual(opts: {
       : opts.rect.bottom + 4;
   if (top < margen) top = margen;
   if (top + altura > vh - margen) top = vh - altura - margen; // cota de seguridad
-  m.style.top = top + 'px';
+  // La posición sale de una MEDIDA (rect del ancla y tamaño del menú), no del
+  // diseño: se publica como variable y la hoja decide cómo aplicarla.
+  m.style.setProperty('--menu-ctx-top', `${top}px`);
 
   let left = opts.rect.left;
   if (left + ancho > vw - margen) left = Math.max(margen, vw - ancho - margen);
-  m.style.left = left + 'px';
+  m.style.setProperty('--menu-ctx-left', `${left}px`);
 
   const quitar = () => {
     m.remove();
@@ -137,5 +140,5 @@ export function abrirMenuContextual(opts: {
   alRedimensionar(alRedimension);
   alDesenfocar(alPerderFoco);
 
-  m.style.visibility = '';
+  m.classList.add('visible');
 }

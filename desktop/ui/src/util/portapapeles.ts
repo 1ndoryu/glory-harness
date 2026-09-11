@@ -16,10 +16,10 @@ export async function copiarAlPortapapeles(texto: string): Promise<void> {
     // fallthrough al fallback
   }
   // fallback para contextos no seguros / permisos denegados
-  const ta = el('textarea') as HTMLTextAreaElement;
+  // El textarea vive fuera de pantalla por clase (`.copia-temporal`);
+  // `select()` no necesita que se vea.
+  const ta = el('textarea', 'copia-temporal') as HTMLTextAreaElement;
   ta.value = texto;
-  ta.style.position = 'fixed';
-  ta.style.opacity = '0';
   cuerpo().appendChild(ta);
   ta.select();
   document.execCommand?.('copy');

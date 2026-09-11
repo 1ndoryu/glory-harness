@@ -299,7 +299,8 @@ Orden propuesto (dependencias de abajo arriba):
 > árbol): es el corte de la **CONSOLA** (workspace-manager) = **371 hallazgos** (**101 errores** + 269
 > warnings + 1 hint), medido con **VarSense 2.2.1** + **Sentinel del checkout compartido**
 > (`area-trabajo/.quality-tools/sentinel`, 0.7.8 @ `902c45e`). Errores: `cssInlineScript` **52**
-> (VarSense) · `unwrap-produccion-rs` **30** (Sentinel) · `axum-ruta-sintaxis-rs` **19** (Sentinel).
+> (VarSense; **0 en este repo desde 109A-7**, 11-09) · `unwrap-produccion-rs` **30** (Sentinel) ·
+> `axum-ruta-sintaxis-rs` **19** (Sentinel).
 > Warnings: `claseHuerfana` **258** (VarSense) · `console-production` **8** (Sentinel) ·
 > `limite-lineas` **3** (Sentinel). Las cifras se mueven con el WIP (el mismo día: 366/102 → 371/101),
 > así que lo estable es la familia y el veredicto de cada una, no el número.
@@ -315,22 +316,6 @@ Orden propuesto (dependencias de abajo arriba):
 > **falsos positivos del medidor, no deuda de este repo** (ver 109A-10). De los 101 errores de la
 > consola, **52 son reales** (`cssInlineScript`) y **49 son falsos positivos**.
 
-- [ ] **109A-7 — Sacar los estilos inline del TS (`cssInlineScript`, 52 errores reales de VarSense)**
-      (10-09, independiente; regla de **VarSense 2.2.1**, que el gate de este repo **no ejecuta** — no
-      hay etapa `varsense` en `scripts/quality/stages.json`, así que esta familia nunca aparece en su
-      reporte): **52 de 52 verificados 1:1 contra el código** (aplicando el desfase de
-      línea, ver Notas) — cero falsos positivos. Reparto por fichero: `componentes/panelMeta.ts` 8,
-      `anotaciones.ts` 7, `selectorModelo.ts` 7, `entradaBarras.ts` 5, `entradaContexto.ts` 4,
-      `menu.ts` 4, `plataforma/webview.ts` 4, `modalProyecto.ts` 3, `panelNavegador.ts` 3,
-      `menuComandos.ts` 2, `panelNavegadorControles.ts` 2, `util/portapapeles.ts` 2, `panelChat.ts` 1.
-      Remedio: clase CSS + variables del sistema (regla del proyecto: prohibido estilo literal en
-      componentes; CSS en ficheros separados y clases en español camelCase). Candidatos a excepción
-      justificada con `sentinel-disable` en vez de refactor: los valores que dependen de una **medida
-      en tiempo de ejecución** y no de diseño — ocultar antes de medir el menú contextual (`menu.ts`,
-      `menuComandos.ts`) y el textarea fuera de pantalla de `util/portapapeles.ts` (`position:fixed`).
-      DoD: 0 `cssInlineScript`; `tsc --noEmit` + build UI verdes; verificación visual del menú
-      contextual, el panel meta y el selector de modelo. Crear plan activo al abordarlo (13 ficheros
-      con verificación visual lo justifican).
 - [ ] **109A-8 — Retirar el CSS muerto confirmado (`claseHuerfana`, 258 marcas; regla de VarSense)**
       (10-09, independiente): VarSense 2.2.1 marca 258 clases de `desktop/ui/src/estilos/*.css` como
       «definida pero no usada», pero **234 de 258 sí se usan** (`el('div','barra-superior')`,

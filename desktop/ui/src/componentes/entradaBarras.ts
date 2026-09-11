@@ -151,18 +151,16 @@ export function crearBarrasEntrada(deps: BarrasEntradaDeps): BarrasEntrada {
   }
 
   // ---------- textarea autoexpandible (máx 5 líneas) ----------
+  // El alto nace de una medida (`scrollHeight`), no del diseño: se publica como
+  // variable y lo aplica `entrada.css`. El tope se calcula aquí porque depende
+  // del `line-height` ya resuelto por el navegador.
   function ajustarEntrada(): void {
-    textarea.style.height = 'auto';
+    textarea.style.setProperty('--entrada-alto', 'auto');
     const lh = getComputedStyle(textarea).lineHeight;
     const linea = lh === 'normal' ? 18 : parseFloat(lh);
     const max = linea * 5;
-    if (textarea.scrollHeight > max) {
-      textarea.style.height = max + 'px';
-      textarea.style.overflowY = 'auto';
-    } else {
-      textarea.style.height = textarea.scrollHeight + 'px';
-      textarea.style.overflowY = 'hidden';
-    }
+    const alto = textarea.scrollHeight > max ? max : textarea.scrollHeight;
+    textarea.style.setProperty('--entrada-alto', `${alto}px`);
   }
   textarea.addEventListener('input', ajustarEntrada);
   ajustarEntrada();

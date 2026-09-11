@@ -102,20 +102,20 @@ export function montarSelectorModelo(opts: SelectorModeloOpciones): SelectorMode
         });
 
         // ---- anclar cada submenú a la fila de su proveedor (con vuelco) ----
+        // El estado del submenú es discreto (abierto, volteado en horizontal,
+        // anclado abajo) y por eso vive en clases: la hoja decide dónde queda
+        // cada uno. `.menu-grupo` ya es `position: relative` en la hoja, que es
+        // el ancla del submenú absoluto.
         const margen = 8;
         const vw = anchoVentana();
         const vh = altoVentana();
         const ocultarSub = (sub: HTMLElement) => {
-          sub.style.display = 'none';
-          sub.style.top = '';
-          sub.style.bottom = '';
-          sub.classList.remove('voltear');
+          sub.classList.remove('abierto', 'abajo', 'voltear');
         };
         grupos.forEach(({ g, sub }) => {
-          g.style.position = 'relative';
           g.addEventListener('mouseenter', () => {
             grupos.forEach(({ sub: s }) => ocultarSub(s));
-            sub.style.display = 'block';
+            sub.classList.add('abierto');
             const fila = g.getBoundingClientRect();
             const subAlto = sub.offsetHeight;
             const subAncho = sub.offsetWidth;
@@ -123,8 +123,7 @@ export function montarSelectorModelo(opts: SelectorModeloOpciones): SelectorMode
               sub.classList.add('voltear');
             }
             if (fila.bottom + subAlto > vh - margen && fila.top - subAlto > margen) {
-              sub.style.top = 'auto';
-              sub.style.bottom = '0';
+              sub.classList.add('abajo');
             }
           });
           g.addEventListener('mouseleave', () => ocultarSub(sub));

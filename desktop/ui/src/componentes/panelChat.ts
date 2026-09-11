@@ -104,11 +104,13 @@ export function montarPanelChat(opts: PanelChatOpciones): PanelChat {
   chat.appendChild(entrada.raiz);
 
   // [089A-2] La entrada flota por encima del scroll: la reserva inferior de
-  // .mensajes sigue a la altura real de la entrada (el textarea crece).
+  // .mensajes sigue a la altura real de la entrada (el textarea crece). El
+  // alto es una medida, así que se publica como variable que consume
+  // `layout.css` (`.mensajes`).
   try {
     const reserva = new ResizeObserver(() => {
       const alto = entrada.raiz.getBoundingClientRect().height;
-      if (alto > 0) mensajes.style.paddingBottom = `${Math.ceil(alto) + 24}px`;
+      if (alto > 0) mensajes.style.setProperty('--entrada-reserva', `${Math.ceil(alto) + 24}px`);
     });
     reserva.observe(entrada.raiz);
   } catch {

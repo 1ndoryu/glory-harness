@@ -64,7 +64,7 @@ export function montarModalProyecto(opts: ModalProyectoOpciones): ModalProyecto 
   if (!esTauri) {
     notaRutaWeb.textContent = 'El navegador no revela la ruta. Escribe la ruta absoluta (p. ej. C:/carpeta).';
     // Oculto por defecto, se muestra si el usuario usó el picker
-    notaRutaWeb.style.display = 'none';
+    notaRutaWeb.hidden = true;
     lblRuta.appendChild(notaRutaWeb);
   }
 
@@ -92,7 +92,7 @@ export function montarModalProyecto(opts: ModalProyectoOpciones): ModalProyecto 
   // Web: input file oculto para seleccionar carpeta (webkitdirectory)
   const pickerFile = el('input') as HTMLInputElement;
   pickerFile.type = 'file';
-  pickerFile.style.display = 'none';
+  pickerFile.hidden = true;
   /* @ts-ignore - webkitdirectory es Chromium/WebKit */
   pickerFile.webkitdirectory = true;
   pickerFile.addEventListener('change', () => {
@@ -107,7 +107,7 @@ export function montarModalProyecto(opts: ModalProyectoOpciones): ModalProyecto 
       inputRuta.value = carpeta;
       inputRuta.readOnly = false;
       inputRuta.focus();
-      notaRutaWeb.style.display = '';
+      notaRutaWeb.hidden = false;
       inputRuta.placeholder = `escribe la ruta absoluta (carpeta «${carpeta}» seleccionada)`;
     }
   });

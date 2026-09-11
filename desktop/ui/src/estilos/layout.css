@@ -428,8 +428,9 @@ body.redimensionando-lateral {
     overflow-y: auto;
     padding: var(--sp-lg);
     /* [089A-2] Reserva bajo el contenido para que la entrada flotante no
-    tape los últimos mensajes. La ajusta el JS (ResizeObserver de la
-    entrada); el valor inicial cubre el primer pintado. */
+    tape los últimos mensajes. La publica el ResizeObserver de la entrada
+    (`--entrada-reserva`, en px) y el valor inicial cubre el primer
+    pintado. */
     padding-bottom: var(--entrada-reserva, 200px);
     display: flex;
     flex-direction: column;
@@ -438,4 +439,12 @@ body.redimensionando-lateral {
     width: 100%;
     margin: 0;
     min-height: 0;
+}
+
+/* Textarea fuera de pantalla del fallback de copia (`util/portapapeles.ts`),
+   para contextos sin API de portapapeles. Sigue siendo seleccionable:
+   `select()` no depende de que el elemento se vea. */
+.copia-temporal {
+    position: fixed;
+    opacity: 0;
 }

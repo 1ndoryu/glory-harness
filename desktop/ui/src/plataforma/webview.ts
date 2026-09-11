@@ -19,9 +19,14 @@ export function codigoResaltar(selector: string, duracionMs: number): string {
   return `(function(){
         var e=document.querySelector(${JSON.stringify(selector)});
         if(!e)return;
-        e.style.outline='2px solid red';
-        e.style.outlineOffset='-1px';
-        setTimeout(function(){e.style.outline='';e.style.outlineOffset=''},${duracionMs});
+        if(!document.getElementById('gh-resaltar-estilo')){
+          var hoja=document.createElement('style');
+          hoja.id='gh-resaltar-estilo';
+          hoja.textContent='.gh-resaltar{outline:2px solid red !important;outline-offset:-1px !important;}';
+          document.documentElement.appendChild(hoja);
+        }
+        e.classList.add('gh-resaltar');
+        setTimeout(function(){ e.classList.remove('gh-resaltar'); },${duracionMs});
       })()`;
 }
 
