@@ -11,6 +11,12 @@
     align-items: stretch;
     flex: none;
     margin-left: auto;
+    /* `align-self: stretch` gana al centrado de su contenedor `.barra-grupo`:
+       sin esta linea el grupo se plegaba al alto de su contenido (16px, el
+       icono) y los botones medían 46x16 en la ventana Tauri real en vez del
+       alto completo de la barra que documenta la cabecera de este archivo
+       (medido con CDP sobre la app real el 11-09). */
+    align-self: stretch;
 }
 
 .barra-superior .caption-boton {

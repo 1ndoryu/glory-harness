@@ -15,25 +15,19 @@
 
 ## Siguiente bloque ejecutable
 
-**Bloque B — Pasada visual Tauri de la interfaz Paseo/Synara.** Es lo único que queda de
-089A-1/089A-2/089A-3: su parte web ya quedó verificada en navegador el 11-09 (ver cada entrada).
-Prerrequisito: **espacio en el volumen del target** — el shell añade ~2,3 GB al corte CLI/core
-(~5 GB) y el 11-09 el build falló por disco lleno (`C:` a 0 GB libres): ver
-`Agente/prevencion/prevencion-disco-lleno-build-2026-09-11.md`.
+**Bloque C — Revisión visual del usuario sobre la interfaz Paseo/Synara (089A-1/2/3).** Es lo
+único que queda de esas tres entradas: su verificación funcional ya está hecha, pero el juicio
+visual es del usuario y no lo sustituye ninguna medición.
 
-1. Comprobar espacio (`Get-PSDrive C`, ≥8 GB libres) y purgar
-   `C:\tmp\glory-target\glory-harness` si hiciera falta.
-2. `cargo build -p glory-harness-desktop` con `CARGO_TARGET_DIR` en
-   `C:\tmp\glory-target\glory-harness` y ejecutar el binario (la nota de «desktop
-   compilation bloqueada» de 069A-1 ya no aplica: el shell compila).
-3. Verificar en la ventana real: botonera caption min/max/cerrar (orden Paseo, hover rojo de
-   cerrar), arrastre por barra superior y por cabecera, barra de 38px, launcher del panel
-   derecho, grip único y el comando `navegador_mostrar` (ocultar la webview hija al cambiar
-   de tab).
-4. Cerrar 089A-1, 089A-2 y 089A-3 en `Agente/completados/tareas-<fecha>.md` con esa
-   evidencia y gate PASS.
+> **Bloque B — Pasada visual Tauri: HECHO 11-09.** `cargo build -p glory-harness-desktop` =
+> EXIT 0 en 7m08s (`glory-harness-desktop.exe` en `C:\tmp\glory-target\glory-harness\debug\`),
+> ejecutado con `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9222` para
+> inspeccionar la ventana real. Evidencia y números en
+> `Agente/completados/tareas-2026-09-11.md` (entrada de verificación Tauri). Prerrequisito de
+> disco confirmado: el shell añade ~2,3 GB al corte CLI/core; ver
+> `Agente/prevencion/prevencion-disco-lleno-build-2026-09-11.md`.
 
-**Decisiones que requieren al usuario** (no bloquean al Bloque B):
+**Decisiones que requieren al usuario** (no bloquean nada más):
 
 - **089A-5 (i):** qué historial gobiernan atrás/adelante de la barra superior —el del panel
   activo (web) o el de áreas de trabajo (Synara)—; hoy siguen `disabled` a propósito.
@@ -172,11 +166,13 @@ Prerrequisito: **espacio en el volumen del target** — el shell añade ~2,3 GB 
       `startDragging()` programático; los clics en botones/inputs no arrastran).
       Referencia guardada en `area-trabajo/paseo`
       (`components/desktop/window-controls.tsx`, `titlebar-drag-region.tsx`).
-      **Estado (11-09):** `tauri.conf.json` fija `decorations: false` (línea 19) y el
-      recorrido en navegador confirma que la botonera caption **no se monta en web**
-      (`botoneraTauriEnWeb: []`), que es justo lo que pide la entrada. Queda la pasada
-      visual **Tauri** (render, hover invertido y arrastre reales) —ver «Siguiente bloque
-      ejecutable»—.
+      **Estado (11-09):** verificado en la ventana Tauri real — `tauri.conf.json` fija
+      `decorations: false` y el área no cliente mide **9px** (una caption nativa tendría
+      ~31px), o sea que el chrome lo dibuja la app; `startDragging()` tiene permiso
+      concedido y el arrastre **físico** por la barra superior mueve la ventana 140px
+      exactos, mientras que arrastrar desde un botón no la mueve y además dispara su acción
+      (prueba negativa correcta). En modo web la botonera caption **no se monta**
+      (`botoneraTauriEnWeb: []`). Falta solo la revisión visual del usuario (Bloque C).
 - [ ] **089A-2 — Layout Paseo: entrada flotante, toggles, tabs y preview** (08-09, en curso):
       (a) `.mensajes` sin `max-width`/centrado (todo el ancho); `.entrada`
       flotante por encima (`absolute`, `bottom: 0`; el fondo y el borde viven en
@@ -206,7 +202,14 @@ Prerrequisito: **espacio en el volumen del target** — el shell añade ~2,3 GB 
       mostrarlo restaura las tabs y la activa (`Git local`), y el toggle del sidebar
       alterna «mostrar/ocultar lista de conversaciones»; Files es un único pane con
       `.files-arbol` (23 nodos) + `.files-visor` (`roadmap.md` → «565 líneas», 1698 nodos
-      de código). Queda la parte Tauri (grip único y `navegador_mostrar`).
+      de código). **Estado Tauri (11-09):** el launcher monta las 4 opciones etiquetadas al
+      abrir el panel sin tabs y el grip es **único** (`panel-derecho-grip`, el lateral no
+      tiene propio); arrastrarlo con botón sostenido lleva el panel de 600 a 720px. El
+      comando `navegador_mostrar` cumple lo que promete: al pasar de la tab Navegador a
+      Files la webview hija **conserva su HWND** (`0xA203C8` pasa a 1×1 fuera de pantalla en
+      vez de destruirse) y una consulta `WindowFromPoint` sobre el panel confirma que ese
+      píxel vuelve a pertenecer a la webview principal. Falta solo la revisión visual del
+      usuario (Bloque C).
 - [ ] **089A-3 — Barra superior global estilo Synara** (08-09, en curso, parte 1;
       commit `d013e03`, verificación visual **web** hecha el 11-09; falta la Tauri;
       ajustes 08-09:
@@ -225,12 +228,19 @@ Prerrequisito: **espacio en el volumen del target** — el shell añade ~2,3 GB 
       `area-trabajo/synara` (`DesktopWindowControls.tsx`,
       `SidebarHeaderNavigationControls.tsx`, `AppNavigationButtons.tsx`). Plan en
       `Agente/planes/plan-089A-3-barra-superior-2026-09-08.md`.
-      **Estado (11-09, medido en el DOM del modo web):** `.barra-superior` es la primera
-      hija de `#app`, mide 38px de alto y ocupa todo el ancho (926px en la ventana de
-      prueba); contiene el grupo izquierdo (lista + atrás + adelante, los dos últimos
-      `disabled`) y la zona derecha (tablist + toggle del panel derecho). La botonera
-      caption no existe en web (es Tauri). Pendiente: pasada visual Tauri (hover rojo de
-      cerrar y arrastre).
+      **Estado (11-09, medido en el DOM del modo web y luego en la ventana Tauri real):**
+      `.barra-superior` es la primera hija de `#app`, mide **38px** de alto y ocupa todo el
+      ancho (926px en la ventana de prueba web; 1100px de viewport en Tauri); contiene el
+      grupo izquierdo (lista + atrás + adelante, los dos últimos `disabled`) y la zona
+      derecha (tablist + toggle del panel derecho).
+      **Defecto real encontrado y corregido en la verificación Tauri (11-09):** la botonera
+      caption medía **46×16** en vez del alto completo de la barra —`.controles-ventana`
+      heredaba el centrado de `.barra-grupo` y se plegaba al alto del icono—; se añadió
+      `align-self: stretch` en `estilos/ventana.css` y ahora mide **46×37** (38px de barra
+      menos 1px de borde). Con eso el hover de cerrar se pinta de `#c42b1c` con texto blanco
+      en todo el botón, los iconos siguen centrados y maximizar/restaurar alternan el icono
+      y el estado real de la ventana. No se habría visto con type-check ni con el build:
+      hizo falta medir la ventana real.
 - [x] **089A-4 — Launcher del panel derecho estilo Synara** (08-09, HECHO 11-09):
       Al abrir el panel derecho sin tabs muestra el inicio para elegir contenido
       (nuevo `estilos/launcher.css`, estado vacío en `panelDerecho.ts`): pantalla
