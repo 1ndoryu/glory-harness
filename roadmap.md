@@ -15,9 +15,9 @@
 
 ## Siguiente bloque ejecutable
 
-**Bloque C — Revisión visual del usuario sobre la interfaz Paseo/Synara (089A-1/2/3).** Es lo
-único que queda de esas tres entradas: su verificación funcional ya está hecha, pero el juicio
-visual es del usuario y no lo sustituye ninguna medición.
+**089A-5 — Historial de la app para atrás/adelante (en curso 11-09).** Decisión
+resuelta como en Synara: gobiernan la navegación de la app (conversación +
+área de trabajo juntas), no solo el panel activo.
 
 > **Bloque B — Pasada visual Tauri: HECHO 11-09.** `cargo build -p glory-harness-desktop` =
 > EXIT 0 en 7m08s (`glory-harness-desktop.exe` en `C:\tmp\glory-target\glory-harness\debug\`),
@@ -29,8 +29,6 @@ visual es del usuario y no lo sustituye ninguna medición.
 
 **Decisiones que requieren al usuario** (no bloquean nada más):
 
-- **089A-5 (i):** qué historial gobiernan atrás/adelante de la barra superior —el del panel
-  activo (web) o el de áreas de trabajo (Synara)—; hoy siguen `disabled` a propósito.
 - **069A-6:** qué hacer con los sitios que bloquean iframes (`X-Frame-Options`): abrir en
   pestaña, avisar en el log, o botón «abrir en pestaña» junto al iframe.
 
@@ -96,10 +94,9 @@ visual es del usuario y no lo sustituye ninguna medición.
       10-09 02:14). El intento del 11-09 falló por **disco lleno**
       (`Agente/prevencion/prevencion-disco-lleno-build-2026-09-11.md`), no por el código; tras
       liberar espacio el binario se construyó (`Finished dev profile [unoptimized + debuginfo]
-      target(s) in 7m 08s`, EXIT 0, `C:\tmp\glory-target\glory-harness\debug\
-      glory-harness-desktop.exe`) y con él se ejecutó la pasada funcional Tauri (evidencia en
-      `Agente/completados/tareas-2026-09-11.md`). La revisión **visual** queda para el usuario
-      (Bloque C).
+       target(s) in 7m 08s`, EXIT 0, `C:\tmp\glory-target\glory-harness\debug\
+       glory-harness-desktop.exe`) y con él se ejecutó la pasada funcional Tauri (evidencia en
+       `Agente/completados/tareas-2026-09-11.md`).
 - [ ] **069A-6 — Navegador web: páginas que bloquean iframes (X-Frame-Options)**: pendiente
       de decisión del usuario (registrado 06-09 tras probar el Navegador en modo web). Causa:
       en el navegador el panel usa un `<iframe>` y muchos sitios (Google, YouTube, etc.)
@@ -159,7 +156,7 @@ visual es del usuario y no lo sustituye ninguna medición.
       `diff_staged`/`diff_unstaged`, incluidos archivos `??` con límite combinado
       de 1 MiB; la selección usa grupo+ruta. Gate `089A-2` PASS 0E/0W/0I.
       Evidencia en `Agente/completados/tareas-2026-09-09.md`.
-- [ ] **089A-1 — Controles de ventana propios estilo Paseo** (08-09, en curso):
+- [x] **089A-1 — Controles de ventana propios estilo Paseo** (08-09, HECHO 11-09):
       Quitar botones nativos (`decorations: false` en `tauri.conf.json`) e
       integrar minimizar/maximizar-restaurar/cerrar propios en la cabecera del
       panel principal (nuevo `componentes/ventana.ts` + `estilos/ventana.css`,
@@ -176,8 +173,9 @@ visual es del usuario y no lo sustituye ninguna medición.
       concedido y el arrastre **físico** por la barra superior mueve la ventana 140px
       exactos, mientras que arrastrar desde un botón no la mueve y además dispara su acción
       (prueba negativa correcta). En modo web la botonera caption **no se monta**
-      (`botoneraTauriEnWeb: []`). Falta solo la revisión visual del usuario (Bloque C).
-- [ ] **089A-2 — Layout Paseo: entrada flotante, toggles, tabs y preview** (08-09, en curso):
+       (`botoneraTauriEnWeb: []`). Revisión visual retirada del roadmap por orden del
+       usuario (11-09); verificación funcional hecha.
+- [x] **089A-2 — Layout Paseo: entrada flotante, toggles, tabs y preview** (08-09, HECHO 11-09):
       (a) `.mensajes` sin `max-width`/centrado (todo el ancho); `.entrada`
       flotante por encima (`absolute`, `bottom: 0`; el fondo y el borde viven en
       `.caja`, no en el contenedor —`entrada.css:8`—) con reserva inferior dinámica
@@ -212,11 +210,11 @@ visual es del usuario y no lo sustituye ninguna medición.
       comando `navegador_mostrar` cumple lo que promete: al pasar de la tab Navegador a
       Files la webview hija **conserva su HWND** (`0xA203C8` pasa a 1×1 fuera de pantalla en
       vez de destruirse) y una consulta `WindowFromPoint` sobre el panel confirma que ese
-      píxel vuelve a pertenecer a la webview principal. Falta solo la revisión visual del
-      usuario (Bloque C).
-- [ ] **089A-3 — Barra superior global estilo Synara** (08-09, en curso, parte 1;
-      commit `d013e03`, verificación visual **web** hecha el 11-09; falta la Tauri;
-      ajustes 08-09:
+       píxel vuelve a pertenecer a la webview principal. Revisión visual retirada del
+       roadmap por orden del usuario (11-09); verificación funcional hecha.
+- [x] **089A-3 — Barra superior global estilo Synara** (08-09, HECHO 11-09;
+       commit `d013e03`, verificación web y Tauri hechas el 11-09;
+       ajustes 08-09:
       orden fiel Synara —lista, atrás, adelante … marca … toggle derecho +
       botonera—; sin botón de visor (redundante); atrás/adelante presentes pero
       deshabilitados; botonera caption 100% Lucide):
