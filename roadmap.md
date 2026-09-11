@@ -257,12 +257,16 @@ resuelta como en Synara: gobiernan la navegación de la app (conversación +
       lateral; el `×` global oculta el panel y cerrar la última tab deja el inicio
       (`tabs=[]` con el launcher montado). Con una conversación sin turnos, Chat lateral
       aparece deshabilitado y las otras tres siguen activas (gating correcto).
-- [ ] **089A-5 — Pendiente Synara (lógica, no visual)** (08-09, pendiente; acotada
-      11-09): historial de la app para atrás/adelante (misma lógica que Synara, hoy
-      deshabilitados) y Terminal como opción del inicio cuando exista ese panel (Files y
-      Git local/Source control ya están: verificado 11-09 en el launcher). El historial
-      exige **decisión del usuario**: si los botones gobiernan el panel/área activa o las
-      áreas de trabajo.
+- [x] **089A-5 — Historial de la app (lógica, no visual)** (08-09, HECHO 11-09):
+      atrás/adelante de la barra superior funcionales con la misma lógica que
+      Synara —gobiernan la navegación de la app (conversación + área juntas),
+      no el panel activo—: nuevo `dominio/historialApp.ts` (puro, dos pilas como
+      el Navegador + `puede*`; verificado con 13 aserciones en node), cableado en
+      `orquestador/historialVista.ts` + `barraLateral.ts` (registra seleccionar,
+      nueva y cambio de área; restore sin auto-registro), `vistaBarra.ts` y
+      `main.ts`; `barra.setPuedeNavegar` tras cada cambio. Terminal en el
+      launcher: **no aplica** (no existe panel Terminal; condición «cuando exista
+      ese panel» falsa). Gate `089A-5` PASS 0E/0W/0I (rust: 430 tests ok).
 - [x] **089A-13 — Gate cubre frontend TS + Tauri en VarSense** (09-09,
       HECHO): el gate solo analizaba `.rs` de `core`/`cli` (herencia de fase 0);
       añadidos `desktop/ui/src/**/*.ts` a `sentinel.config.json` y

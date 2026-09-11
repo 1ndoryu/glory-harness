@@ -9,6 +9,7 @@ import { el, marcarCuerpo } from '../util/dom';
 import { anchoVentana, seguirPuntero } from '../plataforma/ventana';
 import { montarSidebar } from '../componentes/sidebar';
 import type { Conversacion } from '../dominio/tipos';
+import { crearHistorialVista } from './historialVista';
 import type { BarraLateral, BarraLateralDeps } from './barraLateralTipos';
 import { guardarSidebar } from './persistencia';
 import { puedeAbrirLateralEn } from './laterales';
@@ -39,26 +40,65 @@ export function montarBarraLateral(deps: BarraLateralDeps): BarraLateral {
     }
   }
 
+  /* [089A-5] Acciones de navegación de la app. El historial
+   * (`orquestador/historialVista`) registra visitas y restaura; estas
+   * internas no registran. */
+  /** Carga la conversación en el panel ENFOCADO (mock y real). */
+  function irAConversacion(id: string): void {
+    const panel = deps.panelActivo();
+    if (!panel) return;
+    if (deps.usaMock) {
+      panel.ponerTitulo(
+        deps.getConversaciones().find((c) => c.id === id)?.titulo ?? 'Sin conversación',
+      );
+      void panel.cargarConversacion(id);
+      deps.activarPanel(panel);
+      return;
+    }
+    void (async () => {
+      await panel.cargarConversacion(id);
+      deps.activarPanel(panel);
+    })();
+  }
+
+  /** Cambia el área activa por ruta; el principal pasa a borrador. Devuelve
+   * `false` si no se pudo (mock, turno en curso o error del backend). */
+  async function irAProyecto(ruta: string): Promise<boolean> {
+    if (!deps.usaReal) return false;
+    try {
+      // No permitir si hay turno en curso.
+      if (deps.getTurnoGlobal()) {
+        deps.avisar(
+          'hay un turno en curso',
+          '',
+          'espera a que termine antes de cambiar de proyecto',
+        );
+        return false;
+      }
+      await deps.adaptador.sesion.workspaces.activarPorRuta(ruta);
+      // onSesion / refrescarProyectos refrescarán sidebar + lista.
+      // El panel principal pasa a borrador (sin conversación del otro proyecto).
+      const principal = deps.getPrincipal();
+      if (principal) {
+        principal.ponerBorrador();
+        deps.activarPanel(principal);
+      }
+      return true;
+    } catch (e: unknown) {
+      deps.avisar(`no se pudo cambiar de proyecto: ${String(e)}`, '', '');
+      return false;
+    }
+  }
+
   const sidebar = montarSidebar({
     conversaciones: deps.conversacionesIniciales,
     proyectos: deps.proyectosIniciales,
     proyectoActivo: deps.proyectoActivoInicial,
     onSeleccionar(id) {
-      // La sidebar carga la conversación en el panel ENFOCADO.
-      const panel = deps.panelActivo();
-      if (!panel) return;
-      if (deps.usaMock) {
-        panel.ponerTitulo(
-          deps.getConversaciones().find((c) => c.id === id)?.titulo ?? 'Sin conversación',
-        );
-        void panel.cargarConversacion(id);
-        deps.activarPanel(panel);
-        return;
-      }
-      void (async () => {
-        await panel.cargarConversacion(id);
-        deps.activarPanel(panel);
-      })();
+      // [089A-5] Navegación de la app: se registra la visita que se abandona
+      // y la sidebar carga la conversación en el panel ENFOCADO.
+      historialVista.navegarA({ conversaId: id, proyectoRuta: deps.getProyectoRutaActiva() });
+      irAConversacion(id);
     },
     onRenombrar(id, titulo) {
       void renombrarEnLista(id, titulo);
@@ -122,9 +162,11 @@ export function montarBarraLateral(deps: BarraLateralDeps): BarraLateral {
         // [069A-7] "Nueva conversación" = borrador local (sin fila): la fila
         // se crea al escribir el primer mensaje (create-on-write). En mock se
         // mantiene la semántica histórica (crea una conversación local).
+        // [089A-5] Ir al borrador también es navegar: se registra la visita.
         if (deps.usaReal) {
           const panel = deps.panelActivo();
           if (panel) {
+            historialVista.navegarA({ conversaId: null, proyectoRuta: deps.getProyectoRutaActiva() });
             panel.ponerBorrador();
             deps.activarPanel(panel);
           }
@@ -140,6 +182,7 @@ export function montarBarraLateral(deps: BarraLateralDeps): BarraLateral {
           sidebar.sustituir(deps.getConversaciones());
           const panel = deps.panelActivo();
           if (panel) {
+            historialVista.navegarA({ conversaId: nueva.id, proyectoRuta: deps.getProyectoRutaActiva() });
             panel.limpiar();
             panel.ponerTitulo(nueva.titulo);
             await panel.cargarConversacion(nueva.id);
@@ -179,30 +222,32 @@ export function montarBarraLateral(deps: BarraLateralDeps): BarraLateral {
     onSeleccionarProyecto(ruta: string) {
       if (!deps.usaReal) return;
       void (async () => {
-        try {
-          // No permitir si hay turno en curso.
-          if (deps.getTurnoGlobal()) {
-            deps.avisar(
-              'hay un turno en curso',
-              '',
-              'espera a que termine antes de cambiar de proyecto',
-            );
-            return;
-          }
-          await deps.adaptador.sesion.workspaces.activarPorRuta(ruta);
-          // onSesion / refrescarProyectos refrescarán sidebar + lista.
-          // El panel principal pasa a borrador (sin conversación del otro proyecto).
-          const principal = deps.getPrincipal();
-          if (principal) {
-            principal.ponerBorrador();
-            deps.activarPanel(principal);
-          }
-        } catch (e: unknown) {
-          deps.avisar(`no se pudo cambiar de proyecto: ${String(e)}`, '', '');
+        // [089A-5] Cambiar de área también es navegar: se registra la visita
+        // que se abandona solo si la activación tuvo éxito.
+        if (await irAProyecto(ruta)) {
+          historialVista.navegarA({ conversaId: null, proyectoRuta: ruta });
         }
       })();
     },
     abrirConfig: () => deps.abrirConfig(),
+  });
+
+  // [089A-5] Historial de la app: registra las navegaciones de la sidebar y
+  // restaura visitas con atrás/adelante (los cierres solo se invocan en
+  // runtime, fuera de la TDZ).
+  const historialVista = crearHistorialVista({
+    barra: deps.barra,
+    rutaInicial: deps.proyectoActivoInicial?.ruta ?? null,
+    irAConversacion,
+    seleccionarVisual: (id) => sidebar.seleccionar(id),
+    irAProyecto,
+    irABorrador: () => {
+      const principal = deps.getPrincipal();
+      if (principal) {
+        principal.ponerBorrador();
+        deps.activarPanel(principal);
+      }
+    },
   });
 
   const grip = el('div', 'sidebar-grip');
@@ -314,5 +359,5 @@ export function montarBarraLateral(deps: BarraLateralDeps): BarraLateral {
     sidebarAbierta = abierta;
   }
 
-  return { sidebar, grip, alternarSidebar, pintarSidebar, fijarAbierta, renombrarEnLista };
+  return { sidebar, grip, alternarSidebar, pintarSidebar, fijarAbierta, renombrarEnLista, irAtrasHistorial: historialVista.irAtras, irAdelanteHistorial: historialVista.irAdelante };
 }

@@ -9,8 +9,8 @@
 // La barra es la zona arrastrable de la ventana; arrastre + botonera
 // solo bajo Tauri (en web la marca ocupa el centro y no hay botonera).
 // Sin botón de visor: es redundante (decisión del usuario 08-09).
-// Atrás/adelante replican la navegación por historial de Synara; su
-// lógica queda pendiente (roadmap) y arrancan deshabilitados.
+// Atrás/adelante replican la navegación por historial de Synara (089A-5) y
+// arrancan deshabilitados hasta la primera navegación.
 
 import '../estilos/barraSuperior.css';
 import { esEntornoTauri } from '../tauri/real';
@@ -21,9 +21,9 @@ import { crearControlesVentana, hacerArrastrable } from './ventana';
 export interface BarraSuperiorOpciones {
   /** Alterna la lista de conversaciones (sidebar). */
   onAlternarSidebar(): void;
-  /** Atrás en el historial (pendiente: misma lógica que Synara). */
+  /** Atrás en el historial de la app (misma lógica que Synara). */
   onAtras(): void;
-  /** Adelante en el historial (pendiente: misma lógica que Synara). */
+  /** Adelante en el historial de la app (misma lógica que Synara). */
   onAdelante(): void;
   /** Muestra/oculta el panel derecho. */
   onAlternarPanelDerecho(): void;
@@ -37,7 +37,7 @@ export interface BarraSuperior {
   setSidebarAbierta(abierta: boolean): void;
   /** Icono del toggle según esté visible el panel derecho. */
   setPanelDerechoAbierto(abierto: boolean): void;
-  /** Habilita atrás/adelante (pendiente: siempre false hasta el historial). */
+  /** Habilita atrás/adelante según haya a dónde ir (historial 089A-5). */
   setPuedeNavegar(atras: boolean, adelante: boolean): void;
   /** Monta la única barra de tabs en la zona derecha superior. */
   montarTabs(tabsBarra: HTMLElement): void;
@@ -70,8 +70,9 @@ export function montarBarraSuperior(opts: BarraSuperiorOpciones): BarraSuperior 
   grupoIzq.appendChild(btnSidebar);
   const btnAtras = botonBarra('flecha-izq', 'atrás', () => opts.onAtras());
   const btnAdelante = botonBarra('flecha-der', 'adelante', () => opts.onAdelante());
-  // Historial (089A-5, en roadmap): sin historial aún, deshabilitados
-  // como en Synara cuando no hay a dónde ir (`canGoBack`/`canGoForward`).
+  // Historial de la app (089A-5): deshabilitados hasta la primera
+  // navegación, como en Synara cuando no hay a dónde ir
+  // (`canGoBack`/`canGoForward`).
   btnAtras.disabled = true;
   btnAdelante.disabled = true;
   grupoIzq.appendChild(btnAtras);

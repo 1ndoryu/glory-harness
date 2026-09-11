@@ -8,6 +8,9 @@ export interface VistaBarraDeps {
   alternarSidebar: () => void;
   alternarPanelDerecho: () => void;
   avisar: (texto: string, meta: string, detalle: string) => void;
+  /** [089A-5] Atrás/adelante del historial de la app (cierres de runtime). */
+  onAtras: () => void;
+  onAdelante: () => void;
 }
 
 export function montarVistaBarra(deps: VistaBarraDeps): BarraSuperior {
@@ -17,13 +20,12 @@ export function montarVistaBarra(deps: VistaBarraDeps): BarraSuperior {
     onAlternarSidebar() {
       deps.alternarSidebar();
     },
-    // [089A-3] Atrás/adelante replican la navegación por historial de Synara;
-    // lógica pendiente (roadmap): arrancan deshabilitados.
+    // [089A-5] Historial de la app con la misma lógica que Synara.
     onAtras() {
-      /* historial de la app (089A-5, en roadmap) */
+      deps.onAtras();
     },
     onAdelante() {
-      /* historial de la app (089A-5, en roadmap) */
+      deps.onAdelante();
     },
     onAlternarPanelDerecho() {
       deps.alternarPanelDerecho();

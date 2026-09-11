@@ -26,6 +26,8 @@ export interface BarraLateralDatos {
   getConversaciones: () => Conversacion[];
   setConversaciones: (c: Conversacion[]) => void;
   getTurnoGlobal: () => boolean;
+  /** Ruta del área activa (null en mock o antes de la primera sincronización). */
+  getProyectoRutaActiva: () => string | null;
 }
 
 /** Paneles abiertos y activación. */
@@ -57,4 +59,7 @@ export interface BarraLateral {
   pintarSidebar: () => void;
   fijarAbierta: (abierta: boolean) => void;
   renombrarEnLista: (id: string, titulo: string) => Promise<void>;
+  /** [089A-5] Atrás/adelante del historial de la app (barra superior). */
+  irAtrasHistorial: () => void;
+  irAdelanteHistorial: () => void;
 }

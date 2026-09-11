@@ -81,6 +81,10 @@ const barra = montarVistaBarra({
   alternarSidebar: () => alternarSidebar(),
   alternarPanelDerecho: () => alternarPanelDerecho(),
   avisar: avisoGlobal,
+  // [089A-5] Historial de la app (cierres de runtime sobre la barra lateral,
+  // creada más abajo; mismo patrón que `alternarSidebar`).
+  onAtras: () => barraLateral.irAtrasHistorial(),
+  onAdelante: () => barraLateral.irAdelanteHistorial(),
 });
 
 // ---------- Estado compartido M1 (runtime único) ----------
@@ -179,6 +183,7 @@ const barraLateral = montarBarraLateral({
   getConversaciones: sesionVista.getConversaciones,
   setConversaciones: sesionVista.setConversaciones,
   getTurnoGlobal: () => vistaMeta.hayTurnoGlobal(),
+  getProyectoRutaActiva: () => sesionVista.getProyectoActivo()?.ruta ?? null,
   paneles: panelesRegistrados,
   panelActivo,
   activarPanel,
