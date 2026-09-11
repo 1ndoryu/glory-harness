@@ -6,8 +6,17 @@
 //! (`comando_status`/`comando_matar`). El núcleo queda agnóstico: solo ve este
 //! trait; un consumidor sin runner (p. ej. PROYECTO TASKS, que deniega
 //! comandos) no registra la tool en absoluto (fail-closed).
+//!
+//! [119A-7 F0] Jaula: el ejecutor puede fijar el directorio de arranque de
+//! cada hijo (`en_raiz`). Los comandos heredan ese cwd, así que las rutas
+//! relativas del modelo caen dentro del workspace del run. Límite honesto:
+//! el shell puede hacer `cd` fuera (no hay namespace en Windows); la
+//! contención total la dan la clasificación de riesgo (`bash_clasificar`) +
+//! aprobación + supervisión, no el cwd. `nuevo()` (sin raíz, hereda el cwd
+//! del proceso) queda solo para diagnósticos sin run.
 
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -29,20 +38,36 @@ const TIMEOUT_COMANDO: Duration = Duration::from_secs(120);
 type HandleTarea = Arc<Mutex<Option<Child>>>;
 
 /// Implementación concreta del puerto para el CLI.
-#[derive(Default)]
 pub struct EjecutorCliente {
     tareas: Arc<Mutex<HashMap<String, HandleTarea>>>,
     resultados: Arc<Mutex<HashMap<String, ResultadoEjecucionComando>>>,
+    /// [119A-7 F0] Raíz enjaulada: cwd de arranque de cada hijo.
+    /// `None` = heredar el cwd del proceso (solo diagnósticos sin run).
+    raiz: Option<PathBuf>,
 }
 
 impl EjecutorCliente {
     #[must_use]
     pub fn nuevo() -> Self {
-        Self::default()
+        Self {
+            tareas: Arc::default(),
+            resultados: Arc::default(),
+            raiz: None,
+        }
     }
 
-    fn construir_comando(comando: &str) -> Command {
-        if cfg!(windows) {
+    /// Ejecutor enjaulado: cada comando arranca con cwd = `raiz`.
+    #[must_use]
+    pub fn en_raiz(raiz: PathBuf) -> Self {
+        Self {
+            tareas: Arc::default(),
+            resultados: Arc::default(),
+            raiz: Some(raiz),
+        }
+    }
+
+    fn construir_comando(&self, comando: &str) -> Command {
+        let mut c = if cfg!(windows) {
             let mut c = Command::new("cmd");
             c.arg("/C").arg(comando);
             c
@@ -50,7 +75,11 @@ impl EjecutorCliente {
             let mut c = Command::new("sh");
             c.arg("-c").arg(comando);
             c
+        };
+        if let Some(raiz) = &self.raiz {
+            c.current_dir(raiz);
         }
+        c
     }
 
     fn truncar(salida: &[u8]) -> (String, bool) {
@@ -71,7 +100,7 @@ impl EjecutorCliente {
     async fn ejecutar_fondo(&self, comando: &str) -> Result<ResultadoEjecucionComando> {
         let id = uuid::Uuid::new_v4().to_string();
         let handle: HandleTarea = Arc::new(Mutex::new(Some(
-            Self::construir_comando(comando)
+            self.construir_comando(comando)
                 .stdout(std::process::Stdio::piped())
                 .stderr(std::process::Stdio::piped())
                 .spawn()?,
@@ -131,7 +160,8 @@ impl EjecutorCliente {
 
     /// Rama síncrona: corre con timeout y devuelve la salida truncada a 8 KB.
     async fn ejecutar_sincrono(&self, comando: &str) -> Result<ResultadoEjecucionComando> {
-        let mut child = Self::construir_comando(comando)
+        let mut child = self
+            .construir_comando(comando)
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
             .spawn()?;
@@ -305,8 +335,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn matar_termina_la_tarea_de_fondo() {
-        let e = EjecutorCliente::nuevo();
+    async fn matar_termina_la_tarea_de_fondo() {        let e = EjecutorCliente::nuevo();
         let r = e.ejecutar(&comando_lento(60), true).await.unwrap();
         let id = r.id_fondo.expect("fondo debe devolver id");
         // Estado inmediato: debe seguir en ejecución (el comando dura ~60 s).
@@ -326,5 +355,43 @@ mod tests {
             tokio::time::sleep(Duration::from_millis(500)).await;
         }
         panic!("la tarea siguió reportando ejecución tras matar");
+    }
+
+    /// [119A-7 F0] Humo de la jaula: el hijo arranca con cwd = la raíz
+    /// enjaulada (`en_raiz`), no con el cwd del proceso de test.
+    #[tokio::test]
+    async fn en_raiz_arranca_los_comandos_en_la_jaula() {
+        let jaula = std::env::temp_dir().join(format!(
+            "gh-jaula-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("reloj")
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&jaula).expect("crear jaula");
+        let canonica = jaula.canonicalize().expect("canonizar jaula");
+        let e = EjecutorCliente::en_raiz(jaula.clone());
+        // `cd` (Windows) / `pwd` (unix) reportan el cwd del hijo.
+        let sonda = if cfg!(windows) { "cd" } else { "pwd" };
+        let r = e.ejecutar(sonda, false).await.expect("sonda cwd");
+        assert_eq!(r.codigo_salida, Some(0));
+        // Windows: `canonicalize` devuelve ruta verbatim (`\\?\C:\...`)
+        // mientras `cd` imprime `C:\...`; además el FS no distingue
+        // mayúsculas. Se normaliza por ambos lados antes de comparar.
+        let normalizar = |s: &str| {
+            s.strip_prefix(r"\\?\")
+                .unwrap_or(s)
+                .replace('/', "\\")
+                .to_lowercase()
+        };
+        let salida = normalizar(r.salida.trim());
+        let esperada = normalizar(&canonica.to_string_lossy());
+        assert!(
+            salida.contains(&esperada),
+            "el hijo arranca en la jaula '{esperada}', salida: {}",
+            r.salida.trim()
+        );
+        std::fs::remove_dir_all(&jaula).ok();
     }
 }

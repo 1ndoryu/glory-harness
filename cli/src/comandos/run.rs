@@ -363,7 +363,13 @@ pub fn construir_harness_con_impl(
             /* [Bloque 3, F1] web_fetch real del CLI (reqwest ligero). */
             web_fetch: Some(Arc::new(crate::fetch::FetchCli::nuevo())),
             dominio: None,
-            ejecutor_comando: Some(Arc::new(crate::ejecutor::EjecutorCliente::nuevo())),
+            /* [119A-7 F0] Jaula: los comandos del run arrancan con cwd =
+             * el workspace (`--dir` o cwd de invocación); sin workspace
+             * se hereda el proceso (solo diagnóstico). */
+            ejecutor_comando: Some(Arc::new(match workspace.clone() {
+                Some(raiz) => crate::ejecutor::EjecutorCliente::en_raiz(raiz),
+                None => crate::ejecutor::EjecutorCliente::nuevo(),
+            })),
             programador_tareas: Some(programador),
             /* [069A-1 F5] Navegador interno: solo el desktop inyecta un
              * puerto real; el CLI y schedule lo dejan en None, la tool no

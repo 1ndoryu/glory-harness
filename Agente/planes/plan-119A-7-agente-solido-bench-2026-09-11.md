@@ -153,14 +153,15 @@ Sin código tocado; correcciones al plan antes de arrancar:
    scheduler; `schedule run`/`ciclo_scheduler` solo corren a mano
    (el loop único en daemon es 119A-6 F3, pendiente). F0/F2 no pueden
    asumir disparos periódicos.
-5. **Jaula F0 viable sin cambio de arquitectura**: `SandboxArchivos`
-   (`contrato/sandbox.rs:60`) canonicaliza la raíz, solo acepta rutas
-   relativas, prohíbe `..`, resuelve symlinks y deniega secretos
-   (`.env`, `*_KEY`, `*.pem`…); el runtime la construye sobre un
-   `workspace` configurable (`runtime/mod.rs:695`). F0 = apuntar el
-   workspace a un temporal + humo (`file_write` fuera falla).
-   Punto abierto a verificar en F0: confinamiento de `comando`
-   (cwd enjaulado, sin escape vía shell).
+5. **Jaula F0 implementada (11-09, tarde)**: `EjecutorCliente::en_raiz`
+   (`cli/src/infra/ejecutor.rs`) fija el cwd de arranque de cada hijo
+   (síncrono + fondo); `run` lo cablea al workspace (`--dir` o cwd,
+   `run.rs`). Humo: `en_raiz_arranca_los_comandos_en_la_jaula`
+   (tempdir + sonda `cd`/`pwd`). Límite documentado en el propio
+   módulo: el shell puede hacer `cd` fuera (sin namespaces en
+   Windows); la contención total = cwd fijado + clasificación de
+   riesgo + aprobación + supervisión. `nuevo()` sin raíz queda solo
+   para diagnósticos sin run (listado de tools, sesiones daemon).
 6. **Aprobaciones existen**: flujo plan→aprobar con checkpoint
    (`plan.rs` e2e `e2e_aprobar_con_checkpoint_y_undo`). F2-paso 7 lo
    ejerce, no lo construye.
