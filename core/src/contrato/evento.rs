@@ -223,6 +223,16 @@ pub enum AgenteEvento {
         elapsed_ms: u64,
         turno_id: Uuid,
     },
+    /// [109A-5 F4] El backend PAUSÓ la meta porque el agente acumuló `turnos`
+    /// turnos consecutivos con el MISMO bloqueo declarado en el plan. Nadie la
+    /// pausó a mano: el evento es la única señal de que el reloj se detuvo, así
+    /// que lleva el motivo (el porqué) y los turnos (la evidencia). Se emite al
+    /// cerrar el turno que alcanzó el umbral, antes de anunciar su fin; una meta
+    /// que ya estaba pausada no lo repite. Aditivo para los consumidores.
+    MetaPausadaPorBloqueo {
+        motivo: String,
+        turnos: u32,
+    },
 }
 
 #[cfg(test)]

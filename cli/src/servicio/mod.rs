@@ -13,6 +13,7 @@ pub mod sesion;
 
 pub use meta::{
     aplicar_en_borrador, comando_desde_payload, elapsed_ms, resolver_meta, ComandoMeta, ErrorMeta,
-    EstadoMeta, LogroMeta, MetaActiva, ResultadoMeta, MAX_LOGROS_META, MAX_META_CHARS,
+    EstadoMeta, LogroMeta, MetaActiva, ResultadoBloqueo, ResultadoMeta, MAX_LOGROS_META,
+    MAX_META_CHARS, UMBRAL_BLOQUEO_TURNOS,
 };
 pub use sesion::{Apertura, Error, OpcionesSesion, PreparacionTurno, ProveedorConteo, SesionComun};

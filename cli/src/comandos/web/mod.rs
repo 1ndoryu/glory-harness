@@ -684,8 +684,10 @@ pub(crate) mod tests {
         assert_eq!(res.status(), StatusCode::OK);
     }
 
-    /// Envía un PATCH de meta y devuelve (status, cuerpo).
-    async fn parchear_meta(
+    /// Envía un PATCH de meta y devuelve (status, cuerpo). `pub(crate)` para
+    /// que los tests del cierre de turno ([109A-5 F4], en `turnos.rs`) puedan
+    /// fijar la meta que ese camino pausa.
+    pub(crate) async fn parchear_meta(
         state: &Arc<AppState>,
         sid: &str,
         cuerpo: Value,

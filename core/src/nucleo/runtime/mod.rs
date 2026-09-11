@@ -439,6 +439,65 @@ impl AgentRuntime {
         true
     }
 
+    /// [109A-5 F4] Bloqueo vigente del plan de una conversación (motivo +
+    /// turnos cerrados con ese MISMO motivo).
+    ///
+    /// Lo lee el servicio al cerrar el turno para decidir la pausa de la meta:
+    /// el contador vive en el plan (estado efímero del runtime) porque el motivo
+    /// también, y contar turnos de un plan que ya no existe no significaría
+    /// nada. La lista de la conversación ACTIVA vive en la store del registry y
+    /// las demás en `planes.listas`, así que se consulta el sitio que
+    /// corresponde. Con la store bloqueada por una tool (no debería: los turnos
+    /// son secuenciales) responde `None` en vez de bloquear un camino síncrono.
+    #[must_use]
+    pub fn bloqueo_de(&self, conversacion_id: Uuid) -> Option<crate::todo::BloqueoPlan> {
+        let planes = self.planes.lock().unwrap_or_else(|p| p.into_inner());
+        if planes.activa == Some(conversacion_id) {
+            let store = self.registry.todo()?;
+            let lista = store.try_lock().ok()?;
+            return lista.bloqueo().cloned();
+        }
+        planes
+            .listas
+            .get(&conversacion_id)
+            .and_then(|lista| lista.bloqueo().cloned())
+    }
+
+    /// [109A-5 F4] Cierra el conteo de bloqueo del turno que acaba de terminar:
+    /// si el plan de ESA conversación sigue bloqueado, suma un turno.
+    ///
+    /// Lo hace el runtime (una vez por turno) y no la tool `todo`: N
+    /// declaraciones en el mismo turno contarían N veces cuando lo que se mide
+    /// son TURNOS atascados, no llamadas. Con la lista bloqueada por una tool se
+    /// registra y no se cuenta; el error nunca debe romper el turno, que ya
+    /// terminó.
+    async fn contar_bloqueo_del_turno(&self, conversacion_id: Uuid) {
+        let Some(store) = self.registry.todo() else {
+            return;
+        };
+        let es_activa = {
+            let planes = self.planes.lock().unwrap_or_else(|p| p.into_inner());
+            planes.activa == Some(conversacion_id)
+        };
+        if !es_activa {
+            /* El plan de esta conversación no está cargado (el turno no llegó a
+             * `cargar_plan_de`): el contador vive en su lista guardada. */
+            let mut planes = self.planes.lock().unwrap_or_else(|p| p.into_inner());
+            if let Some(lista) = planes.listas.get_mut(&conversacion_id) {
+                lista.contar_turno_bloqueado();
+            }
+            return;
+        }
+        let Ok(mut lista) = store.try_lock() else {
+            tracing::warn!(
+                %conversacion_id,
+                "bloqueo del plan no contado: la lista de tareas estaba bloqueada"
+            );
+            return;
+        };
+        lista.contar_turno_bloqueado();
+    }
+
     /// [109A-4 F4] Fija (o limpia) el modo forzado del turno y devuelve el
     /// guard que lo limpia al soltarse (auxiliar de `ejecutar_turno_con_modo`).
     fn guarda_modo_turno(&self, modo: Option<&str>) -> GuardaModoTurno<'_> {
@@ -1112,6 +1171,58 @@ mod tests {
         assert!(
             rx.try_recv().is_err(),
             "sin tareas y sin acción previa no hay evento"
+        );
+    }
+
+    /* [109A-5 F4] El contador de bloqueo es el oráculo que decide la pausa de
+     * la meta, y vive en el runtime: la tool declara el bloqueo, el runtime
+     * suma un turno al cerrar y el servicio lee el resultado. Estos tests fijan
+     * las dos invariantes que sostienen ese camino sin depender del modelo: el
+     * contador es por CONVERSACIÓN (como el plan) y volver a la conversación
+     * conserva los turnos acumulados. */
+
+    #[tokio::test]
+    async fn f4_el_bloqueo_cuenta_turnos_por_conversacion_y_los_conserva_al_volver() {
+        let conv_a = Uuid::new_v4();
+        let conv_b = Uuid::new_v4();
+        let runtime = runtime_de_prueba("predeterminado");
+
+        runtime.cargar_plan_de(conv_a);
+        {
+            let store = runtime.registry.todo().expect("store de todo registrada");
+            let mut lista = store.lock().await;
+            lista.bloquear("falta la API key").expect("motivo válido");
+        }
+        /* Tres turnos cerrados con el mismo motivo: el umbral que el servicio
+         * traduce en pausa. */
+        for _ in 0..3 {
+            runtime.contar_bloqueo_del_turno(conv_a).await;
+        }
+        let bloqueo = runtime.bloqueo_de(conv_a).expect("A sigue bloqueada");
+        assert_eq!(bloqueo.motivo, "falta la API key");
+        assert_eq!(bloqueo.turnos, 3);
+
+        /* La conversación B no hereda el bloqueo ni el contador de A. */
+        runtime.cargar_plan_de(conv_b);
+        assert!(
+            runtime.bloqueo_de(conv_b).is_none(),
+            "el bloqueo de A no puede viajar a B"
+        );
+
+        /* Irse y volver conserva lo acumulado: el contador es del plan de A. */
+        runtime.cargar_plan_de(conv_a);
+        assert_eq!(runtime.bloqueo_de(conv_a).expect("A sigue bloqueada").turnos, 3);
+
+        /* Y un avance real del plan lo levanta: sin eso la meta quedaría pausada
+         * para siempre por un motivo ya resuelto. */
+        {
+            let store = runtime.registry.todo().expect("store de todo registrada");
+            let mut lista = store.lock().await;
+            lista.crear("paso siguiente");
+        }
+        assert!(
+            runtime.bloqueo_de(conv_a).is_none(),
+            "avanzar el plan levanta el bloqueo vigente"
         );
     }
 }

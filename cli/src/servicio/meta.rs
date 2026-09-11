@@ -17,6 +17,15 @@ pub const MAX_META_CHARS: usize = 8_000;
 /// El historial conserva solo los logros más recientes.
 pub const MAX_LOGROS_META: usize = 20;
 
+/// [109A-5 F4] Turnos consecutivos con el MISMO motivo de bloqueo antes de que
+/// el backend pause la meta y avise al usuario.
+///
+/// Tres es el umbral del plan y no una cifra redonda: al primero el bloqueo
+/// puede ser un tropiezo normal, al segundo el usuario ya tuvo una oportunidad
+/// de desatascarlo, y al tercero callarse sería dejar la meta corriendo un reloj
+/// que no avanza. Quien pausa es el backend, nunca el agente.
+pub const UMBRAL_BLOQUEO_TURNOS: u32 = 3;
+
 /// Acción de ciclo de vida solicitada sobre la meta de una conversación.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ComandoMeta {
@@ -127,6 +136,22 @@ impl EstadoMeta {
 pub struct ResultadoMeta {
     pub estado: EstadoMeta,
     pub logro: Option<LogroMeta>,
+}
+
+/// [109A-5 F4] Veredicto de escalar el bloqueo declarado en el plan al cerrar
+/// un turno. Solo `Pausada` cambia el reloj: los demás casos existen para que el
+/// transporte pueda registrar por qué NO se pausó sin adivinar.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "estado", rename_all = "snake_case")]
+pub enum ResultadoBloqueo {
+    /// No hay bloqueo vigente o no hay meta activa (nada que congelar).
+    Inaplicable,
+    /// Bloqueo contado, todavía por debajo del umbral.
+    Contado { motivo: String, turnos: u32 },
+    /// La meta ya estaba pausada: la escalada no repite el aviso.
+    YaPausada { motivo: String, turnos: u32 },
+    /// La meta se pausó AHORA por este bloqueo (transición real y persistida).
+    Pausada { motivo: String, turnos: u32 },
 }
 
 /// Errores de dominio: ningún comando inválido muta el estado.

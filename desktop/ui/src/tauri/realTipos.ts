@@ -57,6 +57,10 @@ export type AgenteEvento =
    * cerrar el turno, porque `lograr` puede ocurrir entre turnos). `turno_id`
    * ancla el badge al pie de ESE turno. */
   | { tipo: 'meta_lograda'; meta: string; lograda_en: string; elapsed_ms: number; turno_id: string }
+  /* [109A-5 F4] Pausa automática: el backend congela el reloj tras 3 turnos
+   * consecutivos con el mismo bloqueo declarado. El motivo explica el porqué
+   * (no lo pausó el usuario) y `turnos` es la evidencia. */
+  | { tipo: 'meta_pausada_por_bloqueo'; motivo: string; turnos: number }
   | { tipo: 'error'; mensaje: string; retryable: boolean }
   | { tipo: 'done'; turno_id: string }
   /** [069A-1 F6] El agente ejecutó una operación del navegador interno.

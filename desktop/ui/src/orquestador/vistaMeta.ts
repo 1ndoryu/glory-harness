@@ -59,6 +59,11 @@ export function montarVistaMeta(deps: VistaMetaDeps): VistaMeta {
     /* [109A-5 F3] Después del primer turno ya existe un `turno_id` que puede
      * respaldar un logro: se recalcula aquí porque el pie acaba de cerrarse. */
     panelMeta.setHayTurno(deps.sesion.ultimoTurnoId() !== null);
+    /* [109A-5 F4] El backend también toca la meta al cerrar un turno (pausa
+     * automática tras 3 turnos bloqueados con el mismo motivo), así que el
+     * estado que se muestra puede haber cambiado sin acción del usuario: se
+     * relee SIEMPRE al cerrar el turno en vez de confiar en lo pintado. */
+    void refrescarEstadoMeta(true);
   }
 
   function registrarUltimoEnvio(panel: PanelChat): void {

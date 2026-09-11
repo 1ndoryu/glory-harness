@@ -14,7 +14,14 @@
  * (`TareaVisible`) para que el runtime lo emita como evento `TareasActualizadas`
  * y la UI lo pinte en vivo. La lista sigue siendo UNA por runtime, así que
  * sobrevive entre turnos de la misma conversación (resume) y desaparece al
- * cerrar la meta (`AgentRuntime::olvidar_tareas`). */
+ * cerrar la meta (`AgentRuntime::olvidar_tareas`).
+ *
+ * [109A-5 F4] El plan gana el BLOQUEO declarado (`bloquear`/`desbloquear`) con
+ * su motivo y el contador de turnos cerrados con ese mismo motivo. El contador
+ * vive aquí, y no en la meta durable, porque el motivo es estado efímero del
+ * runtime: si el plan muere al reiniciar, contar turnos huérfanos no
+ * significaría nada. Lo suma el runtime (una vez por turno cerrado), no la
+ * tool: dos declaraciones en el mismo turno no deben contar doble. */
 
 use crate::contrato::evento::{EstadoTareaVisible, TareaVisible};
 
@@ -58,6 +65,22 @@ impl EstadoTodo {
     }
 }
 
+/// Motivo máximo aceptado en un bloqueo declarado. Acotado porque el motivo
+/// viaja al contexto del modelo en cada turno posterior y al aviso de la UI.
+pub const MAX_MOTIVO_BLOQUEO: usize = 300;
+
+/// [109A-5 F4] Bloqueo declarado por el agente sobre el plan actual.
+///
+/// `turnos` es el número de turnos CERRADOS con este mismo motivo vigente; el
+/// consumidor pausa la meta al llegar al umbral (decisión del servicio, que es
+/// quien tiene el reloj). Repetir el mismo motivo no reinicia el contador: el
+/// agente sigue atascado en lo mismo. Un motivo distinto sí lo reinicia.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BloqueoPlan {
+    pub motivo: String,
+    pub turnos: u32,
+}
+
 /// Ítem del plan de la tarea.
 #[derive(Debug, Clone)]
 pub struct ItemTodo {
@@ -87,6 +110,7 @@ impl ItemTodo {
 #[derive(Debug, Clone, Default)]
 pub struct ListaTodo {
     items: Vec<ItemTodo>,
+    bloqueo: Option<BloqueoPlan>,
 }
 
 impl ListaTodo {
@@ -100,8 +124,64 @@ impl ListaTodo {
         &self.items
     }
 
+    /// [109A-5 F4] Bloqueo vigente, si el agente declaró que no puede avanzar.
+    #[must_use]
+    pub fn bloqueo(&self) -> Option<&BloqueoPlan> {
+        self.bloqueo.as_ref()
+    }
+
+    /// [109A-5 F4] Declara el plan bloqueado con un motivo concreto.
+    ///
+    /// El motivo vacío se rechaza (un bloqueo sin causa no es información) y el
+    /// excesivamente largo también: viaja al contexto de cada turno posterior y
+    /// al aviso de la UI.
+    pub fn bloquear(&mut self, motivo: &str) -> Result<()> {
+        let motivo = motivo.trim();
+        if motivo.is_empty() {
+            return Err(Error::Argumentos(
+                "todo: el motivo del bloqueo no puede estar vacío".into(),
+            ));
+        }
+        if motivo.chars().count() > MAX_MOTIVO_BLOQUEO {
+            return Err(Error::Argumentos(format!(
+                "todo: el motivo del bloqueo supera los {MAX_MOTIVO_BLOQUEO} caracteres"
+            )));
+        }
+        let turnos = match &self.bloqueo {
+            Some(previo) if previo.motivo == motivo => previo.turnos,
+            _ => 0,
+        };
+        self.bloqueo = Some(BloqueoPlan {
+            motivo: motivo.to_string(),
+            turnos,
+        });
+        Ok(())
+    }
+
+    /// [109A-5 F4] Levanta el bloqueo: el agente ya puede seguir.
+    pub fn desbloquear(&mut self) {
+        self.bloqueo = None;
+    }
+
+    /// [109A-5 F4] Suma un turno CERRADO con el bloqueo vigente. Lo llama el
+    /// runtime una sola vez por turno; sin bloqueo declarado no hay nada que
+    /// contar (y un turno que avanzó ya lo limpió con `avanza`).
+    pub fn contar_turno_bloqueado(&mut self) {
+        if let Some(bloqueo) = self.bloqueo.as_mut() {
+            bloqueo.turnos = bloqueo.turnos.saturating_add(1);
+        }
+    }
+
+    /// El plan avanzó (crear/actualizar/en_curso/completar): el bloqueo caduca.
+    /// Sin esta limpieza, un agente que se desatasca sin llamar `desbloquear`
+    /// seguiría contando turnos bloqueados y la meta se pausaría en falso.
+    fn avanza(&mut self) {
+        self.bloqueo = None;
+    }
+
     /// Añade un ítem pendiente; devuelve su ID.
     pub fn crear(&mut self, texto: &str) -> usize {
+        self.avanza();
         let texto = texto.trim();
         let id = self.items.len() + 1;
         self.items.push(ItemTodo {
@@ -126,6 +206,7 @@ impl ListaTodo {
             .find(|item| item.id == id)
             .ok_or_else(|| Error::NoEncontrado(format!("todo: no existe el ítem {id}")))?;
         item.texto = texto.to_string();
+        self.avanza();
         Ok(())
     }
 
@@ -159,6 +240,7 @@ impl ListaTodo {
             .find(|item| item.id == id)
             .ok_or_else(|| Error::NoEncontrado(format!("todo: no existe el ítem {id}")))?;
         item.estado = estado;
+        self.avanza();
         Ok(())
     }
 
@@ -178,24 +260,34 @@ impl ListaTodo {
     /// Vacía la lista (la meta se cerró: el plan ya no persigue nada).
     pub fn vaciar(&mut self) {
         self.items.clear();
+        self.bloqueo = None;
     }
 
     /// Representación textual del plan para el contexto del modelo.
+    ///
+    /// [109A-5 F4] El bloqueo se incluye SIEMPRE que esté vigente, también con
+    /// la lista vacía: es el dato que explica por qué el agente no avanza, y el
+    /// modelo lo recibe en cada turno (no depende de que recuerde haberlo
+    /// declarado).
     #[must_use]
     pub fn a_texto(&self) -> String {
-        if self.items.is_empty() {
-            return "Plan actual: vacío (sin ítems).".to_string();
-        }
-        let mut lineas: Vec<String> = Vec::with_capacity(self.items.len());
-        for item in &self.items {
-            lineas.push(format!(
-                "{}. {} {}",
-                item.id,
-                item.estado.marca(),
-                item.texto
+        let mut texto = if self.items.is_empty() {
+            "Plan actual: vacío (sin ítems).".to_string()
+        } else {
+            let lineas: Vec<String> = self
+                .items
+                .iter()
+                .map(|item| format!("{}. {} {}", item.id, item.estado.marca(), item.texto))
+                .collect();
+            format!("Plan actual (tool todo):\n{}", lineas.join("\n"))
+        };
+        if let Some(bloqueo) = &self.bloqueo {
+            texto.push_str(&format!(
+                "\nBLOQUEADO (turno {} con este motivo): {}",
+                bloqueo.turnos, bloqueo.motivo
             ));
         }
-        format!("Plan actual (tool todo):\n{}", lineas.join("\n"))
+        texto
     }
 }
 
@@ -206,7 +298,8 @@ impl ListaTodo {
 /// conversaciones (ver `cargar_plan_de`).
 pub type TodoCompartida = Arc<Mutex<ListaTodo>>;
 
-/// Aplica una acción `todo { crear|actualizar|en_curso|completar }` sobre la
+/// Aplica una acción
+/// `todo { crear|actualizar|en_curso|completar|bloquear|desbloquear }` sobre la
 /// lista y devuelve el plan actualizado (se refleja así en el contexto del
 /// modelo).
 fn aplicar_todo(lista: &mut ListaTodo, argumentos: &Value) -> Result<String> {
@@ -215,7 +308,8 @@ fn aplicar_todo(lista: &mut ListaTodo, argumentos: &Value) -> Result<String> {
         .and_then(Value::as_str)
         .ok_or_else(|| {
             Error::Argumentos(
-                "todo: accion requerida (crear|actualizar|en_curso|completar)".into(),
+                "todo: accion requerida (crear|actualizar|en_curso|completar|bloquear|desbloquear)"
+                    .into(),
             )
         })?;
     match accion {
@@ -259,9 +353,18 @@ fn aplicar_todo(lista: &mut ListaTodo, argumentos: &Value) -> Result<String> {
                 as usize;
             lista.en_curso(id)?;
         }
+        "bloquear" => {
+            let motivo = argumentos
+                .get("motivo")
+                .and_then(Value::as_str)
+                .ok_or_else(|| Error::Argumentos("todo: motivo requerido para bloquear".into()))?;
+            lista.bloquear(motivo)?;
+        }
+        "desbloquear" => lista.desbloquear(),
         otra => {
             return Err(Error::Argumentos(format!(
-                "todo: accion desconocida '{otra}' (crear|actualizar|en_curso|completar)"
+                "todo: accion desconocida '{otra}' \
+(crear|actualizar|en_curso|completar|bloquear|desbloquear)"
             )));
         }
     }
@@ -277,7 +380,8 @@ impl AgentTool for ToolTodo {
     }
     fn descripcion(&self) -> &'static str {
         "Mantiene el plan visible de la tarea actual (lista de pasos).\
-\nQUÉ HACE: crea, actualiza o cambia de estado ítems de un plan de varios pasos.\
+\nQUÉ HACE: crea, actualiza o cambia de estado ítems de un plan de varios pasos, \
+y declara el bloqueo del plan cuando no puedes avanzar.\
 \nFORMATO DE SALIDA: devuelve el plan completo actualizado, cada línea \
 'ID. [ ] texto' pendiente, 'ID. [/] texto' en curso o 'ID. [x] texto' completada.\
 \nCUÁNDO USARLA: al recibir una tarea con 2+ pasos o ediciones, crea el plan \
@@ -285,7 +389,14 @@ antes de tocar archivos; con una meta activa SIEMPRE (el usuario debe ver el \
 plan); marca 'en_curso' el paso que estás haciendo ahora (uno solo a la vez) y \
 'completar' cada uno al terminarlo; actualiza el texto si el paso cambia. Para \
 tareas de un solo paso sin meta no hace falta.\
-\nERRORES: accion desconocida, texto vacío o id inexistente."
+\nBLOQUEO: usa 'bloquear' con un motivo CONCRETO solo si no puedes seguir (falta \
+un dato, una credencial o un permiso del usuario; una dependencia inaccesible). \
+'Difícil', 'no lo entiendo' o 'me falta tiempo' NO son bloqueos: son trabajo \
+pendiente, y declararlos es un error. Un bloqueo vigente que dura 3 turnos \
+seguidos hace que el backend pause la meta y avise al usuario. En cuanto puedas \
+seguir, 'desbloquear' (cualquier avance del plan también lo levanta).\
+\nERRORES: accion desconocida, texto o motivo vacíos, motivo demasiado largo o \
+id inexistente."
     }
     fn schema(&self) -> Value {
         json!({
@@ -293,8 +404,8 @@ tareas de un solo paso sin meta no hace falta.\
             "properties": {
                 "accion": {
                     "type": "string",
-                    "enum": ["crear", "actualizar", "en_curso", "completar"],
-                    "description": "Operación: crear (nuevo paso), actualizar (cambiar texto), en_curso (estoy trabajando en él), completar (marcar hecho)"
+                    "enum": ["crear", "actualizar", "en_curso", "completar", "bloquear", "desbloquear"],
+                    "description": "Operación: crear (nuevo paso), actualizar (cambiar texto), en_curso (estoy trabajando en él), completar (marcar hecho), bloquear (no puedo avanzar: exige motivo), desbloquear (ya puedo seguir)"
                 },
                 "texto": {
                     "type": "string",
@@ -303,6 +414,10 @@ tareas de un solo paso sin meta no hace falta.\
                 "id": {
                     "type": "integer",
                     "description": "ID del ítem (actualizar/en_curso/completar); se obtiene del plan devuelto"
+                },
+                "motivo": {
+                    "type": "string",
+                    "description": "Causa concreta del bloqueo (bloquear): qué dato, permiso o dependencia falta. No vale 'difícil' ni 'incompleto'"
                 }
             },
             "required": ["accion"]
@@ -319,15 +434,18 @@ tareas de un solo paso sin meta no hace falta.\
             .ok_or_else(|| Error::Validacion("todo no está disponible en este runtime".into()))?;
         let mut lista = store.lock().await;
         let contenido = aplicar_todo(&mut lista, &argumentos)?;
-        let resumen = argumentos
+        let accion = argumentos
             .get("accion")
             .and_then(Value::as_str)
-            .unwrap_or("?")
-            .to_string();
-        Ok(AgentToolResult::ok(
-            contenido.clone(),
-            format!("todo: {resumen} — {} ítems en el plan", lista.items().len()),
-        ))
+            .unwrap_or("?");
+        let resumen = match lista.bloqueo() {
+            Some(bloqueo) if accion == "bloquear" => format!(
+                "todo: bloquear — plan bloqueado (turno {} de este motivo)",
+                bloqueo.turnos
+            ),
+            _ => format!("todo: {accion} — {} ítems en el plan", lista.items().len()),
+        };
+        Ok(AgentToolResult::ok(contenido.clone(), resumen))
     }
 }
 
@@ -462,5 +580,125 @@ mod tests {
         assert!(registry.todo().is_some(), "la store queda registrada");
         let schemas = registry.schemas_openai(None, "predeterminado");
         assert!(schemas.iter().any(|s| s["function"]["name"] == "todo"));
+    }
+
+    #[test]
+    fn bloqueo_exige_motivo_concreto_y_acotado() {
+        let mut lista = ListaTodo::nueva();
+        assert!(lista.bloquear("   ").is_err(), "sin motivo no hay bloqueo");
+        assert!(
+            lista.bloqueo().is_none(),
+            "un rechazo no debe mutar la lista"
+        );
+        let largo = "x".repeat(MAX_MOTIVO_BLOQUEO + 1);
+        assert!(lista.bloquear(&largo).is_err(), "motivo acotado");
+        lista
+            .bloquear("  falta la API key del proveedor  ")
+            .expect("bloquea");
+        let bloqueo = lista.bloqueo().expect("vigente");
+        assert_eq!(bloqueo.motivo, "falta la API key del proveedor");
+        assert_eq!(
+            bloqueo.turnos, 0,
+            "el turno en curso lo cuenta el runtime al cerrarlo"
+        );
+    }
+
+    #[test]
+    fn bloqueo_cuenta_turnos_seguidos_y_un_motivo_nuevo_reinicia() {
+        let mut lista = ListaTodo::nueva();
+        lista.bloquear("falta credencial").expect("bloquea");
+        lista.contar_turno_bloqueado();
+        lista.contar_turno_bloqueado();
+        lista.contar_turno_bloqueado();
+        assert_eq!(
+            lista.bloqueo().expect("vigente").turnos,
+            3,
+            "tres turnos cerrados con el mismo motivo"
+        );
+        // Repetir el MISMO motivo no reinicia: sigue atascado en lo mismo.
+        lista.bloquear("falta credencial").expect("redeclara");
+        assert_eq!(lista.bloqueo().expect("vigente").turnos, 3);
+        // Un motivo distinto es un bloqueo nuevo.
+        lista.bloquear("permiso denegado").expect("bloquea otro");
+        assert_eq!(lista.bloqueo().expect("vigente").turnos, 0);
+        // Sin bloqueo declarado, contar no inventa turnos.
+        lista.desbloquear();
+        lista.contar_turno_bloqueado();
+        assert!(lista.bloqueo().is_none());
+    }
+
+    #[test]
+    fn el_primer_avance_del_plan_levanta_el_bloqueo() {
+        let mut lista = ListaTodo::nueva();
+        lista.crear("Paso uno");
+        lista.bloquear("falta credencial").expect("bloquea");
+        lista.contar_turno_bloqueado();
+        /* Cualquier avance caduca el bloqueo: sin esto, un agente que se
+         * desatasca sin llamar `desbloquear` seguiría sumando turnos y la meta
+         * se pausaría en falso. */
+        lista.en_curso(1).expect("en curso");
+        assert!(lista.bloqueo().is_none());
+        lista.bloquear("falta credencial").expect("bloquea");
+        lista.completar(1).expect("completa");
+        assert!(lista.bloqueo().is_none());
+        lista.bloquear("falta credencial").expect("bloquea");
+        lista.actualizar(1, "Paso uno bis").expect("actualiza");
+        assert!(lista.bloqueo().is_none());
+        lista.bloquear("falta credencial").expect("bloquea");
+        lista.crear("Paso dos");
+        assert!(lista.bloqueo().is_none());
+        /* Un id inexistente NO levanta el bloqueo: no hubo avance, hubo error. */
+        lista.bloquear("falta credencial").expect("bloquea");
+        assert!(lista.en_curso(99).is_err());
+        assert!(lista.bloqueo().is_some());
+        lista.vaciar();
+        assert!(
+            lista.bloqueo().is_none(),
+            "cerrar la meta vacía el plan y su bloqueo"
+        );
+    }
+
+    #[test]
+    fn el_texto_del_plan_muestra_el_bloqueo_vigente() {
+        let mut lista = ListaTodo::nueva();
+        lista.bloquear("falta credencial").expect("bloquea");
+        lista.contar_turno_bloqueado();
+        assert_eq!(
+            lista.a_texto(),
+            "Plan actual: vacío (sin ítems).\n\
+BLOQUEADO (turno 1 con este motivo): falta credencial"
+        );
+        lista.desbloquear();
+        assert_eq!(lista.a_texto(), "Plan actual: vacío (sin ítems).");
+    }
+
+    #[tokio::test]
+    async fn tool_todo_bloquea_y_desbloquea_con_motivo() {
+        let store = Arc::new(Mutex::new(ListaTodo::nueva()));
+        let ctx = ctx_con_todo(store.clone());
+        let err = ToolTodo
+            .ejecutar(&ctx, json!({"accion": "bloquear"}))
+            .await
+            .expect_err("motivo requerido");
+        assert!(err.to_string().contains("motivo requerido"));
+        let r = ToolTodo
+            .ejecutar(
+                &ctx,
+                json!({"accion": "bloquear", "motivo": "falta el token del usuario"}),
+            )
+            .await
+            .expect("bloquear");
+        assert!(r.contenido.contains("BLOQUEADO"), "contenido: {}", r.contenido);
+        assert!(r.resumen.contains("bloqueado"), "resumen: {}", r.resumen);
+        assert_eq!(
+            store.lock().await.bloqueo().expect("vigente").motivo,
+            "falta el token del usuario"
+        );
+        let r = ToolTodo
+            .ejecutar(&ctx, json!({"accion": "desbloquear"}))
+            .await
+            .expect("desbloquear");
+        assert!(!r.contenido.contains("BLOQUEADO"));
+        assert!(store.lock().await.bloqueo().is_none());
     }
 }

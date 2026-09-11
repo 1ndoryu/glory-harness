@@ -64,13 +64,34 @@ export function crearTurno(deps: TurnoDeps): TurnoChat {
     };
   }
 
-  /** Empuja la meta editable (única, del panelMeta global) antes del turno. */
-  async function empujarMeta(): Promise<void> {
-    const meta = d.panelMeta.getMeta().trim() ? d.panelMeta.getMeta().trim() : null;
+  /** [109A-5 F4] Fija la meta del turno solo-lectura con su CICLO DE VIDA.
+   *
+   * Antes viajaba solo como borrador en memoria (`actualizar_meta` sin
+   * conversación), así que `/meta <texto>` no creaba reloj de persecución ni
+   * historial: la meta era texto para prefijar el turno y nada más. Con
+   * conversación se aplica `fijar` durable (mismo camino que la caja de meta),
+   * y el estado devuelto repinta el panel —reloj e historial incluidos— sin
+   * una segunda consulta. Sin fila todavía se conserva el borrador, que es el
+   * único sitio donde una meta puede vivir: no se simula estado durable. */
+  async function fijarMetaDurable(texto: string): Promise<void> {
+    const conversacionId = deps.getConversaId();
     try {
-      await d.adaptador.sesion.actualizarMeta(meta);
+      if (conversacionId === null) {
+        await d.adaptador.sesion.actualizarMeta(texto);
+        return;
+      }
+      const estado = await d.adaptador.sesion.metaAplicar({
+        accion: 'fijar',
+        meta: texto,
+        conversacion_id: conversacionId,
+      });
+      d.panelMeta.setEstadoMeta(estado);
     } catch (e: unknown) {
-      deps.aviso(`no se pudo fijar la meta: ${String(e)}`, '', 'el turno sigue sin meta');
+      deps.aviso(
+        `no se pudo fijar la meta: ${String(e)}`,
+        '',
+        'el turno corre igual, sin reloj de persecución',
+      );
     }
   }
 
@@ -181,14 +202,14 @@ export function crearTurno(deps: TurnoDeps): TurnoChat {
 
     if (d.usaReal) {
       void (async () => {
-        // [109A-4 F4] La meta del turno la aporta el comando: `/meta <texto>`
-        // fuerza solo lectura en ESE turno (el backend aplica el modo y lo
-        // revierte al terminar). El texto se refleja en la fila y se persiste
-        // como meta de la conversación, que es la que el backend antepone en
-        // los siguientes turnos solo-lectura; fuera de ellos no se antepone.
+        /* [109A-4 F4 / 109A-5 F4] La meta del turno la aporta el comando:
+         * `/meta <texto>` fuerza solo lectura en ESE turno (el backend aplica
+         * el modo y lo revierte al terminar) y crea la meta con ciclo de vida,
+         * que es la que el backend antepone en los siguientes turnos
+         * solo-lectura; fuera de ellos no se antepone. */
         if (soloLectura) {
           d.panelMeta.setMeta(texto);
-          await empujarMeta();
+          await fijarMetaDurable(texto);
         }
         await d.adaptador.montar(
           mensajes,

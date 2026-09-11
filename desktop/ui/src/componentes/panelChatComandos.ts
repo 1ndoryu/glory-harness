@@ -193,7 +193,7 @@ export function crearEjecutorComandos(deps: ComandosDeps): EjecutorComandos {
     deps.aviso(
       'turno en modo meta: solo lectura, ninguna tool con efecto se ejecuta',
       'meta',
-      'el modo global de la sesión no cambia',
+      'queda activa con su reloj de persecución; el modo global de la sesión no cambia',
     );
     return { tipo: 'prompt', texto, soloLectura: true };
   }

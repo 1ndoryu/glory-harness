@@ -83,9 +83,17 @@ impl DesgloseContexto {
 /// prefijo se persiste como mensaje del usuario (queda en el historial y viaja
 /// en cada turno posterior), mientras que la regla de operación solo aplica
 /// mientras el turno se ejecuta en modo meta.
+///
+/// [109A-5 F4] Incluye la regla anti-atasco (paridad Synara): el agente declara
+/// el bloqueo con la tool `todo` y un motivo concreto, y NUNCA pausa la meta por
+/// su cuenta. El bloqueo "difícil/incompleto" queda prohibido por escrito: es
+/// trabajo pendiente disfrazado, y es justo lo que la escalada de 3 turnos
+/// existe para detectar.
 pub const REGLAS_META: &str = "Trabajas bajo una META activa (bloque [META] del último mensaje del usuario).\
 \n- Descompón la meta en tareas visibles con la tool `todo` ANTES de actuar, y mantenla al día: marca `en_curso` el paso que estás haciendo ahora (uno solo a la vez) y `completar` cada paso terminado. El usuario ve esas tareas en vivo.\
 - Trabaja paso a paso hacia la meta; si un paso no se puede completar, dilo explícitamente en vez de cerrar el turno como si estuviera hecho.\
+- Si no puedes avanzar, declara el bloqueo con `todo { accion: bloquear, motivo }` y un motivo CONCRETO: qué dato, credencial, permiso o dependencia falta. NO declares bloqueo por 'es difícil', 'no lo entiendo', 'es mucho' o 'está incompleto': eso es trabajo pendiente, no un bloqueo.\
+- Tú NO pausas la meta: si el mismo bloqueo sigue vigente 3 turnos consecutivos, el backend la pausa y avisa al usuario. Cuando puedas seguir, usa `desbloquear` (cualquier avance del plan también lo levanta).\
 - Este turno es de SOLO LECTURA: no hay tools con efecto disponibles. Si la meta exige modificar algo, explica el cambio propuesto y espera a un turno normal.";
 
 /// [318A-15 F1] Ensambla el system prompt por capas (patrón claurst

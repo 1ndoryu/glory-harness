@@ -309,6 +309,79 @@ pie con evidencia ("Meta lograda en 1m 17s"). La garantía negativa actual
 - Verificación: tests del contador (mismo motivo ×3 pausa; motivo distinto
   resetea); E2E migración; gate PASS.
 
+**Estado: HECHO (11-09).** Evidencia:
+
+- Plan: `BloqueoPlan { motivo, turnos }` en `ListaTodo` (`todo.rs`), acciones
+  `bloquear`/`desbloquear` en la tool, tope de motivo (300 chars, rechaza
+  vacío) y contador `contar_turno_bloqueado`. Dos invariantes que evitan
+  pausas falsas: repetir el MISMO motivo conserva el contador y un motivo
+  nuevo lo reinicia a 0; cualquier avance real del plan
+  (`crear`/`actualizar`/`mutar_estado`, vía `avanza()`) levanta el bloqueo —
+  sin eso, un agente que se desatasca sin llamar `desbloquear` seguiría
+  contando y la meta se pausaría por un motivo ya resuelto. `a_texto()` lo
+  muestra (`BLOQUEADO (turno N con este motivo): …`) para que el estado sea
+  legible por el modelo y por el usuario.
+- Conteo por TURNO, no por llamada: lo hace el runtime
+  (`contar_bloqueo_del_turno`, una vez al cerrar el turno) porque N
+  declaraciones en el mismo turno son un solo turno atascado. Es por
+  conversación (misma partición que el plan de F2) y responde `None`/no cuenta
+  si la lista está bloqueada por una tool, en vez de bloquear un camino
+  síncrono.
+- Umbral y pausa: `UMBRAL_BLOQUEO_TURNOS = 3` y `ResultadoBloqueo
+  {Inaplicable, Contado, YaPausada, Pausada}` en el servicio. `Pausada` pausa
+  la meta de verdad (reloj congelado) y solo entonces se publica el evento
+  aditivo `MetaPausadaPorBloqueo { motivo, turnos }`, **antes** de
+  `turn.finished` (el cliente cierra el stream con el fin del turno; un aviso
+  posterior se perdería). Al cuarto turno no se repite el aviso: pertenece al
+  instante en que el reloj se detuvo. Un turno FALLIDO no escala (pausar por
+  un fallo de proveedor sería culpar al bloqueo de un problema de red).
+- Migración del modo global: ya entregada por 109A-4 F4
+  (`vistaModal.ts` → `migrarModoRetirado`, aviso único +
+  `configGuardar('modo','predeterminado')`). El hueco real era `/meta
+  <texto>`: empujaba la meta solo al borrador en memoria, y como F1 lee la
+  meta DURABLE (y el borrador es solo respaldo), el comando dejaba una meta
+  sin ciclo de vida ni reloj. Ahora `panelChatTurno.ts` llama a
+  `fijarMetaDurable` (PATCH `fijar` + `setEstadoMeta`) y solo cae al borrador
+  cuando todavía no hay conversación, avisando si el fijado falla (el turno
+  corre igual, sin reloj de persecución).
+- Prompt: `REGLAS_META` instruye declarar el bloqueo con motivo concreto y
+  prohíbe pausar por "difícil/incompleto", explicitando que el backend pausa
+  solo tras 3 turnos con el mismo motivo.
+- Tests: `cargo test -p glory-harness-core -p glory-harness --lib` → **132
+  cli + 297 core pasan**, 0 fallan. Cubren el contador por conversación (que
+  se conserva al volver y lo levanta un avance), el umbral, el reinicio con
+  motivo nuevo y la escalada completa (pausa durable + evento en el cable +
+  no repetir); `escalada_sin_meta_activa_no_pausa_ni_avisa` fija que no se
+  invente una pausa sin meta. `cargo clippy
+  -p glory-harness-core -p glory-harness -p glory-harness-desktop
+  --all-targets -- -D warnings` limpio; `cargo fmt --check` sin drift en los
+  archivos tocados (el repo tiene drift previo ajeno en ~110 sitios y `fmt`
+  no es etapa del gate); `npm.cmd --prefix desktop/ui run build` (`tsc` +
+  `vite`) EXIT 0 (103 módulos).
+- Refactor obligado por el gate: F4 empujó `funcion-larga-rs` de `turno_real`
+  a 104 líneas efectivas (>100). Se extrajo el reenvío SSE a
+  `reenviar_eventos` y la aplicación de la escalada a `aplicar_escalada`, lo
+  que devuelve el recuento al **baseline de 10 warnings + 1 info** y de paso
+  deja la escalada testeable sin depender de métodos privados del runtime.
+- E2E navegador real (fixture, `web 8799 --dir-ui desktop/ui/dist`):
+  ciclo de vida por HTTP contra el binario — `fijar` →
+  `activa.iniciada_en` + `logros: []`; `pausar` → `pausada_en` con hora;
+  `reanudar` → `pausada_en: null`; `limpiar` → `{activa: null, logros: []}`.
+  Confirma que el contrato que consume la UI (`estado` completo) es el que
+  sirve el binario, no solo el de los tests.
+- Límites honestos: (1) el E2E **no** ejercita la escalada con modelo real:
+  declarar `bloquear` con el mismo motivo tres turnos seguidos depende del
+  proveedor y no es determinista, así que la verificación funcional de la
+  pausa es la escalada aplicada contra la BD real en los tests (lo que NO se
+  prueba ahí es que el modelo declare el bloqueo; eso depende del prompt);
+  (2) el contador vive en el plan del runtime (estado de ejecución): al
+  reiniciar la app se pierde y el bloqueo no se hereda — coherente con que el
+  plan tampoco persiste (límite ya documentado en F2).
+- Gate: `sentinel check 109A-5 --stages scripts/quality/stages.json` →
+  coverage PASS, sentinel PASS (0 errores, **10 warnings, 1 info**); el
+  veredicto global sigue FAIL **solo** por `sccache-no-configurado`, ajeno a
+  esta tarea.
+
 ## 6. Decisiones y riesgos
 
 - Honestidad: el logro es **declarado** (agente o usuario), no verificado

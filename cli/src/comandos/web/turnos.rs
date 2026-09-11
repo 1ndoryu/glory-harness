@@ -22,6 +22,7 @@ use tokio::sync::mpsc;
 use uuid::Uuid;
 
 use super::{autorizar_sesion, cable, error, ApiError, AppState, SesionWeb, TurnoActivo};
+use crate::servicio::ResultadoBloqueo;
 
 /// Límite de mensaje (F6 fijará rate limits; el tamaño se valida desde F2).
 const MAX_MENSAJE_CHARS: usize = 32_000;
@@ -50,7 +51,11 @@ pub(crate) async fn abortar_turno_activo(sesion: &Arc<SesionWeb>, motivo: &str) 
         sesion
             .emitir(cable(
                 "turn.finished",
-                serde_json::json!({ "turn_id": t.id, "ok": false, "error": motivo }),
+                serde_json::json!({
+                    "turn_id": t.id,
+                    "ok": false,
+                    "error": motivo,
+                }),
             ))
             .await;
     }
@@ -243,9 +248,114 @@ async fn turno_fixture(sesion: &Arc<SesionWeb>, turno_id: Uuid, mensaje: &str) {
     sesion
         .emitir(cable(
             "turn.finished",
-            serde_json::json!({ "turn_id": turno_id, "ok": true, "error": null }),
+            serde_json::json!({
+                "turn_id": turno_id,
+                "ok": true,
+                "error": null,
+            }),
         ))
         .await;
+}
+
+/// [109A-5 F4] Aplica la escalada de un bloqueo YA leído del plan: al tercer
+/// turno consecutivo con el MISMO motivo la meta queda pausada (reloj
+/// congelado, meta visible) y se publica `MetaPausadaPorBloqueo`.
+///
+/// Devuelve `true` solo si la pausa ocurrió AHORA: por debajo del umbral o con
+/// la meta ya pausada no hay evento, porque el aviso pertenece al momento en
+/// que el reloj se detiene. Sin meta activa no hay nada que pausar y tampoco
+/// se toca la BD.
+async fn aplicar_escalada(
+    sesion: &Arc<SesionWeb>,
+    conversacion_id: Uuid,
+    motivo: &str,
+    turnos: u32,
+) -> bool {
+    let mut comun = sesion.comun.lock().await.clone();
+    match comun.escalar_bloqueo(conversacion_id, Some((motivo, turnos))) {
+        Ok(ResultadoBloqueo::Pausada { motivo, turnos }) => {
+            /* El evento viaja por el canal del turno ANTES de `turn.finished`:
+             * el cliente cierra el stream con el fin del turno, así que un
+             * aviso posterior se perdería. */
+            sesion
+                .emitir(cable(
+                    "agent.event",
+                    serde_json::to_value(AgenteEvento::MetaPausadaPorBloqueo { motivo, turnos })
+                        .unwrap_or(Value::Null),
+                ))
+                .await;
+            true
+        }
+        Ok(_) => false,
+        Err(e) => {
+            tracing::warn!(%conversacion_id, error = %e, "bloqueo del plan no escalado");
+            false
+        }
+    }
+}
+
+/// [109A-5 F4] Cierra el turno escalando el bloqueo que el agente declaró en el
+/// plan (motivo + turnos contados por el runtime). Sin bloqueo vigente no toca
+/// la BD ni el cable: el contador vive en el plan y aquí solo se lee.
+async fn escalar_bloqueo_del_turno(
+    sesion: &Arc<SesionWeb>,
+    runtime: &Arc<glory_harness_core::runtime::AgentRuntime>,
+    conversacion_id: Uuid,
+) -> bool {
+    let Some(bloqueo) = runtime.bloqueo_de(conversacion_id) else {
+        return false;
+    };
+    aplicar_escalada(sesion, conversacion_id, &bloqueo.motivo, bloqueo.turnos).await
+}
+
+/// Uso real acumulado de un turno: (tokens de prompt, tokens de completación,
+/// proveedor, modelo) tal como lo reporta el runtime.
+type UsoTurno = (u32, u32, Option<String>, Option<String>);
+
+/// Reenvía al cable SSE cada evento que el runtime publica durante el turno y
+/// acumula el uso REAL mientras lo hace.
+///
+/// En su propia función por dos razones: el consumo termina cuando llega `Done`
+/// (no cuando se cierra el canal) y el cierre del turno se lee mejor sin 30
+/// líneas de contabilidad en medio.
+async fn reenviar_eventos(
+    sesion: Arc<SesionWeb>,
+    mut rx_ev: mpsc::Receiver<AgenteEvento>,
+) -> UsoTurno {
+    let mut uso_p = 0u32;
+    let mut uso_c = 0u32;
+    let mut prov: Option<String> = None;
+    let mut mod_: Option<String> = None;
+    while let Some(ev) = rx_ev.recv().await {
+        let es_done = matches!(ev, AgenteEvento::Done { .. });
+        if let AgenteEvento::Usage {
+            tokens_prompt,
+            tokens_complecion,
+            provider,
+            modelo,
+            ..
+        } = &ev
+        {
+            uso_p = uso_p.saturating_add(*tokens_prompt);
+            uso_c = uso_c.saturating_add(*tokens_complecion);
+            if prov.is_none() {
+                prov = provider.clone();
+            }
+            if mod_.is_none() {
+                mod_ = modelo.clone();
+            }
+        }
+        sesion
+            .emitir(cable(
+                "agent.event",
+                serde_json::to_value(&ev).unwrap_or(Value::Null),
+            ))
+            .await;
+        if es_done {
+            break;
+        }
+    }
+    (uso_p, uso_c, prov, mod_)
 }
 
 /// Turno real: mismo patrón que Tauri (`enviar_turno`).
@@ -256,45 +366,8 @@ async fn turno_real(
     persistencia: Arc<crate::PersistenciaSqlite>,
 ) {
     let turno_id = preparacion.turno_id;
-    let (tx_ev, mut rx_ev) = mpsc::channel::<AgenteEvento>(64);
-
-    let sesion_fw = Arc::clone(sesion);
-    let reenvio = tokio::spawn(async move {
-        let mut uso_p = 0u32;
-        let mut uso_c = 0u32;
-        let mut prov: Option<String> = None;
-        let mut mod_: Option<String> = None;
-        while let Some(ev) = rx_ev.recv().await {
-            let es_done = matches!(ev, AgenteEvento::Done { .. });
-            if let AgenteEvento::Usage {
-                tokens_prompt,
-                tokens_complecion,
-                provider,
-                modelo,
-                ..
-            } = &ev
-            {
-                uso_p = uso_p.saturating_add(*tokens_prompt);
-                uso_c = uso_c.saturating_add(*tokens_complecion);
-                if prov.is_none() {
-                    prov = provider.clone();
-                }
-                if mod_.is_none() {
-                    mod_ = modelo.clone();
-                }
-            }
-            sesion_fw
-                .emitir(cable(
-                    "agent.event",
-                    serde_json::to_value(&ev).unwrap_or(Value::Null),
-                ))
-                .await;
-            if es_done {
-                break;
-            }
-        }
-        (uso_p, uso_c, prov, mod_)
-    });
+    let (tx_ev, rx_ev) = mpsc::channel::<AgenteEvento>(64);
+    let reenvio = tokio::spawn(reenviar_eventos(Arc::clone(sesion), rx_ev));
 
     let resultado = preparacion
         .runtime
@@ -322,10 +395,22 @@ async fn turno_real(
                     mod_.as_deref(),
                 );
             }
+            /* [109A-5 F4] El turno terminó: se cierra la escalada del bloqueo
+             * ANTES de anunciar el fin, para que el aviso viaje con él. */
+            let _ = escalar_bloqueo_del_turno(
+                sesion,
+                &preparacion.runtime,
+                preparacion.conversacion_id,
+            )
+            .await;
             sesion
                 .emitir(cable(
                     "turn.finished",
-                    serde_json::json!({ "turn_id": turno_id, "ok": true, "error": null }),
+                    serde_json::json!({
+                        "turn_id": turno_id,
+                        "ok": true,
+                        "error": null,
+                    }),
                 ))
                 .await;
         }
@@ -340,10 +425,17 @@ async fn turno_real(
                     .unwrap_or(Value::Null),
                 ))
                 .await;
+            /* Un turno fallido no se cuenta como turno bloqueado: el conteo del
+             * runtime ya lo lleva el plan, pero pausar la meta por un fallo de
+             * proveedor sería culpar al bloqueo de un problema de red. */
             sesion
                 .emitir(cable(
                     "turn.finished",
-                    serde_json::json!({ "turn_id": turno_id, "ok": false, "error": e.to_string() }),
+                    serde_json::json!({
+                        "turn_id": turno_id,
+                        "ok": false,
+                        "error": e.to_string(),
+                    }),
                 ))
                 .await;
         }
@@ -352,9 +444,10 @@ async fn turno_real(
 
 #[cfg(test)]
 mod tests {
-    use super::super::tests::{sesion_memoria, state_test};
+    use super::super::tests::{parchear_meta, sesion_memoria, state_test};
     use super::super::COOKIE_SESION;
     use super::*;
+    use axum::http::StatusCode;
     use axum::{
         body::Body,
         http::{header, Request},
@@ -677,12 +770,95 @@ mod tests {
         server.abort();
     }
 
+    /* [109A-5 F4] La pausa por bloqueo es el único camino que detiene la meta
+     * sin que el usuario lo pida. Aquí se prueba la reacción del backend ante
+     * el bloqueo ya contado por el plan (motivo + turnos): umbral, pausa
+     * durable, aviso por el cable y no repetir el aviso. Lo que NO cubre: que
+     * el modelo declare el bloqueo (`REGLAS_META` lo instruye, pero declararlo
+     * depende del proveedor) ni el contador del plan, que se prueba en
+     * `nucleo::runtime` y en la tool `todo`. */
+    #[tokio::test]
+    async fn bloqueo_sostenido_tres_turnos_pausa_la_meta_y_avisa_una_sola_vez() {
+        let state = state_test();
+        let (sid, sesion) = sesion_memoria(&state).await;
+        let (status, _) = parchear_meta(
+            &state,
+            &sid,
+            serde_json::json!({ "meta": "cerrar el gate" }),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+
+        let conv = sesion.conversacion_id.lock().await.expect("conversación");
+
+        /* Dos turnos con el MISMO motivo: por debajo del umbral no hay pausa y,
+         * como el reloj no se detiene, tampoco hay aviso que mandar. */
+        for turnos in 1..=2 {
+            let mut rx = sesion.sse.lock().await.suscribir().1;
+            assert!(
+                !aplicar_escalada(&sesion, conv, "falta la API key", turnos).await,
+                "turno {turnos}: bajo el umbral no se pausa"
+            );
+            assert!(rx.try_recv().is_err(), "turno {turnos}: ni se avisa");
+            let estado = sesion.comun.lock().await.meta_leer(conv).expect("estado");
+            assert!(
+                estado.activa.expect("meta activa").pausada_en.is_none(),
+                "turno {turnos}: la meta sigue corriendo"
+            );
+        }
+
+        /* Un motivo NUEVO reinicia el contador: el umbral mide el atasco, no la
+         * cantidad de bloqueos distintos que hubo. */
+        let mut rx = sesion.sse.lock().await.suscribir().1;
+        assert!(!aplicar_escalada(&sesion, conv, "permiso denegado", 1).await);
+        assert!(rx.try_recv().is_err());
+
+        /* Tercero con el motivo original: se pausa de verdad y el aviso sale
+         * con motivo y turnos para que la UI pueda explicar el porqué. */
+        let mut rx = sesion.sse.lock().await.suscribir().1;
+        assert!(
+            aplicar_escalada(&sesion, conv, "falta la API key", 3).await,
+            "al tercer turno se pausa"
+        );
+        let cable = rx.recv().await.expect("aviso de pausa");
+        assert!(cable.contains(r#""event":"agent.event""#), "{cable}");
+        assert!(
+            cable.contains(r#""tipo":"meta_pausada_por_bloqueo""#),
+            "{cable}"
+        );
+        assert!(cable.contains("falta la API key"), "{cable}");
+        assert!(cable.contains(r#""turnos":3"#), "{cable}");
+        let estado = sesion.comun.lock().await.meta_leer(conv).expect("estado");
+        assert!(
+            estado.activa.expect("meta activa").pausada_en.is_some(),
+            "la meta quedó pausada, no solo avisada"
+        );
+
+        /* Un cuarto turno bloqueado ya no pausa ni avisa: el aviso pertenece al
+         * instante en que el reloj se detuvo, no a cada turno atascado. */
+        let mut rx = sesion.sse.lock().await.suscribir().1;
+        assert!(!aplicar_escalada(&sesion, conv, "falta la API key", 4).await);
+        assert!(rx.try_recv().is_err());
+    }
+
+    /* [109A-5 F4] Sin meta activa no hay reloj que congelar: el bloqueo del
+     * plan no debe inventar una pausa ni tocar la BD (el comando devolvería
+     * `sin_conversacion`/`sin_meta` y el turno se cerraría con ruido). */
+    #[tokio::test]
+    async fn escalada_sin_meta_activa_no_pausa_ni_avisa() {
+        let state = state_test();
+        let (_, sesion) = sesion_memoria(&state).await;
+        let conv = sesion.conversacion_id.lock().await.expect("conversación");
+        let mut rx = sesion.sse.lock().await.suscribir().1;
+        assert!(!aplicar_escalada(&sesion, conv, "falta la API key", 9).await);
+        assert!(rx.try_recv().is_err());
+    }
+
     /// Posición del `\n\n` que cierra un frame SSE (el `\r` se filtra al
     /// acumular, así los índices son exactos).
     fn doble_salto(buf: &[u8]) -> Option<usize> {
         buf.windows(2).position(|w| w == [b'\n', b'\n'])
     }
-
     /// `(event, data)` de un frame SSE.
     fn frame_sse(frame: &str) -> (String, String) {
         let mut tipo = "message".to_string();

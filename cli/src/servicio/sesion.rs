@@ -16,7 +16,10 @@ use crate::{
     OpcionesRun, PersistenciaSqlite,
 };
 
-use super::meta::{resolver_meta, ComandoMeta, ErrorMeta, EstadoMeta, ResultadoMeta};
+use super::meta::{
+    resolver_meta, ComandoMeta, ErrorMeta, EstadoMeta, ResultadoBloqueo, ResultadoMeta,
+    UMBRAL_BLOQUEO_TURNOS,
+};
 use super::sesion_config::{leer_gancho_pre_compact, leer_max_ventana, resolver_opciones};
 /* La compactación por demanda ([109A-4 F3]) vive en `sesion/compactacion.rs`:
  * crece con su flujo (punto de compactación persistido) y no con la sesión. */
@@ -398,6 +401,41 @@ impl SesionComun {
         Ok(resultado)
     }
 
+    /// [109A-5 F4] Escala el bloqueo declarado en el plan al cerrar un turno: al
+    /// tercer turno consecutivo con el MISMO motivo, PAUSA la meta (congela el
+    /// reloj) y lo devuelve para que el transporte lo avise al usuario.
+    ///
+    /// El conteo NO vive aquí: lo lleva el plan del núcleo, porque el motivo es
+    /// tan efímero como él y contar turnos de un plan que ya no existe no
+    /// significaría nada. Este método decide la única parte durable, que es la
+    /// transición del reloj. `Pausar` no cierra la meta, así que el plan sigue
+    /// visible: el usuario ve en qué se atascó el agente.
+    ///
+    /// Una meta ya pausada no se re-pausa (la transición se rechazaría) ni
+    /// vuelve a avisar: el aviso pertenece al momento en que la pausa ocurre.
+    /// Sin meta activa tampoco hay nada que congelar.
+    pub fn escalar_bloqueo(
+        &mut self,
+        conversacion_id: Uuid,
+        bloqueo: Option<(&str, u32)>,
+    ) -> Result<ResultadoBloqueo, ErrorMeta> {
+        let Some((motivo, turnos)) = bloqueo else {
+            return Ok(ResultadoBloqueo::Inaplicable);
+        };
+        let motivo = motivo.trim().to_owned();
+        let Some(activa) = self.meta_leer(conversacion_id)?.activa else {
+            return Ok(ResultadoBloqueo::Inaplicable);
+        };
+        if turnos < UMBRAL_BLOQUEO_TURNOS {
+            return Ok(ResultadoBloqueo::Contado { motivo, turnos });
+        }
+        if activa.pausada_en.is_some() {
+            return Ok(ResultadoBloqueo::YaPausada { motivo, turnos });
+        }
+        self.meta_aplicar(conversacion_id, ComandoMeta::Pausar)?;
+        Ok(ResultadoBloqueo::Pausada { motivo, turnos })
+    }
+
     /// Persiste el mensaje y devuelve los datos necesarios para ejecutar el turno.
     ///
     /// [109A-5 F1] La meta es de la CONVERSACIÓN, no de la sesión: se lee de
@@ -694,6 +732,140 @@ mod tests {
             sesion.meta_leer(Uuid::new_v4()).unwrap_err(),
             ErrorMeta::ConversacionInexistente
         );
+    }
+
+    /// [109A-5 F4] Tres turnos seguidos con el MISMO bloqueo pausan la meta: el
+    /// reloj se congela y la meta NO se cierra (el usuario tiene que ver en qué
+    /// se atascó el agente). Repetir la escalada ya pausada no re-avisa.
+    #[tokio::test]
+    async fn bloqueo_sostenido_pausa_la_meta_al_tercer_turno() {
+        let persistencia = PersistenciaSqlite::en_memoria().expect("BD en memoria");
+        let (mut sesion, apertura) =
+            SesionComun::abrir_con_persistencia(OpcionesSesion::default(), persistencia, None)
+                .expect("abrir sesión");
+        let conv = apertura.conversacion.id;
+        // Sin meta activa no hay reloj que congelar, y sin bloqueo no hay nada.
+        assert_eq!(
+            sesion
+                .escalar_bloqueo(conv, Some(("falta la API key", 3)))
+                .expect("escala"),
+            ResultadoBloqueo::Inaplicable
+        );
+        assert_eq!(
+            sesion.escalar_bloqueo(conv, None).expect("sin bloqueo"),
+            ResultadoBloqueo::Inaplicable
+        );
+        sesion
+            .meta_aplicar(
+                conv,
+                ComandoMeta::Fijar {
+                    texto: "publicar la web".into(),
+                },
+            )
+            .expect("fija la meta");
+        for turnos in 1..=2 {
+            assert_eq!(
+                sesion
+                    .escalar_bloqueo(conv, Some(("falta la API key", turnos)))
+                    .expect("escala"),
+                ResultadoBloqueo::Contado {
+                    motivo: "falta la API key".into(),
+                    turnos
+                }
+            );
+            assert!(
+                sesion
+                    .meta_leer(conv)
+                    .expect("lee")
+                    .activa
+                    .expect("activa")
+                    .pausada_en
+                    .is_none(),
+                "por debajo del umbral la meta sigue corriendo"
+            );
+        }
+        assert_eq!(
+            sesion
+                .escalar_bloqueo(conv, Some(("falta la API key", 3)))
+                .expect("escala"),
+            ResultadoBloqueo::Pausada {
+                motivo: "falta la API key".into(),
+                turnos: 3
+            }
+        );
+        let activa = sesion
+            .meta_leer(conv)
+            .expect("lee")
+            .activa
+            .expect("la pausa no cierra la meta");
+        assert!(activa.pausada_en.is_some(), "el reloj queda congelado");
+        // Un turno más con el mismo motivo ya no re-avisa.
+        assert_eq!(
+            sesion
+                .escalar_bloqueo(conv, Some(("falta la API key", 4)))
+                .expect("escala"),
+            ResultadoBloqueo::YaPausada {
+                motivo: "falta la API key".into(),
+                turnos: 4
+            }
+        );
+    }
+
+    /// [109A-5 F4] Un motivo DISTINTO es un bloqueo nuevo: aunque el anterior
+    /// haya llegado al umbral, no se arrastra al conteo del nuevo.
+    #[tokio::test]
+    async fn bloqueo_nuevo_no_hereda_el_conteo_del_anterior() {
+        let persistencia = PersistenciaSqlite::en_memoria().expect("BD en memoria");
+        let (mut sesion, apertura) =
+            SesionComun::abrir_con_persistencia(OpcionesSesion::default(), persistencia, None)
+                .expect("abrir sesión");
+        let conv = apertura.conversacion.id;
+        sesion
+            .meta_aplicar(
+                conv,
+                ComandoMeta::Fijar {
+                    texto: "publicar la web".into(),
+                },
+            )
+            .expect("fija la meta");
+        // El primer bloqueo consume su umbral y pausa.
+        assert!(matches!(
+            sesion
+                .escalar_bloqueo(conv, Some(("falta la API key", 3)))
+                .expect("escala"),
+            ResultadoBloqueo::Pausada { .. }
+        ));
+        // El usuario desatasca y la meta se reanuda.
+        sesion
+            .meta_aplicar(conv, ComandoMeta::Reanudar)
+            .expect("reanuda");
+        // Un bloqueo con otra causa arranca de cero: no pausa en su turno 1.
+        assert_eq!(
+            sesion
+                .escalar_bloqueo(conv, Some(("permiso denegado", 1)))
+                .expect("escala"),
+            ResultadoBloqueo::Contado {
+                motivo: "permiso denegado".into(),
+                turnos: 1
+            }
+        );
+        assert!(
+            sesion
+                .meta_leer(conv)
+                .expect("lee")
+                .activa
+                .expect("activa")
+                .pausada_en
+                .is_none(),
+            "un motivo nuevo no hereda el conteo del anterior"
+        );
+        // Y si ese bloqueo nuevo se sostiene, vuelve a pausar.
+        assert!(matches!(
+            sesion
+                .escalar_bloqueo(conv, Some(("permiso denegado", 3)))
+                .expect("escala"),
+            ResultadoBloqueo::Pausada { .. }
+        ));
     }
 
     /// [109A-5 F1] Ciclo completo durable: fallos cerrados sin mutar, logro con

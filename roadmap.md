@@ -287,39 +287,6 @@ Orden propuesto (dependencias de abajo arriba):
        único error ajeno `sccache-no-configurado`. Detalle en
        `Agente/completados/tareas-2026-09-10.md`; plan cerrado en
        `Agente/planes/completados/plan-109A-comandos-slash-2026-09-10.md`.
-- [ ] **109A-5 — Meta con ciclo de vida (tareas visibles + cierre con
-      evidencia)** (10-09, **activo**, F1+F2 HECHO). **F1:** meta como objeto por
-      conversación con `resolver_meta`, persistencia
-      `meta_texto/iniciada_en/pausada_en/logros`, `meta_aplicar` con `&mut` y
-      comandos fijar/limpiar/pausar/reanudar/lograr fail-closed en el PATCH
-      web y en el comando Tauri. **F2:** `EstadoTodo::EnCurso` (`[/]`), evento
-      aditivo `TareasActualizadas`, `emitir_tareas` tras cada `todo` y al abrir
-      turno, y componente `tareasMeta.ts` + `tareasMeta.css` cableado en
-      `aplicarEventos.ts`. **Fix de alcance en F2:** la lista vivía en el
-      `registry` (por sesión), así que se filtraba entre conversaciones; ahora
-      `PlanesConversacion` + `cargar_plan_de(conv)` + `olvidar_tareas(conv)`
-      (reset al limpiar/lograr la meta). Evidencia: 290+124 tests verdes,
-      clippy 0, `tsc`/`vite build` EXIT 0 (99 módulos) y E2E navegador real
-      (bloque visible con `0/3`→`2/3` en vivo; conversación nueva sin herencia;
-      vuelta con plan restaurado). Límite: el plan es estado vivo, no
-      persiste en SQLite. Gate `check 109A-5`: `coverage`/`sentinel` PASS con
-      0 errores y el baseline de 10 warnings + 1 hint; único error el ajeno
-      `sccache-no-configurado`. **F3 (11-09, HECHO):** evento aditivo
-      `MetaLograda{turno_id}` (emitido también por el handler web: en navegador
-      el badge no se pintaba porque solo viajaba en el cuerpo HTTP), `GET/PATCH
-      /meta` con estado completo + logro, `metaAplicar/metaLeer` en Tauri,
-      `duracion.ts`, badge en el pie (`span.pie-logro`) y panel con reloj de
-      persecución, historial y botones fijar/pausar/reanudar/lograr. Evidencia:
-      128 tests verdes, clippy 0, `tsc`/`vite build` EXIT 0 y E2E navegador real
-      (pausar congeló 02:20 → reanudar 02:20→02:33 → lograr pintó `Meta lograda
-      en 01:01` en el pie del turno) más E2E post-refactor sin modelo. Límite
-      honesto: el badge es estado de ejecución (no se repinta al reentrar en la
-      conversación); el historial sí es durable. De paso: el turno `--fixture`
-      no reenviaba `Done` (rompía la paridad del oráculo) y `limite-lineas`
-      obligó a partir `comandos/web/` y `adaptadores/apiMeta.ts` para volver al
-      baseline. Pendiente F4 regla de bloqueo ×3 y migración del modo global;
-      deny de `meta` intacto.
-      Plan: `Agente/planes/plan-109A-meta-ciclo-vida-2026-09-10.md`.
 - [ ] **Gate: etapa Rust y sccache** (10-09, pendiente, independiente):
       el gate de glory-harness no compila Rust (las etapas `coverage`,
       `sccache` y `sentinel` solo analizan), así que `cargo` directo queda
@@ -523,6 +490,11 @@ Orden propuesto (dependencias de abajo arriba):
 
 ## Historial de planes cerrados
 
+- `Agente/planes/completados/plan-109A-meta-ciclo-vida-2026-09-10.md` (109A-5) —
+  **cerrado 11-09** con F1–F4 completas (meta con ciclo de vida por
+  conversación, tareas visibles atadas a la meta, cierre con evidencia —badge
+  del pie + historial durable— y regla de bloqueo ×3 con pausa automática).
+  Gate con `coverage`/`sentinel` PASS en el baseline de 10 warnings.
 - `Agente/planes/completados/plan-109A-comandos-slash-2026-09-10.md` (109A-4) —
   **cerrado 10-09** con F1–F4 completas (menú `/`, `/compactar` con punto de
   compactación persistido, `/meta` como override de turno y retiro del modo global).

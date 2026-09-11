@@ -200,6 +200,19 @@ export function aplicarEvento(ev: AgenteEvento, st: EstadoTurno, d: EventosDeps)
       d.aviso(`meta lograda: ${ev.meta}`, 'sin pie de turno donde anclarla', '');
       break;
     }
+    case 'meta_pausada_por_bloqueo': {
+      /* [109A-5 F4] El reloj se detuvo solo: nadie pulsó pausar, así que sin
+       * este aviso la meta parecería colgada. El motivo va en el texto porque
+       * es lo único que el usuario necesita para desatascarla. El panel meta
+       * se relee al cerrar el turno (`VistaMeta.notificarTurnoFin`), así que
+       * aquí solo se cuenta QUÉ pasó. */
+      d.aviso(
+        `meta en pausa: ${ev.motivo}`,
+        `${ev.turnos} turnos bloqueado sin avanzar`,
+        'reanúdala cuando lo desbloquees',
+      );
+      break;
+    }
     case 'tool_navegador':
       d.hooks.onToolNavegador?.(ev);
       break;

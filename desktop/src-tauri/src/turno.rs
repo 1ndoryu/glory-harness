@@ -73,7 +73,7 @@ pub(crate) async fn enviar_turno(
             .await;
         drop(tx_ev);
         let _ = reenvio.await;
-        cerrar_turno(&w, &sesion, turno_id, resultado, &uso_accum);
+        cerrar_turno(&w, &sesion, turno_id, conv_id, &runtime, resultado, &uso_accum);
         terminar_turno(&w, &sesion, &panel_id);
     });
     registrar_turno(&estado, handle)
@@ -215,12 +215,57 @@ fn acumular_uso(uso: &Mutex<UsoAcumulado>, ev: &AgenteEvento) {
     }
 }
 
+/// [109A-5 F4] Escala el bloqueo que el agente declaró en el plan del turno que
+/// acaba de terminar: al tercer turno consecutivo con el MISMO motivo la meta
+/// queda pausada (reloj congelado) y se emite `MetaPausadaPorBloqueo` para que la
+/// UI lo avise. Devuelve `true` solo si la pausa ocurrió AHORA: sin bloqueo
+/// vigente, por debajo del umbral o con la meta ya pausada no hay evento (el
+/// aviso pertenece al momento en que el reloj se detiene).
+///
+/// Sin bloqueo no toca la BD (el contador vive en el plan del runtime). Un fallo
+/// al escalar no puede tumbar el cierre de un turno ya terminado: se registra y
+/// el cliente recibe el turno sin aviso.
+fn escalar_bloqueo_del_turno(
+    w: &tauri::Window,
+    sesion: &Sesion,
+    conv_id: Uuid,
+    runtime: &Arc<AgentRuntime>,
+) -> bool {
+    let Some(bloqueo) = runtime.bloqueo_de(conv_id) else {
+        return false;
+    };
+    let Ok(mut comun) = sesion.comun.lock() else {
+        return false;
+    };
+    match comun.escalar_bloqueo(conv_id, Some((bloqueo.motivo.as_str(), bloqueo.turnos))) {
+        Ok(glory_harness::servicio::ResultadoBloqueo::Pausada { motivo, turnos }) => {
+            /* El evento va ANTES de `turno-fin`: el front cierra el turno con
+             * ese aviso y un evento posterior ya no tendría turno en curso. */
+            let _ = w.emit(
+                "agente-evento",
+                &AgenteEvento::MetaPausadaPorBloqueo { motivo, turnos },
+            );
+            true
+        }
+        Ok(_) => false,
+        Err(e) => {
+            /* El crate de escritorio no depende de `tracing`: usa `eprintln!`
+             * como el resto (ver `main.rs`). Un fallo aquí no puede tumbar el
+             * cierre de un turno que ya terminó. */
+            eprintln!("[glory-harness-desktop] bloqueo del plan no escalado ({conv_id}): {e}");
+            false
+        }
+    }
+}
+
 /// [079A-1 F5] Cierra el turno: persiste el uso real (best-effort) y emite
 /// `turno-fin` ok/error (auxiliar de `enviar_turno`).
 fn cerrar_turno(
     w: &tauri::Window,
     sesion: &Sesion,
     turno_id: Uuid,
+    conv_id: Uuid,
+    runtime: &Arc<AgentRuntime>,
     resultado: Result<(), glory_harness_core::error::Error>,
     uso_accum: &Mutex<UsoAcumulado>,
 ) {
@@ -240,6 +285,9 @@ fn cerrar_turno(
                     );
                 }
             }
+            /* [109A-5 F4] El turno terminó: se cierra la escalada del bloqueo
+             * ANTES de anunciar el fin, para que el aviso viaje con él. */
+            let _ = escalar_bloqueo_del_turno(w, sesion, conv_id, runtime);
             let _ = w.emit("turno-fin", serde_json::json!({"ok": true}));
         }
         Err(e) => {
@@ -250,6 +298,10 @@ fn cerrar_turno(
                     retryable: true,
                 },
             );
+            /* Un turno fallido no se escala: el conteo del plan ya lo llevó el
+             * runtime, pero pausar la meta por un fallo de proveedor sería
+             * culpar al bloqueo de un problema de red. El siguiente turno que
+             * sí termine completará la escalada (el umbral es `>=`, no `==`). */
             let _ = w.emit(
                 "turno-fin",
                 serde_json::json!({"ok": false, "error": e.to_string()}),

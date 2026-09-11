@@ -22,7 +22,6 @@ export interface PanelMeta {
   setTiempo(segundos: number): void;
   setTokens(n: number): void;
   setMeta(texto: string): void;
-  getMeta(): string;
   /** [109A-5 F3] Repinta el ciclo de vida de la meta (persecución neta de
    * pausas + historial de logros). `null` = sin fila de conversación. */
   setEstadoMeta(estado: EstadoMetaVisible | null): void;
@@ -214,9 +213,6 @@ export function montarPanelMeta(opts: PanelMetaOpciones): PanelMeta {
     },
     setMeta(texto: string) {
       sincronizarCaja(texto);
-    },
-    getMeta() {
-      return meta.value;
     },
     setEstadoMeta(estado: EstadoMetaVisible | null) {
       logros.actualizar(estado);

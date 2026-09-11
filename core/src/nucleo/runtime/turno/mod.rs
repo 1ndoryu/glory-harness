@@ -202,6 +202,13 @@ impl AgentRuntime {
             }
         }
 
+        /* [109A-5 F4] Cierre del conteo de bloqueo: si el plan de esta
+         * conversación sigue bloqueado al terminar el turno, suma uno (el
+         * servicio pausa la meta al llegar al umbral). Va aquí, y no en la tool,
+         * para que varias declaraciones del mismo turno cuenten una sola vez; y
+         * antes del wrap-up, que no ejecuta tools y no puede cambiar el plan. */
+        self.contar_bloqueo_del_turno(conversacion_id).await;
+
         /* [318A-15 F5] Límite de pasos con wrap-up: si el turno agotó
          * `max_turns` sin respuesta final y el cliente sigue conectado, no se
          * corta en seco: una última llamada SIN tools pide el resumen de cierre
