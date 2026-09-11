@@ -76,14 +76,16 @@ F1 (Copy Path / Edit name / Remove con confirmación) verificado con
       `orquestador/barraLateralProyecto.ts` (barraLateral superaba 300 líneas
       por F1 de 119A-2). F2–F4 abiertos.
       Plan: `Agente/planes/plan-119A-3-orden-proyectos-2026-09-11.md`.
-- [ ] **119A-4 — Ajustes estilo Synara: página completa + opciones aplicables** (planificado 11-09):
-      los ajustes dejan de ser un modal y pasan a vista a pantalla completa
-      con nav por secciones + buscador + «volver a la app», reutilizando
-      `formulario.ts`; F1 migra lo actual sin opciones nuevas; F2 lote sin
-      backend (confirmaciones, streaming, toast fin de turno, fuente, hora,
-      diff, órdenes de 119A-3); F3 lote con backend (uso local, skills por
-      skill, sistema, archivadas); F4 atajos; AppSnap/MCP/worktrees/Profile
-      no aplican (con razón en el plan). F1 listo para ejecutar.
+- [x] **119A-4/F1 — Ajustes estilo Synara: página completa** (completado 11-09,
+      F2–F4 abiertos): los ajustes dejan de ser un modal y pasan a página a
+      pantalla completa (`ajustes-pagina` fija, `← Volver a la app`, buscador
+      con índice normalizado sin tildes, nav lateral, `Escape` cierra con
+      buscador vacío), reutilizando `formulario.ts` sin cambios y con la misma
+      interfaz `ModalConfiguracion`; `modal.css` conserva solo la base que usa
+      el modal "Nuevo proyecto"; reglas de formulario mudadas a nuevo
+      `estilos/ajustes.css`; `tema.css` actualizado. `tsc` EXIT 0 + `vite`
+      OK + gate 119A-4 PASS (rust 430 ok) + smoke `tauri dev` (ventana "Glory
+      Harness", sin errores). Comprobación visual fina pendiente del usuario.
       Plan: `Agente/planes/plan-119A-4-ajustes-pagina-synara-2026-09-11.md`.
 - [ ] **119A-5 — Meta: fix `meta_leer` + tareas fijas y colapsables** (F1 implementado y verificado
       11-09: front PASS + Rust vía PASS 119A-3 mismo árbol; pendiente

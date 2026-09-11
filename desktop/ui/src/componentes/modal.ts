@@ -1,9 +1,10 @@
-// Modal de configuración — sin cabecera ni pie.
+// Página de ajustes a pantalla completa (119A-4 F1; antes modal).
 // Las opciones se definen de forma centralizada en
 // dominio/opciones.ts y se renderizan con componentes/formulario.ts.
 // Los cambios se aplican al vuelo (guardado automático): no hay
-// botones "guardar cambios"/"cancelar"; se cierra con click fuera
-// del diálogo o con Escape.
+// botones "guardar cambios"/"cancelar"; se vuelve con «← Volver a la
+// app» o con Escape. La interfaz ModalConfiguracion no cambia: el
+// cableado (vistaModal, crearPanel, main) sigue intacto.
 
 import { FORMULARIO_CONFIGURACION, OPCIONES_MODELO } from '../dominio/opciones';
 import type { ModeloSeleccionado, ProveedorModelo } from '../dominio/tipos';
@@ -56,19 +57,33 @@ export function montarModalConfiguracion(opts: ModalOpciones): ModalConfiguracio
     });
   });
 
-  const fondo = el('div', 'modal-fondo');
-  fondo.id = 'modal-fondo';
-  fondo.hidden = true;
+  const pagina = el('div', 'ajustes-pagina');
+  pagina.id = 'ajustes-pagina';
+  pagina.hidden = true;
+  pagina.setAttribute('aria-label', 'ajustes');
 
-  const modal = el('div', 'modal modal-config');
-  modal.setAttribute('role', 'dialog');
-  modal.setAttribute('aria-modal', 'true');
-  modal.setAttribute('aria-label', 'configuración');
+  // ---- cabecera: volver + título + buscador ----
+  const cabecera = el('header', 'ajustes-cabecera');
+  const btnVolver = el('button', 'ajustes-volver') as HTMLButtonElement;
+  btnVolver.type = 'button';
+  btnVolver.textContent = '← Volver a la app';
+  btnVolver.addEventListener('click', () => cerrar());
+  const titulo = el('div', 'ajustes-titulo');
+  titulo.textContent = 'Ajustes';
+  const buscar = el('input', 'ajustes-buscar input-texto') as HTMLInputElement;
+  buscar.type = 'search';
+  buscar.placeholder = 'Buscar ajustes';
+  buscar.setAttribute('aria-label', 'buscar ajustes');
+  buscar.spellcheck = false;
+  buscar.addEventListener('input', () => filtrarBusqueda(buscar.value));
+  cabecera.appendChild(btnVolver);
+  cabecera.appendChild(titulo);
+  cabecera.appendChild(buscar);
 
-  // ---- cuerpo: nav (paneles) + formularios centralizados ----
-  const cuerpo = el('div', 'modal-cuerpo');
-  const nav = el('nav', 'config-nav');
-  nav.setAttribute('aria-label', 'categorías de configuración');
+  // ---- cuerpo: nav (secciones) + paneles ----
+  const cuerpo = el('div', 'ajustes-cuerpo');
+  const nav = el('nav', 'ajustes-nav');
+  nav.setAttribute('aria-label', 'secciones de ajustes');
 
   const formularios = new Map<PanelId, ReturnType<typeof montarFormulario>>();
   const items = new Map<PanelId, HTMLDivElement>();
@@ -78,7 +93,7 @@ export function montarModalConfiguracion(opts: ModalOpciones): ModalConfiguracio
   let selectorModeloApi: SelectorModeloApi | null = null;
   /** [109A-3] Panel "Memorias" (se consulta al backend al mostrarlo). */
   let panelMemorias: MemoriasPanel | null = null;
-  /** Panel visible ahora mismo (para recargar al reabrir el modal). */
+  /** Panel visible ahora mismo (para recargar al reabrir la página). */
   let panelActivo: PanelId = FORMULARIO_CONFIGURACION[0].id as PanelId;
 
   function cambiarPanel(objetivo: PanelId): void {
@@ -88,8 +103,80 @@ export function montarModalConfiguracion(opts: ModalOpciones): ModalConfiguracio
       f.raiz.hidden = clave !== objetivo;
     });
     // Las memorias viven en el backend: se leen al abrir la sección (no al
-    // construir el modal) y otra vez al reabrir, para ver lo que cambió.
+    // construir la página) y otra vez al reabrir, para ver lo que cambió.
     if (objetivo === 'memorias') panelMemorias?.refrescar();
+  }
+
+  /** Texto buscable por opción (etiqueta + nota + id + grupo + sección). */
+  const indiceBusqueda = new Map<string, string>();
+  FORMULARIO_CONFIGURACION.forEach((sec) => {
+    if (sec.grupos.length === 0) {
+      indiceBusqueda.set(`seccion:${sec.id}`, normalizar(sec.etiqueta));
+    }
+    sec.grupos.forEach((g) => {
+      g.opciones.forEach((o) => {
+        indiceBusqueda.set(
+          o.id,
+          normalizar(`${o.etiqueta} ${o.nota ?? ''} ${o.id} ${g.titulo} ${sec.etiqueta}`),
+        );
+      });
+    });
+  });
+
+  function normalizar(s: string): string {
+    return s
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '');
+  }
+
+  /** Fila visible que contiene un nodo con data-opcion (campo o fila-dato). */
+  function filaDe(nodo: HTMLElement): HTMLElement {
+    if (nodo.classList.contains('fila-dato')) return nodo;
+    return (nodo.closest('.campo') ?? nodo) as HTMLElement;
+  }
+
+  /** Filtra opciones por texto; con texto vacío restaura la vista por panel. */
+  function filtrarBusqueda(texto: string): void {
+    const consulta = normalizar(texto.trim());
+    if (!consulta) {
+      items.forEach((item) => {
+        item.hidden = false;
+      });
+      formularios.forEach((f, clave) => {
+        f.raiz.hidden = clave !== panelActivo;
+        f.raiz
+          .querySelectorAll('.campo[hidden], .fila-dato[hidden], section.grupo[hidden]')
+          .forEach((n) => {
+            (n as HTMLElement).hidden = false;
+          });
+      });
+      return;
+    }
+    formularios.forEach((f, clave) => {
+      // El control reemplazado del panel Modelo conserva data-opcion.
+      f.raiz.querySelectorAll('[data-opcion]').forEach((n) => {
+        const nodo = n as HTMLElement;
+        const id = nodo.dataset.opcion ?? '';
+        filaDe(nodo).hidden = !(indiceBusqueda.get(id) ?? '').includes(consulta);
+      });
+      let visible = false;
+      const grupos = f.raiz.querySelectorAll('section.grupo');
+      grupos.forEach((g) => {
+        const gs = g as HTMLElement;
+        const conResultados =
+          gs.querySelector('.campo:not([hidden]), .fila-dato:not([hidden])') !== null;
+        gs.hidden = !conResultados;
+        if (conResultados) visible = true;
+      });
+      // Sección sin grupos (Memorias): filtra por su propia etiqueta.
+      if (grupos.length === 0) {
+        visible = (indiceBusqueda.get(`seccion:${clave}`) ?? '').includes(consulta);
+      }
+      f.raiz.hidden = !visible;
+      const item = items.get(clave);
+      if (item) item.hidden = !visible;
+    });
   }
 
   // guardado automático: todo cambio se notifica al vuelo
@@ -101,10 +188,17 @@ export function montarModalConfiguracion(opts: ModalOpciones): ModalConfiguracio
   }
 
   FORMULARIO_CONFIGURACION.forEach((seccion) => {
-    const item = el('div', 'config-item');
+    const item = el('div', 'ajustes-item');
     item.dataset.panel = seccion.id;
     item.textContent = seccion.etiqueta;
-    item.addEventListener('click', () => cambiarPanel(seccion.id as PanelId));
+    item.addEventListener('click', () => {
+      // Elegir sección sale del modo búsqueda (vista por panel).
+      if (buscar.value) {
+        buscar.value = '';
+        filtrarBusqueda('');
+      }
+      cambiarPanel(seccion.id as PanelId);
+    });
     nav.appendChild(item);
     items.set(seccion.id as PanelId, item);
 
@@ -139,37 +233,45 @@ export function montarModalConfiguracion(opts: ModalOpciones): ModalConfiguracio
     }
   });
 
-  const contenedor = el('div', 'config-paneles');
+  const contenedor = el('div', 'ajustes-paneles');
   formularios.forEach((f) => contenedor.appendChild(f.raiz));
 
   cuerpo.appendChild(nav);
   cuerpo.appendChild(contenedor);
-  modal.appendChild(cuerpo);
-  fondo.appendChild(modal);
+  pagina.appendChild(cabecera);
+  pagina.appendChild(cuerpo);
 
   // ---------- comportamiento ----------
   function abrir(): void {
-    fondo.hidden = false;
-    // Si el modal se cierra en "Memorias" y se reabre, se relista el ámbito
+    pagina.hidden = false;
+    // Cada apertura parte de la vista limpia (sin búsqueda residual).
+    buscar.value = '';
+    filtrarBusqueda('');
+    // Si la página se cierra en "Memorias" y se reabre, se relista el ámbito
     // activo (pudo cambiar el proyecto o curar el agente entre medias).
     if (panelActivo === 'memorias') panelMemorias?.refrescar();
   }
   function cerrar(): void {
-    fondo.hidden = true;
+    pagina.hidden = true;
+    buscar.blur();
   }
 
-  fondo.addEventListener('click', (e) => {
-    if (e.target === fondo) cerrar();
-  });
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && !fondo.hidden) cerrar();
+    if (e.key !== 'Escape' || pagina.hidden) return;
+    // Escape con búsqueda activa la limpia; sin búsqueda vuelve a la app.
+    if (document.activeElement === buscar && buscar.value) {
+      buscar.value = '';
+      filtrarBusqueda('');
+    } else {
+      cerrar();
+    }
   });
 
   // panel inicial: primero visible
   const primera = FORMULARIO_CONFIGURACION[0].id as PanelId;
   cambiarPanel(primera);
   return {
-    raiz: fondo,
+    raiz: pagina,
     abrir,
     cerrar,
     asignarValor(id: string, valor: string | boolean) {
