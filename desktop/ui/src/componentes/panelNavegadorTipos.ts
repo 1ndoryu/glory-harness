@@ -29,4 +29,9 @@ export interface PanelNavegadorOpciones {
    * (modo selección + hover + clic, solo Tauri). El orquestador lo entrega al
    * chat activo como badge pendiente. */
   onSeleccionar?: (elem: ElementoSeleccionado) => void;
+  /** [109A-9] Canal de aviso visible al usuario, obligatorio: el panel no puede
+   * resolver sus fallos con `console.*` (regla de «sin fallos silenciosos») y
+   * no tiene UI propia de estado, así que el orquestador lo enruta al chat
+   * activo (`avisoGlobal`). */
+  onAviso: (texto: string, detalle?: string) => void;
 }

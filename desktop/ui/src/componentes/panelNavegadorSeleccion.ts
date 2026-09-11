@@ -21,6 +21,8 @@ export interface SeleccionNavDeps {
   ventanaAbierta(): boolean;
   urlActual(): string;
   onSeleccionar?: (elem: ElementoSeleccionado) => void;
+  /** [109A-9] Aviso visible al usuario (el panel lo conecta a `avisoGlobal`). */
+  avisar: (texto: string, detalle?: string) => void;
 }
 
 export interface SeleccionNav {
@@ -74,7 +76,7 @@ export function crearSeleccionNav(d: SeleccionNavDeps): SeleccionNav {
       } catch (error) {
         seleccionando = false;
         pintarBoton();
-        console.error('No se pudo activar la selección del navegador', error);
+        d.avisar('no se pudo activar la selección del navegador', String(error));
       }
     })();
   }
@@ -110,10 +112,10 @@ export function crearSeleccionNav(d: SeleccionNavDeps): SeleccionNav {
         d.onSeleccionar?.(elem);
       }
     } catch (error) {
-      // La webview pudo cerrarse o la página cambió: apagar sin dejar un
-      // estado silencioso en la consola de desarrollo.
+      // La webview pudo cerrarse o la página cambió: apagar y avisar sin dejar
+      // un estado silencioso.
       apagar();
-      console.error('Se detuvo la selección del navegador', error);
+      d.avisar('se detuvo la selección del navegador', String(error));
     }
   }
 
@@ -124,11 +126,11 @@ export function crearSeleccionNav(d: SeleccionNavDeps): SeleccionNav {
       return;
     }
     if (!d.esTauri) {
-      console.warn('La selección de elementos requiere la app de escritorio (WebView2)');
+      d.avisar('la selección de elementos requiere la app de escritorio (WebView2)');
       return;
     }
     if (!d.ventanaAbierta()) {
-      console.warn('No se puede seleccionar un elemento con el navegador cerrado');
+      d.avisar('no se puede seleccionar un elemento con el navegador cerrado');
       return;
     }
     encender();

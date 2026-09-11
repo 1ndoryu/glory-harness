@@ -301,32 +301,23 @@ Orden propuesto (dependencias de abajo arriba):
 > (`area-trabajo/.quality-tools/sentinel`, 0.7.8 @ `902c45e`). Errores: `cssInlineScript` **52**
 > (VarSense; **0 en este repo desde 109A-7**, 11-09) · `unwrap-produccion-rs` **30** (Sentinel) ·
 > `axum-ruta-sintaxis-rs` **19** (Sentinel).
-> Warnings: `claseHuerfana` **258** (VarSense) · `console-production` **8** (Sentinel) ·
-> `limite-lineas` **3** (Sentinel). Las cifras se mueven con el WIP (el mismo día: 366/102 → 371/101),
+> Warnings: `claseHuerfana` **258** (VarSense) · `console-production` **8** (Sentinel; **0 en este
+> repo desde 109A-9**, 11-09) · `limite-lineas` **3** (Sentinel). Las cifras se mueven con el WIP (el mismo día: 366/102 → 371/101),
 > así que lo estable es la familia y el veredicto de cada una, no el número.
 > **Corte del GATE canónico de este repo** (mismo árbol y mismos 224 archivos): `scripts/quality/
 > stages.json` ejecuta Sentinel 0.7.8 @ **`1587c59`** — el commit que este repo fija en
 > `quality-tools.json` (`provisionPath: ../.quality-tools-harness/sentinel`) — y **no ejecuta VarSense**
-> (no hay etapa `varsense`), así que su único corte propio es **0 errores, 8 warnings, 1 hint**
-> (11-09, tras 109A-6: los dos `limite-lineas` —`main.ts` y `panelDerecho.ts`— y la densidad de
-> `desktop/src-tauri/src/` ya están resueltos; el corte anterior era de 10 warnings).
+> (no hay etapa `varsense`), así que su único corte propio es **0 errores, 0 warnings, 1 hint**
+> (11-09, tras 109A-9: los 8 `console-production` del panel del navegador ya salen como aviso visible
+> al usuario; el hint que queda es el falso positivo `todo-pendiente` de 109A-10. El corte anterior,
+> tras 109A-6, era de 8 warnings: los dos `limite-lineas` —`main.ts` y `panelDerecho.ts`— y la
+> densidad de `desktop/src-tauri/src/` ya estaban resueltos, y antes de eso eran 10).
 > Verificado el 10-09 ejecutando los dos binarios sobre el mismo árbol: `902c45e` → **49 errores**;
 > `1587c59` → **0**. Los 49 del corte de consola **ya están corregidos upstream** (`08aaf25`,
 > `axum-ruta-sintaxis-rs` version-aware; `1587c59`, `unwrap-produccion-rs` en fichero solo-test): son
 > **falsos positivos del medidor, no deuda de este repo** (ver 109A-10). De los 101 errores de la
 > consola, **52 son reales** (`cssInlineScript`) y **49 son falsos positivos**.
 
-- [ ] **109A-9 — Avisos reales del gate: `console-production` ×8 y `todo-pendiente` ×1**
-      (10-09, independiente): los 8 `console.*` están todos en el panel del navegador —
-      `panelNavegadorSeleccion.ts` 4 (`console.error` en 77 y 116, `console.warn` en 127 y 131),
-      `panelNavegador.ts` 3 (capturar/atrás/adelante, en 101/140/156) y `orquestador/navegadorVista.ts`
-      1 (97) — y chocan con la regla de «sin fallos silenciosos»: pasarlos a aviso visible al usuario o
-      a estado explícito. El único hint `todo-pendiente` (`core/src/nucleo/context.rs:972`) es un
-      **falso positivo**: la regla casa `/\/\/\s*(TODO|…|PENDIENTE|XXX)\b/i` y el `///` de un doc
-      comentario en español deja los dos últimos caracteres como marca, así que salta con la palabra
-      «todo» en prosa («todo el historial…»); los 4 hint del área son el mismo caso (TASKS,
-      RESTAURANTE, coolify-manager-rs). No hay nada que arreglar aquí: va a 109A-10. DoD: 0
-      `console-production`; el hint se cierra corrigiendo la regla, no el código.
 - [ ] **109A-10 — Falsos positivos del MEDIDOR (`unwrap-produccion-rs`, `axum-ruta-sintaxis-rs`, `claseHuerfana`)**
       (10-09; **no hay nada que arreglar en este repo**, la acción es de `workspace-manager`):
       **suma la familia `claseHuerfana` de VarSense** (tras 109A-8: la medición de `orphan-classes`
@@ -364,6 +355,14 @@ Orden propuesto (dependencias de abajo arriba):
       «todo» en prosa; el mismo falso positivo aparece en los 4 hints del área (TASKS, RESTAURANTE,
       coolify-manager-rs). DoD: la cifra que se documente es la del corte del gate canónico (0 errores)
       y el hint deja de contarse.
+- [ ] **109A-11 — Atrás/Adelante del panel del navegador en modo web (cross-origin)**
+      (11-09, hallazgo al verificar 109A-9): en modo web el panel pilota un `<iframe>` y
+      `iframe.contentWindow.history.back()`/`forward()` lanza `SecurityError` cuando la página es de
+      otro origen (el caso normal: se arranca en `https://example.com`), así que los dos botones nunca
+      navegaban — antes en silencio (`console.error`) y ahora con aviso visible. DoD: pila propia de
+      URLs en el panel (la web no deja leer el historial ajeno) y navegación por `iframe.src`, con
+      prueba en navegador sobre una página de otro origen; en la app de escritorio se mantiene el
+      camino por CDP.
 - [x] **089A-12 — Files estilo Synara: árbol + visor integrado** (09-09,
       HECHO): Files es un único pane dividido (árbol a la izquierda y preview
       a la derecha al seleccionar un archivo); se eliminaron `21 entradas`,

@@ -13,11 +13,15 @@ import type { PanelNavegador, PanelNavegadorOpciones } from './panelNavegadorTip
 
 export type { PanelNavegador, PanelNavegadorOpciones } from './panelNavegadorTipos';
 
-export function montarPanelNavegador(opts: PanelNavegadorOpciones = {}): PanelNavegador {
+export function montarPanelNavegador(opts: PanelNavegadorOpciones): PanelNavegador {
   const idP = opts.idPrefijo ?? 'navegador';
   // El ancho lo fija el CSS (panel-navegador, 480px): no hay grip de arrastre,
   // así que la opción se conserva en la interfaz por contrato, hoy es inerte.
   void opts.ancho;
+
+  /* [109A-9] Sin fallos silenciosos: el panel no escribe en `console.*`; sus
+   * fallos salen por `onAviso` y el orquestador los enruta al chat activo. */
+  const avisar = (texto: string, detalle = ''): void => opts.onAviso(texto, detalle);
 
   // [069A-2 fix] La webview nativa (WebView2 child + IPC de Tauri) solo existe
   // en la app de escritorio. En modo web el panel pilota un <iframe> del propio
@@ -54,6 +58,7 @@ export function montarPanelNavegador(opts: PanelNavegadorOpciones = {}): PanelNa
     ventanaAbierta: () => ventanaAbierta,
     urlActual: () => urlActual,
     onSeleccionar: opts.onSeleccionar,
+    avisar,
   });
 
   /** [069A-2 fix] Completa el esquema si la URL no lo trae (modo web). */
@@ -94,11 +99,16 @@ export function montarPanelNavegador(opts: PanelNavegadorOpciones = {}): PanelNa
   n.btnCapturar.addEventListener('click', () => {
     void (async () => {
       try {
-        if (!esTauri) return;
+        // [109A-9] La captura es del WebView2 nativo: en modo web el botón
+        // queda visible, así que avisa en vez de no hacer nada en silencio.
+        if (!esTauri) {
+          avisar('la captura de pantalla requiere la app de escritorio (WebView2)');
+          return;
+        }
         const base64 = await invoke<string>('navegador_capturar');
         actualizarCaptura(base64);
       } catch (error) {
-        console.error('No se pudo capturar el navegador', error);
+        avisar('no se pudo capturar el navegador', String(error));
       }
     })();
   });
@@ -137,7 +147,7 @@ export function montarPanelNavegador(opts: PanelNavegadorOpciones = {}): PanelNa
           iframe?.contentWindow?.history.back();
         }
       } catch (error) {
-        console.error('No se pudo navegar atrás', error);
+        avisar('no se pudo navegar atrás', String(error));
       }
     })();
   });
@@ -153,7 +163,7 @@ export function montarPanelNavegador(opts: PanelNavegadorOpciones = {}): PanelNa
           iframe?.contentWindow?.history.forward();
         }
       } catch (error) {
-        console.error('No se pudo navegar adelante', error);
+        avisar('no se pudo navegar adelante', String(error));
       }
     })();
   });

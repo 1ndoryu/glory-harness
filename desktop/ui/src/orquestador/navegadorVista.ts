@@ -41,6 +41,10 @@ export function montarNavegadorVista(deps: NavegadorVistaDeps): NavegadorVista {
       deps.activarPanel(panel);
       panel.adjuntarElemento(elem);
     },
+    /* [109A-9] Los fallos internos del panel (capturar, atrás/adelante,
+     * selección) salen por el mismo canal que los del orquestador en vez de
+     * quedarse en `console.*`. */
+    onAviso: (texto, detalle = '') => deps.avisar(texto, '', detalle),
   });
   let navegadorAbierto = false;
 
@@ -94,7 +98,7 @@ export function montarNavegadorVista(deps: NavegadorVistaDeps): NavegadorVista {
         // Guardar observer para cleanup al cerrar
         (navegador as unknown as Record<string, unknown>).__resizeObserver = ro;
       } catch (error) {
-        console.error('No se pudo abrir el navegador', error);
+        deps.avisar('no se pudo abrir el navegador', '', String(error));
       }
     })();
   }
