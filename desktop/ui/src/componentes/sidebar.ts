@@ -11,6 +11,15 @@ import { icono } from './iconos';
 import { cerrarMenuActual } from './menu';
 import { el } from '../util/dom';
 import { crearCeldaConv, empezarRenombrarConv, type CeldaConvDeps } from './sidebarCeldas';
+import {
+  abrirMenuProyecto,
+  type MenuProyectoDeps,
+} from './sidebarMenuProyecto';
+import {
+  crearBotonOrdenHilos,
+  ordenarGrupo,
+  type CriterioHilos,
+} from './sidebarOrdenHilos';
 
 export interface Sidebar {
   raiz: HTMLElement;
@@ -31,6 +40,9 @@ export interface Sidebar {
   archivarConversacion(id: string): void;
   /** [039A-3 P4] Elimina una conversación (misma lógica que el ⋯ de su fila). */
   eliminarConversacion(id: string): void;
+  /** [119A-3 F1] Cambia el criterio de orden de hilos y repinta (F4 lo
+   * persistirá; hoy es estado de sesión, por defecto actividad). */
+  ponerCriterioHilos(criterio: CriterioHilos): void;
 }
 
 /** Acciones de los botones superiores del nav. */
@@ -63,6 +75,10 @@ export interface SidebarProyectoNav {
   onCrearProyecto?: () => void;
   /** [069A-Proyectos] Se invoca al elegir un proyecto del menú (ruta). */
   onSeleccionarProyecto?: (ruta: string) => void;
+  /** [119A-2 F1] Se invoca tras renombrar un proyecto (id, nombre nuevo). */
+  onRenombrarProyecto?: (id: string, nombre: string) => void;
+  /** [119A-2 F1] Se invoca al quitar un proyecto del área (con confirmación). */
+  onEliminarProyecto?: (id: string) => void;
   /** [039A-3 P5] Consulta si se puede ofrecer "Abrir en panel lateral"
    * (el orquestador decide: <2 chats abiertos y ancho suficiente). */
   puedeAbrirLateral?: () => boolean;
@@ -111,17 +127,9 @@ export function montarSidebar(opts: SidebarOpciones): Sidebar {
       opts.onAccionNav?.('nueva'),
     ),
   );
-  nav.appendChild(
-    botonNav('agentes', 'Agentes', 'agente', () => opts.onAccionNav?.('agente')),
-  );
-  nav.appendChild(
-    botonNav('flujo', 'Flujo', 'flujo', () => opts.onAccionNav?.('flujo')),
-  );
-  nav.appendChild(
-    botonNav('complementos', 'Complementos', 'complementos', () =>
-      opts.onAccionNav?.('complementos'),
-    ),
-  );
+  /* [119A-6] Nav temporal: Agentes/Flujo/Complementos ocultos hasta que
+   * tengan vista real (F5 trae Automatizaciones al nav). Se conservan el
+   * helper `botonNav`, los iconos y las ramas `onAccionNav` para el retorno. */
   nav.appendChild(
     botonNav('navegador interno', 'Navegador', 'navegador', () =>
       opts.onAccionNav?.('navegador'),
@@ -145,7 +153,17 @@ export function montarSidebar(opts: SidebarOpciones): Sidebar {
     e.stopPropagation();
     opts.onCrearProyecto?.();
   });
-  progHeader.append(progNombre, progMas);
+  // [119A-3 F1] Orden de hilos (menú Sort threads de la referencia); el
+  // criterio vive en la sidebar hasta que F4 lo persista.
+  let criterioHilos: CriterioHilos = 'actividad';
+  const progOrden = crearBotonOrdenHilos({
+    criterio: () => criterioHilos,
+    alCambiar: (c) => {
+      criterioHilos = c;
+      pintarLista();
+    },
+  });
+  progHeader.append(progNombre, progOrden, progMas);
   progSec.appendChild(progHeader);
 
   // ---- lista de conversaciones agrupadas por proyecto ----
@@ -227,8 +245,21 @@ export function montarSidebar(opts: SidebarOpciones): Sidebar {
     nombre.textContent = proyecto.nombre;
     boton.appendChild(nombre);
     if (proyectoActivo?.id === proyecto.id) boton.classList.add('activo');
-    boton.addEventListener('click', () => {
+    boton.addEventListener('click', (e) => {
+      // [119A-2 F1] El input inline de renombrar vive dentro del botón: sus
+      // clics no cambian el proyecto activo.
+      if ((e.target as HTMLElement).tagName === 'INPUT') return;
       if (proyectoActivo?.id !== proyecto.id) opts.onSeleccionarProyecto?.(proyecto.ruta);
+    });
+    // [119A-2 F1] Clic derecho = Copy Path / Edit name / Remove (misma
+    // mecánica de menu.ts que las celdas de conversación).
+    const depsMenu: MenuProyectoDeps = {
+      onRenombrar: (id, nombre) => opts.onRenombrarProyecto?.(id, nombre),
+      onEliminar: (id) => opts.onEliminarProyecto?.(id),
+    };
+    boton.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      abrirMenuProyecto({ proyecto, evento: e, boton, nombreEl: nombre, deps: depsMenu });
     });
     cabecera.appendChild(boton);
     lista.appendChild(cabecera);
@@ -257,9 +288,14 @@ export function montarSidebar(opts: SidebarOpciones): Sidebar {
       }
     });
 
-    proyectos.forEach((proyecto) => añadirGrupoProyecto(proyecto, porProyecto.get(proyecto.id) ?? []));
+    proyectos.forEach((proyecto) =>
+      añadirGrupoProyecto(proyecto, ordenarGrupo(porProyecto.get(proyecto.id) ?? [], criterioHilos)),
+    );
 
-    const sinProyecto = conversaciones.filter((c) => !c.workspaceId);
+    const sinProyecto = ordenarGrupo(
+      conversaciones.filter((c) => !c.workspaceId),
+      criterioHilos,
+    );
     if (sinProyecto.length > 0) {
       const sep = el('div', 'conv-sep');
       sep.textContent = 'Sin proyecto';
@@ -318,6 +354,12 @@ export function montarSidebar(opts: SidebarOpciones): Sidebar {
     },
     eliminarConversacion(id: string) {
       eliminar(id);
+    },
+    /** [119A-3 F1] Criterio externo (F4: restaurar preferencia al arrancar). */
+    ponerCriterioHilos(criterio: CriterioHilos) {
+      if (criterioHilos === criterio) return;
+      criterioHilos = criterio;
+      pintarLista();
     },
     /** [069A-Proyectos] Sustituye lista de proyectos + actualiza el header. */
     sustituirProyectos(nuevos: Workspace[], activo: Workspace | null) {

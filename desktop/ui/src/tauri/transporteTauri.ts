@@ -42,11 +42,11 @@ export function transporteTauri(): Transporte {
     enviarTurno: (mensaje, panelId, soloLectura) =>
       invoke<void>('enviar_turno', {
         mensaje,
-        panel_id: panelId,
-        solo_lectura: soloLectura === true,
+        panelId: panelId,
+        soloLectura: soloLectura === true,
       }),
     detenerTurno: (panelId) => {
-      void invoke('cancelar_turno', { panel_id: panelId }).catch(() => {});
+      void invoke('cancelar_turno', { panelId: panelId }).catch(() => {});
     },
     responderAprobacion: (id, respuesta) =>
       invoke<void>('responder_aprobacion', { id, respuesta }),
@@ -57,22 +57,22 @@ export function transporteTauri(): Transporte {
       await listenTurno(onEvento, onFin);
     },
     convNueva: (titulo, panelId) =>
-      invoke<InfoConversacion>('conversacion_nueva', { titulo, panel_id: panelId }),
+      invoke<InfoConversacion>('conversacion_nueva', { titulo, panelId: panelId }),
     convListar: () => invoke<InfoConversacion[]>('listar_conversaciones'),
     convCargar: (id, panelId) =>
-      invoke<CargaConversacion>('cargar_conversacion', { id, panel_id: panelId }),
+      invoke<CargaConversacion>('cargar_conversacion', { id, panelId: panelId }),
     convRenombrar: (id, titulo) => invoke<boolean>('renombrar_conversacion', { id, titulo }),
     convArchivar: (id, archivada) => invoke<boolean>('archivar_conversacion', { id, archivada }),
     convEliminar: (id, panelId) =>
-      invoke<InfoConversacion>('eliminar_conversacion', { id, panel_id: panelId }),
+      invoke<InfoConversacion>('eliminar_conversacion', { id, panelId: panelId }),
     convRewind: (hastaMensajeId, editar, panelId) =>
       invoke<CargaConversacion>('rewind_conversacion', {
         hastaMensajeId,
         editar,
-        panel_id: panelId,
+        panelId: panelId,
       }),
     tramoRestaurar: (panelId) =>
-      invoke<ResultadoRestauracionTramo>('restaurar_archivos_tramo', { panel_id: panelId }),
+      invoke<ResultadoRestauracionTramo>('restaurar_archivos_tramo', { panelId: panelId }),
     leerProveedores: () => invoke<ProveedorInfo[]>('proveedores_disponibles'),
     leerConfig: (clave) => invoke<string | null>('config_leer', { clave }),
     guardarConfig: (clave, valor) => invoke<void>('config_guardar', { clave, valor }),
@@ -89,11 +89,11 @@ export function transporteTauri(): Transporte {
       invoke<EstadoMetaVisible | null>('meta_aplicar', {
         accion: comando.accion,
         meta: comando.meta ?? null,
-        turno_id: comando.turno_id ?? null,
-        conversacion_id: comando.conversacion_id ?? null,
+        turnoId: comando.turno_id ?? null,
+        conversacionId: comando.conversacion_id ?? null,
       }),
     metaLeer: (conversacionId) =>
-      invoke<EstadoMetaVisible | null>('meta_leer', { conversacion_id: conversacionId }),
+      invoke<EstadoMetaVisible | null>('meta_leer', { conversacionId: conversacionId }),
     // [069A-Proyectos] Tauri: invoke directo a comandos del backend.
     workspacesListar: () =>
       invoke<{ workspaces: Workspace[]; activa: Workspace | null }>('workspaces_listar'),
@@ -136,7 +136,7 @@ export function transporteTauri(): Transporte {
     // real de la conversación del panel y persiste el punto de compactación.
     compactarConversacion: (panelId, instruccion) =>
       invoke<ResumenCompactacion>('compactar_conversacion', {
-        panel_id: panelId,
+        panelId: panelId,
         instruccion,
       }),
   };

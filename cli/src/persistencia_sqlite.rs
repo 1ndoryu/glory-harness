@@ -221,11 +221,13 @@ pub struct MetaConversacionPersistida {
 }
 
 /// Vista de conversación para la sidebar (Tauri la serializa tal cual).
+/// [119A-3 F1] `creada_en` permite el criterio «Created at» en el front.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct InfoConversacion {
     pub id: Uuid,
     pub titulo: String,
     pub archivada: bool,
+    pub creada_en: DateTime<Utc>,
     pub actualizada_en: DateTime<Utc>,
     /// Proyecto asociado solo cuando la conversación se lista para la sidebar.
     #[serde(skip_serializing_if = "Option::is_none")]

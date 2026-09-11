@@ -32,6 +32,10 @@ export interface Conversacion {
   /** Proyecto asociado; null/undefined = sin proyecto. */
   workspaceId?: string | null;
   workspaceNombre?: string | null;
+  /** [119A-3 F1] RFC3339 de creación/actualización (criterios de orden).
+   * Opcionales: la simulación y los borradores locales no los traen. */
+  creadaEn?: string;
+  actualizadaEn?: string;
 }
 
 /** [069A-Proyectos] Área de trabajo (proyecto): agrupa conversaciones por
@@ -246,7 +250,10 @@ export type IconoNombre =
   | 'restaurar'
   // [109A-5 F3] Diana de la meta: distingue el cierre de la meta del resto de
   // acciones del pie de turno (paridad Lucide "target" del mockup).
-  | 'meta';
+  | 'meta'
+  // [119A-3 F1] Orden de hilos (Lucide "arrow-up-down"): botón junto al +
+  // de la cabecera Proyectos.
+  | 'ordenar';
 
 // ---------- Elemento elegido en el navegador (feature seleccionar) ----------
 

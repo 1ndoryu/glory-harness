@@ -67,6 +67,8 @@ export function crearSesionVista(deps: SesionVistaDeps): SesionVista {
       archivada: c.archivada,
       workspaceId: c.workspace_id,
       workspaceNombre: c.workspace_nombre,
+      creadaEn: c.creada_en,
+      actualizadaEn: c.actualizada_en,
     }));
     deps.getSidebar().sustituir(conversaciones);
   }

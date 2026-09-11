@@ -87,6 +87,8 @@ export interface InfoConversacion {
   id: string;
   titulo: string;
   archivada: boolean;
+  /** [119A-3 F1] RFC3339 de creación (criterio «Created at»). */
+  creada_en: string;
   actualizada_en: string;
   workspace_id?: string | null;
   workspace_nombre?: string | null;

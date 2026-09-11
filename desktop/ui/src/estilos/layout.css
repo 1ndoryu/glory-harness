@@ -166,7 +166,8 @@
     flex: 1;
     font-size: var(--sm);
 }
-.prog-mas {
+.prog-mas,
+.prog-orden {
     flex: none;
     display: none;
     background: transparent;
@@ -179,7 +180,9 @@
     cursor: pointer;
 }
 .prog-header:hover .prog-mas,
-.prog-header:focus-within .prog-mas { display: inline-block; }
+.prog-header:focus-within .prog-mas,
+.prog-header:hover .prog-orden,
+.prog-header:focus-within .prog-orden { display: inline-block; }
 .proyecto-grupo {
     padding-top: var(--sp-xs);
 }
@@ -207,6 +210,17 @@
     white-space: nowrap;
     font-size: var(--sm);
     min-width: 0;
+}
+/* [119A-2 F1] Input inline de renombrar (misma mecánica que .conv .t). */
+.proyecto-grupo-nombre.renombrar {
+    flex: 1;
+    min-width: 0;
+    font-family: inherit;
+    font-size: var(--sm);
+    background: #fff;
+    color: #000;
+    border: 1px solid #000;
+    padding: 1px 2px;
 }
 .conv-proyecto { padding-left: var(--sp-md); }
 

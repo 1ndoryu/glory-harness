@@ -20,7 +20,9 @@
     background: #fff;
     border: 1px solid #000;
     width: 580px;
-    height: 560px;
+    /* Altura según contenido (nunca fija); el tope recorta con scroll
+       interno en `.config-paneles`. */
+    height: auto;
     max-width: calc(100vw - 48px);
     max-height: calc(100vh - 48px);
     display: flex;
@@ -34,6 +36,11 @@
     flex-direction: row;
     align-items: stretch;
     overflow: hidden;
+}
+/* Solo el modal de configuración tiene altura mínima (el de proyecto
+   se ajusta a su contenido). */
+.modal-config {
+    min-height: 560px;
 }
 .config-nav {
     width: 140px;
@@ -155,7 +162,7 @@
 /* selector de modelo dentro del modal: botón con borde a lo ancho (mismo
    lenguaje que .campo .valor, que reemplaza) + chevron a la derecha.
    La clase de la variante es 'selector-modal' (NO 'modal', que es la clase
-   del diálogo y estiraría el botón a height:560px / flex-direction:column). */
+   del diálogo y estiraría el botón al alto del diálogo). */
 .campo .selector-modelo.selector-modal {
     border: 1px solid #000;
     background: #fff;

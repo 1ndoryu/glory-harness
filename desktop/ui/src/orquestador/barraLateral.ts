@@ -13,6 +13,7 @@ import { crearHistorialVista } from './historialVista';
 import type { BarraLateral, BarraLateralDeps } from './barraLateralTipos';
 import { guardarSidebar } from './persistencia';
 import { puedeAbrirLateralEn } from './laterales';
+import { crearAccionesProyecto } from './barraLateralProyecto';
 
 export const CLAVE_ANCHO = 'sidebar_ancho';
 export const CLAVE_COLAPSADA = 'sidebar_colapsada';
@@ -89,6 +90,10 @@ export function montarBarraLateral(deps: BarraLateralDeps): BarraLateral {
       return false;
     }
   }
+
+  // [119A-2 F1] Acciones de proyecto (renombrar/quitar) en módulo propio
+  // para no superar el límite de 300 líneas por archivo.
+  const accionesProyecto = crearAccionesProyecto(deps);
 
   const sidebar = montarSidebar({
     conversaciones: deps.conversacionesIniciales,
@@ -229,6 +234,9 @@ export function montarBarraLateral(deps: BarraLateralDeps): BarraLateral {
         }
       })();
     },
+    // [119A-2 F1] Renombra/quita el proyecto (ver barraLateralProyecto.ts).
+    onRenombrarProyecto: accionesProyecto.onRenombrarProyecto,
+    onEliminarProyecto: accionesProyecto.onEliminarProyecto,
     abrirConfig: () => deps.abrirConfig(),
   });
 

@@ -79,7 +79,7 @@ impl PersistenciaSqlite {
         let mut out = Vec::new();
         let mut stmt = conn
             .prepare(
-                "SELECT id, titulo, archivada, actualizada_en FROM conversaciones
+                "SELECT id, titulo, archivada, creada_en, actualizada_en FROM conversaciones
                  WHERE user_id = ?1 ORDER BY actualizada_en DESC",
             )
             .map_err(|e| Error::Persistencia(e.to_string()))?;
@@ -90,16 +90,18 @@ impl PersistenciaSqlite {
                     f.get::<_, String>(1)?,
                     f.get::<_, i64>(2)?,
                     f.get::<_, String>(3)?,
+                    f.get::<_, String>(4)?,
                 ))
             })
             .map_err(|e| Error::Persistencia(e.to_string()))?;
         for fila in filas {
-            let (id, titulo, archivada, actualizada) =
+            let (id, titulo, archivada, creada, actualizada) =
                 fila.map_err(|e| Error::Persistencia(e.to_string()))?;
             out.push(InfoConversacion {
                 id: a_uuid(id)?,
                 titulo,
                 archivada: archivada != 0,
+                creada_en: a_fecha(creada)?,
                 actualizada_en: a_fecha(actualizada)?,
                 workspace_id: None,
                 workspace_nombre: None,
@@ -117,7 +119,7 @@ impl PersistenciaSqlite {
         let conn = bloquear(&self.conn);
         let mut stmt = conn
             .prepare(
-                "SELECT c.id, c.titulo, c.archivada, c.actualizada_en,
+                "SELECT c.id, c.titulo, c.archivada, c.creada_en, c.actualizada_en,
                         c.workspace_id, w.nombre
                  FROM conversaciones c
                  LEFT JOIN workspaces w
@@ -133,19 +135,21 @@ impl PersistenciaSqlite {
                     f.get::<_, String>(1)?,
                     f.get::<_, i64>(2)?,
                     f.get::<_, String>(3)?,
-                    f.get::<_, Option<String>>(4)?,
+                    f.get::<_, String>(4)?,
                     f.get::<_, Option<String>>(5)?,
+                    f.get::<_, Option<String>>(6)?,
                 ))
             })
             .map_err(|e| Error::Persistencia(e.to_string()))?;
         let mut out = Vec::new();
         for fila in filas {
-            let (id, titulo, archivada, actualizada, workspace_id, workspace_nombre) =
+            let (id, titulo, archivada, creada, actualizada, workspace_id, workspace_nombre) =
                 fila.map_err(|e| Error::Persistencia(e.to_string()))?;
             out.push(InfoConversacion {
                 id: a_uuid(id)?,
                 titulo,
                 archivada: archivada != 0,
+                creada_en: a_fecha(creada)?,
                 actualizada_en: a_fecha(actualizada)?,
                 workspace_id: workspace_id.map(a_uuid).transpose()?,
                 workspace_nombre,
@@ -179,16 +183,18 @@ impl PersistenciaSqlite {
                         f.get::<_, String>(1)?,
                         f.get::<_, i64>(2)?,
                         f.get::<_, String>(3)?,
+                        f.get::<_, String>(4)?,
                     ))
                 })
                 .map_err(|e| Error::Persistencia(e.to_string()))?;
             for fila in filas {
-                let (id, titulo, archivada, actualizada) =
+                let (id, titulo, archivada, creada, actualizada) =
                     fila.map_err(|e| Error::Persistencia(e.to_string()))?;
                 out.push(InfoConversacion {
                     id: a_uuid(id)?,
                     titulo,
                     archivada: archivada != 0,
+                    creada_en: a_fecha(creada)?,
                     actualizada_en: a_fecha(actualizada)?,
                     workspace_id: None,
                     workspace_nombre: None,
@@ -200,14 +206,14 @@ impl PersistenciaSqlite {
             Some(ws) => {
                 let ws_s = ws.as_hyphenated().to_string();
                 consultar(
-                    "SELECT id, titulo, archivada, actualizada_en FROM conversaciones
+                    "SELECT id, titulo, archivada, creada_en, actualizada_en FROM conversaciones
                      WHERE user_id = ?1 AND workspace_id = ?2 ORDER BY actualizada_en DESC",
                     &[&user_s, &ws_s],
                 )?;
             }
             None => {
                 consultar(
-                    "SELECT id, titulo, archivada, actualizada_en FROM conversaciones
+                    "SELECT id, titulo, archivada, creada_en, actualizada_en FROM conversaciones
                      WHERE user_id = ?1 AND workspace_id IS NULL ORDER BY actualizada_en DESC",
                     &[&user_s],
                 )?;

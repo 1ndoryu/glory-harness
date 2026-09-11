@@ -15,7 +15,14 @@
 
 ## Siguiente bloque ejecutable
 
-**Sin pendientes abiertos (11-09).**
+**119A-2 — Menú contextual de proyecto (F1 implementado 11-09, pendiente
+verificación Tauri + gate + commit; F2–F4 abiertos).** Plan activo en
+`Agente/planes/plan-119A-2-menu-contextual-proyecto-2026-09-11.md`:
+menú de clic derecho en cada grupo de `Proyectos` con Open in Finder,
+Copy Path, Edit name, Pin project, Archive/Delete threads y Remove
+(Kanban eliminada; Start dev y Spaces diferidas por decisión del usuario).
+F1 (Copy Path / Edit name / Remove con confirmación) verificado con
+`tsc` + `vite build`; falta probarlo en la ventana Tauri real.
 Últimos cierres 11-09: 069A-6 (aviso de iframe bloqueado, a petición), 089A-5
 (historial de la app, gate PASS), Bloque B (pasada visual Tauri), 089A-16
 (re-gate `unwrap-produccion-rs` PASS), 119A-1 (preflight de disco del gate) y
@@ -29,6 +36,20 @@
 > disco confirmado: el shell añade ~2,3 GB al corte CLI/core; ver
 > `Agente/prevencion/prevencion-disco-lleno-build-2026-09-11.md`.
 
+> **Prerrequisito de disco (11-09, 07:45): `C:` tiene 0,65 GB libres y el
+> gate exige 8 GB (`sentinel check 119A-3` → `rust` SETUP ERROR antes de
+> compilar). `C:\tmp` (13 GB) es casi todo `glory-target`: glory-harness
+> 6,67 · glory_backend_main 3,74 · coolify-manager 2,58. Borrar los dos
+> cachés hermanos libera ~6,3 GB (quedan ~7 GB: aún bajo el mínimo sin
+> override `GLORY_MIN_FREE_GB` o más limpieza). Sin otro volumen con
+> espacio. Pendiente decisión del usuario antes de reintentar el gate Rust
+> o el `tauri dev` de verificación (119A-2/119A-3/119A-5). La pasada del
+> gate consumió ~2,2 GB (quedan 6,06 GB): los gates propios de 119A-2/119A-5
+> no corren su etapa `rust`, pero quedan cubiertos por el PASS 119A-3 sobre
+> el mismo árbol (front stages con cache hit, sin deriva). Hueco del gate:
+> `sentinel check` no propaga `GLORY_MIN_FREE_GB` a la etapa `rust`
+> (probado con 5 y 6) — tarea para el dueño del gate.
+
 > Bloque A (UI real con Tauri, F1-F6 + primer `tauri dev` en debug): cerrado 06-09 — E2E en la
 > ventana real (enviar → streaming, tools → aprobación → `turno-fin`, P3 rewind, P5/P6) +
 > `cargo test --workspace` (284 verdes) + gate 039A-3 PASS. Evidencia en
@@ -36,6 +57,65 @@
 
 ## Tareas pendientes
 
+- [ ] **119A-2 — Menú contextual de proyecto** (F1 implementado y verificado
+      11-09: front PASS + Rust vía PASS 119A-3 mismo árbol; pendiente
+      verificación Tauri + commit; F2–F4 abiertos):
+      clic derecho en cada grupo de `Proyectos` con Open in Finder, Copy
+      Path, Edit name, Pin project, Archive/Delete threads y Remove
+      (Kanban eliminada; Start dev y Spaces diferidas por decisión del
+      usuario). F1 (Copy Path / Edit name / Remove) con `tsc` + `vite`
+      verificados.
+      Plan: `Agente/planes/plan-119A-2-menu-contextual-proyecto-2026-09-11.md`.
+- [ ] **119A-3 — Ordenar proyectos e hilos** (F1 hilos implementado y gate
+      PASS 11-09 — 441 tests OK; pendiente verificación `tauri dev` + commit):
+      botón de orden en la cabecera `Proyectos` (actividad / creación, con
+      `sidebarOrdenHilos.ts`); backend expone `creada_en` en las 3 queries +
+      constructor desktop (los 4 literales `InfoConversacion` actualizados,
+      revisión estática sin destructuring exhaustivo). Front `tsc` + `vite`
+      OK. Extra: `onRenombrarProyecto/onEliminarProyecto` movidos a
+      `orquestador/barraLateralProyecto.ts` (barraLateral superaba 300 líneas
+      por F1 de 119A-2). F2–F4 abiertos.
+      Plan: `Agente/planes/plan-119A-3-orden-proyectos-2026-09-11.md`.
+- [ ] **119A-4 — Ajustes estilo Synara: página completa + opciones aplicables** (planificado 11-09):
+      los ajustes dejan de ser un modal y pasan a vista a pantalla completa
+      con nav por secciones + buscador + «volver a la app», reutilizando
+      `formulario.ts`; F1 migra lo actual sin opciones nuevas; F2 lote sin
+      backend (confirmaciones, streaming, toast fin de turno, fuente, hora,
+      diff, órdenes de 119A-3); F3 lote con backend (uso local, skills por
+      skill, sistema, archivadas); F4 atajos; AppSnap/MCP/worktrees/Profile
+      no aplican (con razón en el plan). F1 listo para ejecutar.
+      Plan: `Agente/planes/plan-119A-4-ajustes-pagina-synara-2026-09-11.md`.
+- [ ] **119A-5 — Meta: fix `meta_leer` + tareas fijas y colapsables** (F1 implementado y verificado
+      11-09: front PASS + Rust vía PASS 119A-3 mismo árbol; pendiente
+      verificación Tauri + commit; F2–F3 abiertos):
+      el front invocaba con `conversacion_id` pero Tauri 2 espera camelCase
+      (`conversacionId`), así que leer/fijar/pausar/reanudar/lograr la meta
+      fallaban en la app (en web no); F1 pasa las claves a camelCase y audita
+      `panel_id`/`solo_lectura`/`turno_id` (caían a default en silencio),
+      con `tsc` + `vite build` verificados; F2 saca las tareas del
+      transcript a zona fija colapsable como la meta; F3 distingue «sin
+      meta» y no dispara comandos en blur sin cambios.
+      Plan: `Agente/planes/plan-119A-5-meta-leer-tareas-fijas-2026-09-11.md`.
+- [ ] **119A-6 — Automatizaciones estilo Synara** (F1 hecho 11-09, F2–F5
+      planificados): copiar schedule `manual|once|interval|daily|weekly|cron`
+      +timezone, modos standalone/dedicated (+heartbeat si es seguro con M1),
+      runs con estados, políticas y resultado taxonomizado, autoría por el
+      modelo y       vista UI; base GH (`ProgramadorTareas` + `schedule run`) se
+      reutiliza; worktree/Environment/Studio no entran. Nav temporal sin
+      Agentes/Flujo/Complementos (verificado `tsc` + `vite build`).
+      Plan: `Agente/planes/plan-119A-6-automatizaciones-synara-2026-09-11.md`.
+- [ ] **119A-7 — Agente sólido: auditoría vs referencias + bench** (planificado y
+      profundizado 11-09, veredicto `VIABLE CON RESERVAS`):
+      no es UI sino la inteligencia: F0 jaula + protocolo ×3 (prerrequisito);
+      F1 matriz del contrato agente contra las 5 referencias (`opencode`,
+      `hermes-agent`, `grok-cli`, `claurst`, `vscode`); F2 flujo canónico de
+      11 pasos con modelo real (crear→modificar→comandos→tests→aprobación→
+      rewind→compactar→solo-lectura→diagnóstico de error); F3 bench (evaluar
+      SWE-bench/Terminal-Bench y construir mini-bench propio congelado con
+      25% ciego); F4 corrección en `core` + re-medición; F5 regresión manual.
+      Aceptación: F2 11/11 en ≥2 de 3 runs + bench antes/después con costo.
+      Siguiente: F0 y luego F1 (autorizado ciclo local; SSH prohibido).
+      Plan: `Agente/planes/plan-119A-7-agente-solido-bench-2026-09-11.md`.
 - [x] **F3 — PersistenciaSqlite** (`cli/src/persistencia_sqlite.rs`, 04-09): `AgentPersistence` +
       `ProgramadorTareas` sobre rusqlite bundled (WAL, `%APPDATA%/glory-harness/glory-harness.db`).
       CRUD de conversaciones, mensaje de usuario persistido por el consumidor en `enviar_turno`,
@@ -544,6 +624,18 @@
 
 ## Planes activos
 
+- `Agente/planes/plan-119A-2-menu-contextual-proyecto-2026-09-11.md` (119A-2) —
+  **activo**: menú contextual de proyecto; F1 listo, F5 pendiente de decisión.
+- `Agente/planes/plan-119A-3-orden-proyectos-2026-09-11.md` (119A-3) —
+  **activo**: orden de proyectos e hilos; F1 listo, independiente de 119A-2.
+- `Agente/planes/plan-119A-4-ajustes-pagina-synara-2026-09-11.md` (119A-4) —
+  **activo**: ajustes como página estilo Synara + opciones aplicables; F1 listo.
+- `Agente/planes/plan-119A-5-meta-leer-tareas-fijas-2026-09-11.md` (119A-5) —
+  **activo**: fix `meta_leer` camelCase + tareas fijas/colapsables; F1 listo.
+- `Agente/planes/plan-119A-6-automatizaciones-synara-2026-09-11.md` (119A-6) —
+  **activo**: automatizaciones estilo Synara; F1 hecho (nav temporal), F2 listo.
+- `Agente/planes/plan-119A-7-agente-solido-bench-2026-09-11.md` (119A-7) —
+  **activo**: auditoría del núcleo vs referencias + bench propio; F1 listo.
 - `Agente/planes/completados/plan-workspace-explorer-diffs-terminal-2026-09.md` (089A-9) —
   **cerrado 08-09** con Fases 0–4 completadas; watcher y PTY diferidos (ponytail).
 - `Agente/planes/completados/plan-deuda-cero-079A-1-2026-09-07.md` (079A-1) —

@@ -80,6 +80,9 @@ const TRAZOS: Record<IconoNombre, string> = {
   // [109A-5 F3] Diana (Lucide "target"): cabecera del bloque de logros y del
   // badge "meta lograda" del pie de turno.
   meta: '<circle cx="12" cy="12" r="10"></circle><circle cx="12" cy="12" r="6"></circle><circle cx="12" cy="12" r="2"></circle>',
+  // [119A-3 F1] Orden (Lucide "arrow-up-down"): botón de criterio de hilos.
+  ordenar:
+    '<path d="m21 16-4 4-4-4"></path><path d="M17 20V4"></path><path d="m3 8 4-4 4 4"></path><path d="M7 4v16"></path>',
 };
 
 /** Crea un SVG de icono. `pequeno` añade .ic-xs (11px). */

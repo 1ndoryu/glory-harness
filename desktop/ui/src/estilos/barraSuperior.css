@@ -35,6 +35,10 @@
 .barra-superior .barra-zona-derecha {
     display: flex;
     align-items: stretch;
+    /* Sin tabs la barra está oculta y el grupo (toggle + botonera) se
+       quedaba pegado al inicio de la zona — a mitad de ventana — en vez
+       de al borde derecho: la zona mide lo mismo que el panel abierto. */
+    justify-content: flex-end;
     flex: none;
     min-width: 0;
     margin-left: auto;

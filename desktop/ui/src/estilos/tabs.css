@@ -38,8 +38,7 @@
     align-items: stretch;
     flex: 1;
     min-width: 0;
-    overflow-x: auto;
-    padding-left: var(--sp-xs);
+    overflow: hidden;
 }
 
 .tab-mas {
@@ -82,6 +81,9 @@
     opacity: 0.55;
     white-space: nowrap;
     max-width: 220px;
+    /* Sin scroll en el contenedor, la tab debe poder encoger por debajo
+       de su contenido para que la etiqueta recorte con ellipsis. */
+    min-width: 0;
 }
 
 .tab:hover { opacity: 1; background: var(--superficie-hover); }

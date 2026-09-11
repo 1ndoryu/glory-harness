@@ -60,7 +60,7 @@ export function montarModalConfiguracion(opts: ModalOpciones): ModalConfiguracio
   fondo.id = 'modal-fondo';
   fondo.hidden = true;
 
-  const modal = el('div', 'modal');
+  const modal = el('div', 'modal modal-config');
   modal.setAttribute('role', 'dialog');
   modal.setAttribute('aria-modal', 'true');
   modal.setAttribute('aria-label', 'configuración');

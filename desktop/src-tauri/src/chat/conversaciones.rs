@@ -93,6 +93,7 @@ pub(crate) fn conversacion_nueva(
         id,
         titulo,
         archivada: false,
+        creada_en: chrono::Utc::now(),
         actualizada_en: chrono::Utc::now(),
         workspace_id: None,
         workspace_nombre: None,
