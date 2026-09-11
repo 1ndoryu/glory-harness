@@ -11,12 +11,30 @@
       "cwd": "."
     },
     {
+      "name": "sccache",
+      "executable": "node",
+      "args": ["scripts/quality/sentinel-sccache.mjs", "{reportPath}"],
+      "reportPath": "sccache.json",
+      "expectedSchemaVersion": "1",
+      "timeoutMs": 60000,
+      "cwd": "."
+    },
+    {
       "name": "sentinel",
       "executable": "node",
       "args": ["scripts/quality/sentinel-stage.mjs", "{reportPath}"],
       "reportPath": "sentinel.json",
       "expectedSchemaVersion": "1",
       "timeoutMs": 120000,
+      "cwd": "."
+    },
+    {
+      "name": "rust",
+      "executable": "node",
+      "args": ["scripts/quality/sentinel-rust.mjs", "{reportPath}"],
+      "reportPath": "rust.json",
+      "expectedSchemaVersion": "1",
+      "timeoutMs": 1800000,
       "cwd": "."
     }
   ]

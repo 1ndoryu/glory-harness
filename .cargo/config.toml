@@ -1,0 +1,13 @@
+## sccache delante de rustc, acotado a 5 GB (regla del area).
+##
+## La purga horaria de C:\tmp borra los targets de compilacion, asi que sin
+## cache compartida cada rebuild vuelve a compilar desde cero. El gate ejecuta
+## sus etapas con un entorno saneado (allowlist de toolRunner.js), de modo que
+## RUSTC_WRAPPER no sobrevive desde el shell: la via que si sobrevive es este
+## archivo, y es justo lo que comprueba la etapa `sccache` del gate
+## (scripts/quality/sentinel-sccache.mjs).
+[build]
+rustc-wrapper = "sccache"
+
+[env]
+SCCACHE_CACHE_SIZE = "5G"

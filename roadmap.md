@@ -287,13 +287,7 @@ Orden propuesto (dependencias de abajo arriba):
        único error ajeno `sccache-no-configurado`. Detalle en
        `Agente/completados/tareas-2026-09-10.md`; plan cerrado en
        `Agente/planes/completados/plan-109A-comandos-slash-2026-09-10.md`.
-- [ ] **Gate: etapa Rust y sccache** (10-09, pendiente, independiente):
-      el gate de glory-harness no compila Rust (las etapas `coverage`,
-      `sccache` y `sentinel` solo analizan), así que `cargo` directo queda
-      bloqueado por el guard sin vía de validación declarada; añadir una etapa
-      que ejecute clippy/tests y decidir la configuración de `sccache`
-      (`rustc-wrapper` + `SCCACHE_CACHE_SIZE`), hoy en rojo por
-      `sccache-no-configurado`.
+
 
 > **Corte de referencia del bloque 109A** (10-09 11:41Z, `1aff7e0`, con WIP en el
 > árbol): es el corte de la **CONSOLA** (workspace-manager) = **371 hallazgos** (**101 errores** + 269
@@ -312,6 +306,13 @@ Orden propuesto (dependencias de abajo arriba):
 > al usuario; el hint que queda es el falso positivo `todo-pendiente` de 109A-10. El corte anterior,
 > tras 109A-6, era de 8 warnings: los dos `limite-lineas` —`main.ts` y `panelDerecho.ts`— y la
 > densidad de `desktop/src-tauri/src/` ya estaban resueltos, y antes de eso eran 10).
+> Desde **109A-12** (11-09) el gate tiene **cuatro etapas** —`coverage`, `sccache`, `sentinel` y
+> `rust`— y su veredicto global es **PASS**. `.cargo/config.toml` fija `rustc-wrapper = "sccache"`
+> (cierra `sccache-no-configurado`), `sentinel.config.json` excluye `**/data/referencias-cli/**` (el
+> otro rojo heredado) y la etapa `rust` compila con `clippy -D warnings` y ejecuta los tests del árbol
+> Rust (**430 verdes**), que hasta ahora no tenía vía de validación porque los subcomandos pesados de
+> `cargo` están bloqueados por el guard. Un cambio en un `.rs` entra en el alcance y dispara la etapa
+> (verificado: 10 s en caliente, 61 s y 17 invocaciones de `sccache` al tocar `core/src/lib.rs`).
 > Verificado el 10-09 ejecutando los dos binarios sobre el mismo árbol: `902c45e` → **49 errores**;
 > `1587c59` → **0**. Los 49 del corte de consola **ya están corregidos upstream** (`08aaf25`,
 > `axum-ruta-sintaxis-rs` version-aware; `1587c59`, `unwrap-produccion-rs` en fichero solo-test): son

@@ -44,7 +44,8 @@
           "**/node_modules/**",
           "**/.quality-tools/**",
           "**/.quality-reports/**",
-          "**/.sentinel/**"
+          "**/.sentinel/**",
+          "**/data/referencias-cli/**"
         ],
         "directoryExceptions": [
           "desktop/ui/src/componentes",
