@@ -131,9 +131,10 @@ fixtures que se vuelven obsoletos; referencias que divergen de su upstream.
 
 - F0-jaula cerrada 11-09 (commit `32bf6b6`, gate PASS 446 ok).
 - F1 evidencia completada 11-09 (§11); pendiente gate F1 + commit.
-- Siguiente: F0-protocolo ×3 + F2 flujo 11 pasos — BLOQUEADO por
-  credencial de modelo (`LlavesProveedor::from_env` no consume
-  `GEMINI_API_KEY`; resto de keys ausentes).
+- Siguiente: F0-protocolo ×3 + F2 flujo 11 pasos — key GloryAPI
+  disponible (solo en chat, sin guardar; gasto 0). BLOQUEO NUEVO: no hay
+  binario CLI runnable y cargo pesado fuera del gate lo bloquea el shim
+  (exit 78); el gate solo compila tests, no el binario.
 
 ## 10. Reto F0/F1 (11-09, verificado contra el código)
 
