@@ -17,7 +17,6 @@
 
 use crate::error::{Error, Result};
 use crate::ports::{NuevaTareaProgramada, ProgramadorTareas, TareaProgramada};
-use crate::scheduler;
 use crate::tool::{AgentTool, AgentToolContext, AgentToolRegistry, AgentToolResult};
 use async_trait::async_trait;
 use chrono::Utc;
@@ -195,13 +194,17 @@ fn tarea_a_texto(t: &TareaProgramada) -> String {
         .proxima_ejecucion
         .map(|p| p.format("%Y-%m-%d %H:%M UTC").to_string())
         .unwrap_or_else(|| "—".to_string());
+    /* [119A-6 F2] La programación canónica viaja en `programacion`
+     * (`clase:expresion@Zona`); en filas legacy (vacía) se cae al espejo
+     * `cron_expr` heredado. */
+    let programa = if t.programacion.is_empty() {
+        format!("cron='{}'", t.cron_expr.as_deref().unwrap_or("—"))
+    } else {
+        format!("programacion='{}'", t.programacion)
+    };
     format!(
-        "{} [{}] cron='{}' próximo='{proxima}' estado={} — \"{}\"",
-        t.nombre,
-        t.tipo,
-        t.cron_expr.as_deref().unwrap_or("—"),
-        t.estado,
-        prompt
+        "{} [{}] {programa} próximo='{proxima}' estado={} — \"{}\"",
+        t.nombre, t.tipo, t.estado, prompt
     )
 }
 
@@ -252,6 +255,10 @@ impl AgentTool for ToolProgramarTarea {
                 "cuando": {
                     "type": "string",
                     "description": "Programación en lenguaje natural (crear): 'cada lunes a las 9', 'diario a las 9:30', 'cada hora', 'cada 30 minutos'"
+                },
+                "zona": {
+                    "type": "string",
+                    "description": "Zona horaria IANA de la programación (crear; opcional, defecto 'UTC'): p. ej. 'Europe/Madrid'. La próxima ejecución se calcula en esa zona."
                 },
                 "id": {
                     "type": "string",
@@ -321,22 +328,48 @@ async fn crear(
         })?;
 
     let cron = frase_a_cron(cuando)?;
-    let proxima = scheduler::proxima_ejecucion(&cron, Utc::now())?;
+    /* [119A-6 F2] El cron traducido se envuelve en `ScheduleTarea` (fuente de
+     * verdad tz-aware): intervalo v1 → clase `intervalo`, resto → `cron`. La
+     * zona sale del argumento `zona` (defecto UTC explícito, validada
+     * fail-closed); `tipo`/`cron_expr` viajan como espejo legible. */
+    let zona = argumentos
+        .get("zona")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|z| !z.is_empty())
+        .unwrap_or("UTC");
+    let clase = if cron.starts_with("cada") {
+        crate::tareas_programadas::schedule::ClaseTarea::Intervalo
+    } else {
+        crate::tareas_programadas::schedule::ClaseTarea::Cron
+    };
+    let schedule =
+        crate::tareas_programadas::schedule::ScheduleTarea::nueva(clase, &cron, zona)?;
+    let proxima = schedule.proxima(Utc::now())?.ok_or_else(|| {
+        Error::Argumentos(
+            "programar_tarea: la programación no produce próxima ejecución".into(),
+        )
+    })?;
     let nueva = NuevaTareaProgramada {
         user_id,
         nombre: nombre.to_string(),
         prompt: prompt.to_string(),
         tipo: "recurrente".into(),
         cron_expr: cron.clone(),
+        programacion: schedule.texto(),
+        zona_horaria: zona.to_string(),
         proxima_ejecucion: proxima,
+        notificacion: None,
+        reintentos: None,
     };
     let id = programador.tarea_crear(&nueva).await?;
     Ok(AgentToolResult::ok(
         format!(
-            "Tarea programada creada: {nombre} (id {id}) — cron '{cron}' — próxima ejecución {}.",
+            "Tarea programada creada: {nombre} (id {id}) — programacion '{}' — próxima ejecución {}.",
+            schedule.texto(),
             proxima.format("%Y-%m-%d %H:%M UTC")
         ),
-        format!("programar_tarea: creó '{nombre}' con cron {cron}"),
+        format!("programar_tarea: creó '{nombre}' con programacion {}", schedule.texto()),
     ))
 }
 
@@ -481,9 +514,13 @@ mod tests {
                     prompt: n.prompt.clone(),
                     tipo: n.tipo.clone(),
                     cron_expr: Some(n.cron_expr.clone()),
+                    programacion: n.programacion.clone(),
+                    zona_horaria: n.zona_horaria.clone(),
                     proxima_ejecucion: Some(n.proxima_ejecucion),
                     estado: "pendiente".into(),
                     creado_en: n.proxima_ejecucion,
+                    notificacion: n.notificacion.clone().unwrap_or_else(|| "fallos".into()),
+                    reintentos: n.reintentos.unwrap_or(0),
                 })
                 .collect())
         }
@@ -627,8 +664,8 @@ mod tests {
             .expect("crear ok");
         assert!(r.ok);
         assert!(
-            r.contenido.contains("cron '0 9 * * 1'"),
-            "el cron traducido aparece en la respuesta: {}",
+            r.contenido.contains("programacion 'cron:0 9 * * 1@UTC'"),
+            "la programación canónica tz-aware aparece en la respuesta: {}",
             r.contenido
         );
 
@@ -637,11 +674,68 @@ mod tests {
         let nueva = &creadas[0];
         assert_eq!(nueva.nombre, "revisar-repo");
         assert_eq!(nueva.cron_expr, "0 9 * * 1");
+        assert_eq!(nueva.programacion, "cron:0 9 * * 1@UTC");
+        assert_eq!(nueva.zona_horaria, "UTC");
         assert_eq!(nueva.tipo, "recurrente");
         assert!(
             nueva.proxima_ejecucion > Utc::now(),
             "la próxima ejecución queda en el futuro"
         );
+    }
+
+    #[tokio::test]
+    async fn e2e_crear_con_zona_guarda_programacion_en_zona() {
+        let mock = Arc::new(ProgramadorMock::nuevo());
+        let ctx = ctx_con_programador(mock.clone());
+        let tool = ToolProgramarTarea::nuevo(mock.clone());
+
+        let r = tool
+            .ejecutar(
+                &ctx,
+                json!({
+                    "accion": "crear",
+                    "nombre": "diario-madrid",
+                    "prompt": "Resume el día",
+                    "cuando": "diario a las 9",
+                    "zona": "Europe/Madrid"
+                }),
+            )
+            .await
+            .expect("crear ok");
+        assert!(r.ok);
+        assert!(
+            r.contenido.contains("@Europe/Madrid"),
+            "la zona viaja en el texto canónico: {}",
+            r.contenido
+        );
+        {
+            let creadas = mock.creadas.lock().expect("lock");
+            assert_eq!(creadas.len(), 1);
+            assert_eq!(creadas[0].zona_horaria, "Europe/Madrid");
+            assert!(creadas[0].programacion.ends_with("@Europe/Madrid"));
+        }
+
+        let listado = tool
+            .ejecutar(&ctx, json!({"accion": "listar"}))
+            .await
+            .expect("listar");
+        assert!(listado.contenido.contains("@Europe/Madrid"));
+
+        let err = tool
+            .ejecutar(
+                &ctx,
+                json!({
+                    "accion": "crear",
+                    "nombre": "mala-zona",
+                    "prompt": "x",
+                    "cuando": "diario a las 9",
+                    "zona": "No/Existe"
+                }),
+            )
+            .await
+            .expect_err("zona desconocida falla sin crear");
+        assert!(err.to_string().contains("zona horaria desconocida"));
+        assert_eq!(mock.creadas.lock().expect("lock").len(), 1);
     }
 
     #[tokio::test]

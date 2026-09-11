@@ -69,14 +69,49 @@ where
                 persistencia
                     .tarea_finalizar(tarea.id, true, Some(&resumen))
                     .await?;
-                /* Recurrente: calcula la próxima ejecución desde cron_expr
-                 * (formatos v1: `diario`, `cada{N}min`, `cada{N}h`,
-                 * `cada{N}d`). `una_vez` no reprograma (None). */
-                let proxima = if tarea.tipo == "recurrente" {
-                    let expr = tarea.cron_expr.as_deref().unwrap_or("diario");
-                    Some(proxima_ejecucion(expr, ahora)?)
-                } else {
-                    None
+                /* [119A-6 F2] Reprogramación tz-aware desde `programacion`
+                 * (`ScheduleTarea::proxima`): `manual` y `una_vez` no repiten
+                 * (None). Sin `programacion` (fila legacy) se cae al `tipo` +
+                 * `cron_expr` heredados. Una programación corrupta NO aborta
+                 * el ciclo (fail-closed por tarea: se finaliza como fallo con
+                 * el motivo y se sigue con las hermanas, igual que
+                 * `cron::ejecutar_lista`). */
+                let proxima = match tarea.programacion.as_deref() {
+                    Some(texto) => {
+                        match crate::tareas_programadas::schedule::ScheduleTarea::parse(
+                            texto,
+                        ) {
+                            Ok(schedule) => match schedule.proxima(ahora) {
+                                Ok(prox) => prox,
+                                Err(e) => {
+                                    let motivo = format!(
+                                        "programación inválida: '{texto}' ({e}; tarea no ejecutada)"
+                                    );
+                                    persistencia
+                                        .tarea_finalizar(tarea.id, false, Some(&motivo))
+                                        .await?;
+                                    continue;
+                                }
+                            },
+                            Err(e) => {
+                                let motivo = format!(
+                                    "programación inválida: '{texto}' ({e}; tarea no ejecutada)"
+                                );
+                                persistencia
+                                    .tarea_finalizar(tarea.id, false, Some(&motivo))
+                                    .await?;
+                                continue;
+                            }
+                        }
+                    }
+                    None => {
+                        if tarea.tipo == "recurrente" {
+                            let expr = tarea.cron_expr.as_deref().unwrap_or("diario");
+                            Some(proxima_ejecucion(expr, ahora)?)
+                        } else {
+                            None
+                        }
+                    }
                 };
                 persistencia
                     .tarea_reprogramar(tarea.id, tarea.user_id, proxima)
@@ -124,10 +159,58 @@ pub fn proxima_ejecucion(expr: &str, desde: DateTime<Utc>) -> Result<DateTime<Ut
     )))
 }
 
+/// Valida un cron v2 `M H * * DOW` sin calcular nada (para `ScheduleTarea`
+/// y el CLI: fail-closed en creación, no en el tick).
+pub fn validar_cron_v2(expr: &str) -> Result<()> {
+    let expr = expr.trim().to_ascii_lowercase();
+    let campos: Vec<&str> = expr.split_whitespace().collect();
+    if campos.len() != 5 {
+        return Err(Error::Validacion(format!(
+            "cron v2 inválido: '{expr}' — se esperan 5 campos 'M H * * DOW'"
+        )));
+    }
+    if campos[2] != "*" || campos[3] != "*" {
+        return Err(Error::Validacion(format!(
+            "cron v2 inválido: '{expr}' — el subconjunto v1 soporta solo día-de-semana (dom y mes deben ser '*')"
+        )));
+    }
+    parse_campo_minuto(campos[0])?;
+    parse_campo_hora(campos[1])?;
+    parse_conjunto_dow(campos[4])?;
+    Ok(())
+}
+
+/// Valida un intervalo `cada{N}min|h|d` (`N >= 1`; granularidad mínima 1 min,
+/// ver C6 del plan 119A-6: el tick del daemon corre cada minuto).
+pub fn validar_intervalo(expr: &str) -> Result<()> {
+    let expr = expr.trim().to_ascii_lowercase();
+    let Some(resto) = expr.strip_prefix("cada") else {
+        return Err(Error::Validacion(format!(
+            "intervalo inválido: '{expr}' (usa 'cada<N>min|h|d', p. ej. 'cada2h')"
+        )));
+    };
+    let (numero, unidad) = parse_cantidad_unidad(resto)?;
+    match unidad.as_str() {
+        "min" | "h" | "d" => Ok(()),
+        _ => Err(Error::Validacion(format!(
+            "Unidad cron inválida: {unidad} (usa min, h o d; N={numero})"
+        ))),
+    }
+}
+
 /// Próxima ocurrencia de un cron v2 `M H * * DOW` estrictamente posterior a
 /// `desde`. Búsqueda minuto a minuto con horizonte de 8 días (una tarea
 /// semanal siempre cae dentro); si no encaja, error claro en vez de silencio.
-fn proxima_cron_v2(expr: &str, desde: DateTime<Utc>) -> Result<DateTime<Utc>> {
+///
+/// [119A-6 F2] `DOW` admite `*`, un día (`0`-`7`, 0 y 7 = domingo), rangos
+/// (`1-5`) y listas (`1,3,5` o mezcla `1-3,5`). Genérica sobre
+/// `TimeZone` para que `ScheduleTarea` calcule en la zona de la tarea y solo
+/// canonicalice a UTC al final (deriva con el DST, C2).
+pub fn proxima_cron_v2<Tz: chrono::TimeZone>(
+    expr: &str,
+    desde: DateTime<Tz>,
+) -> Result<DateTime<Tz>> {
+    let expr = expr.trim().to_ascii_lowercase();
     let campos: Vec<&str> = expr.split_whitespace().collect();
     if campos.len() != 5 {
         return Err(Error::Validacion(format!(
@@ -140,25 +223,9 @@ fn proxima_cron_v2(expr: &str, desde: DateTime<Utc>) -> Result<DateTime<Utc>> {
             "cron v2 inválido: '{expr}' — el subconjunto v1 soporta solo día-de-semana (dom y mes deben ser '*')"
         )));
     }
-    let parse_rango = |campo: &str, max: u32, nombre: &str| -> Result<Option<u32>> {
-        if campo == "*" {
-            return Ok(None);
-        }
-        let valor: u32 = campo.parse().map_err(|_| {
-            Error::Validacion(format!(
-                "cron v2 inválido: '{nombre}'='{campo}' (número o '*')"
-            ))
-        })?;
-        if valor > max {
-            return Err(Error::Validacion(format!(
-                "cron v2 inválido: '{nombre}'={valor} fuera de rango 0-{max}"
-            )));
-        }
-        Ok(Some(valor))
-    };
-    let min = parse_rango(minuto, 59, "minuto")?;
-    let hora = parse_rango(hora, 23, "hora")?;
-    let dow = parse_rango(dow, 7, "dow")?.map(|d| if d == 7 { 0 } else { d });
+    let min = parse_campo_minuto(minuto)?;
+    let hor = parse_campo_hora(hora)?;
+    let dows = parse_conjunto_dow(dow)?;
 
     let mut candidato = desde + chrono::Duration::seconds(60);
     /* 8 días × 24 h × 60 min: cota superior para cualquier dow fijo. */
@@ -166,8 +233,8 @@ fn proxima_cron_v2(expr: &str, desde: DateTime<Utc>) -> Result<DateTime<Utc>> {
     for _ in 0..horizonte_minutos {
         let dia_semana = candidato.weekday().num_days_from_sunday();
         let coincide = min.is_none_or(|m| candidato.minute() == m)
-            && hora.is_none_or(|h| candidato.hour() == h)
-            && dow.is_none_or(|d| d == dia_semana);
+            && hor.is_none_or(|h| candidato.hour() == h)
+            && dows.as_ref().is_none_or(|ds| ds.contains(&dia_semana));
         if coincide {
             return Ok(candidato);
         }
@@ -176,6 +243,71 @@ fn proxima_cron_v2(expr: &str, desde: DateTime<Utc>) -> Result<DateTime<Utc>> {
     Err(Error::Validacion(format!(
         "cron v2 sin ocurrencia en el horizonte de 8 días: '{expr}'"
     )))
+}
+
+/// `M` (`*` o 0-59) como valor único opcional.
+fn parse_campo_minuto(campo: &str) -> Result<Option<u32>> {
+    parse_rango(campo, 59, "minuto").map(|v| v.and_then(|vs| vs.into_iter().next()))
+}
+
+/// `H` (`*` o 0-23) como valor único opcional.
+fn parse_campo_hora(campo: &str) -> Result<Option<u32>> {
+    parse_rango(campo, 23, "hora").map(|v| v.and_then(|vs| vs.into_iter().next()))
+}
+
+/// Conjunto de días de semana (`*` = todos; si no, lista de 0-6 con 7→0).
+/// Acepta días sueltos, rangos `a-b` y listas `a,b,c` (o mezcla `1-3,5`).
+fn parse_conjunto_dow(campo: &str) -> Result<Option<Vec<u32>>> {
+    let dias = parse_rango(campo, 7, "dow")?;
+    Ok(dias.map(|ds| ds.into_iter().map(|d| if d == 7 { 0 } else { d }).collect()))
+}
+
+fn parse_rango(campo: &str, max: u32, nombre: &str) -> Result<Option<Vec<u32>>> {
+    if campo == "*" {
+        return Ok(None);
+    }
+    let mut valores = Vec::new();
+    for parte in campo.split(',') {
+        let parte = parte.trim();
+        if parte.is_empty() {
+            return Err(Error::Validacion(format!(
+                "cron v2 inválido: '{nombre}'='{campo}' (número, rango a-b o lista con comas)"
+            )));
+        }
+        if let Some((ini_txt, fin_txt)) = parte.split_once('-') {
+            let ini: u32 = ini_txt.trim().parse().map_err(|_| {
+                Error::Validacion(format!(
+                    "cron v2 inválido: '{nombre}'='{campo}' (número, rango a-b o lista con comas)"
+                ))
+            })?;
+            let fin: u32 = fin_txt.trim().parse().map_err(|_| {
+                Error::Validacion(format!(
+                    "cron v2 inválido: '{nombre}'='{campo}' (número, rango a-b o lista con comas)"
+                ))
+            })?;
+            if ini > fin || fin > max {
+                return Err(Error::Validacion(format!(
+                    "cron v2 inválido: '{nombre}'={parte} fuera de rango 0-{max}"
+                )));
+            }
+            valores.extend(ini..=fin);
+        } else {
+            let valor: u32 = parte.parse().map_err(|_| {
+                Error::Validacion(format!(
+                    "cron v2 inválido: '{nombre}'='{campo}' (número, rango a-b o lista con comas)"
+                ))
+            })?;
+            if valor > max {
+                return Err(Error::Validacion(format!(
+                    "cron v2 inválido: '{nombre}'={valor} fuera de rango 0-{max}"
+                )));
+            }
+            valores.push(valor);
+        }
+    }
+    valores.sort_unstable();
+    valores.dedup();
+    Ok(Some(valores))
 }
 
 fn parse_cantidad_unidad(resto: &str) -> Result<(i64, String)> {
@@ -234,6 +366,7 @@ mod tests {
             prompt: "haz algo".into(),
             tipo: tipo.into(),
             cron_expr: cron.map(str::to_string),
+            programacion: None,
         }
     }
 
@@ -571,5 +704,70 @@ mod tests {
             persistencia.finalizadas.lock().expect("lock").is_empty(),
             "ni se finaliza"
         );
+    }
+
+    #[tokio::test]
+    async fn ciclo_programacion_tz_aware_reprograma_en_zona() {
+        use crate::tareas_programadas::schedule::ScheduleTarea;
+        // Domingo 2026-08-30 10:00 UTC; diario 09:00 Madrid (CEST) = 07:00 UTC
+        // del día siguiente.
+        let ahora = DateTime::parse_from_rfc3339("2026-08-30T10:00:00Z")
+            .expect("fecha")
+            .with_timezone(&chrono::Utc);
+        let schedule =
+            ScheduleTarea::parse("diario:0 9@Europe/Madrid").expect("schedule válido");
+        let mut tarea = tarea_pendiente("resumen", "recurrente", Some("0 9 * * *"));
+        tarea.programacion = Some(schedule.texto());
+        let persistencia = PersistenciaScheduler::default();
+        persistencia
+            .tareas
+            .lock()
+            .expect("lock")
+            .push(tarea.clone());
+        let ejecuciones = Arc::new(AtomicUsize::new(0));
+
+        ciclo_scheduler(
+            &persistencia,
+            runner_falso(false, ejecuciones),
+            ahora,
+        )
+        .await
+        .expect("ciclo ok");
+
+        let reprogramadas = persistencia.reprogramadas.lock().expect("lock").clone();
+        assert_eq!(reprogramadas.len(), 1);
+        let esperada = chrono::NaiveDate::from_ymd_opt(2026, 8, 31)
+            .unwrap()
+            .and_hms_opt(7, 0, 0)
+            .unwrap()
+            .and_utc();
+        assert_eq!(
+            reprogramadas[0].1,
+            Some(esperada),
+            "la próxima se calcula en la zona de la tarea (09:00 Madrid = 07:00 UTC)"
+        );
+    }
+
+    #[tokio::test]
+    async fn ciclo_manual_con_programacion_no_reprograma() {
+        use crate::tareas_programadas::schedule::ScheduleTarea;
+        let ahora = chrono::Utc::now();
+        let mut tarea = tarea_pendiente("manual", "manual", None);
+        tarea.programacion = Some(
+            ScheduleTarea::parse("manual@UTC")
+                .expect("válido")
+                .texto(),
+        );
+        let persistencia = PersistenciaScheduler::default();
+        persistencia.tareas.lock().expect("lock").push(tarea);
+        let ejecuciones = Arc::new(AtomicUsize::new(0));
+
+        ciclo_scheduler(&persistencia, runner_falso(false, ejecuciones), ahora)
+            .await
+            .expect("ciclo ok");
+
+        let reprogramadas = persistencia.reprogramadas.lock().expect("lock").clone();
+        assert_eq!(reprogramadas.len(), 1);
+        assert_eq!(reprogramadas[0].1, None, "manual nunca vence sola");
     }
 }
