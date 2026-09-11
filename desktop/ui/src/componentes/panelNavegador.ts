@@ -41,6 +41,32 @@ export function montarPanelNavegador(opts: PanelNavegadorOpciones): PanelNavegad
    * origen y entonces el padre no puede tocar su `history` (SecurityError). */
   const historial = crearHistorialNavegador();
 
+  /* [069A-6] Detección de iframes bloqueados (solo modo web): un sitio con
+   * `X-Frame-Options` o CSP `frame-ancestors` no dispara `load` en el iframe
+   * (y el bloqueo tampoco tiene evento de error), así que si tras navegar no
+   * hay `load` en MS_ESPERA_CARGA se avisa en el chat: la vista puede quedar
+   * en blanco. Heurística, no certeza —una página muy lenta también agota el
+   * temporizador—, por eso el aviso dice "es probable". */
+  const MS_ESPERA_CARGA = 15000;
+  let temporizadorCarga: number | undefined;
+  if (iframe) {
+    iframe.addEventListener('load', () => {
+      window.clearTimeout(temporizadorCarga);
+      temporizadorCarga = undefined;
+    });
+  }
+
+  /** [069A-6] Arma el temporizador de bloqueo para la navegación en curso. */
+  function avisarSiBloquea(destino: string): void {
+    window.clearTimeout(temporizadorCarga);
+    temporizadorCarga = window.setTimeout(() => {
+      temporizadorCarga = undefined;
+      avisar(
+        `es probable que ${destino} bloquee su vista en iframes (X-Frame-Options o CSP): si la vista queda en blanco, ábrelo en una pestaña del navegador`,
+      );
+    }, MS_ESPERA_CARGA);
+  }
+
   function actualizarCaptura(base64: string): void {
     imgCaptura.src = `data:image/png;base64,${base64}`;
     capturaArea.hidden = false;
@@ -85,6 +111,7 @@ export function montarPanelNavegador(opts: PanelNavegadorOpciones): PanelNavegad
     urlActual = destino;
     inputURL.value = destino;
     iframe.src = destino;
+    avisarSiBloquea(destino);
   }
 
   function navegarURL(): void {
@@ -143,6 +170,7 @@ export function montarPanelNavegador(opts: PanelNavegadorOpciones): PanelNavegad
       } else {
         iframe.src = destino;
       }
+      avisarSiBloquea(destino);
     }
   });
 

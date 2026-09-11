@@ -15,9 +15,11 @@
 
 ## Siguiente bloque ejecutable
 
-**089A-5 — Historial de la app para atrás/adelante (en curso 11-09).** Decisión
-resuelta como en Synara: gobiernan la navegación de la app (conversación +
-área de trabajo juntas), no solo el panel activo.
+**Sin pendientes abiertos (11-09).**
+Últimos cierres 11-09: 069A-6 (aviso de iframe bloqueado, a petición), 089A-5
+(historial de la app, gate PASS), Bloque B (pasada visual Tauri), 089A-16
+(re-gate `unwrap-produccion-rs` PASS), 119A-1 (preflight de disco del gate) y
+109A-10 (falsos positivos del medidor, ver abajo).
 
 > **Bloque B — Pasada visual Tauri: HECHO 11-09.** `cargo build -p glory-harness-desktop` =
 > EXIT 0 en 7m08s (`glory-harness-desktop.exe` en `C:\tmp\glory-target\glory-harness\debug\`),
@@ -27,12 +29,7 @@ resuelta como en Synara: gobiernan la navegación de la app (conversación +
 > disco confirmado: el shell añade ~2,3 GB al corte CLI/core; ver
 > `Agente/prevencion/prevencion-disco-lleno-build-2026-09-11.md`.
 
-**Decisiones que requieren al usuario** (no bloquean nada más):
-
-- **069A-6:** qué hacer con los sitios que bloquean iframes (`X-Frame-Options`): abrir en
-  pestaña, avisar en el log, o botón «abrir en pestaña» junto al iframe.
-
-> Bloque A (UI real con Tauri, F1–F6 + primer `tauri dev` en debug): cerrado 06-09 — E2E en la
+> Bloque A (UI real con Tauri, F1-F6 + primer `tauri dev` en debug): cerrado 06-09 — E2E en la
 > ventana real (enviar → streaming, tools → aprobación → `turno-fin`, P3 rewind, P5/P6) +
 > `cargo test --workspace` (284 verdes) + gate 039A-3 PASS. Evidencia en
 > `Agente/completados/tareas-2026-09-06.md` (commits `5dcefe4`, `d013e03`).
@@ -97,17 +94,19 @@ resuelta como en Synara: gobiernan la navegación de la app (conversación +
        target(s) in 7m 08s`, EXIT 0, `C:\tmp\glory-target\glory-harness\debug\
        glory-harness-desktop.exe`) y con él se ejecutó la pasada funcional Tauri (evidencia en
        `Agente/completados/tareas-2026-09-11.md`).
-- [ ] **069A-6 — Navegador web: páginas que bloquean iframes (X-Frame-Options)**: pendiente
-      de decisión del usuario (registrado 06-09 tras probar el Navegador en modo web). Causa:
+- [x] **069A-6 — Navegador web: páginas que bloquean iframes (X-Frame-Options)**: HECHO
+      11-09 con la opción elegida por el usuario (solo avisar en el log, sin UI nueva). Causa:
       en el navegador el panel usa un `<iframe>` y muchos sitios (Google, YouTube, etc.)
       envían `X-Frame-Options: sameorigin`/CSP → se niegan a mostrarse dentro del panel
       (`Refused to display ... in a frame`). No hay forma técnica de saltárselo desde un
-      iframe normal. Opciones a evaluar con el usuario: (a) botón "abrir en pestaña" junto
-      al iframe para sitios bloqueados; (b) abrir siempre en pestaña nueva en modo web;
-      (c) solo avisar en el log cuando un sitio bloquea la vista. Estado actual del fix de
-      modo web (commiteado aparte): panel navegador dual — Tauri=WebView2 nativa intacta,
-      web=`<iframe>` real con URL/navegación/recargar/cerrar funcionando (solo falla la
-      captura, que es WebView2). El código en sí no tiene bug; es una limitación del iframe.
+      iframe normal, y el bloqueo tampoco dispara evento de error: la única señal es la
+      ausencia de `load`. Implementación en `desktop/ui/src/componentes/panelNavegador.ts`:
+      `navegarWeb` y recargar arman un temporizador de 15 s (`avisarSiBloquea`) que el `load`
+      del iframe cancela; si se agota, sale por `onAviso` (chat activo): «es probable que
+      <url> bloquee su vista en iframes…». Solo modo web (Tauri usa WebView2 nativa).
+      Verificado: `tsc --noEmit` EXIT 0 + `vite build` 108 módulos con el aviso en el bundle;
+      sin E2E en navegador real (el temporizador exige backend + espera de 15 s; lógica
+      trivial revisada).
 - [x] **069A-7 — Conversaciones: crear la fila SOLO al escribir (web + app)** (06-09):
       HECHO. Semántica create-on-write: no se crea fila al abrir/recargar/"Nueva conversación";
       la fila se crea al enviar el primer mensaje (auto-nombre H5). `Option<Uuid>` en estado de
@@ -310,9 +309,15 @@ resuelta como en Synara: gobiernan la navegación de la app (conversación +
       F2RESTO 0E/0W/10I) + B-ISP (`f292869`, 10 interfaces por `extends`,
       gates BISP/BISP2 0E/0W/0I) + F3 (`caec783`, cero warnings Rust,
       clippy 0 + tests 363 OK) + cierre (`tsc` EXIT 0, `vite build` OK).
-      Evidencia: `Agente/completados/tareas-2026-09-09.md` (entrada
-      089A-16); reportes `.quality-reports/check/089A-16*/`. Pendiente:
-      re-gate `unwrap-produccion-rs`.
+       Evidencia: `Agente/completados/tareas-2026-09-09.md` (entrada
+       089A-16); reportes `.quality-reports/check/089A-16*/`. **Pendiente cerrado
+       (11-09):** re-gate `unwrap-produccion-rs` ejecutado sobre el árbol sin
+       cambios —gate full **PASS** (coverage/sccache/sentinel/rust verdes,
+       sentinel 0E/0W/1I sobre 238 archivos, rust 430 tests OK)— y la regla no
+       dispara ni una vez (cero `unwrap-produccion-rs` y cero
+       `axum-ruta-sintaxis-rs` en `.quality-reports/check/089A-16/`; el único
+       hallazgo es el hint `todo-pendiente` de 109A-10, ajeno). Sin cambio de
+       código, sin `sentinel-disable-file`.
 - [x] **109A-1 — Hook pre-compactación** (10-09, HECHO):
       hook externo configurable (`ContextoConfig.gancho_pre_compact`) antes de
       resumir: recibe JSON por stdin, admite veto `exit 2` y ajuste JSON
@@ -389,7 +394,8 @@ resuelta como en Synara: gobiernan la navegación de la app (conversación +
 > **falsos positivos del medidor, no deuda de este repo** (ver 109A-10). De los 101 errores de la
 > consola, **52 son reales** (`cssInlineScript`) y **49 son falsos positivos**.
 
-- [ ] **109A-10 — Falsos positivos del MEDIDOR (`unwrap-produccion-rs`, `axum-ruta-sintaxis-rs`, `claseHuerfana`)**
+- [x] **109A-10 — Falsos positivos del MEDIDOR (`unwrap-produccion-rs`, `axum-ruta-sintaxis-rs`,
+      `claseHuerfana`)**
       (10-09; **no hay nada que arreglar en este repo**, la acción es de `workspace-manager`):
       **suma la familia `claseHuerfana` de VarSense** (tras 109A-8: la medición de `orphan-classes`
       sobre `desktop/ui/src/estilos` da **302 marcas**, y el cotejo nombre a nombre no encuentra
@@ -437,6 +443,13 @@ resuelta como en Synara: gobiernan la navegación de la app (conversación +
       completo (`npm run quality:analyze`, EXIT 0, 236 archivos): 0 errores, 0 warnings y
       `totalArchivosConViolaciones: 1` —el hint del `todo-pendiente`—, cifra que coincide con el
       corte del gate canónico.
+      **Cierre (11-09):** la acción pendiente en `workspace-manager` (039A-4) está HECHA y
+      verificada en vivo —la consola resuelve el `provisionPath` propio y analiza este repo con
+      0.7.8@`1587c59` → **0 errores**, así que el corte de consola de 10-09 citado arriba queda
+      superado—. El defecto de regla `todo-pendiente` queda en `glory-sentinel` (seguido en
+      `Agente/prevencion/prevencion-falsos-positivos-medidor-2026-09-11.md`); la familia
+      `claseHuerfana` queda documentada con su alcance (barre el workspace entero, no comparable
+      con el corte de consola). Sin código tocado en este repo.
 - [x] **089A-12 — Files estilo Synara: árbol + visor integrado** (09-09,
       HECHO): Files es un único pane dividido (árbol a la izquierda y preview
       a la derecha al seleccionar un archivo); se eliminaron `21 entradas`,
@@ -533,15 +546,11 @@ resuelta como en Synara: gobiernan la navegación de la app (conversación +
 
 - `Agente/planes/completados/plan-workspace-explorer-diffs-terminal-2026-09.md` (089A-9) —
   **cerrado 08-09** con Fases 0–4 completadas; watcher y PTY diferidos (ponytail).
-  activo; primera fase filesystem local + árbol/apertura, sin Git/watcher/PTY
-  hasta disponer de contratos y evidencia verificable.
 - `Agente/planes/completados/plan-deuda-cero-079A-1-2026-09-07.md` (079A-1) —
   **cerrado 07-09** con gate full PASS 0/0/0.
 - `Agente/planes/plan-web-real-069A-2.md` (069A-2) — **cerrado con observaciones**:
   implementación y meta web verificadas contra el binario reconstruido; quedan
   observaciones del gate y no se reabre F5b sin nueva justificación.
-- **069A-6** no tiene plan activo: permanece bloqueada por decisión de producto sobre
-  el comportamiento ante iframes rechazados por CSP/X-Frame-Options.
 
 ## Historial de planes cerrados
 
@@ -652,4 +661,4 @@ resuelta como en Synara: gobiernan la navegación de la app (conversación +
   commit que fija `quality-tools.json`), sobre el **mismo árbol y los mismos 224 archivos**; en
   WANDORIUS (8) y GLORYPORT (5) los dos builds coinciden, así que la diferencia **no** es subreporte
   del nuevo, son las dos reglas ya corregidas ahí. Por eso toda cifra de este roadmap debe decir con
-  qué binario y con qué alcance se midió, y por eso `109A-10` se cierra sin tocar código de este repo.
+  qué binario y con qué alcance se midió, y por eso `109A-10` se cerró (11-09) sin tocar código de este repo.
