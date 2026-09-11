@@ -45,15 +45,21 @@ mínimo, detección barata y fix propuesto, y se referencia desde `roadmap.md`
   diagnóstico del equipo, fuera del alcance de este repo.
 - **Mitigación aplicada (11-09):** purga manual de `C:\tmp\glory-target\glory-harness` y
   `C:\tmp\sentinel-probe` → 6,32 GB libres; `GloryTmpSweep` completó la purga por techo a
-  las 23:50 (`techo: purga glory-harness (7.34 GB)` → `total C:\tmp 1.17 GB`). El build
-  del shell **no** se reintentó: el espacio seguía por debajo del presupuesto de 8 GB.
-- **Fix propuesto:** (a) *preflight* de espacio en la etapa `rust` del gate
-  (`scripts/quality/sentinel-rust.mjs`) que aborte con un mensaje explícito («espacio
-  insuficiente en el volumen del target: X GB libres, se necesitan ~Y») en vez de dejar
-  que cargo escriba un target a medias; (b) en
+  las 23:50 (`techo: purga glory-harness (7.34 GB)` → `total C:\tmp 1.17 GB`). El build del
+  shell se reintentó cuando el volumen recuperó margen y **terminó bien** (`Finished dev profile
+  [unoptimized + debuginfo] target(s) in 7m 08s`, EXIT 0) → el diagnóstico de disco quedó
+  confirmado: el mismo código que antes «fallaba» compila sin tocar nada.
+- **Fix aplicado (a), 119A-1:** *preflight* de espacio en la etapa `rust` del gate
+  (`scripts/quality/sentinel-rust.mjs`) que mide el volumen del target con `fs.statfsSync`
+  **antes** de invocar cargo y aborta con código 2 y un mensaje accionable cuando quedan menos
+  de `GLORY_MIN_FREE_GB` (8 GB por defecto) GB libres. Salir con error de entorno y no como
+  hallazgo es deliberado: no es deuda del repo. Probado en negativo (`GLORY_MIN_FREE_GB=100`
+  corta sin compilar, `exit=2`) y en positivo (gate `check 119A-1` PASS 4/4 con 8,82 GB). El
+  dato también queda en `rust.json.detalle.json` y en la nota `rust-alcance`.
+- **Fix pendiente (b):** en
   `scripts/mantenimiento/limpiar-tmp.ps1`, además del techo de `C:\tmp`, registrar un
   aviso cuando el **libre del volumen** baje de un umbral, que es la condición que
-  realmente rompe los builds.
+  realmente rompe los builds. Vive en el área (`area-trabajo/scripts`), no en este repo.
 - **No hacer:** interpretar el error como defecto de código, «arreglar»
   `webview2-com-sys` ni tocar `Cargo.toml` por este síntoma.
 

@@ -93,9 +93,13 @@ visual es del usuario y no lo sustituye ninguna medición.
       pre-existentes en navegador.rs» describe el estado del 06-09 y **ya no aplica**: el
       shell compila (`Compiling glory-harness-desktop v0.1.0` → `Finished dev profile
       [unoptimized + debuginfo] target(s) in 3m 16s`, `.quality-reports/tmp-rust-desktop.log`,
-      10-09 02:14). El intento del 11-09 no falló por el código sino por **disco lleno**
-      (`Agente/prevencion/prevencion-disco-lleno-build-2026-09-11.md`), así que no hay
-      `glory-harness-desktop.exe` en el target y la pasada visual Tauri sigue pendiente.
+      10-09 02:14). El intento del 11-09 falló por **disco lleno**
+      (`Agente/prevencion/prevencion-disco-lleno-build-2026-09-11.md`), no por el código; tras
+      liberar espacio el binario se construyó (`Finished dev profile [unoptimized + debuginfo]
+      target(s) in 7m 08s`, EXIT 0, `C:\tmp\glory-target\glory-harness\debug\
+      glory-harness-desktop.exe`) y con él se ejecutó la pasada funcional Tauri (evidencia en
+      `Agente/completados/tareas-2026-09-11.md`). La revisión **visual** queda para el usuario
+      (Bloque C).
 - [ ] **069A-6 — Navegador web: páginas que bloquean iframes (X-Frame-Options)**: pendiente
       de decisión del usuario (registrado 06-09 tras probar el Navegador en modo web). Causa:
       en el navegador el panel usa un `<iframe>` y muchos sitios (Google, YouTube, etc.)
@@ -482,6 +486,23 @@ visual es del usuario y no lo sustituye ninguna medición.
       terminal PTY diferidos por decisión de MVP (ponytail); se reabren
       como tarea separada si el uso real lo justifica. Evidencia:
       `Agente/completados/tareas-2026-09-08.md`.
+- [x] **119A-1 — Preflight de disco en la etapa `rust` del gate** (11-09, HECHO): un volumen
+      lleno **no se anuncia como tal**. Con `C:` a 0 GB libres, `cargo build -p
+      glory-harness-desktop` devolvió `rustc-LLVM ERROR: IO failure on output stream: no space
+      on device`, un `STATUS_STACK_BUFFER_OVERRUN` y un `could not compile webview2-com-sys`:
+      tres mensajes que se leen como fallo de código y que costaron un intento de build completo
+      antes de mirar el volumen.
+      `scripts/quality/sentinel-rust.mjs` ahora mide el espacio del volumen del target con
+      `fs.statfsSync` **antes** de invocar cargo y, por debajo de `GLORY_MIN_FREE_GB` (8 GB por
+      defecto; el shell Tauri suma ~2,3 GB al corte CLI/core), sale con **código 2** y un mensaje
+      accionable: es un error de entorno, no deuda del repo, así que no entra como hallazgo.
+      El dato (volumen, libre antes, mínimo) queda además en `rust.json.detalle.json` y en la
+      nota `rust-alcance`, para que el operador vea con cuánto margen se compiló. Si `statfs` no
+      está disponible el dato se omite: no se inventa ni se bloquea el gate por eso.
+      **Prueba negativa:** `GLORY_MIN_FREE_GB=100` corta antes de cargo (`exit=2`, sin compilar).
+      **Prueba positiva:** gate `check 119A-1` PASS 4/4 con el espacio real (8,82 GB).
+      Evidencia en `Agente/completados/tareas-2026-09-11.md` y
+      `Agente/prevencion/prevencion-disco-lleno-build-2026-09-11.md`.
 
 > **Hecho (04-09, correcciones del primer `tauri dev`):** los 7 hallazgos del primer arranque
 > real quedaron corregidos (H1–H7, bloque 039A-1). Detalle en

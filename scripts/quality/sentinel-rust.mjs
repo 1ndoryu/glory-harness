@@ -88,6 +88,37 @@ if (path.resolve(targetDir).startsWith(path.resolve(workspace))) {
   fail(`rust: CARGO_TARGET_DIR (${targetDir}) queda dentro del arbol del proyecto; usa C:\\tmp.`);
 }
 
+/* Preflight de espacio (11-09). Un volumen lleno no se anuncia como tal: cargo
+   devuelve `rustc-LLVM ERROR: IO failure on output stream: no space on device`,
+   un `STATUS_STACK_BUFFER_OVERRUN` y un `could not compile` de un crate ajeno
+   (webview2-com-sys), que se leen como fallo de codigo. La unica pista fiable es
+   `os error 112`, y para entonces ya se pago el build entero. Medido con C: a
+   0 GB libres. Se comprueba antes de invocar cargo y se sale como error de
+   entorno (codigo 2), no como hallazgo del repo: no es deuda de codigo.
+   El shell Tauri suma ~2,3 GB al corte CLI/core, de ahi el umbral. */
+const MINIMO_LIBRE_GB = Number(process.env.GLORY_MIN_FREE_GB ?? 8);
+const volumenTarget = path.parse(path.resolve(targetDir)).root;
+const espacioLibreGB = (ruta) => {
+  try {
+    const stats = fs.statfsSync(ruta);
+    return (Number(stats.bavail) * Number(stats.bsize)) / 1024 ** 3;
+  } catch {
+    /* statfs no disponible: se omite el dato en vez de inventarlo o bloquear. */
+    return null;
+  }
+};
+const libreAntesGB = espacioLibreGB(volumenTarget);
+if (libreAntesGB !== null && libreAntesGB < MINIMO_LIBRE_GB) {
+  fail(
+    `rust: quedan ${libreAntesGB.toFixed(2)} GB libres en ${volumenTarget} ` +
+      `(minimo ${MINIMO_LIBRE_GB} GB para el target + shell). Un build con el disco lleno ` +
+      'falla con errores que parecen de codigo (`os error 112`, ' +
+      '`IO failure on output stream`). Libera espacio (borra targets sin usar de ' +
+      `${path.resolve(baseTarget)} o pasa GLORY_MIN_FREE_GB) y repite. ` +
+      'Detalle: Agente/prevencion/prevencion-disco-lleno-build-2026-09-11.md.',
+  );
+}
+
 const entorno = {
   ...process.env,
   CARGO_TARGET_DIR: targetDir,
@@ -338,6 +369,7 @@ acumular(workspace, {
     `Paquetes: ${PAQUETES.join(', ')} (shell Tauri ${tocaDesktop || tocaManifiesto ? 'incluido' : 'excluido: el alcance no toca desktop/src-tauri ni los manifiestos'}). ` +
     `Target: ${targetDir}. sccache: ${entorno.RUSTC_WRAPPER}` +
     `${invocacionesSccache === null ? '' : ` (${invocacionesSccache} invocaciones)`}. ` +
+    `Espacio libre: ${libreAntesGB === null ? 'sin dato' : `${libreAntesGB.toFixed(2)} GB`}. ` +
     `Tests: ${
       testsCorridos
         ? `ejecutados (${resumenTests.pasados} ok, ${resumenTests.fallidos} fallidos, ${resumenTests.ignorados} ignorados)`
@@ -389,6 +421,9 @@ fs.writeFileSync(
     {
       paquetes: PAQUETES,
       targetDir,
+      volumenTarget,
+      libreAntesGB,
+      minimoLibreGB: MINIMO_LIBRE_GB,
       rustcWrapper: entorno.RUSTC_WRAPPER,
       clippy: { codigo: clippy.codigo, diagnosticos },
       tests: { ejecutados: testsCorridos, diagnosticos: diagnosticosTests, ...resumenTests },
