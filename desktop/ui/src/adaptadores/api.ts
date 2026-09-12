@@ -95,8 +95,6 @@ export function crearTransporteApi(base: string, hooks: HooksAdaptador = {}): Tr
       });
     },
     pendientesAprobacion: () => Promise.resolve([]),
-    // HTTP resuelve aprobaciones en vivo durante el turno: nunca reenvía.
-    requiereReenvioTrasAprobar: () => false,
     /* [109A-4 F4] Sin política por turno en el modo web. */
     soportaSoloLectura: () => false,
     escucharTurno: async (onEvento, onFin) => {

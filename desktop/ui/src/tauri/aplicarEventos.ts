@@ -30,7 +30,6 @@ export interface EstadoTurno {
   herramienta: HerramientaViva | null;
   rutaHerramienta: string | null;
   uso: UsoTurno;
-  huboPeticiones: boolean;
   /** [109A-5 F2] Bloque del plan visible. Sobrevive al fin del turno a
    * propósito: el plan es de la CONVERSACIÓN, así que el mismo bloque se
    * actualiza en los turnos siguientes (resume) en vez de duplicarse. */
@@ -142,7 +141,6 @@ export function aplicarEvento(ev: AgenteEvento, st: EstadoTurno, d: EventosDeps)
       break;
     }
     case 'peticion_aprobacion': {
-      st.huboPeticiones = true;
       const tarjeta = crearTarjetaAprobacion({
         titulo: `${ev.tool} (clase: ${ev.clasificacion})`,
         argsTexto: compacto(ev.argumentos),
@@ -150,19 +148,15 @@ export function aplicarEvento(ev: AgenteEvento, st: EstadoTurno, d: EventosDeps)
           void d.transporte
             .responderAprobacion(ev.id, RESPUESTA[decision])
             .then(() => {
+              // [129A-3] Sin reenvío: el turno sigue vivo y ejecuta lo
+              // aprobado en este mismo turno; la tarjeta queda como registro.
               t.ponerEstado(
-                decision === 'denegar' ? 'denegada por el usuario' : 'aprobada · se ejecuta al reenviar',
+                decision === 'denegar' ? 'denegada por el usuario' : 'aprobada · ejecutando…',
               );
               if (decision === 'denegar') t.marcarDenegada();
               t.quitarAcciones();
-              // [fix 12-09] La tarjeta decidida vuelve al flujo como registro;
-              // el slot fijo queda libre para las peticiones pendientes.
               d.mensajes()?.appendChild(tarjeta.raiz);
               d.bajarScroll();
-              // [fix 12-09] Si el turno ya cerró (decisión tardía), el cierre
-              // no pudo reenviar (aún había pendientes): lo intenta ahora el
-              // orquestador, que reenvía el último mensaje como turno nuevo.
-              if (d.transporte.requiereReenvioTrasAprobar()) d.hooks.onAprobacionResuelta?.();
             })
             .catch((e: unknown) => t.ponerEstado(`no se pudo responder: ${String(e)}`));
         },

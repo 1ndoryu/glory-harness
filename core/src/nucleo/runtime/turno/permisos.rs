@@ -36,9 +36,14 @@ impl AgentRuntime {
         );
         let verdicto = decidir_permiso(permiso, estado.denegadas_en_turno.contains(&call.nombre));
         if verdicto != VerdictoPermiso::Ejecutar {
-            self.manejar_verdicto_no_ejecutar(estado, call, verdicto, tx)
+            let aprobada_en_espera = self
+                .manejar_verdicto_no_ejecutar(estado, call, verdicto, tx)
                 .await?;
-            return Ok(PasoTool::Continua);
+            if !aprobada_en_espera {
+                return Ok(PasoTool::Continua);
+            }
+            /* [129A-3] Aprobada en espera: cae a la ejecución de abajo, en
+             * este mismo turno y sin reenvío. */
         }
         self.ejecutar_tool_aprobada(estado, user_id, turno_id, call, tx)
             .await
@@ -47,17 +52,18 @@ impl AgentRuntime {
     /// [059A-S3] Veredicto distinto de Ejecutar: empuja el par
     /// assistant(tool_call)/tool con el mensaje según el veredicto, registra la
     /// denegación y emite los eventos (petición de aprobación o denegación).
+    /// Devuelve `true` solo en modo espera (129A-3, solo desktop): la petición
+    /// fue aprobada y el llamante debe ejecutar la tool pendiente en este
+    /// mismo turno. En ese camino no se empuja ningún mensaje (la ejecución
+    /// empuja su propio par assistant/tool) ni se toca `denegadas_en_turno`
+    /// (aprobar es una vez: la siguiente llamada igual vuelve a preguntar).
     async fn manejar_verdicto_no_ejecutar(
         &self,
         estado: &mut EstadoTurno,
         call: &AiToolCall,
         verdicto: VerdictoPermiso,
         tx: &Sender<AgenteEvento>,
-    ) -> Result<()> {
-        self.empujar_tool_call_asistente(estado, call);
-        /* [318A-10 02-09-2026] El tool DEBE llevar el mismo tool_call_id que la
-         * tool_call del assistant previo (contrato OpenAI). */
-        let primera_vez = estado.denegadas_en_turno.insert(call.nombre.clone());
+    ) -> Result<bool> {
         /* [Bloque 3, F4] Hook `PermissionRequest` (bloqueable, claurst exit 2):
          * un hook que veta la petición la convierte en denegación automática —
          * el usuario no recibe la pregunta y la tool queda denegada por
@@ -66,11 +72,21 @@ impl AgentRuntime {
          * configurados es un no-op que no cambia el flujo de aprobación. */
         let vetada_por_hook =
             verdicto == VerdictoPermiso::Preguntar && self.peticion_vetada_por_hook(call).await;
-        let verdicto = if vetada_por_hook {
+        let mut verdicto = if vetada_por_hook {
             VerdictoPermiso::Denegar
         } else {
             verdicto
         };
+        /* [129A-3] Espera en turno (solo desktop): pausar y continuar sin
+         * reenvío. `false` = aprobada: el llamante ejecuta la tool pendiente
+         * en este mismo turno (aquí no se empuja nada en ese camino). */
+        if !self.pausa_por_aprobacion_en_turno(call, &mut verdicto, tx).await? {
+            return Ok(true);
+        }
+        /* [318A-10 02-09-2026] El tool DEBE llevar el mismo tool_call_id que la
+         * tool_call del assistant previo (contrato OpenAI). */
+        self.empujar_tool_call_asistente(estado, call);
+        let primera_vez = estado.denegadas_en_turno.insert(call.nombre.clone());
         let (eventos, mensaje_tool, resumen) = match verdicto {
             VerdictoPermiso::Preguntar => {
                 /* [318A-16 F2] Canal explícito: cada `ask` registra una
@@ -165,7 +181,88 @@ impl AgentRuntime {
             })
             .await;
         self.empujar_mensaje_tool_denegado(estado, call, &mensaje_tool);
-        Ok(())
+        Ok(false)
+    }
+
+    /// [129A-3] Pausa de espera en turno (solo desktop): si el veredicto es
+    /// `Preguntar` y hay espera armada, aguarda la decisión del usuario.
+    /// Devuelve `false` si fue aprobada (el llamante ejecuta la tool
+    /// pendiente en este mismo turno, sin empujar nada aquí); si fue
+    /// rechazada deja `verdicto` en `Denegar` (el brazo `Denegar` ya la
+    /// informa como `denegada_por_usuario`) y devuelve `true`. `true`
+    /// también en modo entre-turnos o espera degradada (el llamante sigue
+    /// el trato clásico).
+    async fn pausa_por_aprobacion_en_turno(
+        &self,
+        call: &AiToolCall,
+        verdicto: &mut VerdictoPermiso,
+        tx: &Sender<AgenteEvento>,
+    ) -> Result<bool> {
+        if *verdicto != VerdictoPermiso::Preguntar {
+            return Ok(true);
+        }
+        match self.esperar_aprobacion_en_turno(call, tx).await {
+            Some(true) => Ok(false),
+            Some(false) => {
+                *verdicto = VerdictoPermiso::Denegar;
+                Ok(true)
+            }
+            None => Ok(true),
+        }
+    }
+
+    /// [129A-3] Pausa el turno en una petición de aprobación (modo espera,
+    /// solo desktop): registra la petición, emite los eventos para la tarjeta
+    /// y aguarda la decisión del usuario. `Some(true)` = aprobar/siempre
+    /// (ejecutar ahora en este mismo turno); `Some(false)` = rechazar;
+    /// `None` = modo entre-turnos (el llamante sigue el trato clásico) o
+    /// espera degradada (SSE cerrado o canal perdido: mensaje de espera en
+    /// vez de colgar el turno). Nunca deniega en silencio.
+    async fn esperar_aprobacion_en_turno(
+        &self,
+        call: &AiToolCall,
+        tx: &Sender<AgenteEvento>,
+    ) -> Option<bool> {
+        if !self.registry.espera_aprobacion_en_turno() {
+            return None;
+        }
+        let id = Uuid::new_v4().to_string();
+        let clasificacion = self.registry.clasificar_llamada(&call.nombre, &call.argumentos);
+        let espera = self.registry.registrar_peticion(
+            crate::aprobacion::PeticionAprobacion::nueva(
+                &id,
+                call.nombre.clone(),
+                call.argumentos.clone(),
+                clasificacion.clone(),
+            ),
+        )?;
+        let _ = tx
+            .send(AgenteEvento::PeticionAprobacion {
+                id,
+                tool: call.nombre.clone(),
+                argumentos: call.argumentos.clone(),
+                clasificacion,
+            })
+            .await;
+        let _ = tx
+            .send(AgenteEvento::RequiereAprobacion {
+                tool: call.nombre.clone(),
+                argumentos: call.argumentos.clone(),
+            })
+            .await;
+        tokio::select! {
+            respuesta = espera => match respuesta {
+                Ok(crate::aprobacion::RespuestaAprobacion::Aprobar)
+                | Ok(crate::aprobacion::RespuestaAprobacion::Siempre) => Some(true),
+                Ok(crate::aprobacion::RespuestaAprobacion::Rechazar) => Some(false),
+                /* Emisor perdido (la petición fue supersedida por otra del
+                 * mismo turno antes de responder): degradar al clásico. */
+                Err(_) => None,
+            },
+            /* SSE cerrado (ventana cerrada o turno cancelado sin abort):
+             * terminar con mensaje de espera en vez de colgar. */
+            _ = tx.closed() => None,
+        }
     }
 
     /// [Bloque 3, F4] Hook `PermissionRequest` (bloqueable, claurst exit 2):

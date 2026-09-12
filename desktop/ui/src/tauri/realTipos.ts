@@ -267,11 +267,6 @@ export interface HooksAdaptador {
     resumen: string;
     diff: string | null;
   }) => void;
-  /** [fix 12-09] Una aprobación se resolvió (o el turno cerró con peticiones):
-   * si ya no hay turno en curso ni pendientes, el orquestador reenvía el
-   * último mensaje para que lo aprobado se ejecute. Sin esto, decidir tras el
-   * `turno-fin` dejaba la acción aprobada sin ejecutar. Hook opcional. */
-  onAprobacionResuelta?: () => void;
 }
 
 /** [069A-2 F4] Transporte del adaptador: la fuente de los eventos y el
@@ -288,9 +283,6 @@ export interface Transporte {
   detenerTurno(panelId: string | null): void;
   responderAprobacion(id: string, respuesta: string): Promise<void>;
   pendientesAprobacion(): Promise<unknown[]>;
-  /** Tauri responde aprobaciones entre turnos y reenvía; HTTP resuelve en
-   * vivo durante el turno y nunca reenvía. */
-  requiereReenvioTrasAprobar(): boolean;
   /** Registra (una vez) el reenvío turno→UI: eventos + cierre. */
   escucharTurno(
     onEvento: (ev: AgenteEvento) => void,

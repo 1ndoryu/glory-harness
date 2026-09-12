@@ -342,7 +342,15 @@ fn abrir_sesion_interna(
         comun
             .persistencia
             .conversacion_eliminar(conv_inicial, comun.user_id)
-            .map_err(|e| e.to_string())?;
+    .map_err(|e| e.to_string())?;
+    /* [129A-3] El desktop pausa el turno en cada petición de aprobación y lo
+     * continúa al responder (sin reenvío); CLI/TUI/daemon/web conservan el
+     * entre-turnos heredado (el flag vive en el registry y va apagado por
+     * defecto para no colgar a quien resuelve entre turnos). */
+    comun
+        .runtime
+        .registry
+        .fijar_espera_aprobacion_en_turno(true);
     }
     let info = apertura_a_info(apertura);
     /* [039A-3 P3] Vault del workspace: se crea y se cablea al sandbox del

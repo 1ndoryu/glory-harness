@@ -54,7 +54,6 @@ export function crearTurnoReal(hooks: HooksAdaptador, transporte: Transporte): T
     herramienta: null,
     rutaHerramienta: null,
     uso,
-    huboPeticiones: false,
     tareas: null,
     ultimoTurnoId: null,
     razonamiento: null,
@@ -98,15 +97,6 @@ export function crearTurnoReal(hooks: HooksAdaptador, transporte: Transporte): T
     const fin = onFin;
     onFin = null;
     fin?.();
-    // Reenvío tras aprobar (paridad REPL): si hubo peticiones, el orquestador
-    // decide (vía `onAprobacionResuelta`): reenvía el último mensaje como turno
-    // nuevo solo sin turno en curso ni pendientes. Cubre la decisión temprana
-    // (resuelta antes de este cierre); la tardía la dispara la propia tarjeta.
-    // [069A-2 F4] Solo el transporte que lo requiere (Tauri entre turnos);
-    // HTTP resuelve en vivo y nunca reenvía.
-    if (ok && estado.huboPeticiones && transporte.requiereReenvioTrasAprobar()) {
-      hooks.onAprobacionResuelta?.();
-    }
   }
 
   /**
@@ -153,7 +143,6 @@ export function crearTurnoReal(hooks: HooksAdaptador, transporte: Transporte): T
     estado.herramienta = null;
     estado.razonamiento = null;
     estado.rutaHerramienta = null;
-    estado.huboPeticiones = false;
     ultimoResultado = 'ok';
     uso = usoVacio();
     estado.uso = uso;

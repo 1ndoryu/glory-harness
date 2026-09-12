@@ -51,7 +51,6 @@ export function transporteTauri(): Transporte {
     responderAprobacion: (id, respuesta) =>
       invoke<void>('responder_aprobacion', { id, respuesta }),
     pendientesAprobacion: () => invoke<unknown[]>('pendientes_aprobacion'),
-    requiereReenvioTrasAprobar: () => true,
     soportaSoloLectura: () => true,
     escucharTurno: async (onEvento, onFin) => {
       await listenTurno(onEvento, onFin);

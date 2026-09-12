@@ -24,6 +24,7 @@ use serde_json::Value;
 use std::any::Any;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
+use std::sync::{Mutex, atomic::{AtomicBool, Ordering}};
 use uuid::Uuid;
 
 /// Contexto que recibe cada tool al ejecutarse. El núcleo solo expone puertos
@@ -200,6 +201,14 @@ pub struct AgentToolRegistry {
     /// respuesta llega como nuevo mensaje de usuario. Arc compartido con los
     /// clones del registro.
     preguntas: Arc<RwLock<HashMap<String, PreguntaPendiente>>>,
+    /// [129A-3] Espera de aprobación dentro del turno (opt-in del desktop):
+    /// el turno pausa en la petición y continúa al responder, sin reenvío.
+    /// Apagado por defecto: CLI/TUI/daemon/web conservan entre-turnos.
+    espera_en_turno: Arc<AtomicBool>,
+    /// [129A-3] Canales de despertar por `id` de petición: el turno en
+    /// espera recibe la respuesta sin re-ejecutar ni reenviar. Solo existen
+    /// en modo espera; el resto de modos no crea entradas. Arc compartido.
+    esperas: Arc<Mutex<HashMap<String, tokio::sync::oneshot::Sender<RespuestaAprobacion>>>>,
 }
 
 impl Default for AgentToolRegistry {
@@ -233,6 +242,8 @@ impl AgentToolRegistry {
             pendientes: Arc::new(RwLock::new(HashMap::new())),
             una_vez: Arc::new(RwLock::new(Vec::new())),
             preguntas: Arc::new(RwLock::new(HashMap::new())),
+            espera_en_turno: Arc::new(AtomicBool::new(false)),
+            esperas: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -509,12 +520,62 @@ impl AgentToolRegistry {
         }
     }
 
+    /* [129A-3] Modo de espera en turno: el desktop lo activa tras abrir la
+     * sesión; el resto de consumidores conserva el entre-turnos heredado. */
+
+    /// Activa la pausa del turno en cada petición de aprobación (solo
+    /// desktop; por defecto apagado para no colgar CLI/TUI/daemon/web, que
+    /// resuelven entre turnos).
+    pub fn fijar_espera_aprobacion_en_turno(&self, activar: bool) {
+        self.espera_en_turno.store(activar, Ordering::Relaxed);
+    }
+
+    /// ¿Este runtime pausa el turno en cada petición hasta responder?
+    #[must_use]
+    pub fn espera_aprobacion_en_turno(&self) -> bool {
+        self.espera_en_turno.load(Ordering::Relaxed)
+    }
+
     /// Registra una petición de aprobación pendiente (una por tool: la nueva
-    /// deja obsoleta la anterior sin responder si el turno siguió adelante).
-    pub fn registrar_peticion(&self, peticion: PeticionAprobacion) {
-        let mut guard = self.pendientes.write().unwrap_or_else(|p| p.into_inner());
-        guard.retain(|_, p| p.tool != peticion.tool);
-        guard.insert(peticion.id.clone(), peticion);
+    /// deja obsoleta la anterior sin responder si el turno siguió adelante;
+    /// su canal de espera —si lo tenía— se retira con ella). En modo espera
+    /// crea además el canal de despertar y devuelve su receptor (`None` en
+    /// modo entre-turnos, donde nadie aguarda).
+    pub fn registrar_peticion(
+        &self,
+        peticion: PeticionAprobacion,
+    ) -> Option<tokio::sync::oneshot::Receiver<RespuestaAprobacion>> {
+        let id = peticion.id.clone();
+        let tool = peticion.tool.clone();
+        let obsoletas: Vec<String> = {
+            let mut guard = self.pendientes.write().unwrap_or_else(|p| p.into_inner());
+            let obsoletas: Vec<String> = guard
+                .iter()
+                .filter(|(_, p)| p.tool == tool)
+                .map(|(id, _)| id.clone())
+                .collect();
+            guard.retain(|_, p| p.tool != tool);
+            guard.insert(id.clone(), peticion);
+            obsoletas
+        };
+        /* Los canales de las obsoletas ya no tienen a nadie aguardando (el
+         * turno que las registró siguió adelante): se retiran para no
+         * acumular emisores huérfanos. */
+        if !obsoletas.is_empty() {
+            if let Ok(mut guard) = self.esperas.lock() {
+                for vieja in obsoletas {
+                    guard.remove(&vieja);
+                }
+            }
+        }
+        if !self.espera_aprobacion_en_turno() {
+            return None;
+        }
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        if let Ok(mut guard) = self.esperas.lock() {
+            guard.insert(id, tx);
+        }
+        Some(rx)
     }
 
     /// Peticiones pendientes sin responder (la UI las muestra mientras
@@ -536,6 +597,12 @@ impl AgentToolRegistry {
     /// la cola. `Aprobar` deja un token de una vez (clase derivada);
     /// `Siempre`/`Rechazar` crean la regla F1 de esa clase (la última regla
     /// coincide primero: la decisión del usuario manda sobre reglas previas).
+    /// [129A-3] Si el turno aguarda esta petición (modo espera), se le
+    /// despierta con la respuesta ADEMÁS de aplicar token/regla: el turno
+    /// ejecuta directamente lo aprobado, así que `Aprobar` no deja token en
+    /// ese caso (la ejecución directa YA es la única vez); en modo
+    /// entre-turnos el token se conserva porque la ejecución ocurre en el
+    /// turno siguiente.
     pub fn responder_peticion(
         &self,
         id: &str,
@@ -547,6 +614,12 @@ impl AgentToolRegistry {
                 format!("petición de aprobación desconocida o ya respondida: {id}")
             })?
         };
+        let despertar = self
+            .esperas
+            .lock()
+            .map(|mut guard| guard.remove(id))
+            .unwrap_or(None);
+        let habia_espera = despertar.is_some();
         let clave = self
             .claves_para(&peticion.tool, &peticion.argumentos)
             .into_iter()
@@ -554,11 +627,15 @@ impl AgentToolRegistry {
             .unwrap_or_else(|| (peticion.tool.clone(), "*".to_string()));
         match respuesta {
             RespuestaAprobacion::Aprobar => {
-                /* Una vez: token de la clase EXACTA (categoría + valor). */
-                self.una_vez
-                    .write()
-                    .unwrap_or_else(|p| p.into_inner())
-                    .push(clave);
+                /* Una vez: token de la clase EXACTA (categoría + valor).
+                 * Solo en modo entre-turnos: en modo espera la ejecución
+                 * directa del turno reanudado ya consume la única vez. */
+                if !habia_espera {
+                    self.una_vez
+                        .write()
+                        .unwrap_or_else(|p| p.into_inner())
+                        .push(clave);
+                }
             }
             RespuestaAprobacion::Siempre | RespuestaAprobacion::Rechazar => {
                 /* Siempre/Rechazar = CLASE (categoría derivada, `**`): la
@@ -570,6 +647,11 @@ impl AgentToolRegistry {
                     self.establecer_regla(regla);
                 }
             }
+        }
+        /* Despierta al turno en espera DESPUÉS de aplicar token/regla, para
+         * que al reanudarse vea estado consistente si re-evalúa permisos. */
+        if let Some(tx) = despertar {
+            let _ = tx.send(respuesta);
         }
         Ok(())
     }
@@ -1194,5 +1276,71 @@ mod tests {
             "la petición vieja deja de estar pendiente"
         );
         assert_eq!(pendientes[0].id, "p-nueva");
+    }
+
+    /* [129A-3] Espera en turno: el turno pausa en la petición y la respuesta
+     * despierta al que aguarda (sin LLM: registro + respuesta + receptor).
+     * `Aprobar` en espera NO deja token (la ejecución directa del turno
+     * reanudado ya es la única vez); en modo entre-turnos el token se
+     * conserva porque la ejecución ocurre en el turno siguiente. */
+
+    #[test]
+    fn espera_en_turno_apagada_por_defecto_y_sin_canal() {
+        let registry = registry_con_fixture();
+        assert!(!registry.espera_aprobacion_en_turno());
+        assert!(registry
+            .registrar_peticion(peticion_file_write("p-w0", "src/a.rs"))
+            .is_none());
+    }
+
+    #[test]
+    fn espera_en_turno_aprobar_despierta_sin_dejar_token() {
+        let registry = registry_con_fixture();
+        registry.fijar_espera_aprobacion_en_turno(true);
+        let mut rx = registry
+            .registrar_peticion(peticion_file_write("p-w1", "src/a.rs"))
+            .expect("modo espera crea canal");
+        registry
+            .responder_peticion("p-w1", RespuestaAprobacion::Aprobar)
+            .expect("responde p-w1");
+        assert_eq!(
+            rx.try_recv().expect("despierta al que aguarda"),
+            RespuestaAprobacion::Aprobar
+        );
+        assert_eq!(
+            registry.permiso_para_llamada(
+                "file_write",
+                &json!({ "ruta": "src/a.rs" }),
+                "predeterminado"
+            ),
+            Permiso::Ask,
+            "sin token remanente: la ejecución directa ya consumió la única vez"
+        );
+        assert!(registry.peticiones_pendientes().is_empty());
+    }
+
+    #[test]
+    fn espera_en_turno_rechazar_despierta_y_deniega_la_clase() {
+        let registry = registry_con_fixture();
+        registry.fijar_espera_aprobacion_en_turno(true);
+        let mut rx = registry
+            .registrar_peticion(peticion_file_write("p-w2", "../fuera.txt"))
+            .expect("modo espera crea canal");
+        registry
+            .responder_peticion("p-w2", RespuestaAprobacion::Rechazar)
+            .expect("responde p-w2");
+        assert_eq!(
+            rx.try_recv().expect("despierta al que aguarda"),
+            RespuestaAprobacion::Rechazar
+        );
+        assert_eq!(
+            registry.permiso_para_llamada(
+                "file_write",
+                &json!({ "ruta": "../otro.txt" }),
+                "predeterminado"
+            ),
+            Permiso::Deny,
+            "el rechazo en espera también crea la regla deny de la clase"
+        );
     }
 }

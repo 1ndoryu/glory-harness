@@ -310,6 +310,111 @@ impl AgentRuntime {
         Ok(None)
     }
 
+    /// [129A-3] Ejecución de una tool del hijo (cuerpo del veredicto
+    /// Ejecutar, reutilizado al aprobar en espera): emite ToolStart/Result,
+    /// telemetría y devuelve el contenido para el mensaje de tool.
+    async fn ejecutar_call_hijo(
+        &self,
+        user_id: Uuid,
+        turno_id: Uuid,
+        call: &AiToolCall,
+        tx: &Sender<AgenteEvento>,
+    ) -> Result<String> {
+        let _ = tx
+            .send(AgenteEvento::ToolStart {
+                tool: call.nombre.clone(),
+                argumentos: call.argumentos.clone(),
+            })
+            .await;
+        let t0_ejecucion = std::time::Instant::now();
+        let resultado = self.ejecutar_tool(user_id, turno_id, call, tx).await?;
+        let _ = tx
+            .send(AgenteEvento::ToolResult {
+                tool: call.nombre.clone(),
+                ok: resultado.ok,
+                resumen: resultado.resumen.clone(),
+                diff: resultado.diff.clone(),
+            })
+            .await;
+        /* [318A-15 F0] Telemetría del hijo: las tools del
+         * subagente cuentan en el acumulador del turno. */
+        self.telemetria().registrar_uso(
+            &call.nombre,
+            resultado.ok,
+            t0_ejecucion.elapsed().as_millis() as u64,
+        );
+        Ok(resultado.contenido)
+    }
+
+    /// [129A-3] Pregunta del hijo en modo espera (solo desktop): registra la
+    /// petición con `id`, emite la tarjeta, aguarda la decisión y —si
+    /// aprueban— ejecuta la tool en este mismo turno. `None` = modo
+    /// entre-turnos o espera degradada (el llamante usa el mensaje clásico).
+    /// Rechazar inserta en `denegadas_hijo` como el trato clásico.
+    async fn resolver_pregunta_hijo_en_espera(
+        &self,
+        user_id: Uuid,
+        turno_id: Uuid,
+        call: &AiToolCall,
+        denegadas_hijo: &mut HashSet<String>,
+        tx: &Sender<AgenteEvento>,
+    ) -> Result<Option<String>> {
+        if !self.registry.espera_aprobacion_en_turno() {
+            return Ok(None);
+        }
+        let id = Uuid::new_v4().to_string();
+        let clasificacion = self.registry.clasificar_llamada(&call.nombre, &call.argumentos);
+        let espera = match self.registry.registrar_peticion(
+            crate::aprobacion::PeticionAprobacion::nueva(
+                &id,
+                call.nombre.clone(),
+                call.argumentos.clone(),
+                clasificacion.clone(),
+            ),
+        ) {
+            Some(rx) => rx,
+            None => return Ok(None),
+        };
+        let _ = tx
+            .send(AgenteEvento::PeticionAprobacion {
+                id,
+                tool: call.nombre.clone(),
+                argumentos: call.argumentos.clone(),
+                clasificacion,
+            })
+            .await;
+        let _ = tx
+            .send(AgenteEvento::RequiereAprobacion {
+                tool: call.nombre.clone(),
+                argumentos: call.argumentos.clone(),
+            })
+            .await;
+        tokio::select! {
+            respuesta = espera => match respuesta {
+                Ok(crate::aprobacion::RespuestaAprobacion::Aprobar)
+                | Ok(crate::aprobacion::RespuestaAprobacion::Siempre) => Ok(Some(
+                    self.ejecutar_call_hijo(user_id, turno_id, call, tx).await?,
+                )),
+                Ok(crate::aprobacion::RespuestaAprobacion::Rechazar) => {
+                    denegadas_hijo.insert(call.nombre.clone());
+                    let _ = tx
+                        .send(AgenteEvento::PermisoDenegado {
+                            tool: call.nombre.clone(),
+                            motivo: "denegada_por_usuario".into(),
+                        })
+                        .await;
+                    self.telemetria().registrar_denegacion();
+                    Ok(Some(format!(
+                        "[{} DENEGADA] NO la reintentes; cambia de plan.",
+                        call.nombre
+                    )))
+                }
+                Err(_) => Ok(None),
+            },
+            _ = tx.closed() => Ok(None),
+        }
+    }
+
     /// [059A-S3] Ejecuta una llamada de tool del hijo según el veredicto F3 o
     /// devuelve el mensaje de denegación/pendiente correspondiente. Efectos
     /// laterales acotados: eventos SSE, telemetría y el registro local de
@@ -325,43 +430,28 @@ impl AgentRuntime {
     ) -> Result<String> {
         let resultado = match verdicto {
             VerdictoPermiso::Ejecutar => {
-                let _ = tx
-                    .send(AgenteEvento::ToolStart {
-                        tool: call.nombre.clone(),
-                        argumentos: call.argumentos.clone(),
-                    })
-                    .await;
-                let t0_ejecucion = std::time::Instant::now();
-                let resultado = self.ejecutar_tool(user_id, turno_id, call, tx).await?;
-                let _ = tx
-                    .send(AgenteEvento::ToolResult {
-                        tool: call.nombre.clone(),
-                        ok: resultado.ok,
-                        resumen: resultado.resumen.clone(),
-                        diff: resultado.diff.clone(),
-                    })
-                    .await;
-                /* [318A-15 F0] Telemetría del hijo: las tools del
-                 * subagente cuentan en el acumulador del turno. */
-                self.telemetria().registrar_uso(
-                    &call.nombre,
-                    resultado.ok,
-                    t0_ejecucion.elapsed().as_millis() as u64,
-                );
-                resultado.contenido
+                self.ejecutar_call_hijo(user_id, turno_id, call, tx)
+                    .await?
             }
             VerdictoPermiso::Preguntar => {
-                let _ = tx
-                    .send(AgenteEvento::RequiereAprobacion {
-                        tool: call.nombre.clone(),
-                        argumentos: call.argumentos.clone(),
-                    })
-                    .await;
-                denegadas_hijo.insert(call.nombre.clone());
-                format!(
-                    "[{} REQUIERE APROBACIÓN DEL USUARIO] No se ejecutó; pide confirmación y espera.",
-                    call.nombre
-                )
+                if let Some(mensaje) = self
+                    .resolver_pregunta_hijo_en_espera(user_id, turno_id, call, denegadas_hijo, tx)
+                    .await?
+                {
+                    mensaje
+                } else {
+                    let _ = tx
+                        .send(AgenteEvento::RequiereAprobacion {
+                            tool: call.nombre.clone(),
+                            argumentos: call.argumentos.clone(),
+                        })
+                        .await;
+                    denegadas_hijo.insert(call.nombre.clone());
+                    format!(
+                        "[{} REQUIERE APROBACIÓN DEL USUARIO] No se ejecutó; pide confirmación y espera.",
+                        call.nombre
+                    )
+                }
             }
             VerdictoPermiso::RepetidoPregunta => format!(
                 "[{} REQUIERE APROBACIÓN DEL USUARIO (repetido)] Sigue pendiente: no insistas.",

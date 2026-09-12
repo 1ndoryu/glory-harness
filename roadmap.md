@@ -57,22 +57,28 @@ F1 (Copy Path / Edit name / Remove con confirmación) verificado con
 
 ## Tareas pendientes
 
-- [ ] **129A-3 — Aprobación: tarjeta fija + aprobar ejecuta + toast Windows**
-      (implementado 12-09, pendiente gate y verificación en ventana real):
-      la tarjeta vive fija encima de la caja (slot `.aprobaciones-fijas`) y
-      vuelve al flujo como registro al decidir; al resolver (temprano o tarde)
-      `onAprobacionResuelta` reenvía el último mensaje como turno nuevo por el
-      curso normal (antes solo reenviaba si se decidía antes del `turno-fin`);
-      toast del sistema vía `tauri-plugin-notification` al necesitar
-      aprobación. Toca Rust (`main.rs` plugin, `Cargo.toml`, capability) +
-      front (`aplicarEventos`, `turnoReal`, `vistaMeta`, `crearPanel`,
-      `main.ts`, `notificacionSistema.ts`, `entrada.css`). Front verificado
-      con `tsc` + `vite build` 12-09; warnings del gate corregidos en el
-      reintento (slot usa `el` de `util/dom`; `main.ts` bajo el techo tras
-      extraer `orquestador/depsCrearPanel` + `orquestador/reenvioAprobacion`;
-      permiso de toast en `orquestador/arranque`): gate 129A-3 PASS 12-09
-      (464 tests ok, 0 errores; etapas coverage/sccache/sentinel/rust PASS).
-      Falta solo verificación en ventana real.
+- [ ] **129A-3 — Aprobación: el turno pausa y continúa (sin reenvío) + tarjeta fija + toast Windows**
+      (rediseño 12-09 tras verificación real fallida: la tarjeta se duplicaba,
+      el `mkdir` no se creaba y volvía a preguntar tras aceptar):
+      causa raíz: el backend OMITE la tool al pedir aprobación y el turno
+      sigue/cierra; el frente reenviaba el mensaje como turno nuevo y la
+      segunda vuelta volvía a pedir en vez de ejecutar. Nuevo diseño
+      (paridad con las referencias CLI `chat_comandos.rs:159-237`): el turno
+      PAUSA en la petición (oneshot por `id` en el registry) y CONTINÚA al
+      responder — aprobar/siempre ejecuta la tool pendiente en el MISMO turno,
+      rechazar informa denegación al modelo sin reintento; cero reenvíos.
+      `responder_aprobacion` despierta al que espera Y aplica token/regla
+      (sirve a ambos modos); modo espera opt-in solo desktop
+      (`abrir_sesion_interna`), CLI/TUI/daemon/web conservan entre-turnos;
+      `tx.closed()` + `cancelar_turno` (abort) como salidas de la espera.
+      Frente: se elimina `orquestador/reenvioAprobacion.ts` + hook
+      `onAprobacionResuelta` + `requiereReenvioTrasAprobar`; la tarjeta queda
+      en el slot y pasa a "aprobada · ejecutando…" hasta el `ToolResult`.
+      Toca Rust (`tool.rs` esperas, `permisos.rs` + `subagente.rs` espera,
+      `main.rs` desktop opt-in) + frente (`aplicarEventos`, `turnoReal`,
+      `realTipos`, `transporteTauri`, `main.ts`, `vistaMeta`). Slot + toast
+      (`notificacionSistema.ts`, plugin `notification`) ya verificados; gate
+      anterior 129A-3 PASS 12-09 (464 tests) sobre el diseño viejo.
 - [ ] **119A-2 — Menú contextual de proyecto** (F1–F4 implementados y
       verificados: F2 commit 1878d17, F3 commit 7c77b5e, F4 commit 41cd31b
       con gate PASS 12-09 de 459 tests ok):

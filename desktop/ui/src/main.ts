@@ -38,7 +38,6 @@ import {
 } from './orquestador/laterales';
 import { crearPanel } from './orquestador/crearPanel';
 import { crearDepsCrearPanel } from './orquestador/depsCrearPanel';
-import { conectarReenvioTrasAprobar } from './orquestador/reenvioAprobacion';
 import { montarBarraLateral } from './orquestador/barraLateral';
 import {
   CLAVE_TEMA_OSCURO,
@@ -147,15 +146,6 @@ const hooksAdaptador: HooksAdaptador = crearGanchos({
   getNavegador: () => todoNavegador.navegador,
   avisar: avisoGlobal,
   registrarCambioArchivo: (cambio) => files.registrarCambio(cambio),
-});
-// [fix 12-09] Reenvío tras aprobar en `orquestador/reenvioAprobacion`
-// (techo de 300 líneas de main.ts).
-conectarReenvioTrasAprobar(hooksAdaptador, {
-  usaReal: USA_REAL,
-  hayTurnoGlobal: () => vistaMeta.hayTurnoGlobal(),
-  aprobacionesPendientes: () => adaptador.aprobacionesPendientes(),
-  reanudarUltimoEnvio: () => vistaMeta.reanudarUltimoEnvio(),
-  avisar: avisoGlobal,
 });
 // Tauri → IPC in-process; web (`?api=`/`gh_api`/mismo origen) → HTTP/SSE.
 // `adaptador` se usa en cierres de runtime; en modo ni-ni nunca se monta.
