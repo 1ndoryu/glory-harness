@@ -87,8 +87,12 @@ impl AgentPersistence for PersistenciaSqlite {
         let conn = bloquear(&self.conn);
         let mut stmt = conn
             .prepare(
+                /* [129A-1] `rowid` desempata el mismo segundo: las filas
+                 * `reasoning` se insertan justo antes de su `assistant` y la
+                 * precisión de `creado_en` es 1 s, así que sin desempate el
+                 * summary podría pintarse después de la respuesta. */
                 "SELECT id, rol, contenido, creado_en FROM mensajes
-                 WHERE conversacion_id = ?1 ORDER BY creado_en ASC",
+                 WHERE conversacion_id = ?1 ORDER BY creado_en ASC, rowid ASC",
             )
             .map_err(|e| Error::Persistencia(e.to_string()))?;
         let filas = stmt

@@ -139,6 +139,13 @@ async fn resultado_no_stream(
         .and_then(serde_json::Value::as_str)
         .unwrap_or("")
         .to_string();
+    /* [129A-1] Mismo punto de pérdida en no-stream: el pensamiento viaja en
+     * `message.reasoning_content` y se ignoraba. */
+    let razonamiento = datos
+        .pointer("/choices/0/message/reasoning_content")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("")
+        .to_string();
     if !on_token(&contenido) {
         return Err(Error::Cancelado);
     }
@@ -153,6 +160,7 @@ async fn resultado_no_stream(
     };
     Ok(AiStreamResult {
         contenido,
+        razonamiento,
         tool_calls: Vec::new(),
         tokens_prompt: datos
             .pointer("/usage/prompt_tokens")
@@ -301,7 +309,7 @@ impl LlmProviderService {
             .and_then(|v| v.split_once('/'))
             .map(|(p, m)| (p.to_string(), m.to_string()));
 
-        let (contenido, tool_calls, tokens_prompt, tokens_complecion, finish_reason, modelo_real) =
+        let (contenido, razonamiento, tool_calls, tokens_prompt, tokens_complecion, finish_reason, modelo_real) =
             super::stream::hojear_stream(respuesta, on_token).await?;
         let tool_calls = parsear_tool_calls(tool_calls);
 
@@ -323,6 +331,7 @@ impl LlmProviderService {
 
         Ok(AiStreamResult {
             contenido,
+            razonamiento,
             tool_calls,
             tokens_prompt,
             tokens_complecion,

@@ -4,6 +4,16 @@
 
 use super::*;
 
+impl EstadoTurno {
+    /// [129A-1] Conserva el pensamiento de una llamada LLM para persistirlo
+    /// como fila `reasoning` al cerrar el turno. Vacío = sin summary.
+    pub(crate) fn guardar_razonamiento(&mut self, razonamiento: String) {
+        if !razonamiento.trim().is_empty() {
+            self.razonamientos.push(razonamiento);
+        }
+    }
+}
+
 impl AgentRuntime {
     /// [059A-S3] Auditoría del turno (R3: siempre por el puerto, nunca SQL
     /// propio): guarda el registro del turno con estado "ok". Los 8
@@ -45,28 +55,54 @@ impl AgentRuntime {
     /// [059A-S3] Persiste la respuesta del asistente y toca `actualizado_en` de
     /// la conversación (solo si hubo texto y la conversación es real; las
     /// tareas programadas pasan `conversacion_id = nil`).
+    /// [129A-1] Los pensamientos del turno se persisten ANTES como filas
+    /// `rol = "reasoning"`: el orden de inserción (+ `rowid` en el ORDER BY)
+    /// los deja entre el mensaje del usuario y la respuesta al recargar, y el
+    /// filtro de `historial_desde_persistencia` impide que viajen al proveedor.
     pub(crate) async fn persistir_respuesta_final(
         &self,
         estado: &EstadoTurno,
         conversacion_id: Uuid,
     ) -> Result<()> {
+        if conversacion_id == Uuid::nil() {
+            return Ok(());
+        }
+        let mut persistido = false;
+        for razonamiento in estado
+            .razonamientos
+            .iter()
+            .filter(|r| !r.trim().is_empty())
+        {
+            self.puertos
+                .persistencia
+                .guardar_mensaje(&MensajePersistido {
+                    id: Uuid::new_v4(),
+                    conversacion_id,
+                    rol: "reasoning".into(),
+                    contenido: razonamiento.clone(),
+                    creado_en: chrono::Utc::now(),
+                })
+                .await?;
+            persistido = true;
+        }
         if let Some(respuesta) = &estado.respuesta_final {
-            if conversacion_id != Uuid::nil() {
-                self.puertos
-                    .persistencia
-                    .guardar_mensaje(&MensajePersistido {
-                        id: Uuid::new_v4(),
-                        conversacion_id,
-                        rol: "assistant".into(),
-                        contenido: respuesta.clone(),
-                        creado_en: chrono::Utc::now(),
-                    })
-                    .await?;
-                self.puertos
-                    .persistencia
-                    .conversacion_tocar(conversacion_id)
-                    .await?;
-            }
+            self.puertos
+                .persistencia
+                .guardar_mensaje(&MensajePersistido {
+                    id: Uuid::new_v4(),
+                    conversacion_id,
+                    rol: "assistant".into(),
+                    contenido: respuesta.clone(),
+                    creado_en: chrono::Utc::now(),
+                })
+                .await?;
+            persistido = true;
+        }
+        if persistido {
+            self.puertos
+                .persistencia
+                .conversacion_tocar(conversacion_id)
+                .await?;
         }
         Ok(())
     }

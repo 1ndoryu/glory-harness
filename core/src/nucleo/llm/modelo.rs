@@ -245,6 +245,9 @@ impl Serialize for AiToolCall {
 #[derive(Debug, Clone)]
 pub struct AiStreamResult {
     pub contenido: String,
+    /// [129A-1] Pensamiento del modelo (`reasoning_content`, OpenAI-compat).
+    /// Vacío cuando el proveedor no razona: ningún cambio visible entonces.
+    pub razonamiento: String,
     pub tool_calls: Vec<AiToolCall>,
     pub tokens_prompt: u32,
     pub tokens_complecion: u32,

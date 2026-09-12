@@ -10,7 +10,7 @@ impl AgentRuntime {
         schemas: &[Value],
         on_token: &mut (dyn FnMut(&str) -> bool + Send),
         tx: &Sender<AgenteEvento>,
-    ) -> Result<Vec<AiToolCall>> {
+    ) -> Result<(Vec<AiToolCall>, String)> {
         let resultado = self
             .puertos
             .llm
@@ -41,7 +41,17 @@ impl AgentRuntime {
                 modelo: Some(resultado.modelo.clone()),
             })
             .await;
-        Ok(resultado.tool_calls)
+        /* [129A-1] El pensamiento no fluye por `on_token`: se emite una vez,
+         * completo, para pintarlo como summary. Sin razonamiento no hay
+         * evento y nada cambia en la UI. */
+        if !resultado.razonamiento.trim().is_empty() {
+            let _ = tx
+                .send(AgenteEvento::Razonamiento {
+                    texto: resultado.razonamiento.clone(),
+                })
+                .await;
+        }
+        Ok((resultado.tool_calls, resultado.razonamiento))
     }
 
     pub(crate) async fn ejecutar_tool(

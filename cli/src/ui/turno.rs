@@ -21,9 +21,13 @@ use crate::ui::exportar::HerramientaEjecutada;
 /// el runtime espera (`AiMessage`). Es la fuente entre turnos del chat: el
 /// agente recuerda el hilo porque cada turno recibe todo lo anterior.
 /// Compartido con la TUI y la app de escritorio: misma fuente, otra UI.
+/// [129A-1] Las filas `rol = "reasoning"` son solo UI (summary del
+/// pensamiento): se filtran aquí para que nunca viajen al proveedor como rol
+/// inválido; el front las repinta desde la carga (`pintarHistorial`).
 pub fn historial_desde_persistencia(mensajes: Vec<MensajePersistido>) -> Vec<AiMessage> {
     mensajes
         .into_iter()
+        .filter(|m| m.rol == "user" || m.rol == "assistant")
         .map(|m| AiMessage::texto(&m.rol, m.contenido))
         .collect()
 }
@@ -154,5 +158,39 @@ mod tests {
     #[test]
     fn historial_vacio_es_vacio() {
         assert!(historial_desde_persistencia(vec![]).is_empty());
+    }
+
+    /// [129A-1] Las filas `reasoning` son solo UI: nunca viajan al proveedor.
+    #[test]
+    fn historial_omite_filas_de_razonamiento() {
+        let ahora = Utc::now();
+        let conv = Uuid::new_v4();
+        let mensajes = vec![
+            MensajePersistido {
+                id: Uuid::new_v4(),
+                conversacion_id: conv,
+                rol: "user".into(),
+                contenido: "hola".into(),
+                creado_en: ahora,
+            },
+            MensajePersistido {
+                id: Uuid::new_v4(),
+                conversacion_id: conv,
+                rol: "reasoning".into(),
+                contenido: "pienso en voz alta".into(),
+                creado_en: ahora,
+            },
+            MensajePersistido {
+                id: Uuid::new_v4(),
+                conversacion_id: conv,
+                rol: "assistant".into(),
+                contenido: "respuesta".into(),
+                creado_en: ahora,
+            },
+        ];
+        let historial = historial_desde_persistencia(mensajes);
+        assert_eq!(historial.len(), 2);
+        assert_eq!(historial[0].role, "user");
+        assert_eq!(historial[1].role, "assistant");
     }
 }

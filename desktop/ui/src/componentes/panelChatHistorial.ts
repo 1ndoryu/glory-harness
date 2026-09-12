@@ -7,6 +7,7 @@ import {
   crearMensajeAsistente,
   crearMensajeUsuario,
   crearPieTurno,
+  crearRazonamientoCerrado,
   formatearResultadoHerramienta,
 } from './mensajes';
 import type { CambioArchivoPanel } from './panelChatTipos';
@@ -145,6 +146,11 @@ export function crearHistorial(deps: HistorialDeps): HistorialChat {
         idxUser++;
       } else if (m.rol === 'assistant') {
         mensajes.appendChild(crearMensajeAsistente(m.contenido));
+      } else if (m.rol === 'reasoning' && m.contenido.trim() !== '') {
+        /* [129A-1] Pensamiento persistido: mismo summary cerrado que en vivo
+         * (`aplicarEventos`), intercalado por `creado_en` entre el usuario y
+         * la respuesta gracias al `rowid` del ORDER BY. */
+        mensajes.appendChild(crearRazonamientoCerrado(m.contenido, 'razonamiento'));
       }
     }
     residuales.forEach((a) => mensajes.appendChild(bloqueDesdeAccion(a)));

@@ -32,6 +32,11 @@ pub(crate) struct EstadoTurno {
      * conserve el historial completo (el mensaje del usuario lo persiste el
      * consumidor antes de llamar). */
     respuesta_final: Option<String>,
+    /* [129A-1] Pensamientos del turno (uno por llamada LLM con
+     * `reasoning_content`): se persisten como filas `rol = "reasoning"` para
+     * repintar el summary al recargar, sin contaminar el historial que viaja
+     * al proveedor (se filtra en `historial_desde_persistencia`). */
+    razonamientos: Vec<String>,
 }
 
 impl EstadoTurno {
@@ -57,6 +62,7 @@ impl EstadoTurno {
             denegadas_en_turno: std::collections::HashSet::new(),
             tools_ejecutadas: 0,
             respuesta_final: None,
+            razonamientos: Vec::new(),
         }
     }
 }
@@ -328,7 +334,7 @@ impl AgentRuntime {
             .await;
 
         let mut ultimo_contenido = String::new();
-        let tool_calls = {
+        let (tool_calls, razonamiento) = {
             /* [01-09-2026] Fase 4: `on_token` devuelve false para abortar el
              * stream LLM en cuanto el cliente corta el SSE. */
             let mut on_token = |texto: &str| -> bool {
@@ -338,6 +344,9 @@ impl AgentRuntime {
             self.llm_llamada(&estado.mensajes, &schemas, &mut on_token, tx)
                 .await?
         };
+        /* [129A-1] El pensamiento se persiste como fila `reasoning` (el evento
+         * en vivo ya salió por `tx` en `llm_llamada`). */
+        estado.guardar_razonamiento(razonamiento);
 
         if tool_calls.is_empty() {
             return self
@@ -605,7 +614,10 @@ impl AgentRuntime {
         let resultado = self
             .llm_llamada(&mensajes_cierre, &[], &mut on_token, tx)
             .await?;
-        if resultado.is_empty() {
+        /* [129A-1] El cierre también razona: se conserva con el resto del
+         * turno (el evento en vivo ya salió por `tx`). */
+        estado.guardar_razonamiento(resultado.1);
+        if resultado.0.is_empty() {
             let _ = tx
                 .send(AgenteEvento::Token {
                     texto: ultimo_contenido.clone(),

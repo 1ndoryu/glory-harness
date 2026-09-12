@@ -112,7 +112,14 @@ async fn accion_ver(args: &[String]) -> Result<SalidaSesion, String> {
         return Ok(SalidaSesion::Ok);
     }
     for m in &mensajes {
-        let quien = if m.rol == "user" { "tú" } else { "agente" };
+        let quien = if m.rol == "user" {
+            "tú"
+        } else if m.rol == "reasoning" {
+            /* [129A-1] Pensamiento persistido del modelo (summary en la UI). */
+            "razonamiento"
+        } else {
+            "agente"
+        };
         println!("[{quien}] {}", m.contenido);
     }
     Ok(SalidaSesion::Ok)

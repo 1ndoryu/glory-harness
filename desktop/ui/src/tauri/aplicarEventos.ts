@@ -3,6 +3,7 @@
  * (`EventosDeps`); sin closure sobre el adaptador. */
 import {
   crearHerramientaViva,
+  crearRazonamientoCerrado,
   crearTarjetaAprobacion,
   formatearResultadoHerramienta,
   pintarLogroEnPie,
@@ -55,6 +56,16 @@ export function aplicarEvento(ev: AgenteEvento, st: EstadoTurno, d: EventosDeps)
       a.nodo.insertBefore(document.createTextNode(ev.texto), a.cursor);
       // La respuesta fluye bajo el mensaje del usuario: mantener visible.
       d.bajarScroll();
+      break;
+    }
+    case 'razonamiento': {
+      /* [129A-1] El pensamiento llega completo al final de la llamada: se
+       * pinta como summary cerrado (el contrato ya existe en
+       * mensajesBloques). Sin razonamiento el backend no emite y no hay nodo. */
+      if (ev.texto.trim()) {
+        d.mensajes()?.appendChild(crearRazonamientoCerrado(ev.texto, 'razonamiento'));
+        d.bajarScroll();
+      }
       break;
     }
     case 'tool_start': {

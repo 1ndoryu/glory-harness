@@ -20,6 +20,9 @@ import type {
  */
 export type AgenteEvento =
   | { tipo: 'token'; texto: string }
+  /** [129A-1] Pensamiento completo del modelo (`reasoning_content`): un solo
+   * evento al completar la llamada. Sin razonamiento no se emite. */
+  | { tipo: 'razonamiento'; texto: string }
   | { tipo: 'tool_start'; tool: string; argumentos: unknown }
   | { tipo: 'tool_result'; tool: string; ok: boolean; resumen: string; diff?: string | null }
   | { tipo: 'peticion_aprobacion'; id: string; tool: string; argumentos: unknown; clasificacion: string }

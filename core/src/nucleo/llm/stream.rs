@@ -9,8 +9,12 @@ use super::*;
 pub(crate) async fn hojear_stream(
     respuesta: reqwest::Response,
     on_token: &mut (dyn FnMut(&str) -> bool + Send),
-) -> Result<(String, Vec<serde_json::Value>, u32, u32, String, String), Error> {
+) -> Result<(String, String, Vec<serde_json::Value>, u32, u32, String, String), Error> {
     let mut contenido = String::new();
+    /* [129A-1] El pensamiento viaja en `delta.reasoning_content`: se acumula
+     * aparte (nunca por `on_token`, que es solo texto de respuesta) y se
+     * devuelve para emitirlo como evento único al completar. */
+    let mut razonamiento = String::new();
     let mut tool_calls: Vec<serde_json::Value> = Vec::new();
     let mut tokens_prompt = 0u32;
     let mut tokens_complecion = 0u32;
@@ -59,6 +63,12 @@ pub(crate) async fn hojear_stream(
                         return Err(Error::Cancelado);
                     }
                 }
+                if let Some(pensado) = delta
+                    .get("reasoning_content")
+                    .and_then(serde_json::Value::as_str)
+                {
+                    razonamiento.push_str(pensado);
+                }
                 if let Some(calls) = delta
                     .get("tool_calls")
                     .and_then(serde_json::Value::as_array)
@@ -81,6 +91,7 @@ pub(crate) async fn hojear_stream(
 
     Ok((
         contenido,
+        razonamiento,
         tool_calls,
         tokens_prompt,
         tokens_complecion,

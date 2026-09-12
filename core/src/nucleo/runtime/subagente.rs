@@ -269,7 +269,7 @@ impl AgentRuntime {
             parcial.push_str(t);
             true
         };
-        let llamadas = self
+        let (llamadas, _) = self
             .llm_llamada(mensajes, schemas, &mut on_token, tx)
             .await?;
         if llamadas.is_empty() {

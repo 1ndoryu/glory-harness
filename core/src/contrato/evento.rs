@@ -52,6 +52,9 @@ pub struct TareaVisible {
 pub enum AgenteEvento {
     /// Un fragmento de texto generado por el LLM.
     Token { texto: String },
+    /// [129A-1] Pensamiento completo del modelo (`reasoning_content`): un
+    /// solo evento al completar la llamada, no un flujo. Vacío = no se emite.
+    Razonamiento { texto: String },
     /// Inicio de una herramienta.
     ToolStart {
         tool: String,
