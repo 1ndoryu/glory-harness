@@ -15,8 +15,8 @@
 
 ## Siguiente bloque ejecutable
 
-**119A-2 — Menú contextual de proyecto (F1–F4 implementados; F2 commit
-1878d17, F3 commit 7c77b5e, F4 gate PASS 12-09 pendiente commit).** Plan activo en
+**119A-2 — Menú contextual de proyecto (F1–F4 implementados y verificados;
+F4 commit 41cd31b con gate PASS 12-09).** Plan activo en
 `Agente/planes/plan-119A-2-menu-contextual-proyecto-2026-09-11.md`:
 menú de clic derecho en cada grupo de `Proyectos` con Open in Finder,
 Copy Path, Edit name, Pin project, Archive/Delete threads y Remove
@@ -57,9 +57,9 @@ F1 (Copy Path / Edit name / Remove con confirmación) verificado con
 
 ## Tareas pendientes
 
-- [ ] **119A-2 — Menú contextual de proyecto** (F1–F4 implementados:
-      F2 commit 1878d17, F3 commit 7c77b5e, F4 gate PASS 12-09 con 459 tests
-      ok pendiente commit):
+- [ ] **119A-2 — Menú contextual de proyecto** (F1–F4 implementados y
+      verificados: F2 commit 1878d17, F3 commit 7c77b5e, F4 commit 41cd31b
+      con gate PASS 12-09 de 459 tests ok):
       clic derecho en cada grupo de `Proyectos` con Open in Finder, Copy
       Path, Edit name, Pin project, Archive/Delete threads y Remove
       (Kanban eliminada; Start dev y Spaces diferidas por decisión del
