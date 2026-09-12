@@ -383,6 +383,17 @@ pub(crate) fn relevar_evento(
 ) {
     let evt = match evento {
         AgenteEvento::Token { texto } => EventoTui::Token(texto.clone()),
+        /* [129A-2] Pensamiento en la barra de estado del TUI: los deltas en
+         * vivo saturarían el render; el resumen completo deja su primera
+         * línea como testigo de que el modelo razonó. */
+        AgenteEvento::RazonamientoDelta { .. } => return,
+        AgenteEvento::Razonamiento { texto } => {
+            let primera = texto.lines().next().unwrap_or("").trim().to_string();
+            if primera.is_empty() {
+                return;
+            }
+            EventoTui::Estado(format!("[pensando] {primera}"))
+        }
         AgenteEvento::ToolStart { tool, .. } => EventoTui::ToolInicio { tool: tool.clone() },
         AgenteEvento::ToolResult {
             tool, ok, resumen, ..

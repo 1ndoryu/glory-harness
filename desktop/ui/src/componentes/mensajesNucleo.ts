@@ -86,6 +86,9 @@ export interface PieTurno {
    * tiene que estar en el DOM (`data-turno`); sin él no habría dónde
    * colocarlo cuando el logro se declara después de cerrar el turno. */
   turnoId?: string | null;
+  /** [129A-2] Velocidad medida del turno (tokens compleción / s de turno).
+   * `null`/`undefined` = sin medir (historial recargado): la parte se omite. */
+  velocidadTokS?: number | null;
   /** Copiar desde el último mensaje de usuario hasta el último assistant. */
   alCopiar: () => void;
 }
@@ -137,6 +140,10 @@ export function crearPieTurno(datos: PieTurno): HTMLElement {
   const partes: string[] = [];
   partes.push(`${tokensCortos(datos.tokensPrompt)} → ${tokensCortos(datos.tokensComplecion)}`);
   partes.push(datos.modelo ?? 'desconocido');
+  // [129A-2] Velocidad del turno cuando se midió (en vivo, no recarga).
+  if (datos.velocidadTokS !== null && datos.velocidadTokS !== undefined && Number.isFinite(datos.velocidadTokS)) {
+    partes.push(`${datos.velocidadTokS.toFixed(1)} tok/s`);
+  }
   if (datos.ocupacionPct !== null && datos.maxVentana !== null) {
     const usados = Math.round((datos.ocupacionPct / 100) * (datos.maxVentana - (datos.reservaSalida ?? 0)));
     partes.push(`${tokensCortos(usados)}/${tokensCortos(datos.maxVentana)} (${Math.round(datos.ocupacionPct)}%)`);

@@ -269,8 +269,17 @@ impl AgentRuntime {
             parcial.push_str(t);
             true
         };
-        let (llamadas, _) = self
-            .llm_llamada(mensajes, schemas, &mut on_token, tx)
+        /* [129A-2] El hijo no streamea a la UI del padre: sin vivo. */
+        let mut sin_razonamiento_vivo = |_: &str| {};
+        let (llamadas, _, _) = self
+            .llm_llamada(
+                mensajes,
+                schemas,
+                &mut on_token,
+                &mut sin_razonamiento_vivo,
+                tx,
+                false,
+            )
             .await?;
         if llamadas.is_empty() {
             /* Respuesta final del hijo: es el resumen que volverá al padre. */
@@ -393,7 +402,11 @@ impl AgentRuntime {
             parcial.push_str(t);
             true
         };
-        let _ = self.llm_llamada(mensajes, &[], &mut on_token, tx).await?;
+        /* [129A-2] Igual que el paso normal del hijo: sin vivo. */
+        let mut sin_razonamiento_vivo = |_: &str| {};
+        let _ = self
+            .llm_llamada(mensajes, &[], &mut on_token, &mut sin_razonamiento_vivo, tx, false)
+            .await?;
         Ok(parcial)
     }
 }

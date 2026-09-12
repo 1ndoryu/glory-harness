@@ -56,7 +56,10 @@ use crate::tools_web::registrar_tools_red;
  * este módulo; los hijos los ven por privacidad de módulo). */
 mod subagente;
 mod tools;
-mod turno;
+/* [129A-2] `tools.rs` aloja `cierre_wrap_up` (mudado desde `turno/mod.rs` para
+ * devolverlo bajo el tope de 500 líneas efectivas): necesita nombrar
+ * `turno::EstadoTurno`, así que el módulo pasa a `pub(crate)`. */
+pub(crate) mod turno;
 /// [109A-4 F4] Petición de turno con política forzada opcional: el transporte
 /// la construye para `/meta <texto>` sin tocar el modo de la sesión.
 pub use turno::PeticionTurno;

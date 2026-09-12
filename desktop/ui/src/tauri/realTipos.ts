@@ -23,6 +23,9 @@ export type AgenteEvento =
   /** [129A-1] Pensamiento completo del modelo (`reasoning_content`): un solo
    * evento al completar la llamada. Sin razonamiento no se emite. */
   | { tipo: 'razonamiento'; texto: string }
+  /** [129A-2] Fragmento de pensamiento EN VIVO: se anexa a un summary
+   * abierto (con spinner + contador) hasta que llega `razonamiento`. */
+  | { tipo: 'razonamiento_delta'; texto: string }
   | { tipo: 'tool_start'; tool: string; argumentos: unknown }
   | { tipo: 'tool_result'; tool: string; ok: boolean; resumen: string; diff?: string | null }
   | { tipo: 'peticion_aprobacion'; id: string; tool: string; argumentos: unknown; clasificacion: string }
@@ -178,6 +181,10 @@ export interface UsoTurno {
   reservaSalida: number | null;
   /** [039A-3 P1] Tokens totales de entrada del último desglose de contexto. */
   totalEntrada: number | null;
+  /** [129A-2] Velocidad medida del turno (tokens de compleción / segundo de
+   * turno, con la misma heurística de reloj que el pie). `null` = sin medir
+   * (p. ej. historial recargado o turno cancelado). */
+  velocidadTokS: number | null;
 }
 
 /** Resultado de cierre de un turno, para que el llamador decida el pie. */

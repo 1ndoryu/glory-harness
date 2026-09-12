@@ -10,7 +10,7 @@ import {
   type AsistenteVivo,
 } from '../componentes/mensajes';
 import { el } from '../util/dom';
-import { aplicarEvento, usoVacio, type EstadoTurno } from './aplicarEventos';
+import { aplicarEvento, finalizarRazonamiento, usoVacio, type EstadoTurno } from './aplicarEventos';
 import type {
   HooksAdaptador,
   InfoSesion,
@@ -58,6 +58,7 @@ export function crearTurnoReal(hooks: HooksAdaptador, transporte: Transporte): T
     huboPeticiones: false,
     tareas: null,
     ultimoTurnoId: null,
+    razonamiento: null,
   };
   let ultimaOpcion: OpcionesTurno = { proveedor: '', modelo: '', modo: '', razonamiento: '' };
 
@@ -153,6 +154,7 @@ export function crearTurnoReal(hooks: HooksAdaptador, transporte: Transporte): T
     cerrado = false;
     asistente = null;
     estado.herramienta = null;
+    estado.razonamiento = null;
     estado.rutaHerramienta = null;
     estado.huboPeticiones = false;
     ultimoResultado = 'ok';
@@ -196,6 +198,9 @@ export function crearTurnoReal(hooks: HooksAdaptador, transporte: Transporte): T
     if (!cerrado) {
       cerrado = true;
       ultimoResultado = 'cancelado';
+      // [129A-2] Sin `done` del backend no hay cierre del summary: se fija
+      // con lo acumulado para no dejar el spinner colgado.
+      finalizarRazonamiento(estado);
       const fin = onFin;
       onFin = null;
       const n = el('div', 'msg-asis');

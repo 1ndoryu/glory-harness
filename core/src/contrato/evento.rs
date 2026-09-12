@@ -55,6 +55,11 @@ pub enum AgenteEvento {
     /// [129A-1] Pensamiento completo del modelo (`reasoning_content`): un
     /// solo evento al completar la llamada, no un flujo. Vacío = no se emite.
     Razonamiento { texto: String },
+    /// [129A-2] Fragmento de pensamiento EN VIVO (`delta.reasoning_content`
+    /// del SSE): el front lo anexa a un summary abierto con spinner y
+    /// contador; al llegar `Razonamiento` (completo) lo cierra. Sin deltas
+    /// previos, `Razonamiento` solo pinta el summary cerrado (129A-1 intacto).
+    RazonamientoDelta { texto: String },
     /// Inicio de una herramienta.
     ToolStart {
         tool: String,
@@ -241,6 +246,27 @@ pub enum AgenteEvento {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /* [129A-2] Mismo motivo: la UI distingue `razonamiento_delta` (anexa
+     * en vivo) de `razonamiento` (cierra el bloque); un renombre rompería el
+     * streaming de pensamiento sin que el texto se vea afectado. */
+    #[test]
+    fn razonamiento_delta_serializa_con_el_contrato_que_espera_la_ui() {
+        let evento = AgenteEvento::RazonamientoDelta {
+            texto: "primero pienso".into(),
+        };
+        let json = serde_json::to_value(&evento).expect("serializa");
+        assert_eq!(json["tipo"], "razonamiento_delta");
+        assert_eq!(json["texto"], "primero pienso");
+
+        let vuelta: AgenteEvento = serde_json::from_value(json).expect("deserializa");
+        match vuelta {
+            AgenteEvento::RazonamientoDelta { texto } => {
+                assert_eq!(texto, "primero pienso");
+            }
+            otro => panic!("variante inesperada: {otro:?}"),
+        }
+    }
 
     /* [109A-5 F2] La UI compara literales (`tareas_actualizadas`, `en_curso`)
      * para decidir qué pintar, así que el nombre serializado es contrato: si

@@ -142,6 +142,15 @@
 .herramienta .resultado pre { overflow-x: auto; }
 /* el razonamiento es pensamiento interno: el texto va algo más tenue que un resultado */
 .razonamiento .resultado { opacity: 0.75; }
+/* [129A-2] Razonamiento en vivo: el título respira mientras llegan deltas
+ * (la clase `vivo` muere con `terminar`); el contador vive en el meta junto
+ * al spinner. Sin movimiento si el usuario lo pide. */
+.razonamiento.vivo summary .texto { animation: latido 1.2s ease-in-out infinite; }
+@keyframes latido { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
+.razonamiento .contador { margin-left: var(--sp-sm); }
+@media (prefers-reduced-motion: reduce) {
+    .razonamiento.vivo summary .texto { animation: none; }
+}
 /* resultado de herramientas: las líneas sin cambios (contexto) van más
    tenues para que las añadidas (+) y eliminadas (-) destaquen, sin colores. */
 .herramienta .resultado .resumen,

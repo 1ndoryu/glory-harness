@@ -163,6 +163,8 @@ export function crearHistorial(deps: HistorialDeps): HistorialChat {
           ocupacionPct: null,
           maxVentana: null,
           reservaSalida: null,
+          // [129A-2] Recarga: la velocidad no se persiste, se omite la parte.
+          velocidadTokS: null,
           alCopiar: deps.copiarUltimoTramo,
         }),
       );
@@ -181,6 +183,9 @@ export function crearHistorial(deps: HistorialDeps): HistorialChat {
         maxVentana: u.maxVentana,
         reservaSalida: u.reservaSalida,
         turnoId: turnoId ?? null,
+        // [129A-2] La velocidad viaja en el `UsoTurno` (la mide el turno en
+        // vivo con su propio reloj; en recarga es `null`).
+        velocidadTokS: u.velocidadTokS ?? null,
         alCopiar: deps.copiarUltimoTramo,
       }),
     );

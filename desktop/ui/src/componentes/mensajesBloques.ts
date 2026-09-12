@@ -18,6 +18,9 @@ export interface RazonamientoVivo {
   nodoMeta: HTMLElement;
   /** Quita el spinner y fija el meta final (p. ej. '1.4 s'). */
   terminar(meta: string): void;
+  /** [129A-2] Contador en vivo junto al spinner (p. ej. '~1k tok'). Sin
+   * llamar, el meta solo muestra el spinner. */
+  fijarProgreso(texto: string): void;
 }
 
 function baseRazonamiento(abierto: boolean): RazonamientoVivo {
@@ -33,12 +36,23 @@ function baseRazonamiento(abierto: boolean): RazonamientoVivo {
   const nodoResultado = el('div', 'resultado');
   raiz.appendChild(sum);
   raiz.appendChild(nodoResultado);
+  // [129A-2] Contador en vivo: vive en el meta junto al spinner y muere con
+  // `terminar` (que pisa el meta con el texto final).
+  let nodoContador: HTMLElement | null = null;
   return {
     raiz,
     nodoResultado,
     nodoMeta,
     terminar(meta: string) {
       nodoMeta.textContent = meta;
+      nodoContador = null;
+    },
+    fijarProgreso(texto: string) {
+      if (!nodoContador) {
+        nodoContador = el('span', 'contador');
+        nodoMeta.appendChild(nodoContador);
+      }
+      nodoContador.textContent = texto;
     },
   };
 }
@@ -54,6 +68,14 @@ export function crearRazonamientoCerrado(texto: string, meta: string): HTMLEleme
 /** Razonamiento vivo: abierto con spinner mientras el texto fluye. */
 export function crearRazonamientoVivo(): RazonamientoVivo {
   const r = baseRazonamiento(true);
+  // [129A-2] Marca de actividad: el CSS pulsa el título mientras el bloque
+  // recibe deltas; `terminar` la retira al cerrar.
+  r.raiz.classList.add('vivo');
+  const quitarVivo = r.terminar.bind(r);
+  r.terminar = (meta: string) => {
+    r.raiz.classList.remove('vivo');
+    quitarVivo(meta);
+  };
   ponerIcono(r.nodoMeta, 'spin', true, 'ic-spin');
   return r;
 }

@@ -435,6 +435,17 @@ async fn ejecutar_turno_chat(
 fn imprimir_evento_turno(evento: AgenteEvento) {
     match evento {
         AgenteEvento::Token { .. } => {}
+        /* [129A-2] El pensamiento en vivo ya fluye en desktop/TUI; en REPL
+         * basta el resumen completo al cerrar (primera línea, truncado). */
+        AgenteEvento::RazonamientoDelta { .. } => {}
+        AgenteEvento::Razonamiento { texto } => {
+            let primera = texto.lines().next().unwrap_or("").trim();
+            if !primera.is_empty() {
+                let corto: String = primera.chars().take(120).collect();
+                let puntos = if primera.chars().count() > 120 { "…" } else { "" };
+                eprintln!("  … {corto}{puntos}");
+            }
+        }
         AgenteEvento::ToolStart { tool, .. } => eprintln!("  → {tool}"),
         AgenteEvento::PeticionAprobacion {
             tool,

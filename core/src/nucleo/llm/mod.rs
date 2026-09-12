@@ -17,6 +17,9 @@ pub use modelo::{
     candidatos_para, catalogo_proveedores, AiChatOptions, AiChatResult, AiMessage,
     AiNutritionResult, AiStreamResult, AiToolCall, LlavesProveedor,
 };
+/* [129A-2] El bundle de callbacks en vivo lo construye el runtime
+ * (`tools.rs`), fuera de este módulo: se reexporta para él. */
+pub use stream::SalidasVivo;
 
 use modelo::{
     es_error_transitorio, mayuscula_primera, modelo_proveedor, resolver_candidatos, url_proveedor,

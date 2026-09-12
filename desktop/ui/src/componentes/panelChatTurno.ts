@@ -126,11 +126,19 @@ export function crearTurno(deps: TurnoDeps): TurnoChat {
     if (d.usaReal) d.panelMeta.setEstado('corriendo');
 
     const alTerminar = () => {
+      // [129A-2] Reloj del turno para tok/s: del envío al cierre, misma
+      // heurística móvil (10 llamadas). Sin duración o sin compleción no se
+      // mide (queda `null` y el pie omite la parte).
+      const inicio = inicioTurno;
       inicioTurno = null;
       if (d.usaReal) {
         d.panelMeta.setEstado('inactivo');
         const u = d.adaptador.usoUltimoTurno();
         d.panelMeta.setTokens(u.tokensPrompt + u.tokensComplecion);
+        if (inicio !== null) {
+          const seg = (Date.now() - inicio) / 1000;
+          u.velocidadTokS = seg > 0 && u.tokensComplecion > 0 ? u.tokensComplecion / seg : null;
+        }
         if (d.adaptador.resultadoUltimoTurno() === 'ok') {
           // [109A-5 F3] El pie lleva el id del turno: es el ancla del badge de
           // meta lograda cuando el logro se declara con el turno ya cerrado.
@@ -157,6 +165,7 @@ export function crearTurno(deps: TurnoDeps): TurnoChat {
           reservaSalida: 20000,
           modelo: 'glory/gpt-4.1',
           totalEntrada: 9100,
+          velocidadTokS: null,
         });
         // [039A-3 P6] Espejo del pie mock: el % y la ventana del pie también
         // se reflejan en el indicador circular (verificación visual sin

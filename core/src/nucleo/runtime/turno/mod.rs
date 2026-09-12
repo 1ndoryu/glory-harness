@@ -14,7 +14,9 @@ mod permisos;
 /// [059A-S3] Estado mutable de un turno (extraído de `ejecutar_turno` para
 /// acotar las firmas de los helpers de fase).
 pub(crate) struct EstadoTurno {
-    mensajes: Vec<AiMessage>,
+    /* `pub(crate)`: `cierre_wrap_up` vive en `tools.rs` ([129A-2]) y toca
+     * estos dos campos; el resto sigue privado del turno. */
+    pub(crate) mensajes: Vec<AiMessage>,
     /* [Bloque 3, F1] Cola de respuestas previas del asistente (del historial
      * del consumidor) para el detector de repetición de las guardas. Solo
      * contenido de texto real; tool_calls/Null no cuentan. */
@@ -31,7 +33,11 @@ pub(crate) struct EstadoTurno {
      * final del asistente se guarda al terminar el turno para que recargar
      * conserve el historial completo (el mensaje del usuario lo persiste el
      * consumidor antes de llamar). */
-    respuesta_final: Option<String>,
+    /* [29-08-2026] Persistencia de la conversación (Fase 4): la respuesta
+     * final del asistente se guarda al terminar el turno para que recargar
+     * conserve el historial completo (el mensaje del usuario lo persiste el
+     * consumidor antes de llamar). */
+    pub(crate) respuesta_final: Option<String>,
     /* [129A-1] Pensamientos del turno (uno por llamada LLM con
      * `reasoning_content`): se persisten como filas `rol = "reasoning"` para
      * repintar el summary al recargar, sin contaminar el historial que viaja
@@ -334,15 +340,33 @@ impl AgentRuntime {
             .await;
 
         let mut ultimo_contenido = String::new();
-        let (tool_calls, razonamiento) = {
+        /* [129A-2] El texto también fluye EN VIVO (throttled): al cerrar, solo
+         * viaja la cola que aún no salió (`enviados..`), nunca el duplicado
+         * completo de antes. */
+        let (tool_calls, razonamiento, enviados_vivo) = {
             /* [01-09-2026] Fase 4: `on_token` devuelve false para abortar el
              * stream LLM en cuanto el cliente corta el SSE. */
             let mut on_token = |texto: &str| -> bool {
                 ultimo_contenido.push_str(texto);
                 !tx.is_closed()
             };
-            self.llm_llamada(&estado.mensajes, &schemas, &mut on_token, tx)
-                .await?
+            /* [129A-2] Pensamiento en vivo hacia el summary abierto del
+             * front (`try_send`: si el canal se llenó, el delta se pierde
+             * pero el cierre lo cura con el texto completo). */
+            let mut on_razonamiento = |pensado: &str| {
+                let _ = tx.try_send(AgenteEvento::RazonamientoDelta {
+                    texto: pensado.to_string(),
+                });
+            };
+            self.llm_llamada(
+                &estado.mensajes,
+                &schemas,
+                &mut on_token,
+                &mut on_razonamiento,
+                tx,
+                true,
+            )
+            .await?
         };
         /* [129A-1] El pensamiento se persiste como fila `reasoning` (el evento
          * en vivo ya salió por `tx` en `llm_llamada`). */
@@ -353,6 +377,7 @@ impl AgentRuntime {
                 .gestionar_respuesta_final(
                     estado,
                     ultimo_contenido,
+                    enviados_vivo,
                     tokens_prompt_total,
                     tokens_complecion_total,
                     tx,
@@ -546,6 +571,7 @@ impl AgentRuntime {
         &self,
         estado: &mut EstadoTurno,
         mut ultimo_contenido: String,
+        enviados_vivo: usize,
         tokens_prompt_total: u32,
         tokens_complecion_total: u32,
         tx: &Sender<AgenteEvento>,
@@ -570,11 +596,19 @@ impl AgentRuntime {
                 ultimo_contenido.push_str(&aviso);
             }
         }
-        let _ = tx
-            .send(AgenteEvento::Token {
-                texto: ultimo_contenido.clone(),
-            })
-            .await;
+        /* [129A-2] Sin duplicados: si el texto ya fluyó en vivo, solo viaja la
+         * cola pendiente (`enviados_vivo..`, con el aviso ya anexado si lo
+         * hubo); si nada salió en vivo (respuesta corta o vía no-stream), el
+         * `Token` completo de siempre. Corte seguro a borde de delta: los
+         * fragmentos en vivo son concatenación exacta de deltas `&str`. */
+        let cola = ultimo_contenido.get(enviados_vivo.min(ultimo_contenido.len())..).unwrap_or("");
+        if !cola.is_empty() {
+            let _ = tx
+                .send(AgenteEvento::Token {
+                    texto: cola.to_string(),
+                })
+                .await;
+        }
         let _ = tx
             .send(AgenteEvento::Usage {
                 tokens_prompt: tokens_prompt_total,
@@ -589,45 +623,6 @@ impl AgentRuntime {
             estado.respuestas_asistente.push(ultimo_contenido);
         }
         Ok(PasoIteracion::FinalizarTurno)
-    }
-
-    /// [059A-S3] Wrap-up por límite de pasos: una última llamada SIN tools pide
-    /// el resumen de cierre (hecho / pendiente / siguiente paso) cuando el
-    /// turno agotó `max_turns` sin respuesta final. Si el cierre también queda
-    /// vacío (proveedor caído), el turno queda sin respuesta y el consumidor
-    /// decide reintentar.
-    async fn cierre_wrap_up(
-        &self,
-        estado: &mut EstadoTurno,
-        tx: &Sender<AgenteEvento>,
-    ) -> Result<()> {
-        if estado.respuesta_final.is_some() || tx.is_closed() {
-            return Ok(());
-        }
-        let mut mensajes_cierre = estado.mensajes.clone();
-        mensajes_cierre.push(AiMessage::texto("system", wrap_up_instruccion()));
-        let mut ultimo_contenido = String::new();
-        let mut on_token = |texto: &str| -> bool {
-            ultimo_contenido.push_str(texto);
-            !tx.is_closed()
-        };
-        let resultado = self
-            .llm_llamada(&mensajes_cierre, &[], &mut on_token, tx)
-            .await?;
-        /* [129A-1] El cierre también razona: se conserva con el resto del
-         * turno (el evento en vivo ya salió por `tx`). */
-        estado.guardar_razonamiento(resultado.1);
-        if resultado.0.is_empty() {
-            let _ = tx
-                .send(AgenteEvento::Token {
-                    texto: ultimo_contenido.clone(),
-                })
-                .await;
-            if !ultimo_contenido.trim().is_empty() {
-                estado.respuesta_final = Some(ultimo_contenido);
-            }
-        }
-        Ok(())
     }
 }
 

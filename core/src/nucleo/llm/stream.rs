@@ -2,14 +2,33 @@
 
 use super::*;
 
+/// [129A-2] Destinos en vivo de un stream: texto (`on_token`, con poder de
+/// cancelación) y pensamiento (`on_razonamiento`) viajan en un solo valor
+/// para que las firmas no crezcan con cada callback (clippy
+/// `too_many_arguments`: 7 es el techo). Es `pub` porque viaja en la firma
+/// pública de `enviar_chat_stream` (solo la construye el runtime).
+pub struct SalidasVivo<'a> {
+    pub token: &'a mut (dyn FnMut(&str) -> bool + Send),
+    pub razonamiento: &'a mut (dyn FnMut(&str) + Send),
+}
+
 /* El bucle SSE aplanado en un helper: solo consume el stream, acumula
- * content/token usage/tool_calls/finish_reason y gestiona la cancelaci├│n
+ * content/token usage/tool_calls/finish_reason y gestiona la cancelación
  * (on_token -> false). Devuelve la tupla cruda que ejecutar_request_stream
- * envuelve en AiStreamResult. `respuesta` se consume por valor (bytes_stream). */
+ * envuelve en AiStreamResult. `respuesta` se consume por valor (bytes_stream).
+ * [129A-2] `on_razonamiento` recibe cada `delta.reasoning_content` EN VIVO
+ * (sin valor de retorno: el pensamiento no cancela el stream); el acumulado
+ * completo sigue volviendo en la tupla para el evento único de cierre. */
 pub(crate) async fn hojear_stream(
     respuesta: reqwest::Response,
-    on_token: &mut (dyn FnMut(&str) -> bool + Send),
+    salidas: SalidasVivo<'_>,
 ) -> Result<(String, String, Vec<serde_json::Value>, u32, u32, String, String), Error> {
+    /* Los callbacks viajan juntos: se desestructuran para llamar sin
+     * pelear con el borrow de `salidas`. */
+    let SalidasVivo {
+        token: on_token,
+        razonamiento: on_razonamiento,
+    } = salidas;
     let mut contenido = String::new();
     /* [129A-1] El pensamiento viaja en `delta.reasoning_content`: se acumula
      * aparte (nunca por `on_token`, que es solo texto de respuesta) y se
@@ -67,7 +86,10 @@ pub(crate) async fn hojear_stream(
                     .get("reasoning_content")
                     .and_then(serde_json::Value::as_str)
                 {
+                    /* [129A-2] En vivo para el summary abierto del front; el
+                     * acumulado completo sigue saliendo en la tupla. */
                     razonamiento.push_str(pensado);
+                    on_razonamiento(pensado);
                 }
                 if let Some(calls) = delta
                     .get("tool_calls")

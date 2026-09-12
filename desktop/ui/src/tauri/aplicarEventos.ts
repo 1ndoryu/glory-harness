@@ -4,11 +4,14 @@
 import {
   crearHerramientaViva,
   crearRazonamientoCerrado,
+  crearRazonamientoVivo,
   crearTarjetaAprobacion,
   formatearResultadoHerramienta,
   pintarLogroEnPie,
+  tokensCortos,
   type AsistenteVivo,
   type HerramientaViva,
+  type RazonamientoVivo,
 } from '../componentes/mensajes';
 import { crearTareasViva, type TareasViva } from '../componentes/tareasMeta';
 import type { DecisionAprobacion } from '../dominio/tipos';
@@ -35,6 +38,14 @@ export interface EstadoTurno {
    * `meta_lograda` puede llegar DESPUÉS del cierre, así que hace falta el id
    * para localizar el pie de ese turno y anclar ahí el badge. */
   ultimoTurnoId: string | null;
+  /** [129A-2] Bloque de pensamiento en curso (hay `razonamiento_delta` sin su
+   * `razonamiento` de cierre todavía). Sobrevive entre eventos del mismo
+   * turno; se cierra en `razonamiento`/`done`/`error` o al detener. */
+  razonamiento: {
+    bloque: RazonamientoVivo;
+    inicioMs: number;
+    chars: number;
+  } | null;
 }
 
 /** Lo que el render necesita del adaptador (DOM + hooks + transporte). */
@@ -59,13 +70,32 @@ export function aplicarEvento(ev: AgenteEvento, st: EstadoTurno, d: EventosDeps)
       break;
     }
     case 'razonamiento': {
-      /* [129A-1] El pensamiento llega completo al final de la llamada: se
-       * pinta como summary cerrado (el contrato ya existe en
-       * mensajesBloques). Sin razonamiento el backend no emite y no hay nodo. */
-      if (ev.texto.trim()) {
+      /* [129A-1] El pensamiento llega completo al final de la llamada: sin
+       * deltas previos se pinta como summary cerrado. [129A-2] Con deltas
+       * previos hay un bloque vivo abierto: se cierra con el total real. */
+      if (st.razonamiento) {
+        finalizarRazonamiento(st, ev.texto);
+      } else if (ev.texto.trim()) {
         d.mensajes()?.appendChild(crearRazonamientoCerrado(ev.texto, 'razonamiento'));
         d.bajarScroll();
       }
+      break;
+    }
+    case 'razonamiento_delta': {
+      /* [129A-2] Pensamiento en vivo: al primer delta se abre el summary con
+       * spinner; cada delta anexa texto y refresca el contador estimado. */
+      if (!st.razonamiento) {
+        const bloque = crearRazonamientoVivo();
+        d.mensajes()?.appendChild(bloque.raiz);
+        st.razonamiento = { bloque, inicioMs: Date.now(), chars: 0 };
+      }
+      const r = st.razonamiento;
+      if (ev.texto) {
+        r.bloque.nodoResultado.appendChild(document.createTextNode(ev.texto));
+        r.chars += ev.texto.length;
+        r.bloque.fijarProgreso(`~${tokensCortos(r.chars / 4)} tok`);
+      }
+      d.bajarScroll();
       break;
     }
     case 'tool_start': {
@@ -182,9 +212,11 @@ export function aplicarEvento(ev: AgenteEvento, st: EstadoTurno, d: EventosDeps)
     case 'contexto':
       break;
     case 'error':
+      finalizarRazonamiento(st);
       d.aviso(`error: ${ev.mensaje}`, ev.retryable ? 'reintentable' : '', '');
       break;
     case 'done':
+      finalizarRazonamiento(st);
       d.olvidarAsistente();
       st.herramienta = null;
       st.ultimoTurnoId = ev.turno_id;
@@ -240,5 +272,22 @@ export function usoVacio(): UsoTurno {
     maxVentana: null,
     reservaSalida: null,
     totalEntrada: null,
+    velocidadTokS: null,
   };
+}
+
+/**
+ * [129A-2] Cierra el bloque de pensamiento en curso (si lo hay): fija el
+ * texto completo cuando se conoce (cura deltas perdidos por un canal lleno)
+ * y el meta con total estimado + segundos reales. Sin bloque, no-op. También
+ * la usa `detener` (corte del usuario sin `done` del backend).
+ */
+export function finalizarRazonamiento(st: EstadoTurno, texto?: string): void {
+  const r = st.razonamiento;
+  if (!r) return;
+  st.razonamiento = null;
+  const final = texto && texto.trim() ? texto : r.bloque.nodoResultado.textContent ?? '';
+  r.bloque.nodoResultado.textContent = final;
+  const seg = Math.max(0, (Date.now() - r.inicioMs) / 1000);
+  r.bloque.terminar(`~${tokensCortos(final.length / 4)} tok · ${seg.toFixed(1)} s`);
 }

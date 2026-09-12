@@ -113,6 +113,9 @@ async fn enviar_solicitud(
 /// devolver una respuesta parcial como éxito.
 /// [069A-9 07-09-2026] Captura `X-Routed-Via` header (gloryapi) como
 /// provider/modelo exacto, con prioridad sobre el campo `model` del body.
+/// [129A-2] Vía no-stream = respuesta batch: NO llama a `on_razonamiento`
+/// (no hay nada "en vivo" que emitir; el pensamiento viaja en el
+/// `AiStreamResult` para el evento único de cierre, secuencia 129A-1 intacta).
 async fn resultado_no_stream(
     respuesta: reqwest::Response,
     proveedor: &str,
@@ -194,7 +197,7 @@ impl LlmProviderService {
         modelo: &str,
         opciones: AiChatOptions,
         tools: Vec<serde_json::Value>,
-        on_token: &mut (dyn FnMut(&str) -> bool + Send),
+        mut salidas: SalidasVivo<'_>,
     ) -> Result<AiStreamResult, Error> {
         let mensajes_validos = validar_mensajes(mensajes)?;
         let mut errores: Vec<String> = Vec::new();
@@ -229,7 +232,7 @@ impl LlmProviderService {
                     tools: &tools,
                 };
                 match self
-                    .ejecutar_request_stream_con_reintentos(solicitud, on_token)
+                    .ejecutar_request_stream_con_reintentos(solicitud, &mut salidas)
                     .await
                 {
                     Ok(resultado) => {
@@ -275,7 +278,7 @@ impl LlmProviderService {
     async fn ejecutar_request_stream(
         &self,
         solicitud: SolicitudStream<'_>,
-        on_token: &mut (dyn FnMut(&str) -> bool + Send),
+        salidas: SalidasVivo<'_>,
     ) -> Result<AiStreamResult, Error> {
         let SolicitudStream {
             proveedor,
@@ -295,7 +298,7 @@ impl LlmProviderService {
          * (p. ej. un proxy que responde JSON directo), se hace la llamada
          * normal y se emite un único token. */
         if !respuesta_es_stream(&respuesta) {
-            return resultado_no_stream(respuesta, proveedor, &modelo, on_token).await;
+            return resultado_no_stream(respuesta, proveedor, &modelo, salidas.token).await;
         }
 
         /* [069A-9 07-09-2026] gloryapi expone el proveedor exacto que eligió
@@ -310,7 +313,7 @@ impl LlmProviderService {
             .map(|(p, m)| (p.to_string(), m.to_string()));
 
         let (contenido, razonamiento, tool_calls, tokens_prompt, tokens_complecion, finish_reason, modelo_real) =
-            super::stream::hojear_stream(respuesta, on_token).await?;
+            super::stream::hojear_stream(respuesta, salidas).await?;
         let tool_calls = parsear_tool_calls(tool_calls);
 
         /* [069A-9 07-09-2026] Prioridad: routed_via (gloryapi exacto) >
@@ -385,14 +388,20 @@ impl LlmProviderService {
     async fn ejecutar_request_stream_con_reintentos(
         &self,
         solicitud: SolicitudStream<'_>,
-        on_token: &mut (dyn FnMut(&str) -> bool + Send),
+        salidas: &mut SalidasVivo<'_>,
     ) -> Result<AiStreamResult, Error> {
         let SolicitudStream {
             proveedor, modelo, ..
         } = solicitud;
         let mut ultimo_error: Option<Error> = None;
         for intento in 0..=REINTENTOS_TRANSITORIOS {
-            match self.ejecutar_request_stream(solicitud, on_token).await {
+            /* Por intento se re-prestan los callbacks (el bundle se mueve por
+             * valor a cada intento; sin re-préstamo no compilaría el retry). */
+            let por_intento = SalidasVivo {
+                token: &mut *salidas.token,
+                razonamiento: &mut *salidas.razonamiento,
+            };
+            match self.ejecutar_request_stream(solicitud, por_intento).await {
                 Ok(resultado) => return Ok(resultado),
                 Err(Error::Cancelado) => return Err(Error::Cancelado),
                 Err(error) if es_error_transitorio(&error) && intento < REINTENTOS_TRANSITORIOS => {
