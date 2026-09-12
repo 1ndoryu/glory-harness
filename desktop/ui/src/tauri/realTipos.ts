@@ -339,6 +339,20 @@ export interface Transporte {
   comandoExpandir(nombre: string, argumentos: string): Promise<string>;
   // [109A-4 F3] Compactación por demanda de la conversación del panel.
   compactarConversacion(panelId: string | null, instruccion: string | null): Promise<ResumenCompactacion>;
+  /** [129A-4 F4] Log de un turno (eventos persistidos por el backend).
+   * Opcional: el transporte web no lo expone (el visor avisa en vez de
+   * simularlo). */
+  logTurno?(turnoId: string): Promise<EventoTurnoLog[]>;
+}
+
+/** [129A-4 F4] Evento de un turno para el visor (`log_turno` del backend).
+ * El `payload_json` es el JSON íntegro del evento (tag `tipo` snake_case). */
+export interface EventoTurnoLog {
+  id: number;
+  turno_id: string;
+  tipo: string;
+  payload_json: string;
+  creado_en: string;
 }
 
 /** true solo dentro de la app Tauri (hay `__TAURI__` global). */

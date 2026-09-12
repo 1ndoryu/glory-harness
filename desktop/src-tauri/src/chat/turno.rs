@@ -52,13 +52,24 @@ pub(crate) async fn enviar_turno(
     let uso_accum = std::sync::Arc::new(std::sync::Mutex::new(UsoAcumulado::default()));
     let uso_reenvio = Arc::clone(&uso_accum);
     let w_fw = w.clone();
+    /* [129A-4 F2] El reenvío persiste cada evento en `eventos_turno` (log por
+     * turno consultable con `log_turno`): sin esto, un turno atascado no deja
+     * rastro. La persistencia es best-effort con ruido a stderr+archivo (un
+     * fallo al anotar no puede tumbar el turno que ya está en curso). */
+    let persistencia_reenvio = Arc::clone(&sesion.persistencia);
     let handle = tauri::async_runtime::spawn(async move {
         // Al cerrar (ok, fallo o abort) se libera el flag para el próximo turno.
         // Reenvío en la misma tarea: el loop termina con Done (último evento).
         // [039A-3 P1] Se acumula el Usage real que emite el núcleo (cada
         // llm_llamada emite uno parcial; un turno con N tools acumula N) y se
         // propaga al cierre para persistirlo en `turnos`.
-        let reenvio = tauri::async_runtime::spawn(reenviar_eventos(w_fw, rx_ev, uso_reenvio));
+        let reenvio = tauri::async_runtime::spawn(reenviar_eventos(
+            w_fw,
+            rx_ev,
+            uso_reenvio,
+            turno_id,
+            persistencia_reenvio,
+        ));
         let resultado = runtime
             .ejecutar_turno_con_modo(
                 PeticionTurno {
@@ -177,18 +188,82 @@ fn fijar_contexto_turno(sesion: &Sesion, panel_id: &str, conv_id: Uuid, turno_id
 
 /// [079A-1 F5] Bucle de reenvío de eventos del núcleo a la ventana; termina
 /// con `Done` y acumula el `Usage` real del turno (auxiliar de `enviar_turno`).
+/// [129A-4 F2] Además persiste cada evento en `eventos_turno` (log por turno)
+/// y vincula petición→turno al ver una `PeticionAprobacion` (para atribuir la
+/// respuesta, que llega por comando). Se omiten `token`/`razonamiento_delta`
+/// (volumen; el texto vive en `mensajes`). Best-effort con ruido: un fallo al
+/// anotar se reporta a stderr+archivo, nunca se traga en silencio ni tumba el
+/// turno.
 async fn reenviar_eventos(
     ventana: tauri::Window,
     mut rx: tokio::sync::mpsc::Receiver<AgenteEvento>,
     uso: Arc<Mutex<UsoAcumulado>>,
+    turno_id: Uuid,
+    persistencia: Arc<PersistenciaSqlite>,
 ) {
     while let Some(ev) = rx.recv().await {
         let es_done = matches!(ev, AgenteEvento::Done { .. });
         acumular_uso(&uso, &ev);
+        anotar_evento(&persistencia, turno_id, &ev);
         let _ = ventana.emit("agente-evento", &ev);
         if es_done {
             break;
         }
+    }
+}
+
+/// [129A-4 F2] Persiste un evento del turno (auxiliar de `reenviar_eventos`).
+fn anotar_evento(
+    persistencia: &PersistenciaSqlite,
+    turno_id: Uuid,
+    ev: &AgenteEvento,
+) {
+    // Volumen alto sin valor diagnóstico (el texto final vive en `mensajes`).
+    if matches!(
+        ev,
+        AgenteEvento::Token { .. } | AgenteEvento::RazonamientoDelta { .. }
+    ) {
+        return;
+    }
+    let tipo = tipo_de_evento(ev);
+    let payload = serde_json::to_string(ev).unwrap_or_else(|_| "{}".to_string());
+    if let Err(e) = persistencia.evento_turno_registrar(turno_id, tipo, &payload) {
+        crate::log::anotar(&format!("eventos_turno no registrado ({turno_id}/{tipo}): {e}"));
+    }
+    // La respuesta de aprobación viaja por comando: sin este vínculo no se
+    // sabría a qué turno atribuirla.
+    if let AgenteEvento::PeticionAprobacion { id, .. } = ev {
+        if let Err(e) = persistencia.peticion_turno_vincular(id, turno_id) {
+            crate::log::anotar(&format!("peticion_turno no vinculada ({id}): {e}"));
+        }
+    }
+}
+
+/// [129A-4 F2] Nombre estable del evento (= tag `tipo` del contrato SSE).
+fn tipo_de_evento(ev: &AgenteEvento) -> &'static str {
+    match ev {
+        AgenteEvento::Token { .. } => "token",
+        AgenteEvento::Razonamiento { .. } => "razonamiento",
+        AgenteEvento::RazonamientoDelta { .. } => "razonamiento_delta",
+        AgenteEvento::ToolStart { .. } => "tool_start",
+        AgenteEvento::ToolResult { .. } => "tool_result",
+        AgenteEvento::RequiereAprobacion { .. } => "requiere_aprobacion",
+        AgenteEvento::PeticionAprobacion { .. } => "peticion_aprobacion",
+        AgenteEvento::Pregunta { .. } => "pregunta",
+        AgenteEvento::PermisoDenegado { .. } => "permiso_denegado",
+        AgenteEvento::SubagenteInicio { .. } => "subagente_inicio",
+        AgenteEvento::PlanPropuesto { .. } => "plan_propuesto",
+        AgenteEvento::SubagenteFin { .. } => "subagente_fin",
+        AgenteEvento::Usage { .. } => "usage",
+        AgenteEvento::Contexto { .. } => "contexto",
+        AgenteEvento::ContextoDetalle { .. } => "contexto_detalle",
+        AgenteEvento::Telemetria { .. } => "telemetria",
+        AgenteEvento::Error { .. } => "error",
+        AgenteEvento::Done { .. } => "done",
+        AgenteEvento::ToolNavegador { .. } => "tool_navegador",
+        AgenteEvento::TareasActualizadas { .. } => "tareas_actualizadas",
+        AgenteEvento::MetaLograda { .. } => "meta_lograda",
+        AgenteEvento::MetaPausadaPorBloqueo { .. } => "meta_pausada_por_bloqueo",
     }
 }
 
@@ -343,6 +418,27 @@ fn registrar_turno(
         }
         Err(_) => Err("no se pudo registrar el turno".into()),
     }
+}
+
+/// [129A-4 F4] Log de un turno: eventos persistidos por `reenviar_eventos`
+/// en orden de emisión (para diagnosticar atascos sin ir a ciegas).
+/// `turno_id` inválido o sin filas = error claro, nunca lista vacía muda.
+#[tauri::command]
+pub(crate) fn log_turno(
+    estado: State<'_, Estado>,
+    turno_id: String,
+) -> Result<Vec<EventoTurnoRegistrado>, String> {
+    let sesion = sesion_actual(&estado)?;
+    let id = Uuid::parse_str(turno_id.trim())
+        .map_err(|_| format!("turno_id inválido: {turno_id}"))?;
+    let eventos = sesion
+        .persistencia
+        .eventos_turno_listar(id)
+        .map_err(|e| e.to_string())?;
+    if eventos.is_empty() {
+        return Err(format!("el turno {id} no tiene eventos registrados"));
+    }
+    Ok(eventos)
 }
 
 /// Aborta el turno en curso (el runtime se detiene al cerrar el canal) y lo

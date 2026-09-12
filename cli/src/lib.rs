@@ -33,7 +33,8 @@ pub use infra::ejecutor::EjecutorCliente;
 pub use infra::persistencia::{PersistenciaMemoria, ProgramadorMemoria};
 pub use infra::reglas::cargar_reglas;
 pub use persistencia_sqlite::{
-    AccionRecuperada, InfoConversacion, MetaConversacionPersistida, PersistenciaSqlite, Workspace,
+    AccionRecuperada, EventoTurnoRegistrado, InfoConversacion, MetaConversacionPersistida,
+    PersistenciaSqlite, Workspace,
 };
 pub use ui::turno::{historial_desde_persistencia, procesar_turno, TurnoResultado};
 

@@ -95,6 +95,9 @@ export interface PieTurno {
   creadoEnMs?: number | null;
   /** Copiar desde el último mensaje de usuario hasta el último assistant. */
   alCopiar: () => void;
+  /** [129A-4 F4] Ver el log del turno (eventos persistidos). Ausente = este
+   * pie no conoce su turno (recarga sin id): no se pinta el botón. */
+  alVerLog?: () => void;
 }
 
 /**
@@ -201,6 +204,17 @@ export function crearPieTurno(datos: PieTurno): HTMLElement {
   bCopiar.addEventListener('click', () => datos.alCopiar());
 
   raiz.appendChild(meta);
+  // [129A-4 F4] "Ver log" solo con turno conocido (el vivo trae `turnoId`;
+  // la recarga no lo persiste y no muestra un botón que mentiría).
+  if (datos.turnoId && datos.alVerLog) {
+    const bLog = el('button', 'pie-log') as HTMLButtonElement;
+    bLog.type = 'button';
+    bLog.title = 'ver log del turno';
+    bLog.setAttribute('aria-label', 'ver log del turno');
+    bLog.appendChild(icono('terminal', true));
+    bLog.addEventListener('click', () => datos.alVerLog?.());
+    raiz.appendChild(bLog);
+  }
   raiz.appendChild(bCopiar);
   return raiz;
 }

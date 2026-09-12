@@ -1,0 +1,120 @@
+/* Visor del log de un turno [129A-4 F4]. Overlay sobre la base
+ * `.modal-fondo`/`.modal` (modal.css); tokens de variables.css. La lista
+ * hace scroll propio; el JSON usa monoespaciado del sistema. */
+
+.log-turno-modal {
+    width: min(760px, calc(100vw - 48px));
+    max-height: calc(100vh - 96px);
+    display: flex;
+    flex-direction: column;
+}
+
+.log-turno-titulo {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-sm);
+    font-size: var(--md);
+    font-weight: 600;
+    padding-bottom: var(--sp-xs);
+    border-bottom: 1px solid #000;
+}
+
+.log-turno-cerrar {
+    margin-left: auto;
+    flex: none;
+    background: transparent;
+    border: none;
+    font: inherit;
+    font-size: var(--lg);
+    line-height: 1;
+    padding: 2px 6px;
+    cursor: pointer;
+    opacity: 0.7;
+}
+
+.log-turno-cerrar:hover { opacity: 1; }
+
+.log-turno-aviso {
+    font-size: var(--xs);
+    opacity: 0.6;
+    padding: var(--sp-xs) 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.log-turno-lista {
+    overflow-y: auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.log-turno-evento {
+    border-bottom: 1px solid #00000022;
+    font-size: var(--sm);
+}
+
+.log-turno-cab {
+    display: flex;
+    align-items: baseline;
+    gap: var(--sp-sm);
+    padding: 3px 0;
+    cursor: pointer;
+    list-style: none;
+}
+
+.log-turno-cab::-webkit-details-marker { display: none; }
+
+.log-turno-hora {
+    flex: none;
+    opacity: 0.6;
+    font-size: var(--xs);
+}
+
+.log-turno-tipo {
+    flex: none;
+    font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+    font-size: var(--xs);
+    background: #00000011;
+    padding: 1px 6px;
+}
+
+.log-turno-resumen {
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    opacity: 0.8;
+}
+
+.log-turno-cuerpo {
+    position: relative;
+    padding: 0 0 var(--sp-sm) 0;
+}
+
+.log-turno-json {
+    margin: 0;
+    padding: var(--sp-xs);
+    background: #00000008;
+    overflow-x: auto;
+    font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+    font-size: var(--xs);
+    white-space: pre;
+}
+
+.log-turno-copiar {
+    position: absolute;
+    top: 2px;
+    right: 2px;
+    background: transparent;
+    border: none;
+    padding: 2px;
+    cursor: pointer;
+    opacity: 0.7;
+    color: #000;
+}
+
+.log-turno-copiar:hover { opacity: 1; }
+.log-turno-copiar .ic { display: block; }

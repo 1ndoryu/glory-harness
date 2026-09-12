@@ -28,6 +28,7 @@ import { crearCarga } from './panelChatCarga';
 import { crearComandosArea } from './comandosArea';
 import { crearEjecutorComandos } from './panelChatComandos';
 import { crearHistorial } from './panelChatHistorial';
+import { mostrarLogTurno } from '../orquestador/vistaLogTurno';
 import { crearTurno } from './panelChatTurno';
 import type { PanelChat, PanelChatOpciones } from './panelChatTipos';
 export type {
@@ -151,6 +152,17 @@ export function montarPanelChat(opts: PanelChatOpciones): PanelChat {
     abrirAccionesMensaje: (id, rect) => acciones.abrirAccionesMensaje(id, rect),
     copiarUltimoTramo: () => acciones.copiarUltimoTramo(),
     aviso: (texto, meta, detalle) => acciones.avisoChat(texto, meta, detalle),
+    // [129A-4 F4] "Ver log" del pie: lee eventos persistidos y abre el visor.
+    // Best-effort de lectura: si el transporte falla, aviso con el motivo.
+    verLogTurno: (turnoId) => {
+      void (async () => {
+        try {
+          mostrarLogTurno(turnoId, await d.adaptador.sesion.logTurno(turnoId));
+        } catch (e: unknown) {
+          acciones.avisoChat(`no se pudo leer el log: ${String(e)}`, 'log del turno', '');
+        }
+      })();
+    },
   });
   const acciones = crearAcciones({
     mensajes,

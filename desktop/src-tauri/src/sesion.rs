@@ -66,6 +66,10 @@ pub(crate) fn reconfigurar_sesion(
 }
 
 /// Responde una petición de aprobación (canal F2, tres vías).
+/// [129A-4 F2] Fail-loud + rastro: la respuesta queda en `eventos_turno`
+/// (atribuida al turno que emitió la petición) y un `id` desconocido hace
+/// ruido en stderr+archivo ADEMÁS del `Err` al front (antes se perdía sin
+/// dejar huella, imposible de diagnosticar).
 #[tauri::command]
 pub(crate) fn responder_aprobacion(
     estado: State<'_, Estado>,
@@ -83,9 +87,44 @@ pub(crate) fn responder_aprobacion(
         "siempre" => RespuestaAprobacion::Siempre,
         _ => RespuestaAprobacion::Rechazar,
     };
-    runtime
-        .responder_aprobacion(&id, r)
+    let resultado = runtime.responder_aprobacion(&id, r);
+    // Rastro best-effort: no cambia el resultado (el front ya recibe ok/Err).
+    let turno = sesion
+        .persistencia
+        .peticion_turno_de(&id)
         .map_err(|e| e.to_string())
+        .ok()
+        .flatten();
+    let (tipo, payload) = match &resultado {
+        Ok(()) => (
+            "respuesta_aprobacion",
+            serde_json::json!({"id": id, "respuesta": respuesta}),
+        ),
+        Err(e) => {
+            crate::log::anotar(&format!(
+                "responder_aprobacion falló (id={id}, respuesta={respuesta}): {e}"
+            ));
+            (
+                "respuesta_aprobacion_fallida",
+                serde_json::json!({"id": id, "respuesta": respuesta, "error": e}),
+            )
+        }
+    };
+    match turno {
+        Some(t) => {
+            if let Err(e) = sesion.persistencia.evento_turno_registrar(
+                t,
+                tipo,
+                &payload.to_string(),
+            ) {
+                crate::log::anotar(&format!("respuesta_aprobacion no registrada ({id}): {e}"));
+            }
+        }
+        None => crate::log::anotar(&format!(
+            "responder_aprobacion sin turno atribuido (id={id}, tipo={tipo}): petición no vista en este turno"
+        )),
+    }
+    resultado.map_err(|e| e.to_string())
 }
 
 /// Peticiones de aprobación aún pendientes (para pintar tarjetas al cerrar).

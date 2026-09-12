@@ -20,7 +20,9 @@
 use std::sync::{Arc, Mutex};
 
 use glory_harness::servicio::{Apertura, OpcionesSesion, SesionComun};
-use glory_harness::{InfoConversacion, PersistenciaSqlite, Workspace};
+use glory_harness::{
+    EventoTurnoRegistrado, InfoConversacion, PersistenciaSqlite, Workspace,
+};
 use glory_harness_core::aprobacion::{PeticionAprobacion, RespuestaAprobacion};
 use glory_harness_core::evento::AgenteEvento;
 use glory_harness_core::llm::{catalogo_proveedores, AiMessage, LlavesProveedor};
@@ -39,6 +41,7 @@ use uuid::Uuid;
 mod archivos;
 mod chat;
 mod comandos;
+mod log;
 mod navegador;
 mod proyecto;
 mod sesion;
@@ -467,6 +470,9 @@ fn area_activa(sesion: &Sesion) -> Result<Option<Workspace>, String> {
 }
 
 fn main() {
+    // [129A-4 F3] Log de proceso + panic hook ANTES de todo (un panic en el
+    // arranque también debe dejar rastro).
+    log::instalar();
     tauri::Builder::default()
         // [fix 12-09] Toast de Windows al necesitar aprobación (el usuario
         // puede estar en otra ventana): sin plugin no hay notificación.
@@ -478,6 +484,8 @@ fn main() {
             sesion::reconfigurar_sesion,
             turno::enviar_turno,
             turno::cancelar_turno,
+            // [129A-4 F4] Log por turno (diagnosticar atascos).
+            turno::log_turno,
             sesion::responder_aprobacion,
             sesion::pendientes_aprobacion,
             conversaciones::conversacion_nueva,

@@ -27,6 +27,8 @@ export interface HistorialDeps {
   copiarUltimoTramo(): void;
   /** Aviso del panel (lo aporta el módulo de acciones). */
   aviso(texto: string, meta: string, detalle: string): void;
+  /** [129A-4 F4] Abre el visor del log de un turno. */
+  verLogTurno(turnoId: string): void;
 }
 
 export interface HistorialChat {
@@ -217,6 +219,9 @@ export function crearHistorial(deps: HistorialDeps): HistorialChat {
         // exacta en hover (vale para el camino real y el mock).
         creadoEnMs: Date.now(),
         alCopiar: deps.copiarUltimoTramo,
+        // [129A-4 F4] "Ver log": solo con id real (sin id no hay log que
+        // pedir; crearPieTurno oculta el botón cuando falta).
+        alVerLog: turnoId ? () => deps.verLogTurno(turnoId) : undefined,
       }),
     );
     mensajes.scrollTop = mensajes.scrollHeight;

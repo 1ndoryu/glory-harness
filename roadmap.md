@@ -78,7 +78,7 @@ F1 (Copy Path / Edit name / Remove con confirmación) verificado con
       `main.rs` desktop opt-in) + frente (`aplicarEventos`, `turnoReal`,
       `realTipos`, `transporteTauri`, `main.ts`, `vistaMeta`). Slot + toast
       (`notificacionSistema.ts`, plugin `notification`) ya verificados; gate
-      anterior 129A-3 PASS 12-09 (464 tests) sobre el diseño viejo.
+       anterior 129A-3 PASS 12-09 (464 tests) sobre el diseño viejo.
 - [ ] **119A-2 — Menú contextual de proyecto** (F1–F4 implementados y
       verificados: F2 commit 1878d17, F3 commit 7c77b5e, F4 commit 41cd31b
       con gate PASS 12-09 de 459 tests ok):

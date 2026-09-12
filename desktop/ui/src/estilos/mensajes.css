@@ -219,7 +219,8 @@
     overflow: hidden;
     text-overflow: ellipsis;
 }
-.pie-turno .pie-copiar {
+.pie-turno .pie-copiar,
+.pie-turno .pie-log {
     margin-left: auto;
     flex: none;
     display: inline-flex;
@@ -233,8 +234,13 @@
     cursor: pointer;
     opacity: 0.7;
 }
-.pie-turno .pie-copiar:hover { opacity: 1; }
-.pie-turno .pie-copiar .ic { display: block; }
+/* [129A-4 F4] "Ver log" va ANTES de copiar: sin `margin-left:auto` (lo pone
+ * el copiar, que sigue siendo el último). */
+.pie-turno .pie-log { margin-left: 0; }
+.pie-turno .pie-copiar:hover,
+.pie-turno .pie-log:hover { opacity: 1; }
+.pie-turno .pie-copiar .ic,
+.pie-turno .pie-log .ic { display: block; }
 
 /* [109A-5 F3] Badge "meta lograda". Se ANEXA al pie cuando el logro llega
  * (puede ser entre turnos, con el pie ya cerrado), así que el divisor va en el

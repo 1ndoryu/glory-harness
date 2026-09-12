@@ -11,6 +11,7 @@ import type {
 import type {
   CargaConversacion,
   ComandoArea,
+  EventoTurnoLog,
   InfoConversacion,
   InfoSesion,
   ListadoMemoria,
@@ -148,6 +149,8 @@ export function transporteTauri(): Transporte {
         panelId: panelId,
         instruccion,
       }),
+    // [129A-4 F4] Log por turno (diagnosticar atascos sin ir a ciegas).
+    logTurno: (turnoId) => invoke<EventoTurnoLog[]>('log_turno', { turnoId }),
   };
 }
 

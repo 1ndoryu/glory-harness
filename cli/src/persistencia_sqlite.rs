@@ -31,11 +31,13 @@ use glory_harness_core::AmbitoMemoria;
 
 mod compactacion;
 mod conversaciones;
+mod eventos_turno;
 mod memoria;
 mod puerto;
 mod tareas;
 mod workspaces;
 
+pub use eventos_turno::EventoTurnoRegistrado;
 pub use workspaces::Workspace;
 
 /// Esquema inicial (idempotente: `IF NOT EXISTS`).
@@ -136,6 +138,23 @@ CREATE TABLE IF NOT EXISTS tarea_logs (
 CREATE TABLE IF NOT EXISTS config (
     clave TEXT PRIMARY KEY,
     valor TEXT NOT NULL
+);
+/* [129A-4 F1] Log de eventos por turno (observabilidad): una fila por evento
+ * del contrato `AgenteEvento` reenviado a la UI (`token` y
+ * `razonamiento_delta` se omiten por volumen; el texto vive en `mensajes`).
+ * `peticion_turno` atribuye la respuesta de aprobación (canal aparte) al
+ * turno que emitió la petición. */
+CREATE TABLE IF NOT EXISTS eventos_turno (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    turno_id TEXT NOT NULL,
+    tipo TEXT NOT NULL,
+    payload_json TEXT NOT NULL,
+    creado_en TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_eventos_turno ON eventos_turno (turno_id, id);
+CREATE TABLE IF NOT EXISTS peticion_turno (
+    peticion_id TEXT PRIMARY KEY,
+    turno_id TEXT NOT NULL
 );
 ";
 

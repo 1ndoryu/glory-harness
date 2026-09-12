@@ -13,6 +13,7 @@ import type {
 import type {
   CargaConversacion,
   ComandoArea,
+  EventoTurnoLog,
   HooksAdaptador,
   InfoConversacion,
   InfoSesion,
@@ -139,6 +140,12 @@ export function crearAdaptadorReal(hooks: HooksAdaptador = {}, transporte: Trans
        * [039A-3 P5] Opera sobre el panel dado (`principal`/`lateral`). */
       async compactar(panelId?: string, instruccion?: string | null): Promise<ResumenCompactacion> {
         return transporte.compactarConversacion(panelId ?? null, instruccion ?? null);
+      },
+      /** [129A-4 F4] Log de un turno (visor "ver log" del pie). En un
+       * transporte sin `logTurno` (web) falla con motivo en vez de simular. */
+      async logTurno(turnoId: string): Promise<EventoTurnoLog[]> {
+        if (!transporte.logTurno) throw new Error('este transporte no expone el log del turno');
+        return transporte.logTurno(turnoId);
       },
       /** [109A-4 F4] ¿Este transporte sabe correr un turno solo-lectura
        * (`/meta`)? Tauri sí (política del núcleo); el modo web no expone
