@@ -165,9 +165,15 @@ export function montarPanelMeta(opts: PanelMetaOpciones): PanelMeta {
     raiz.classList.add('expandido');
     pintarAltura();
   });
+  /* [119A-5 F3] Último texto confirmado o sincronizado: el blur solo
+   * confirma si el texto CAMBIÓ. Sin esto, enviar un mensaje (la entrada
+   * recupera el foco) fijaba/limpiaba la meta sin tocar la caja. */
+  let ultimoConfirmado = meta.value;
   function confirmarEdicion(): void {
     raiz.classList.remove('expandido');
     pintarAltura();
+    if (meta.value === ultimoConfirmado) return;
+    ultimoConfirmado = meta.value;
     opts.onMetaCambiada(meta.value);
   }
   meta.addEventListener('blur', confirmarEdicion);
@@ -183,6 +189,7 @@ export function montarPanelMeta(opts: PanelMetaOpciones): PanelMeta {
   /** Escribe el texto en la caja solo si cambia (evita perder el cursor) y
    * recalcula la altura, que depende del contenido. */
   function sincronizarCaja(texto: string): void {
+    ultimoConfirmado = texto;
     if (meta.value === texto) return;
     meta.value = texto;
     pintarAltura();
