@@ -327,7 +327,13 @@ impl SesionComun {
 
     /// Reconstruye el runtime con las opciones dadas y actualiza los
     /// campos derivados (modelo/modo/workspace visibles).
+    /// [129A-6] Preserva la espera en turno: el runtime fresco trae el flag
+    /// apagado por defecto, y sin esto cualquier `reconfigurar` (modelo,
+    /// modo, hooks) o cambio de workspace desactivaba en silencio la pausa
+    /// del desktop (turno 8330cf44). Se conserva el valor que hubiera, sin
+    /// imponer política a CLI/TUI/daemon/web.
     fn reconstruir(&mut self, opciones: OpcionesRun) -> Result<(), Error> {
+        let espera = self.runtime.registry.espera_aprobacion_en_turno();
         let harness = construir_harness_con(
             &opciones,
             Arc::clone(&self.persistencia) as Arc<dyn AgentPersistence>,
@@ -335,6 +341,9 @@ impl SesionComun {
             self.user_id,
         );
         self.runtime = harness.runtime;
+        self.runtime
+            .registry
+            .fijar_espera_aprobacion_en_turno(espera);
         self.modelo = format!("{}/{}", harness.config.provider, harness.config.modelo);
         self.modo = harness.config.modo;
         self.workspace = harness
@@ -1068,5 +1077,40 @@ mod tests {
             .conversacion_compactacion(sesion.user_id, conv)
             .expect("leer punto")
             .is_none());
+    }
+
+    /// [129A-6] `reconstruir` no debe perder la espera en turno: el runtime
+    /// fresco trae el flag apagado, y sin preservarlo cualquier reconfigurar
+    /// (modelo, modo, hooks) o cambio de workspace devolvía al desktop al
+    /// entre-turnos en silencio (turno 8330cf44). Se conserva el valor que
+    /// hubiera, en ambos sentidos (neutro para CLI/TUI/daemon/web).
+    #[tokio::test]
+    async fn reconstruir_conserva_espera_aprobacion_en_turno() {
+        let persistencia = PersistenciaSqlite::en_memoria().expect("BD en memoria");
+        let (mut sesion, _apertura) =
+            SesionComun::abrir_con_persistencia(OpcionesSesion::default(), persistencia, None)
+                .expect("abrir sesión");
+        assert!(
+            !sesion.runtime.registry.espera_aprobacion_en_turno(),
+            "apagado por defecto"
+        );
+        sesion
+            .reconfigurar(None, None, None, None)
+            .expect("reconfigurar sin cambios");
+        assert!(
+            !sesion.runtime.registry.espera_aprobacion_en_turno(),
+            "apagado sigue apagado (neutro)"
+        );
+        sesion
+            .runtime
+            .registry
+            .fijar_espera_aprobacion_en_turno(true);
+        sesion
+            .reconfigurar(None, None, None, None)
+            .expect("reconfigurar con espera activa");
+        assert!(
+            sesion.runtime.registry.espera_aprobacion_en_turno(),
+            "la espera sobrevive a la reconstrucción"
+        );
     }
 }

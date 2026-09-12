@@ -359,6 +359,9 @@ fn abrir_sesion_interna(
         .runtime
         .registry
         .fijar_espera_aprobacion_en_turno(true);
+    /* [129A-6] Deja constancia del estado: si un turno futuro no espera, el
+     * log dice si el flag estaba activo desde la apertura. */
+    crate::log::anotar("sesion desktop abierta: espera_aprobacion_en_turno=activada");
     let info = apertura_a_info(apertura);
     /* [039A-3 P3] Vault del workspace: se crea y se cablea al sandbox del
      * runtime. */

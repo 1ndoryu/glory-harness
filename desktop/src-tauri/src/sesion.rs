@@ -61,6 +61,12 @@ pub(crate) fn reconfigurar_sesion(
     /* El nuevo runtime trae el hook persistido porque `reconfigurar` lo
      * resuelve desde SQLite; se recablea además el sandbox del desktop. */
     cablear_vault_a(&comun.runtime, &sesion.vault);
+    /* [129A-6] El flag de espera sobrevive vía `reconstruir`; se registra su
+     * estado real para que un turno clásico futuro sea diagnosticable. */
+    crate::log::anotar(&format!(
+        "sesion desktop reconfigurada: espera_aprobacion_en_turno={}",
+        comun.runtime.registry.espera_aprobacion_en_turno()
+    ));
     drop(comun);
     info_de_panel(&sesion, PANEL_PRINCIPAL)
 }

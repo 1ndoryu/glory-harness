@@ -257,11 +257,28 @@ impl AgentRuntime {
                 Ok(crate::aprobacion::RespuestaAprobacion::Rechazar) => Some(false),
                 /* Emisor perdido (la petición fue supersedida por otra del
                  * mismo turno antes de responder): degradar al clásico. */
-                Err(_) => None,
+                Err(_) => {
+                    /* [129A-6] Solo se alcanza con el flag activo: la tarjeta
+                     * quedará huérfana y la respuesta llegará tarde; que haga
+                     * ruido en vez de cerrar en silencio. */
+                    eprintln!(
+                        "[glory] espera de aprobación degradada para {}: petición supersedida, el turno sigue en clásico",
+                        call.nombre
+                    );
+                    None
+                }
             },
             /* SSE cerrado (ventana cerrada o turno cancelado sin abort):
              * terminar con mensaje de espera en vez de colgar. */
-            _ = tx.closed() => None,
+            _ = tx.closed() => {
+                /* [129A-6] Idem: con el flag activo esto significa que el
+                 * front dejó de escuchar a mitad de la espera. */
+                eprintln!(
+                    "[glory] espera de aprobación degradada para {}: canal de eventos cerrado, el turno sigue en clásico",
+                    call.nombre
+                );
+                None
+            }
         }
     }
 
