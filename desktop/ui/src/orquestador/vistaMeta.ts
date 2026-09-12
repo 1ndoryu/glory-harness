@@ -195,11 +195,9 @@ export function montarVistaMeta(deps: VistaMetaDeps): VistaMeta {
      * M1. La meta que hay ahí se aplica al turno solo-lectura —`/meta <texto>`
      * la refleja y la persiste— y el backend la ignora fuera de esos turnos
      * (segunda barrera, no la única). */
-    const hayConversacion = deps.paneles().some((p) => p.conversaId !== null);
-    panelMeta.mostrar(hayConversacion);
-    /* [109A-5 F3] La meta es por conversación: al cambiar de conversación hay
-     * que releer su estado (activa, reloj, historial). `refrescarEstadoMeta`
-     * evita el GET si la conversación no cambió. */
+    /* El panel solo aparece con meta durable activa: `setEstadoMeta` decide
+     * la visibilidad, no la existencia de conversación. Sin meta no hay
+     * fila, ni reloj de turno, ni play en el panel. */
     panelMeta.setHayTurno(deps.sesion.ultimoTurnoId() !== null);
     void refrescarEstadoMeta();
   }

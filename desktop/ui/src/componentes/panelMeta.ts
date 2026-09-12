@@ -116,7 +116,10 @@ export function montarPanelMeta(opts: PanelMetaOpciones): PanelMeta {
   raiz.appendChild(logros.raiz);
 
   let estadoActual: EstadoMeta = 'inactivo';
-  let oculto = false;
+  /* El panel NO aparece hasta que empieza una meta real: arranca oculto y
+   * solo `setEstadoMeta` lo muestra (estado durable con `activa`). El estado
+   * del turno sin meta (corriendo/pausado, reloj, play) no lo hace visible. */
+  let oculto = true;
   let hayTurno = false;
 
   /** [039A-1 04-09 H1] Aplica la clase `.oculto` (display:none) sin colisión
@@ -219,6 +222,13 @@ export function montarPanelMeta(opts: PanelMetaOpciones): PanelMeta {
     },
     setEstadoMeta(estado: EstadoMetaVisible | null) {
       logros.actualizar(estado);
+      /* Visibilidad = meta durable activa. Sin `activa` (borrador, limpiar,
+       * lograr, conversación sin meta) el panel se oculta: no existe meta. */
+      const ocultar = estado?.activa == null;
+      if (oculto !== ocultar) {
+        oculto = ocultar;
+        pintarVisible();
+      }
       /* [109A-5 F3] La caja refleja la meta VIGENTE de la conversación: sin
        * esto, al reentrar en una conversación (o tras recargar) el reloj sigue
        * contando pero el usuario no ve qué meta persigue. No se escribe encima
