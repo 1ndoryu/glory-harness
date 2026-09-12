@@ -254,3 +254,75 @@ pub(crate) async fn eliminar_workspace(
     }
     Ok(Json(serde_json::json!({ "ok": true, "eliminada": true })))
 }
+
+/// Cuerpo de `POST /workspaces/:wid/archivar`.
+#[derive(Debug, Deserialize)]
+pub(crate) struct ArchivarProyecto {
+    archivada: bool,
+}
+
+/// `POST /api/v1/workspaces/:wid/archivar` ([119A-2 F4]) — archiva o
+/// desarchiva TODAS las conversaciones del área. Reversible hilo a hilo.
+pub(crate) async fn archivar_conversaciones_proyecto(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path((id, wid)): Path<(String, String)>,
+    Json(peticion): Json<ArchivarProyecto>,
+) -> Result<Json<Value>, ApiError> {
+    let (_, comun) = sesion_y_comun(&headers, &Method::POST, &state, &id).await?;
+    let wid = Uuid::parse_str(wid.trim())
+        .map_err(|_| error("peticion_invalida", "id de área malformado"))?;
+    let n = comun
+        .persistencia
+        .conversaciones_archivar_por_workspace(comun.user_id, wid, peticion.archivada)
+        .map_err(|e| error("sesion", e.to_string()))?;
+    Ok(Json(serde_json::json!({ "ok": true, "archivadas": n })))
+}
+
+/// `DELETE /api/v1/workspaces/:wid/conversaciones` ([119A-2 F4]) — elimina
+/// TODAS las conversaciones del área con sus mensajes y turnos; si la actual
+/// de la sesión estaba entre ellas, ancla la más reciente restante o `None`
+/// (espejo del DELETE single; sin vault en web).
+pub(crate) async fn eliminar_conversaciones_proyecto(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path((id, wid)): Path<(String, String)>,
+) -> Result<Json<Value>, ApiError> {
+    let (sesion, comun) = sesion_y_comun(&headers, &Method::DELETE, &state, &id).await?;
+    if turno_en_curso(&sesion).await {
+        return Err(error("turno_activo", "hay un turno en curso"));
+    }
+    let wid = Uuid::parse_str(wid.trim())
+        .map_err(|_| error("peticion_invalida", "id de área malformado"))?;
+    let borradas = comun
+        .persistencia
+        .conversaciones_eliminar_por_workspace(comun.user_id, wid)
+        .map_err(|e| error("sesion", e.to_string()))?;
+    let n = borradas.len();
+    let actual = *sesion.conversacion_id.lock().await;
+    if actual.is_some_and(|a| borradas.contains(&a)) {
+        let restante = comun
+            .persistencia
+            .conversaciones_listar(comun.user_id)
+            .map_err(|e| error("sesion", e.to_string()))?
+            .into_iter()
+            .find(|c| !c.archivada);
+        *sesion.conversacion_id.lock().await = restante.as_ref().map(|c| c.id);
+    }
+    // `actual` = la conversación anclada tras el borrado (`null` = borrador),
+    // mismo contrato que el DELETE single para que el front reconcilie.
+    let actual_id = *sesion.conversacion_id.lock().await;
+    let actual_conv: Option<crate::InfoConversacion> = match actual_id {
+        Some(aid) => Some(
+            comun
+                .persistencia
+                .conversaciones_listar(comun.user_id)
+                .map_err(|e| error("sesion", e.to_string()))?
+                .into_iter()
+                .find(|c| c.id == aid)
+                .ok_or_else(|| error("sesion", "conversación actual no encontrada"))?,
+        ),
+        None => None,
+    };
+    Ok(Json(serde_json::json!({ "ok": true, "eliminadas": n, "actual": actual_conv })))
+}

@@ -280,6 +280,65 @@ pub(crate) fn eliminar_conversacion(
     info_de_panel(&sesion, &panel_id).map(|i| i.conversacion)
 }
 
+/// [119A-2 F4] Archiva/desarchiva TODAS las conversaciones de un proyecto.
+/// Devuelve cuántas cambió. Reversible hilo a hilo (igual que el single,
+/// sin guard de turno).
+#[tauri::command]
+pub(crate) fn archivar_conversaciones_proyecto(
+    estado: State<'_, Estado>,
+    id: String,
+    archivada: bool,
+) -> Result<usize, String> {
+    let sesion = sesion_actual(&estado)?;
+    let ws = Uuid::parse_str(id.trim()).map_err(|_| "id inválido".to_string())?;
+    sesion
+        .persistencia
+        .conversaciones_archivar_por_workspace(sesion.user_id, ws, archivada)
+        .map_err(|e| e.to_string())
+}
+
+/// [119A-2 F4] Elimina TODAS las conversaciones de un proyecto con sus
+/// mensajes y turnos; limpia el vault por hilo y re-ancla el panel si
+/// mostraba una de las borradas (la más reciente no-archivada restante o
+/// borrador si no queda ninguna, espejo de `eliminar_conversacion`).
+#[tauri::command]
+pub(crate) fn eliminar_conversaciones_proyecto(
+    estado: State<'_, Estado>,
+    id: String,
+    panel_id: Option<String>,
+) -> Result<Option<InfoConversacion>, String> {
+    let sesion = sesion_actual(&estado)?;
+    if estado.turno.lock().map(|t| t.activo).unwrap_or(true) {
+        return Err("hay un turno en curso".into());
+    }
+    let panel_id = normalizar_panel(panel_id);
+    let ws = Uuid::parse_str(id.trim()).map_err(|_| "id inválido".to_string())?;
+    let borradas = sesion
+        .persistencia
+        .conversaciones_eliminar_por_workspace(sesion.user_id, ws)
+        .map_err(|e| e.to_string())?;
+    for b in &borradas {
+        sesion.vault.eliminar_conversacion(*b);
+    }
+    let actual = conv_id_de_panel(&sesion, &panel_id)?;
+    if actual.is_some_and(|a| borradas.contains(&a)) {
+        let restante = sesion
+            .persistencia
+            .conversaciones_listar(sesion.user_id)
+            .map_err(|e| e.to_string())?
+            .into_iter()
+            .find(|c| !c.archivada);
+        if let Ok(mut g) = sesion.paneles.lock() {
+            if let Some(d) = g.get_mut(&panel_id) {
+                d.conversacion_id = restante.as_ref().map(|c| c.id);
+                d.tramo_rewind = None;
+            }
+        }
+        return Ok(restante);
+    }
+    info_de_panel(&sesion, &panel_id).map(|i| i.conversacion)
+}
+
 /// [039A-3 P2] Rebobina la conversación hasta un mensaje de usuario.
 ///
 /// Con `editar=false` (volver a este punto) conserva el mensaje objetivo como

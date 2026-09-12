@@ -507,6 +507,14 @@ pub(crate) fn router(state: Arc<AppState>) -> Router {
             patch(super::web_datos::renombrar_workspace)
                 .delete(super::web_datos::eliminar_workspace),
         )
+        .route(
+            "/api/v1/session/{id}/workspaces/{wid}/archivar",
+            post(super::web_datos::archivar_conversaciones_proyecto),
+        )
+        .route(
+            "/api/v1/session/{id}/workspaces/{wid}/conversaciones",
+            delete(super::web_datos::eliminar_conversaciones_proyecto),
+        )
         // [089A-10] Files y Git del workspace activo (modo web): GET de solo
         // lectura sobre la raíz de la sesión; sin watcher (ponytail).
         .route(

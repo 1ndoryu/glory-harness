@@ -241,6 +241,9 @@ export function montarBarraLateral(deps: BarraLateralDeps): BarraLateral {
     onRevelarProyecto: accionesProyecto.onRevelarProyecto,
     // [119A-2 F3] Fija/suelta el proyecto (reordena el sidebar).
     onFijarProyecto: accionesProyecto.onFijarProyecto,
+    // [119A-2 F4] Batch de hilos del proyecto (archivar/eliminar).
+    onArchivarHilosProyecto: accionesProyecto.onArchivarHilosProyecto,
+    onEliminarHilosProyecto: accionesProyecto.onEliminarHilosProyecto,
     abrirConfig: () => deps.abrirConfig(),
   });
 

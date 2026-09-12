@@ -65,6 +65,11 @@ export function transporteTauri(): Transporte {
     convArchivar: (id, archivada) => invoke<boolean>('archivar_conversacion', { id, archivada }),
     convEliminar: (id, panelId) =>
       invoke<InfoConversacion>('eliminar_conversacion', { id, panelId: panelId }),
+    // [119A-2 F4] Batch por proyecto.
+    convArchivarProyecto: (id, archivada) =>
+      invoke<number>('archivar_conversaciones_proyecto', { id, archivada }),
+    convEliminarProyecto: (id, panelId) =>
+      invoke<InfoConversacion>('eliminar_conversaciones_proyecto', { id, panelId: panelId }),
     convRewind: (hastaMensajeId, editar, panelId) =>
       invoke<CargaConversacion>('rewind_conversacion', {
         hastaMensajeId,

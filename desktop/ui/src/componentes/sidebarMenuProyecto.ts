@@ -19,6 +19,10 @@ export interface MenuProyectoDeps {
   onRevelar: (id: string) => void;
   /** [119A-2 F3] Fija/suelta el proyecto (los fijados van primero). */
   onFijar: (id: string, fijado: boolean) => void;
+  /** [119A-2 F4] Archiva todos los hilos del proyecto (reversible). */
+  onArchivarHilos: (id: string) => void;
+  /** [119A-2 F4] Elimina todos los hilos del proyecto (tras confirmar). */
+  onEliminarHilos: (id: string) => void;
 }
 
 /** Convierte el nombre del grupo en un input inline para renombrar. */
@@ -64,11 +68,34 @@ export function abrirMenuProyecto(opts: {
   deps: MenuProyectoDeps;
   /** Segundo paso del borrado: pide confirmación explícita. */
   confirmar?: boolean;
+  /** Variante del segundo paso: confirma borrar TODOS los hilos. */
+  confirmarHilos?: boolean;
 }): void {
-  const { proyecto, evento, boton, nombreEl, deps, confirmar } = opts;
+  const { proyecto, evento, boton, nombreEl, deps, confirmar, confirmarHilos } = opts;
   abrirMenuContextual({
     rect: new DOMRect(evento.clientX, evento.clientY, 0, 0),
     construir(m) {
+      if (confirmarHilos) {
+        // [119A-2 F4] Borrado de hilos: destructivo e irreversible; el texto
+        // fija el alcance (el proyecto sigue existiendo, vacío).
+        m.appendChild(
+          crearItemMenu({
+            texto: `Borrar todos los hilos de «${proyecto.nombre}»`,
+            onClick() {
+              deps.onEliminarHilos(proyecto.id);
+            },
+          }),
+        );
+        m.appendChild(
+          crearItemMenu({
+            texto: 'Cancelar',
+            onClick() {
+              cerrarMenuActual();
+            },
+          }),
+        );
+        return;
+      }
       if (confirmar) {
         m.appendChild(
           crearItemMenu({
@@ -125,6 +152,27 @@ export function abrirMenuProyecto(opts: {
           texto: 'Edit name',
           onClick() {
             empezarRenombrarProyecto(proyecto, boton, nombreEl, deps.onRenombrar);
+          },
+        }),
+      );
+      m.appendChild(crearSeparadorMenu());
+      // [119A-2 F4] Batch de hilos: archivar es reversible (un paso);
+      // borrar es destructivo (segundo paso con confirmación).
+      m.appendChild(
+        crearItemMenu({
+          texto: 'Archive threads',
+          onClick() {
+            cerrarMenuActual();
+            deps.onArchivarHilos(proyecto.id);
+          },
+        }),
+      );
+      m.appendChild(
+        crearItemMenu({
+          texto: 'Delete threads',
+          onClick() {
+            cerrarMenuActual();
+            abrirMenuProyecto({ proyecto, evento, boton, nombreEl, deps, confirmarHilos: true });
           },
         }),
       );

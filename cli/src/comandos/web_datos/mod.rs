@@ -13,7 +13,8 @@ mod git;
 mod pruebas;
 
 pub(crate) use areas::{
-    cambiar_workspace_ep, crear_workspace, eliminar_workspace, leer_workspace, listar_workspaces,
+    archivar_conversaciones_proyecto, cambiar_workspace_ep, crear_workspace,
+    eliminar_conversaciones_proyecto, eliminar_workspace, leer_workspace, listar_workspaces,
     renombrar_workspace,
 };
 pub(crate) use configuracion::{guardar_config, leer_config, leer_proveedores};

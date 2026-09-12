@@ -13,6 +13,8 @@ use super::{
     MetaConversacionPersistida, PersistenciaSqlite,
 };
 
+mod lote;
+
 impl PersistenciaSqlite {
     // --- CRUD de conversaciones (inherente: no forma parte del trait) ---
 

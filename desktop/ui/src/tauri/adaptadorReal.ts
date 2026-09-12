@@ -62,6 +62,17 @@ export function crearAdaptadorReal(hooks: HooksAdaptador = {}, transporte: Trans
       async eliminar(id: string, panelId?: string): Promise<InfoConversacion | null> {
         return transporte.convEliminar(id, panelId ?? null);
       },
+      // [119A-2 F4] Batch por proyecto: archivar devuelve cuántas cambió;
+      // eliminar re-ancla el panel igual que el single (`null` = borrador).
+      async archivarProyecto(id: string, archivada: boolean): Promise<number> {
+        return transporte.convArchivarProyecto(id, archivada);
+      },
+      async eliminarProyecto(
+        id: string,
+        panelId?: string,
+      ): Promise<InfoConversacion | null> {
+        return transporte.convEliminarProyecto(id, panelId ?? null);
+      },
       /** [039A-3 P2] Borra el hilo posterior a un mensaje de usuario y
        * devuelve la conversación recién recortada. `editar=false` conserva el
        * mensaje objetivo ("volver a este punto"); `editar=true` lo borra

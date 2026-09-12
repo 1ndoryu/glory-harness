@@ -288,6 +288,10 @@ export interface Transporte {
   convArchivar(id: string, archivada: boolean): Promise<boolean>;
   /** [069A-7] `null` = no quedó ninguna conversación en el panel (borrador). */
   convEliminar(id: string, panelId: string | null): Promise<InfoConversacion | null>;
+  // [119A-2 F4] Batch por proyecto: archivar devuelve cuántas cambió;
+  // eliminar devuelve la conversación a anclar (`null` = borrador).
+  convArchivarProyecto(id: string, archivada: boolean): Promise<number>;
+  convEliminarProyecto(id: string, panelId: string | null): Promise<InfoConversacion | null>;
   convRewind(hastaMensajeId: string, editar: boolean, panelId: string | null): Promise<CargaConversacion>;
   tramoRestaurar(panelId: string | null): Promise<ResultadoRestauracionTramo>;
   leerProveedores(): Promise<ProveedorInfo[]>;

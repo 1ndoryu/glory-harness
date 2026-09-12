@@ -477,6 +477,8 @@ fn main() {
             conversaciones::renombrar_conversacion,
             conversaciones::archivar_conversacion,
             conversaciones::eliminar_conversacion,
+            conversaciones::archivar_conversaciones_proyecto,
+            conversaciones::eliminar_conversaciones_proyecto,
             sesion::proveedores_disponibles,
             sesion::config_leer,
             sesion::config_guardar,

@@ -22,6 +22,7 @@ import type { ListadoWorkspace, ResultadoBusqueda } from '../dominio/tipos';
 import { crearClienteApi } from './apiCliente';
 import { crearTransporteMeta } from './apiMeta';
 import { crearTransporteWorkspaces } from './apiWorkspaces';
+import { crearTransporteConversacionesProyecto } from './apiConversaciones';
 import { transporteMemoriasNoDisponibles } from './apiMemorias';
 import { transporteComandosNoDisponibles } from './apiComandos';
 import { transporteCompactarNoDisponible } from './apiCompactar';
@@ -241,6 +242,8 @@ export function crearTransporteApi(base: string, hooks: HooksAdaptador = {}): Tr
     // [119A-2 F3] Proyectos (listar/crear/activar/renombrar/quitar/revelar/
     // fijar) en `apiWorkspaces` por el mismo límite.
     ...crearTransporteWorkspaces(cliente),
+    // [119A-2 F4] Batch de hilos por proyecto en `apiConversaciones`.
+    ...crearTransporteConversacionesProyecto(cliente),
     workspaceInfo: async () =>
       http<{ ruta: string; nombre: string }>(
         'GET',

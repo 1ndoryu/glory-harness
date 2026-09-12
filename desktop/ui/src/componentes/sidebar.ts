@@ -83,6 +83,10 @@ export interface SidebarProyectoNav {
   onRevelarProyecto?: (id: string) => void;
   /** [119A-2 F3] Se invoca al fijar/soltar un proyecto. */
   onFijarProyecto?: (id: string, fijado: boolean) => void;
+  /** [119A-2 F4] Se invoca al archivar todos los hilos de un proyecto. */
+  onArchivarHilosProyecto?: (id: string) => void;
+  /** [119A-2 F4] Se invoca al eliminar todos los hilos de un proyecto (tras confirmar). */
+  onEliminarHilosProyecto?: (id: string) => void;
   /** [039A-3 P5] Consulta si se puede ofrecer "Abrir en panel lateral"
    * (el orquestador decide: <2 chats abiertos y ancho suficiente). */
   puedeAbrirLateral?: () => boolean;
@@ -255,13 +259,16 @@ export function montarSidebar(opts: SidebarOpciones): Sidebar {
       if ((e.target as HTMLElement).tagName === 'INPUT') return;
       if (proyectoActivo?.id !== proyecto.id) opts.onSeleccionarProyecto?.(proyecto.ruta);
     });
-    // [119A-2 F1] Clic derecho = Copy Path / Open in Finder / Edit name /
-    // Remove (misma mecánica de menu.ts que las celdas de conversación).
+    // [119A-2 F1] Clic derecho = Copy Path / Open in Finder / Pin /
+    // Edit name / Archive threads / Delete threads / Remove (misma mecánica
+    // de menu.ts que las celdas de conversación).
     const depsMenu: MenuProyectoDeps = {
       onRenombrar: (id, nombre) => opts.onRenombrarProyecto?.(id, nombre),
       onEliminar: (id) => opts.onEliminarProyecto?.(id),
       onRevelar: (id) => opts.onRevelarProyecto?.(id),
       onFijar: (id, fijado) => opts.onFijarProyecto?.(id, fijado),
+      onArchivarHilos: (id) => opts.onArchivarHilosProyecto?.(id),
+      onEliminarHilos: (id) => opts.onEliminarHilosProyecto?.(id),
     };
     boton.addEventListener('contextmenu', (e) => {
       e.preventDefault();
