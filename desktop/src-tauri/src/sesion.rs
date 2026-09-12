@@ -70,12 +70,15 @@ pub(crate) fn reconfigurar_sesion(
 /// (atribuida al turno que emitió la petición) y un `id` desconocido hace
 /// ruido en stderr+archivo ADEMÁS del `Err` al front (antes se perdía sin
 /// dejar huella, imposible de diagnosticar).
+/// [129A-5] Devuelve si se despertó a un turno en espera: `false` = respuesta
+/// aplicada pero el turno ya cerró (aprobación tardía estilo b4eccce1) — el
+/// frente NO debe pintar "ejecutando…" sino "el turno ya terminó".
 #[tauri::command]
 pub(crate) fn responder_aprobacion(
     estado: State<'_, Estado>,
     id: String,
     respuesta: String,
-) -> Result<(), String> {
+) -> Result<bool, String> {
     let sesion = sesion_actual(&estado)?;
     let runtime = sesion
         .comun
@@ -96,9 +99,13 @@ pub(crate) fn responder_aprobacion(
         .ok()
         .flatten();
     let (tipo, payload) = match &resultado {
-        Ok(()) => (
+        Ok(true) => (
             "respuesta_aprobacion",
             serde_json::json!({"id": id, "respuesta": respuesta}),
+        ),
+        Ok(false) => (
+            "respuesta_aprobacion_sin_espera",
+            serde_json::json!({"id": id, "respuesta": respuesta, "nota": "sin turno en espera: turno ya cerrado o modo entre-turnos"}),
         ),
         Err(e) => {
             crate::log::anotar(&format!(

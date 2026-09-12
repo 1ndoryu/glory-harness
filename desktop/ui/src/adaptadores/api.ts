@@ -93,6 +93,10 @@ export function crearTransporteApi(base: string, hooks: HooksAdaptador = {}): Tr
         approved: respuesta !== 'rechazar',
         siempre: respuesta === 'siempre' ? true : undefined,
       });
+      /* [129A-5] Modo web = entre-turnos clásico: se asume turno en espera
+       * (el servidor reenvía); si el turno ya cerró, el `tool_result` y el
+       * `done` siguientes corrigen la tarjeta en el flujo. */
+      return true;
     },
     pendientesAprobacion: () => Promise.resolve([]),
     /* [109A-4 F4] Sin política por turno en el modo web. */

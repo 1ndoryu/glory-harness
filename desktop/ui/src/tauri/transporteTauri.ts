@@ -50,7 +50,7 @@ export function transporteTauri(): Transporte {
       void invoke('cancelar_turno', { panelId: panelId }).catch(() => {});
     },
     responderAprobacion: (id, respuesta) =>
-      invoke<void>('responder_aprobacion', { id, respuesta }),
+      invoke<boolean>('responder_aprobacion', { id, respuesta }),
     pendientesAprobacion: () => invoke<unknown[]>('pendientes_aprobacion'),
     soportaSoloLectura: () => true,
     escucharTurno: async (onEvento, onFin) => {

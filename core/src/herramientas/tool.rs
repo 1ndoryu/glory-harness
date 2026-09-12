@@ -603,11 +603,14 @@ impl AgentToolRegistry {
     /// ese caso (la ejecución directa YA es la única vez); en modo
     /// entre-turnos el token se conserva porque la ejecución ocurre en el
     /// turno siguiente.
+    /// [129A-5] Devuelve si se despertó a un turno en espera (`false` =
+    /// respuesta aplicada pero sin nadie aguardando: turno ya cerrado o modo
+    /// entre-turnos; el llamante no debe prometer ejecución en curso).
     pub fn responder_peticion(
         &self,
         id: &str,
         respuesta: RespuestaAprobacion,
-    ) -> std::result::Result<(), String> {
+    ) -> std::result::Result<bool, String> {
         let peticion = {
             let mut guard = self.pendientes.write().unwrap_or_else(|p| p.into_inner());
             guard.remove(id).ok_or_else(|| {
@@ -653,7 +656,7 @@ impl AgentToolRegistry {
         if let Some(tx) = despertar {
             let _ = tx.send(respuesta);
         }
-        Ok(())
+        Ok(habia_espera)
     }
 
     /* [04-09-2026 B3-F1] Canal de preguntas de `ask_user`: registrar,
@@ -1179,9 +1182,10 @@ mod tests {
         };
         assert_eq!(llamada("src/a.rs"), Permiso::Ask, "base: ask");
         registry.registrar_peticion(peticion_file_write("p1", "src/a.rs"));
-        registry
+        let desperto = registry
             .responder_peticion("p1", RespuestaAprobacion::Aprobar)
             .expect("responde p1");
+        assert!(!desperto, "entre-turnos: nadie aguarda la petición");
         assert_eq!(
             llamada("src/a.rs"),
             Permiso::Allow,
@@ -1201,9 +1205,10 @@ mod tests {
             registry.permiso_para_llamada("file_write", &json!({ "ruta": ruta }), "predeterminado")
         };
         registry.registrar_peticion(peticion_file_write("p2", "src/a.rs"));
-        registry
+        let desperto = registry
             .responder_peticion("p2", RespuestaAprobacion::Siempre)
             .expect("responde p2");
+        assert!(!desperto, "entre-turnos: nadie aguarda la petición");
         /* Misma CLASE (escritura dentro del workspace), distinto valor: ya no
          * pregunta — el "siempre" recuerda el tipo, no el comando exacto. */
         assert_eq!(llamada("src/b.rs"), Permiso::Allow);
@@ -1219,9 +1224,10 @@ mod tests {
             registry.permiso_para_llamada("file_write", &json!({ "ruta": ruta }), "predeterminado")
         };
         registry.registrar_peticion(peticion_file_write("p3", "../fuera.txt"));
-        registry
+        let desperto = registry
             .responder_peticion("p3", RespuestaAprobacion::Rechazar)
             .expect("responde p3");
+        assert!(!desperto, "entre-turnos: nadie aguarda la petición");
         assert_eq!(
             llamada("../otro.txt"),
             Permiso::Deny,
@@ -1300,9 +1306,10 @@ mod tests {
         let mut rx = registry
             .registrar_peticion(peticion_file_write("p-w1", "src/a.rs"))
             .expect("modo espera crea canal");
-        registry
+        let desperto = registry
             .responder_peticion("p-w1", RespuestaAprobacion::Aprobar)
             .expect("responde p-w1");
+        assert!(desperto, "en espera: despierta al turno que aguarda");
         assert_eq!(
             rx.try_recv().expect("despierta al que aguarda"),
             RespuestaAprobacion::Aprobar
@@ -1326,9 +1333,10 @@ mod tests {
         let mut rx = registry
             .registrar_peticion(peticion_file_write("p-w2", "../fuera.txt"))
             .expect("modo espera crea canal");
-        registry
+        let desperto = registry
             .responder_peticion("p-w2", RespuestaAprobacion::Rechazar)
             .expect("responde p-w2");
+        assert!(desperto, "en espera: despierta al turno que aguarda");
         assert_eq!(
             rx.try_recv().expect("despierta al que aguarda"),
             RespuestaAprobacion::Rechazar

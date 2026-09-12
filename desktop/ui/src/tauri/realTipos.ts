@@ -281,7 +281,7 @@ export interface Transporte {
    * que `/meta` se rechaza con motivo explícito en vez de simularlo. */
   soportaSoloLectura(): boolean;
   detenerTurno(panelId: string | null): void;
-  responderAprobacion(id: string, respuesta: string): Promise<void>;
+  responderAprobacion(id: string, respuesta: string): Promise<boolean>;
   pendientesAprobacion(): Promise<unknown[]>;
   /** Registra (una vez) el reenvío turno→UI: eventos + cierre. */
   escucharTurno(

@@ -147,9 +147,20 @@ export function aplicarEvento(ev: AgenteEvento, st: EstadoTurno, d: EventosDeps)
         onDecidir: (decision, t) => {
           void d.transporte
             .responderAprobacion(ev.id, RESPUESTA[decision])
-            .then(() => {
+            .then((desperto) => {
               // [129A-3] Sin reenvío: el turno sigue vivo y ejecuta lo
               // aprobado en este mismo turno; la tarjeta queda como registro.
+              // [129A-5] Si no se despertó a nadie (turno ya cerrado estilo
+              // b4eccce1), no prometer "ejecutando…": avisar que el turno
+              // terminó y que hace falta un mensaje nuevo.
+              if (!desperto) {
+                t.ponerEstado('el turno ya terminó · envía un mensaje nuevo');
+                t.marcarDenegada();
+                t.quitarAcciones();
+                d.mensajes()?.appendChild(tarjeta.raiz);
+                d.bajarScroll();
+                return;
+              }
               t.ponerEstado(
                 decision === 'denegar' ? 'denegada por el usuario' : 'aprobada · ejecutando…',
               );

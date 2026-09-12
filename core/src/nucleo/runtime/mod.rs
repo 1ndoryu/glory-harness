@@ -551,11 +551,12 @@ impl AgentRuntime {
 
     /// Responde una petición de aprobación pendiente (tres vías).
     /// `Err` si el id es desconocido o ya fue respondido.
+    /// [129A-5] Devuelve si se despertó a un turno en espera.
     pub fn responder_aprobacion(
         &self,
         id: &str,
         respuesta: crate::aprobacion::RespuestaAprobacion,
-    ) -> std::result::Result<(), String> {
+    ) -> std::result::Result<bool, String> {
         self.registry.responder_peticion(id, respuesta)
     }
 
