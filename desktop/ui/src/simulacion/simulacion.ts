@@ -68,6 +68,8 @@ export function crearSimulacion(): Simulacion {
     (function pasoStream() {
       if (!corriendo) return;
       if (i >= texto.length) {
+        // [fix 12-09] Texto completo = caret fuera, como en el flujo real.
+        m.cursor.remove();
         cb();
         return;
       }

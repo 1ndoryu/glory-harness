@@ -89,6 +89,10 @@ export interface PieTurno {
   /** [129A-2] Velocidad medida del turno (tokens compleción / s de turno).
    * `null`/`undefined` = sin medir (historial recargado): la parte se omite. */
   velocidadTokS?: number | null;
+  /** [fix 12-09] Hora del cierre del turno (ms epoch). Visible como `HH:MM`
+   * al final del pie; el `title` lleva la fecha exacta. `null`/ausente =
+   * turno antiguo sin hora (se omite la parte). */
+  creadoEnMs?: number | null;
   /** Copiar desde el último mensaje de usuario hasta el último assistant. */
   alCopiar: () => void;
 }
@@ -125,8 +129,10 @@ export function tokensCortos(n: number): string {
 
 /**
  * [039A-3 P1] Pie de turno: bloque estático que cierra cada respuesta del
- * asistente con tokens enviados/recibidos, modelo usado, uso de contexto y
+ * asistente con tokens enviados/recibidos, modelo corto (ruta completa en
+ * hover), velocidad si se midió, hora de cierre (fecha exacta en hover) y
  * un botón Copiar (copia del último mensaje de usuario al último assistant).
+ * Sin medidor de ventana: vive en el indicador circular de la entrada.
  * Se repinta desde `turnos`+mensajes al recargar (misma fuente: tokens reales
  * persistidos por el backend y modelo real tras fallback).
  */
@@ -138,18 +144,55 @@ export function crearPieTurno(datos: PieTurno): HTMLElement {
   const meta = el('div', 'pie-meta');
   const txt = el('span', 'pie-texto');
   const partes: string[] = [];
-  partes.push(`${tokensCortos(datos.tokensPrompt)} → ${tokensCortos(datos.tokensComplecion)}`);
-  partes.push(datos.modelo ?? 'desconocido');
+  // [fix 12-09] Sin tokens ni modelo conocidos (pie de turno antiguo al
+  // recargar) el pie muestra solo la hora: `0 → 0 · desconocido` mentía.
+  const hayTokens = datos.tokensPrompt > 0 || datos.tokensComplecion > 0;
+  if (hayTokens) {
+    partes.push(`${tokensCortos(datos.tokensPrompt)} → ${tokensCortos(datos.tokensComplecion)}`);
+    if (!datos.modelo) partes.push('desconocido');
+  }
   // [129A-2] Velocidad del turno cuando se midió (en vivo, no recarga).
   if (datos.velocidadTokS !== null && datos.velocidadTokS !== undefined && Number.isFinite(datos.velocidadTokS)) {
     partes.push(`${datos.velocidadTokS.toFixed(1)} tok/s`);
   }
-  if (datos.ocupacionPct !== null && datos.maxVentana !== null) {
-    const usados = Math.round((datos.ocupacionPct / 100) * (datos.maxVentana - (datos.reservaSalida ?? 0)));
-    partes.push(`${tokensCortos(usados)}/${tokensCortos(datos.maxVentana)} (${Math.round(datos.ocupacionPct)}%)`);
+  // [fix 12-09] El medidor de ventana (`15k/150k (12%)`) NO va en el pie:
+  // vive en el indicador circular de la entrada (`ganchos.ts`).
+  if (partes.length > 0) {
+    txt.textContent = partes.join(' · ');
+    meta.appendChild(txt);
   }
-  txt.textContent = partes.join(' · ');
-  meta.appendChild(txt);
+  // [fix 12-09] Modelo corto (último segmento) + ruta completa en hover.
+  if (datos.modelo) {
+    if (meta.hasChildNodes()) {
+      const sepMod = el('span', 'pie-texto');
+      sepMod.textContent = ' · ';
+      meta.appendChild(sepMod);
+    }
+    const mod = el('span', 'pie-modelo');
+    mod.textContent = datos.modelo.split('/').pop() || datos.modelo;
+    mod.title = datos.modelo;
+    meta.appendChild(mod);
+  }
+  // [fix 12-09] Hora visible + fecha exacta en hover (`title` nativo).
+  if (datos.creadoEnMs !== null && datos.creadoEnMs !== undefined && Number.isFinite(datos.creadoEnMs)) {
+    const fecha = new Date(datos.creadoEnMs);
+    if (meta.hasChildNodes()) {
+      const sep = el('span', 'pie-texto');
+      sep.textContent = ' · ';
+      meta.appendChild(sep);
+    }
+    const hora = el('span', 'pie-hora');
+    hora.textContent = fecha.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    hora.title = fecha.toLocaleString([], {
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    });
+    meta.appendChild(hora);
+  }
 
   const bCopiar = el('button', 'pie-copiar') as HTMLButtonElement;
   bCopiar.type = 'button';

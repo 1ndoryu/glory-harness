@@ -63,6 +63,16 @@
     padding: var(--sp-sm);
     background: #fff;
 }
+/* [fix 12-09] Slot fijo de aprobaciones pendientes, justo encima de la caja
+   (como la caja de meta). Vacío no ocupa nada; con tarjetas, apila con aire
+   respecto a la caja. La tarjeta decidida vuelve al flujo (aplicarEventos). */
+.entrada .aprobaciones-fijas:empty { display: none; }
+.entrada .aprobaciones-fijas {
+    display: flex;
+    flex-direction: column;
+    gap: var(--sp-sm);
+    margin-bottom: var(--sp-sm);
+}
 .entrada textarea {
     flex: 1 1 auto;
     min-width: 0;

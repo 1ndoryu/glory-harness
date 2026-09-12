@@ -34,6 +34,10 @@ export interface VistaMeta {
   notificarTurnoInicio: () => void;
   notificarTurnoFin: (alTerminar: () => void) => void;
   registrarUltimoEnvio: (panel: PanelChat) => void;
+  /** [fix 12-09] Reenvío tras aprobar (decisión tardía): el turno que pidió
+   * permiso ya cerró, así que lo aprobado solo se ejecuta si el último mensaje
+   * vuelve a correr como turno nuevo. No-op con turno en curso o sin panel. */
+  reanudarUltimoEnvio: () => void;
   sincronizarPanelMeta: () => void;
 }
 
@@ -68,6 +72,14 @@ export function montarVistaMeta(deps: VistaMetaDeps): VistaMeta {
 
   function registrarUltimoEnvio(panel: PanelChat): void {
     panelUltimoEnvio = panel;
+  }
+
+  /** [fix 12-09] Reenvío tras aprobar: va por el curso normal (`enviar`), con
+   * flag global, pie y meta, en vez del `montar` directo del cierre antiguo
+   * (que dejaba la entrada sin estado "corriendo" durante el reenvío). */
+  function reanudarUltimoEnvio(): void {
+    if (turnoGlobal || !panelUltimoEnvio) return;
+    panelUltimoEnvio.reanudarUltimo();
   }
 
   /** Conversación abierta del panel principal: el panel meta es global (M1)
@@ -208,6 +220,7 @@ export function montarVistaMeta(deps: VistaMetaDeps): VistaMeta {
     notificarTurnoInicio,
     notificarTurnoFin,
     registrarUltimoEnvio,
+    reanudarUltimoEnvio,
     sincronizarPanelMeta,
   };
 }

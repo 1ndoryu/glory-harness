@@ -57,6 +57,22 @@ F1 (Copy Path / Edit name / Remove con confirmación) verificado con
 
 ## Tareas pendientes
 
+- [ ] **129A-3 — Aprobación: tarjeta fija + aprobar ejecuta + toast Windows**
+      (implementado 12-09, pendiente gate y verificación en ventana real):
+      la tarjeta vive fija encima de la caja (slot `.aprobaciones-fijas`) y
+      vuelve al flujo como registro al decidir; al resolver (temprano o tarde)
+      `onAprobacionResuelta` reenvía el último mensaje como turno nuevo por el
+      curso normal (antes solo reenviaba si se decidía antes del `turno-fin`);
+      toast del sistema vía `tauri-plugin-notification` al necesitar
+      aprobación. Toca Rust (`main.rs` plugin, `Cargo.toml`, capability) +
+      front (`aplicarEventos`, `turnoReal`, `vistaMeta`, `crearPanel`,
+      `main.ts`, `notificacionSistema.ts`, `entrada.css`). Front verificado
+      con `tsc` + `vite build` 12-09; warnings del gate corregidos en el
+      reintento (slot usa `el` de `util/dom`; `main.ts` bajo el techo tras
+      extraer `orquestador/depsCrearPanel` + `orquestador/reenvioAprobacion`;
+      permiso de toast en `orquestador/arranque`): gate 129A-3 PASS 12-09
+      (464 tests ok, 0 errores; etapas coverage/sccache/sentinel/rust PASS).
+      Falta solo verificación en ventana real.
 - [ ] **119A-2 — Menú contextual de proyecto** (F1–F4 implementados y
       verificados: F2 commit 1878d17, F3 commit 7c77b5e, F4 commit 41cd31b
       con gate PASS 12-09 de 459 tests ok):

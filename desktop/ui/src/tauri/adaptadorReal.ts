@@ -35,6 +35,9 @@ export function crearAdaptadorReal(hooks: HooksAdaptador = {}, transporte: Trans
     usoUltimoTurno: turno.usoUltimoTurno,
     resultadoUltimoTurno: turno.resultadoUltimoTurno,
     ultimoTurnoId: turno.ultimoTurnoId,
+    /** [fix 12-09] Pendientes para el reenvío tras aprobar: el orquestador
+     * solo reenvía cuando quedan cero (todas las peticiones resueltas). */
+    aprobacionesPendientes: () => transporte.pendientesAprobacion(),
     /** Abre la sesión si aún no existe (para listar/cargar al arrancar). */
     asegurarSesion: turno.asegurarSesion,
     sesion: {

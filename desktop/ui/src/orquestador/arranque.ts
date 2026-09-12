@@ -12,6 +12,7 @@ import type { PanelMeta } from '../componentes/panelMeta';
 import type { Conversacion } from '../dominio/tipos';
 import { leerSidebar, type PersistenciaDeps } from './persistencia';
 import type { SesionGuardadaVista } from './vistaModal';
+import { pedirPermisoNotificaciones } from '../componentes/notificacionSistema';
 
 /** Núcleo de arranque: montaje, paneles y meta. */
 export interface ArranqueNucleo {
@@ -74,6 +75,10 @@ export function ejecutarArranque(deps: ArranqueDeps): void {
   deps.paneles.forEach((p) => p.medir());
   deps.panelMeta.medir();
   deps.sincronizarPanelMeta();
+
+  // [fix 12-09] Permiso de toast una vez al arrancar (notificación de Windows
+  // cuando se necesita aprobación y el usuario está en otra ventana).
+  void pedirPermisoNotificaciones();
 
   // Reloj del turno (panelMeta global): refleja el turno del panel que lanzó.
   window.setInterval(() => {

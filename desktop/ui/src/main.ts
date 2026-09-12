@@ -36,7 +36,9 @@ import {
   abrirEnLateral,
   type LateralesDeps,
 } from './orquestador/laterales';
-import { crearPanel, type CrearPanelDeps } from './orquestador/crearPanel';
+import { crearPanel } from './orquestador/crearPanel';
+import { crearDepsCrearPanel } from './orquestador/depsCrearPanel';
+import { conectarReenvioTrasAprobar } from './orquestador/reenvioAprobacion';
 import { montarBarraLateral } from './orquestador/barraLateral';
 import {
   CLAVE_TEMA_OSCURO,
@@ -146,6 +148,15 @@ const hooksAdaptador: HooksAdaptador = crearGanchos({
   avisar: avisoGlobal,
   registrarCambioArchivo: (cambio) => files.registrarCambio(cambio),
 });
+// [fix 12-09] Reenvío tras aprobar en `orquestador/reenvioAprobacion`
+// (techo de 300 líneas de main.ts).
+conectarReenvioTrasAprobar(hooksAdaptador, {
+  usaReal: USA_REAL,
+  hayTurnoGlobal: () => vistaMeta.hayTurnoGlobal(),
+  aprobacionesPendientes: () => adaptador.aprobacionesPendientes(),
+  reanudarUltimoEnvio: () => vistaMeta.reanudarUltimoEnvio(),
+  avisar: avisoGlobal,
+});
 // Tauri → IPC in-process; web (`?api=`/`gh_api`/mismo origen) → HTTP/SSE.
 // `adaptador` se usa en cierres de runtime; en modo ni-ni nunca se monta.
 const adaptador = USA_TAURI
@@ -241,10 +252,10 @@ const todoVistaModal = montarVistaModal({
   activarPrincipal: () => activarPanel(principal),
 });
 
-/* Deps de la fábrica de paneles. `abrirAcciones` cierra sobre `depsLaterales`
- * y `getPrincipal` sobre `principal` (ambos declarados más abajo): solo se
- * invocan desde eventos de UI posteriores al arranque, fuera de la TDZ. */
-const depsCrearPanel: CrearPanelDeps = {
+/* Deps de la fábrica de paneles en `orquestador/depsCrearPanel` (techo de
+ * 300 líneas de main.ts). `abrirAcciones`/`getPrincipal`/`alternarPanelDerecho`
+ * son cierres de runtime (fuera de la TDZ al invocarse desde eventos de UI). */
+const depsCrearPanel = crearDepsCrearPanel({
   paneles: panelesRegistrados,
   adaptador,
   simulacion,
@@ -252,41 +263,18 @@ const depsCrearPanel: CrearPanelDeps = {
   usaMock: USA_MOCK,
   panelMeta,
   sidebar,
-  modal: todoVistaModal.modal,
+  vistaModal: todoVistaModal,
   proveedores: PROVEEDORES,
-  getConversaciones: sesionVista.getConversaciones,
-  getModelo: () => todoVistaModal.estado.modelo,
-  setModelo: (m) => {
-    todoVistaModal.estado.modelo = m;
-  },
-  getModo: () => todoVistaModal.estado.modo,
-  setModo: (m) => {
-    todoVistaModal.estado.modo = m;
-  },
-  getRazonamiento: () => todoVistaModal.estado.razonamiento,
-  setRazonamiento: (r) => {
-    todoVistaModal.estado.razonamiento = r;
-  },
-  getProyectos: sesionVista.getProyectos,
-  getProyectoActivoId: sesionVista.getProyectoActivoId,
+  sesionVista,
+  vistaMeta,
   getPrincipal: () => principal,
-  hayTurnoGlobal: () => vistaMeta.hayTurnoGlobal(),
-  notificarTurnoInicio: () => vistaMeta.notificarTurnoInicio(),
-  notificarTurnoFin: () =>
-    vistaMeta.notificarTurnoFin(() => {
-      if (USA_REAL) void sesionVista.resincronizarSidebar();
-    }),
-  registrarUltimoEnvio: (panel) => vistaMeta.registrarUltimoEnvio(panel),
   panelActivo,
   activarPanel,
-  resincronizarSidebar: sesionVista.resincronizarSidebar,
-  sincronizarPanelMeta: vistaMeta.sincronizarPanelMeta,
   avisar: avisoGlobal,
   alternarSidebar,
-  // `todoPanelDerecho` se crea más abajo (tras el navegador): cierre de runtime.
   alternarPanelDerecho: () => todoPanelDerecho.alternarPanelDerecho(),
   abrirAcciones: (panel, rect) => abrirAccionesPanel(depsLaterales, panel, rect),
-};
+});
 
 // ---------- Panel principal ----------
 const principal = crearPanel(depsCrearPanel, 'principal', 'principal');

@@ -138,7 +138,15 @@ export function crearHistorial(deps: HistorialDeps): HistorialChat {
     });
 
     let idxUser = 0;
-    for (const m of historial) {
+    // [fix 12-09] El backend solo expone el uso del ÚLTIMO turno
+    // (`ultimo_uso`): cada respuesta del asistente conserva su propio pie;
+    // las anteriores muestran su hora (`creado_en`) y la última además los
+    // tokens reales. Sin esto la recarga dejaba un único pie al final.
+    let ultimoIdxAsistente = -1;
+    historial.forEach((mm, ii) => {
+      if (mm.rol === 'assistant') ultimoIdxAsistente = ii;
+    });
+    historial.forEach((m, ii) => {
       if (m.rol === 'user') {
         usuariosHistorial.set(m.id, m.contenido);
         mensajes.appendChild(crearMensajeUsuario(m.contenido, m.id, deps.abrirAccionesMensaje));
@@ -146,29 +154,48 @@ export function crearHistorial(deps: HistorialDeps): HistorialChat {
         idxUser++;
       } else if (m.rol === 'assistant') {
         mensajes.appendChild(crearMensajeAsistente(m.contenido));
+        const ms = Date.parse(m.creado_en);
+        const hora = Number.isFinite(ms) ? ms : null;
+        if (ii === ultimoIdxAsistente && ultimo_uso) {
+          mensajes.appendChild(
+            crearPieTurno({
+              tokensPrompt: ultimo_uso.tokens_prompt,
+              tokensComplecion: ultimo_uso.tokens_complecion,
+              modelo: ultimo_uso.provider
+                ? `${ultimo_uso.provider}/${ultimo_uso.modelo}`
+                : ultimo_uso.modelo || null,
+              ocupacionPct: null,
+              maxVentana: null,
+              reservaSalida: null,
+              // [129A-2] Recarga: la velocidad no se persiste, se omite la parte.
+              velocidadTokS: null,
+              creadoEnMs: hora,
+              alCopiar: deps.copiarUltimoTramo,
+            }),
+          );
+        } else {
+          mensajes.appendChild(
+            crearPieTurno({
+              tokensPrompt: 0,
+              tokensComplecion: 0,
+              modelo: null,
+              ocupacionPct: null,
+              maxVentana: null,
+              reservaSalida: null,
+              velocidadTokS: null,
+              creadoEnMs: hora,
+              alCopiar: deps.copiarUltimoTramo,
+            }),
+          );
+        }
       } else if (m.rol === 'reasoning' && m.contenido.trim() !== '') {
         /* [129A-1] Pensamiento persistido: mismo summary cerrado que en vivo
          * (`aplicarEventos`), intercalado por `creado_en` entre el usuario y
          * la respuesta gracias al `rowid` del ORDER BY. */
         mensajes.appendChild(crearRazonamientoCerrado(m.contenido, 'razonamiento'));
       }
-    }
+    });
     residuales.forEach((a) => mensajes.appendChild(bloqueDesdeAccion(a)));
-    if (ultimo_uso) {
-      mensajes.appendChild(
-        crearPieTurno({
-          tokensPrompt: ultimo_uso.tokens_prompt,
-          tokensComplecion: ultimo_uso.tokens_complecion,
-          modelo: ultimo_uso.provider ? `${ultimo_uso.provider}/${ultimo_uso.modelo}` : ultimo_uso.modelo || null,
-          ocupacionPct: null,
-          maxVentana: null,
-          reservaSalida: null,
-          // [129A-2] Recarga: la velocidad no se persiste, se omite la parte.
-          velocidadTokS: null,
-          alCopiar: deps.copiarUltimoTramo,
-        }),
-      );
-    }
     mensajes.scrollTop = mensajes.scrollHeight;
   }
 
@@ -186,6 +213,9 @@ export function crearHistorial(deps: HistorialDeps): HistorialChat {
         // [129A-2] La velocidad viaja en el `UsoTurno` (la mide el turno en
         // vivo con su propio reloj; en recarga es `null`).
         velocidadTokS: u.velocidadTokS ?? null,
+        // [fix 12-09] El pie se crea al cerrar el turno: hora visible + fecha
+        // exacta en hover (vale para el camino real y el mock).
+        creadoEnMs: Date.now(),
         alCopiar: deps.copiarUltimoTramo,
       }),
     );

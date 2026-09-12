@@ -16,6 +16,7 @@
     "vite": "^6.0.5"
   },
   "dependencies": {
-    "@tauri-apps/api": "^2.11.1"
+    "@tauri-apps/api": "^2.11.1",
+    "@tauri-apps/plugin-notification": "^2.4.0"
   }
 }

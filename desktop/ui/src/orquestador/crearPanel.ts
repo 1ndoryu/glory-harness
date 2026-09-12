@@ -16,6 +16,7 @@ import { montarPanelChat, type PanelChat, type TipoPanel } from '../componentes/
 import type { PanelMeta } from '../componentes/panelMeta';
 import type { Sidebar } from '../componentes/sidebar';
 import type { ModalConfiguracion } from '../componentes/modal';
+import { el } from '../util/dom';
 import type { AdaptadorReal } from '../tauri/real';
 import { crearSimulacion } from '../simulacion/simulacion';
 
@@ -196,6 +197,20 @@ export function crearPanel(
     if (entradaRaiz && selectorWorkspace) {
       entradaRaiz.insertBefore(deps.panelMeta.raiz, selectorWorkspace.nextSibling);
     }
+  }
+
+  // [fix 12-09] Slot fijo de aprobaciones en TODOS los paneles, justo encima
+  // de la caja (como la caja de meta): la tarjeta pendiente no se pierde en el
+  // flujo. `aplicarEventos` lo localiza vía `.chat .aprobaciones-fijas`; al
+  // decidirse, la tarjeta vuelve al flujo como registro y el slot queda libre.
+  // `el` es el boundary DOM del proyecto (util/dom, [029A-15]); la fábrica
+  // no toca `document` directo.
+  const entradaRaiz = panel.raiz.querySelector<HTMLElement>('.entrada');
+  const caja = entradaRaiz?.querySelector('.caja');
+  if (entradaRaiz) {
+    const slot = el('div', 'aprobaciones-fijas');
+    if (caja) entradaRaiz.insertBefore(slot, caja);
+    else entradaRaiz.appendChild(slot);
   }
 
   deps.paneles.push(panel);

@@ -14,6 +14,7 @@ import {
   type RazonamientoVivo,
 } from '../componentes/mensajes';
 import { crearTareasViva, type TareasViva } from '../componentes/tareasMeta';
+import { notificarAprobacion } from '../componentes/notificacionSistema';
 import type { DecisionAprobacion } from '../dominio/tipos';
 import { compacto, descripcionDeTool, iconoDeTool, rutaDeArgumentos } from './descripcionHerramientas';
 import type { AgenteEvento, HooksAdaptador, Transporte, UsoTurno } from './realTipos';
@@ -154,11 +155,27 @@ export function aplicarEvento(ev: AgenteEvento, st: EstadoTurno, d: EventosDeps)
               );
               if (decision === 'denegar') t.marcarDenegada();
               t.quitarAcciones();
+              // [fix 12-09] La tarjeta decidida vuelve al flujo como registro;
+              // el slot fijo queda libre para las peticiones pendientes.
+              d.mensajes()?.appendChild(tarjeta.raiz);
+              d.bajarScroll();
+              // [fix 12-09] Si el turno ya cerró (decisión tardía), el cierre
+              // no pudo reenviar (aún había pendientes): lo intenta ahora el
+              // orquestador, que reenvía el último mensaje como turno nuevo.
+              if (d.transporte.requiereReenvioTrasAprobar()) d.hooks.onAprobacionResuelta?.();
             })
             .catch((e: unknown) => t.ponerEstado(`no se pudo responder: ${String(e)}`));
         },
       });
-      d.mensajes()?.appendChild(tarjeta.raiz);
+      // [fix 12-09] La tarjeta pendiente vive fija encima de la caja (slot
+      // `.aprobaciones-fijas`, como la caja de meta), no perdida en el flujo.
+      const flujo = d.mensajes();
+      const slot = flujo?.closest('.chat')?.querySelector('.aprobaciones-fijas');
+      (slot ?? flujo)?.appendChild(tarjeta.raiz);
+      d.bajarScroll();
+      // [fix 12-09] Toast del sistema: el usuario puede estar en otra ventana
+      // de Windows y la tarjeta fija no se ve. Nunca bloquea el turno.
+      void notificarAprobacion(ev.tool, `clase ${ev.clasificacion}: ${compacto(ev.argumentos)}`);
       break;
     }
     case 'requiere_aprobacion':

@@ -460,6 +460,9 @@ fn area_activa(sesion: &Sesion) -> Result<Option<Workspace>, String> {
 
 fn main() {
     tauri::Builder::default()
+        // [fix 12-09] Toast de Windows al necesitar aprobación (el usuario
+        // puede estar en otra ventana): sin plugin no hay notificación.
+        .plugin(tauri_plugin_notification::init())
         .manage(Estado::default())
         .manage(std::sync::Mutex::new(navegador::EstadoNavegador::new()))
         .invoke_handler(tauri::generate_handler![

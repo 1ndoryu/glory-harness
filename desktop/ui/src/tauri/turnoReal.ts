@@ -45,7 +45,6 @@ export function crearTurnoReal(hooks: HooksAdaptador, transporte: Transporte): T
   let mensajes: HTMLElement | null = null;
   let onFin: (() => void) | null = null;
   let asistente: AsistenteVivo | null = null;
-  let ultimoMensaje = '';
   let cerrado = false;
   let uso: UsoTurno = usoVacio();
   // [039A-3 P1] Cómo terminó el último turno (para que el pie distinga
@@ -83,32 +82,30 @@ export function crearTurnoReal(hooks: HooksAdaptador, transporte: Transporte): T
   }
 
   function olvidarAsistente(): void {
+    // [fix 12-09] El caret es un nodo real del DOM: hay que quitarlo al
+    // cerrar el mensaje; si no, el cuadrito negro sigue titilando en todos
+    // los mensajes ya terminados. `.remove()` sobre nodo huérfano es no-op.
+    asistente?.cursor.remove();
     asistente = null;
   }
 
   async function cerrar(ok: boolean, error?: string): Promise<void> {
     if (cerrado) return;
     cerrado = true;
+    olvidarAsistente();
     ultimoResultado = ok ? 'ok' : 'error';
     if (!ok) aviso(`el turno falló: ${error ?? 'desconocido'}`, '', 'puedes reintentar');
     const fin = onFin;
     onFin = null;
     fin?.();
-    // Reenvío tras aprobar (paridad REPL): si hubo peticiones y ya no quedan
-    // pendientes, el agente ejecuta lo aprobado sin repetir el mensaje.
+    // Reenvío tras aprobar (paridad REPL): si hubo peticiones, el orquestador
+    // decide (vía `onAprobacionResuelta`): reenvía el último mensaje como turno
+    // nuevo solo sin turno en curso ni pendientes. Cubre la decisión temprana
+    // (resuelta antes de este cierre); la tardía la dispara la propia tarjeta.
     // [069A-2 F4] Solo el transporte que lo requiere (Tauri entre turnos);
     // HTTP resuelve en vivo y nunca reenvía.
-    if (ok && estado.huboPeticiones && ultimoMensaje && transporte.requiereReenvioTrasAprobar()) {
-      try {
-        const pendientes = await transporte.pendientesAprobacion();
-        if (pendientes.length === 0) {
-          const reintento = ultimoMensaje;
-          aviso('aprobaciones resueltas: se reenvía el mensaje', '', '');
-          await montar(mensajes, reintento, ultimaOpcion, () => {});
-        }
-      } catch (e: unknown) {
-        aviso(`no se pudo verificar aprobaciones: ${String(e)}`, '', '');
-      }
+    if (ok && estado.huboPeticiones && transporte.requiereReenvioTrasAprobar()) {
+      hooks.onAprobacionResuelta?.();
     }
   }
 
@@ -161,7 +158,6 @@ export function crearTurnoReal(hooks: HooksAdaptador, transporte: Transporte): T
     uso = usoVacio();
     estado.uso = uso;
     ultimaOpcion = opts;
-    ultimoMensaje = texto;
     mensajes?.appendChild(crearMensajeUsuario(texto));
     // [039A-1 04-09 H2] El mensaje del usuario debe verse al enviar: baja el
     // scroll al final (puede que el contenedor no estuviera al fondo).
@@ -201,6 +197,8 @@ export function crearTurnoReal(hooks: HooksAdaptador, transporte: Transporte): T
       // [129A-2] Sin `done` del backend no hay cierre del summary: se fija
       // con lo acumulado para no dejar el spinner colgado.
       finalizarRazonamiento(estado);
+      // [fix 12-09] El mensaje vivo queda sin `done`: apaga su caret.
+      olvidarAsistente();
       const fin = onFin;
       onFin = null;
       const n = el('div', 'msg-asis');
