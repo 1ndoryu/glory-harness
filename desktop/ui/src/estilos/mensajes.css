@@ -166,7 +166,9 @@
 .herramienta .resultado .add::before { content: '+ '; }
 
 /* ---------- Tarjeta de aprobación ---------- */
-.aprobacion { border: 1px solid var(--borde); }
+/* Con fondo propio: la tarjeta también vive en el slot fijo
+   `.aprobaciones-fijas` y no debe transparentar el chat. */
+.aprobacion { border: 1px solid var(--borde); background: var(--fondo); }
 .aprobacion .cab {
     display: flex;
     align-items: center;

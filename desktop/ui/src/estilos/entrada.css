@@ -72,6 +72,8 @@
     flex-direction: column;
     gap: var(--sp-sm);
     margin-bottom: var(--sp-sm);
+    /* Caja fijada sobre la entrada: fondo propio, no transparenta. */
+    background: var(--fondo);
 }
 .entrada textarea {
     flex: 1 1 auto;
