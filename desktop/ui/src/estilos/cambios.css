@@ -95,7 +95,8 @@
  * de inyección del CSS (`cambios.css` se importa desde el componente). */
 .btn.cambios-boton {
     font-size: var(--xs);
-    padding: 2px var(--sp-sm);
+    /* +1px arriba igual que `.btn`: la tinta se asienta alta en la caja em. */
+    padding: 3px var(--sp-sm) 2px;
     cursor: pointer;
 }
 
