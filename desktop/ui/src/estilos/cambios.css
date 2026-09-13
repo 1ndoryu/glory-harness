@@ -90,15 +90,18 @@
   margin-right: auto;
 }
 
-.cambios-boton {
-  font-size: var(--xs);
-  padding: 2px var(--sp-sm);
-  cursor: pointer;
+/* Tamaño compacto sobre el botón canónico `.btn` (que pone borde, fondo y
+ * hover por tema). Selector doble para ganar a `.btn` sin depender del orden
+ * de inyección del CSS (`cambios.css` se importa desde el componente). */
+.btn.cambios-boton {
+    font-size: var(--xs);
+    padding: 2px var(--sp-sm);
+    cursor: pointer;
 }
 
-.cambios-boton:disabled {
-  cursor: default;
-  opacity: 0.5;
+.btn.cambios-boton:disabled {
+    cursor: default;
+    opacity: 0.5;
 }
 
 .cambios-diff {

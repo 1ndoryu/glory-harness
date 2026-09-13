@@ -165,10 +165,10 @@ export function montarPanelCambios(opts: {
     principal.append(ruta, turno);
     const acciones = el('div', 'cambios-acciones');
     const estado = el('span', 'cambios-estado');
-    const btnAceptar = el('button', 'cambios-boton') as HTMLButtonElement;
+    const btnAceptar = el('button', 'btn cambios-boton') as HTMLButtonElement;
     btnAceptar.type = 'button';
     btnAceptar.textContent = 'Aceptar';
-    const btnRechazar = el('button', 'cambios-boton cambios-boton-rechazar') as HTMLButtonElement;
+    const btnRechazar = el('button', 'btn cambios-boton cambios-boton-rechazar') as HTMLButtonElement;
     btnRechazar.type = 'button';
     btnRechazar.textContent = 'Rechazar';
     const diff = diffsVivos.get(c.ruta) ?? null;
@@ -176,7 +176,7 @@ export function montarPanelCambios(opts: {
     if (abrirDiffDe === c.ruta && diff) diffAbierto = clave;
     let btnDiff: HTMLButtonElement | null = null;
     if (diff) {
-      btnDiff = el('button', 'cambios-boton') as HTMLButtonElement;
+      btnDiff = el('button', 'btn cambios-boton') as HTMLButtonElement;
       btnDiff.type = 'button';
       btnDiff.textContent = diffAbierto === clave ? 'Ocultar diff' : 'Ver diff';
       btnDiff.addEventListener('click', () => {

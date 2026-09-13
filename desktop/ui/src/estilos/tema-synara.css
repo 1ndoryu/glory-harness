@@ -14,6 +14,9 @@
 
 html[data-tema='synara'] {
     color-scheme: dark;
+    /* Texto UI un poco más grande que en el resto de temas (13px → 14px):
+       escala los tamaños en rem sin tocar la geometría en px. */
+    font-size: 14px;
     /* Base del seed */
     --fondo: #0e0e0e;
     --texto: #f5f5f5;
@@ -36,6 +39,31 @@ html[data-tema='synara'] {
     /* Scrollbar: la base de `scrollbar.css` es de tema claro */
     --scrollbar-thumb: rgba(255, 255, 255, 0.09);
     --scrollbar-thumb-hover: rgba(255, 255, 255, 0.16);
+    /* Fuentes del seed Synara (`synara/apps/web/src/index.css:389-411`):
+       UI = pila del sistema (Segoe UI en Windows), código = mono.
+       Sin CDN: la pila UI es del sistema y el mono sigue siendo Departure
+       Mono local (`variables.css`). El body cambia a UI; las superficies de
+       código se re-fijan a `--font` en la regla de abajo. */
+    --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+}
+
+/* Texto UI (mensajes, botones, paneles, composer) en la fuente UI de Synara.
+   Todo usa `font-family: inherit`, así que basta con el body. El peso vuelve
+   a normal (400): el 300 global está afinado para Departure Mono y deja la
+   pila del sistema enclenque a estos tamaños. */
+html[data-tema='synara'] body {
+    font-family: var(--font-ui);
+    font-weight: 400;
+}
+
+/* Superficies de código: en Synara son mono (`--font-chat-code-family`);
+   aquí se quedan con Departure Mono local en lugar de seguir al body. */
+html[data-tema='synara'] .git-diff,
+html[data-tema='synara'] .git-diff-cabecera .git-diff-ruta,
+html[data-tema='synara'] .visor-plano,
+html[data-tema='synara'] .herramienta .resultado,
+html[data-tema='synara'] .aprobacion .args {
+    font-family: var(--font);
 }
 
 /* Algunos componentes conservan bordes monocromos explícitos en claro;
