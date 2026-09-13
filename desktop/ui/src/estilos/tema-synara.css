@@ -21,7 +21,11 @@ html[data-tema='synara'] {
     --fondo: #0e0e0e;
     --texto: #f5f5f5;
     --invertido: #0e0e0e;
-    --borde: #2b2b2b;
+    --borde: rgba(245, 245, 245, 0.14);
+    /* Radio solo-synara: la base es angulosa por diseño; aquí todas las
+       cajas van redondeadas (caja 12px, controles 8px). */
+    --radio-caja: 10px;
+    --radio-control: 6px;
     --superficie-hover: #1c1c1c;
     --superficie-active: #2a2a2a;
     /* Selección = acento; el texto que va encima es `--invertido` */
@@ -177,6 +181,48 @@ html[data-tema='synara'] .msg-user,
 html[data-tema='synara'] .msg-asis {
     background: transparent !important;
     color: var(--texto) !important;
+}
+
+/* ---------- Radio synara: todas las cajas redondeadas ---------- */
+
+html[data-tema='synara'] .msg-user,
+html[data-tema='synara'] .msg-asis,
+html[data-tema='synara'] .modal,
+html[data-tema='synara'] .panel-meta,
+html[data-tema='synara'] .entrada .caja,
+html[data-tema='synara'] .herramienta .resultado,
+html[data-tema='synara'] .razonamiento .resultado,
+html[data-tema='synara'] .aviso-sistema .resultado,
+html[data-tema='synara'] .aprobacion,
+html[data-tema='synara'] .aprobacion .args,
+html[data-tema='synara'] .menu-ctx,
+html[data-tema='synara'] .menu-ctx .menu-sub,
+html[data-tema='synara'] .ctx-detalle,
+html[data-tema='synara'] .ajustes-nav,
+html[data-tema='synara'] .ajustes-paneles,
+html[data-tema='synara'] .ajustes-item,
+html[data-tema='synara'] .conv,
+html[data-tema='synara'] .tarea,
+html[data-tema='synara'] .memoria-fila,
+html[data-tema='synara'] .memorias-detalle,
+html[data-tema='synara'] .campo .valor {
+    border-radius: var(--radio-caja);
+}
+
+html[data-tema='synara'] .btn,
+html[data-tema='synara'] .input-texto,
+html[data-tema='synara'] .select,
+html[data-tema='synara'] .entrada textarea,
+html[data-tema='synara'] .pm-campo textarea,
+html[data-tema='synara'] .toggle,
+html[data-tema='synara'] .check-box,
+html[data-tema='synara'] .memorias-chip,
+html[data-tema='synara'] .pm-play,
+html[data-tema='synara'] .aviso-sistema .aviso-accion,
+html[data-tema='synara'] .entrada .editando-msg,
+html[data-tema='synara'] .entrada .selector-workspace-boton,
+html[data-tema='synara'] .campo .selector-modelo.selector-modal {
+    border-radius: var(--radio-control);
 }
 
 /* ---------- Acentos y diffs en color (solo este tema) ---------- */
