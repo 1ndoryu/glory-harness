@@ -4,7 +4,7 @@
 import type { CabeceraChat } from './cabecera';
 import type { Entrada } from './entrada';
 import { crearAvisoSistema } from './mensajes';
-import type { DepsPanel, PanelChat, TipoPanel } from './panelChatTipos';
+import type { CambioArchivoPanel, DepsPanel, PanelChat, TipoPanel } from './panelChatTipos';
 import type { EjecutorComandos } from './panelChatComandos';
 import type {
   CargaConversacion,
@@ -28,6 +28,8 @@ export interface TurnoDeps {
   /** [109A-5 F3] `turnoId` queda en el pie (`data-turno`) como ancla del
    * badge de meta lograda; puede faltar en el camino mock. */
   anadirPieTurno(u: UsoTurno, turnoId?: string | null): void;
+  /** [129A-8] Resumen de cambios tras el pie (lo pinta el historial). */
+  anadirResumenTurno(cambios: CambioArchivoPanel[]): void;
   aviso(texto: string, meta: string, detalle: string): void;
   /** [109A-4] Resuelve un `/comando` antes de montar el turno. */
   comandos: EjecutorComandos;
@@ -143,6 +145,8 @@ export function crearTurno(deps: TurnoDeps): TurnoChat {
           // [109A-5 F3] El pie lleva el id del turno: es el ancla del badge de
           // meta lograda cuando el logro se declara con el turno ya cerrado.
           deps.anadirPieTurno(u, d.adaptador.ultimoTurnoId());
+          // [129A-8 F1] Resumen determinista tras el pie (sin cambios: nada).
+          deps.anadirResumenTurno(d.adaptador.cambiosUltimoTurno());
         }
         void (async () => {
           await d.resincronizarSidebar();

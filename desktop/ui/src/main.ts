@@ -265,6 +265,8 @@ const depsCrearPanel = crearDepsCrearPanel({
   alternarSidebar,
   alternarPanelDerecho: () => todoPanelDerecho.alternarPanelDerecho(),
   abrirAcciones: (panel, rect) => abrirAccionesPanel(depsLaterales, panel, rect),
+  // [129A-8] Cierre perezoso como `alternarPanelDerecho` (fuera de la TDZ).
+  verEnCambios: (ruta) => todoPanelDerecho.abrirCambiosEn(ruta),
 });
 
 // ---------- Panel principal ----------

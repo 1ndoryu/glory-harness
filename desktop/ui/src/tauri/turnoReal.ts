@@ -10,6 +10,7 @@ import {
   type AsistenteVivo,
 } from '../componentes/mensajes';
 import { el } from '../util/dom';
+import type { CambioArchivoPanel } from '../componentes/panelChatTipos';
 import { aplicarEvento, finalizarRazonamiento, usoVacio, type EstadoTurno } from './aplicarEventos';
 import type {
   HooksAdaptador,
@@ -32,6 +33,8 @@ export interface TurnoReal {
    * hizo el trabajo, y sin id el backend lo rechaza (`turno_requerido`) en vez
    * de inventarse una referencia. */
   ultimoTurnoId(): string | null;
+  /** [129A-8] Escrituras con éxito del último turno, para su resumen. */
+  cambiosUltimoTurno(): CambioArchivoPanel[];
   /** Abre la sesión si aún no existe (para listar/cargar al arrancar). */
   asegurarSesion(opts: OpcionesTurno): Promise<InfoSesion | null>;
   /** Marca sesión abierta tras elegir/fijar workspace o guardar proyecto. */
@@ -54,6 +57,7 @@ export function crearTurnoReal(hooks: HooksAdaptador, transporte: Transporte): T
     herramienta: null,
     rutaHerramienta: null,
     uso,
+    cambiosResumen: [],
     tareas: null,
     ultimoTurnoId: null,
     razonamiento: null,
@@ -143,6 +147,7 @@ export function crearTurnoReal(hooks: HooksAdaptador, transporte: Transporte): T
     estado.herramienta = null;
     estado.razonamiento = null;
     estado.rutaHerramienta = null;
+    estado.cambiosResumen = [];
     ultimoResultado = 'ok';
     uso = usoVacio();
     estado.uso = uso;
@@ -208,6 +213,11 @@ export function crearTurnoReal(hooks: HooksAdaptador, transporte: Transporte): T
     },
     ultimoTurnoId(): string | null {
       return estado.ultimoTurnoId;
+    },
+    /** [129A-8] Escrituras con éxito del último turno (copia: el resumen
+     * las lee al cerrar, cuando el estado ya puede estar reseteándose). */
+    cambiosUltimoTurno(): CambioArchivoPanel[] {
+      return [...estado.cambiosResumen];
     },
     asegurarSesion,
     avisarSesionAbierta,

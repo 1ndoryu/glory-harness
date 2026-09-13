@@ -15,6 +15,9 @@ export interface PanelCambios {
   /** [129A-7 F3] Refresco en vivo tras una escritura del agente (el vault ya
    * la tiene: re-consulta con antirrebote y conserva el diff vivo por ruta). */
   registrarCambioVivo(ruta: string, diff: string | null): void;
+  /** [129A-8] Revela la fila del archivo en el próximo pintado: abre su
+   * carpeta, la desplaza a la vista y abre su diff vivo si lo hay. */
+  revelar(ruta: string): void;
 }
 
 /* [129A-7] Panel "Cambios": la tab antes llamada "Git local". Arriba la
@@ -42,6 +45,10 @@ export function montarPanelCambios(opts: {
   let diffsVivos = new Map<string, string>();
   let carpetasAbiertas = new Set<string>();
   let diffAbierto: string | null = null;
+  // [129A-8] Revelado pendiente (la lista se recarga asíncrona: se aplica al
+  // pintar). `abrirDiffDe` abre además el diff vivo de esa ruta, si lo hay.
+  let revelarPendiente: string | null = null;
+  let abrirDiffDe: string | null = null;
 
   function claveRevisados(conv: string): string {
     return `cambios-revisados:${conv}`;
@@ -84,6 +91,8 @@ export function montarPanelCambios(opts: {
   function pintar(cambios: CambioArchivoTurno[], conv: string): void {
     lista.replaceChildren();
     if (cambios.length === 0) {
+      revelarPendiente = null;
+      abrirDiffDe = null;
       const vacio = el('div', 'cambios-vacio');
       vacio.textContent = 'el agente aún no tocó archivos en esta conversación';
       lista.appendChild(vacio);
@@ -120,6 +129,21 @@ export function montarPanelCambios(opts: {
       }
       lista.appendChild(grupo);
     }
+    // [129A-8] Aplica el revelado pendiente (una sola vez): abre la carpeta
+    // de la fila y la desplaza a la vista. Sin coincidencia se descarta.
+    if (revelarPendiente) {
+      const objetivo = revelarPendiente;
+      revelarPendiente = null;
+      abrirDiffDe = null;
+      const filas = lista.querySelectorAll('[data-ruta]');
+      for (const f of Array.from(filas)) {
+        if (!(f instanceof HTMLElement) || f.dataset.ruta !== objetivo) continue;
+        const grupo = f.closest('details');
+        if (grupo instanceof HTMLDetailsElement) grupo.open = true;
+        f.scrollIntoView({ block: 'nearest' });
+        break;
+      }
+    }
   }
 
   function filaCambio(
@@ -130,6 +154,7 @@ export function montarPanelCambios(opts: {
     const clave = `${c.turno_id}|${c.ruta}`;
     const fila = el('div', 'cambios-entrada');
     fila.setAttribute('role', 'listitem');
+    fila.dataset.ruta = c.ruta;
     const principal = el('div', 'cambios-entrada-principal');
     const ruta = el('span', 'cambios-ruta');
     ruta.textContent = nombreDe(c.ruta);
@@ -147,6 +172,8 @@ export function montarPanelCambios(opts: {
     btnRechazar.type = 'button';
     btnRechazar.textContent = 'Rechazar';
     const diff = diffsVivos.get(c.ruta) ?? null;
+    // [129A-8] El enlace del resumen abre además el diff vivo, si lo hay.
+    if (abrirDiffDe === c.ruta && diff) diffAbierto = clave;
     let btnDiff: HTMLButtonElement | null = null;
     if (diff) {
       btnDiff = el('button', 'cambios-boton') as HTMLButtonElement;
@@ -235,5 +262,11 @@ export function montarPanelCambios(opts: {
     debounce = setTimeout(recargar, 800);
   }
 
-  return { raiz, recargar, registrarCambioVivo };
+  function revelar(ruta: string): void {
+    revelarPendiente = ruta;
+    abrirDiffDe = ruta;
+    recargar();
+  }
+
+  return { raiz, recargar, registrarCambioVivo, revelar };
 }

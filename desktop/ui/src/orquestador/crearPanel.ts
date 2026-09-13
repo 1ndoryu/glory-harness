@@ -65,6 +65,8 @@ export interface CrearPanelVista {
   alternarSidebar: () => void;
   alternarPanelDerecho: () => void;
   abrirAcciones: (panel: PanelChat, rect: DOMRect) => void;
+  /** [129A-8] Abre la tab Cambios en el archivo (enlace del resumen). */
+  verEnCambios: (ruta: string) => void;
 }
 
 export interface CrearPanelDeps
@@ -120,6 +122,7 @@ export function crearPanel(
       notificarTurnoFin: deps.notificarTurnoFin,
       registrarUltimoEnvio: deps.registrarUltimoEnvio,
       resincronizarSidebar: deps.resincronizarSidebar,
+      verEnCambios: deps.verEnCambios,
       onConversacionCambio(id) {
         // Al cambiar la conversación del panel ENFOCADO, la sidebar lo marca.
         // [069A-7] `null` (borrador) → deselecciona la lista.

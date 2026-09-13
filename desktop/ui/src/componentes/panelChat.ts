@@ -163,6 +163,8 @@ export function montarPanelChat(opts: PanelChatOpciones): PanelChat {
         }
       })();
     },
+    // [129A-8] "Ver en Cambios" del resumen: abre la tab en el archivo.
+    verEnCambios: (ruta) => d.verEnCambios(ruta),
   });
   const acciones = crearAcciones({
     mensajes,
@@ -221,6 +223,7 @@ export function montarPanelChat(opts: PanelChatOpciones): PanelChat {
     },
     aplicarCarga: (c) => carga.aplicarCarga(c),
     anadirPieTurno: (u, turnoId) => historial.anadirPieTurno(u, turnoId),
+    anadirResumenTurno: (cambios) => historial.anadirResumenTurno(cambios),
     aviso: (texto, meta, detalle) => acciones.avisoChat(texto, meta, detalle),
     comandos,
   });

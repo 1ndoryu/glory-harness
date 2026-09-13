@@ -89,7 +89,8 @@ export function crearAcciones(deps: AccionesDeps): AccionesChat {
     for (let j = i; j < hijos.length; j++) {
       const n = hijos[j];
       if (j > i && n.classList.contains('msg-user')) break;
-      if (n.classList.contains('pie-turno')) continue;
+      // [129A-8] El resumen del turno tampoco se copia (como el pie).
+      if (n.classList.contains('pie-turno') || n.classList.contains('resumen-turno')) continue;
       const t = (n.textContent ?? '').trim();
       if (t) partes.push(t);
     }

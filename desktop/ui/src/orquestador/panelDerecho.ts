@@ -74,6 +74,8 @@ export interface PanelDerechoVisibilidad {
 export interface PanelDerechoAperturas {
   abrirFiles: () => void;
   abrirGit: () => void;
+  /** [129A-8] Abre Cambios y revela el archivo (enlace del resumen). */
+  abrirCambiosEn: (ruta: string) => void;
   reposicionarWebview: () => void;
 }
 
@@ -247,6 +249,14 @@ export function montarPanelDerechoTodo(deps: PanelDerechoDeps): PanelDerechoTodo
     guardarEstadoPanel();
   }
 
+  // [129A-8] El resumen enlaza al archivo: abre la tab y revela su fila (con
+  // su diff vivo si lo hay). `revelar` se aplica en el próximo pintado porque
+  // la lista se recarga asíncrona.
+  function abrirCambiosEn(ruta: string): void {
+    abrirGit();
+    git.revelar(ruta);
+  }
+
   async function restaurarEstado(): Promise<void> {
     try {
       const anchoPreferido = await leerPreferencia(deps.persistencia, CLAVE_LATERAL_ANCHO);
@@ -327,6 +337,7 @@ export function montarPanelDerechoTodo(deps: PanelDerechoDeps): PanelDerechoTodo
     restaurarEstado,
     abrirFiles,
     abrirGit,
+    abrirCambiosEn,
     reposicionarWebview,
   };
 }

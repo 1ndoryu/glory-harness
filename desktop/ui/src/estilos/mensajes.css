@@ -258,3 +258,41 @@
     white-space: nowrap;
 }
 
+/* [129A-8] Resumen de cambios del turno: conteo + lista con enlace al diff
+ * (estilo Synara/VSCode). Bloque sobrio tras el pie; sin cambios no existe. */
+.resumen-turno {
+    width: 100%;
+    margin-top: var(--sp-xs);
+    padding: 6px 10px;
+    border: 1px solid var(--borde);
+    font-size: var(--xs);
+}
+.resumen-turno-cabecera { opacity: 0.75; }
+.resumen-turno-lista { margin-top: 4px; }
+.resumen-turno-fila {
+    display: flex;
+    align-items: baseline;
+    gap: var(--sp-sm);
+    padding: 1px 0;
+}
+.resumen-turno-ruta {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.resumen-turno-clase { flex: none; opacity: 0.55; }
+.resumen-turno-ver {
+    flex: none;
+    margin-left: auto;
+    background: transparent;
+    border: none;
+    padding: 0;
+    font: inherit;
+    color: inherit;
+    cursor: pointer;
+    opacity: 0.7;
+    white-space: nowrap;
+}
+.resumen-turno-ver:hover { opacity: 1; text-decoration: underline; }
+

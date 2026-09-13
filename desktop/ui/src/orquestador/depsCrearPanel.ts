@@ -35,6 +35,7 @@ export interface DepsCrearPanelCtx {
   alternarSidebar: () => void;
   alternarPanelDerecho: () => void;
   abrirAcciones: (panel: PanelChat, rect: DOMRect) => void;
+  verEnCambios: (ruta: string) => void;
 }
 
 export function crearDepsCrearPanel(c: DepsCrearPanelCtx): CrearPanelDeps {
@@ -79,5 +80,6 @@ export function crearDepsCrearPanel(c: DepsCrearPanelCtx): CrearPanelDeps {
     alternarSidebar: c.alternarSidebar,
     alternarPanelDerecho: c.alternarPanelDerecho,
     abrirAcciones: c.abrirAcciones,
+    verEnCambios: c.verEnCambios,
   };
 }

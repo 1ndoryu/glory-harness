@@ -15,10 +15,11 @@
 
 ## Siguiente bloque ejecutable
 
-**129A-8 — Resumen de cambios al finalizar el turno (estilo Synara).**
-Cierres 12-09: 129A-7 (panel "Cambios", gate PASS) y 129A-12 (tema Synara,
-gate PASS) — evidencia en `Agente/completados/tareas-2026-09-12.md`.
-Siguiente en la serie de 6 pedidos: 129A-8 → 129A-10 → 129A-11 → 129A-9.
+**129A-10 — El agente controla GH (navegador + abrir archivos).**
+Cierres 12-09: 129A-7 (panel "Cambios", gate PASS), 129A-12 (tema Synara,
+gate PASS) y 129A-8 (resumen fin turno, gate PASS) — evidencia en
+`Agente/completados/tareas-2026-09-12.md`.
+Siguiente en la serie de 6 pedidos: 129A-10 → 129A-11 → 129A-9.
 (119A-2 queda pendiente solo de prueba en ventana Tauri real; ver Tareas.)
 Últimos cierres 11-09: 069A-6 (aviso de iframe bloqueado, a petición), 089A-5
 (historial de la app, gate PASS), Bloque B (pasada visual Tauri), 089A-16
@@ -54,11 +55,11 @@ Siguiente en la serie de 6 pedidos: 129A-8 → 129A-10 → 129A-11 → 129A-9.
 
 ## Tareas pendientes
 
-- [ ] **129A-8 — Resumen de cambios al finalizar el turno (estilo Synara)**
-      (pedido anterior no ejecutado): al `done`, bloque con creados/
-      modificados + enlace al diff; también en recarga (derivado de acciones).
-      Determinista desde eventos, sin pedir redacción al modelo.
-      Plan: `Agente/planes/plan-129A-8-resumen-fin-turno-2026-09-12.md`.
+- [x] **129A-8 — Resumen de cambios al finalizar el turno (estilo Synara)**
+      (HECHO 12-09, gate PASS): bloque `N cambios: X creados · Y modificados`
+      + filas con enlace "ver en Cambios" tras el pie (vivo y recarga);
+      `PanelCambios.revelar(ruta)` abre carpeta + diff vivo. Sin cambios = sin
+      bloque. 17/17 asserts CDP + captura Synara.
 - [ ] **129A-9 — Configuraciones Synara: inventario, decisión y réplica**
       (quiere replicar casi todas): F1 tabla panel→opciones→equivalente GH
       (requiere decisión del usuario, bloquea F2+); F2+ réplica por bloques en

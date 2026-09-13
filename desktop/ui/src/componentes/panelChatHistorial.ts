@@ -8,6 +8,7 @@ import {
   crearMensajeUsuario,
   crearPieTurno,
   crearRazonamientoCerrado,
+  crearResumenTurno,
   formatearResultadoHerramienta,
 } from './mensajes';
 import type { CambioArchivoPanel } from './panelChatTipos';
@@ -29,6 +30,8 @@ export interface HistorialDeps {
   aviso(texto: string, meta: string, detalle: string): void;
   /** [129A-4 F4] Abre el visor del log de un turno. */
   verLogTurno(turnoId: string): void;
+  /** [129A-8] Abre la tab Cambios en el archivo (enlace del resumen). */
+  verEnCambios(ruta: string): void;
 }
 
 export interface HistorialChat {
@@ -48,6 +51,8 @@ export interface HistorialChat {
    * `meta_lograda` pueda anclar el badge a este pie, que se crea al CERRAR el
    * turno y no cuando llega el logro. */
   anadirPieTurno(u: UsoTurno, turnoId?: string | null): void;
+  /** [129A-8] Pinta el resumen de cambios tras el pie (sin cambios: nada). */
+  anadirResumenTurno(cambios: CambioArchivoPanel[]): void;
   /** Vacía mensajes, mapa de usuario y cambios (sin tocar la entrada). */
   limpiarHistorial(): void;
   /** Texto original de un mensaje de usuario (para edición). */
@@ -89,18 +94,28 @@ export function crearHistorial(deps: HistorialDeps): HistorialChat {
 
   /** [089A-2] Cambios del historial (file_write/file_patch con ruta). */
   const cambios: CambioArchivoPanel[] = [];
-  function registrarCambioHistorial(tool: string, args: unknown, resumen: string, diff: string | null): void {
-    if (tool !== 'file_write' && tool !== 'file_patch') return;
+  /** Entrada de resumen desde una acción (null = no es escritura con ruta). */
+  function entradaDesdeAccion(
+    tool: string,
+    args: unknown,
+    resumen: string,
+    diff: string | null,
+  ): CambioArchivoPanel | null {
+    if (tool !== 'file_write' && tool !== 'file_patch') return null;
     const ruta = rutaDeArgs(args);
-    if (!ruta) return;
-    cambios.push({
+    if (!ruta) return null;
+    return {
       origen: 'tool',
       tool,
       ruta,
       titulo: descripcionDeTool(tool, args),
       resumen,
       diff,
-    });
+    };
+  }
+  function registrarCambioHistorial(tool: string, args: unknown, resumen: string, diff: string | null): void {
+    const entrada = entradaDesdeAccion(tool, args, resumen, diff);
+    if (entrada) cambios.push(entrada);
   }
   /** Extrae la ruta de los argumentos de una tool de archivo. */
   function rutaDeArgs(args: unknown): string | null {
@@ -148,6 +163,37 @@ export function crearHistorial(deps: HistorialDeps): HistorialChat {
     historial.forEach((mm, ii) => {
       if (mm.rol === 'assistant') ultimoIdxAsistente = ii;
     });
+    // [129A-8 F2] El resumen va tras el pie del turno que hizo los cambios:
+    // cada respuesta pertenece al último usuario previo; si un turno trae
+    // varias respuestas, el resumen cierra la ÚLTIMA (tras su pie).
+    const turnoDe: number[] = historial.map(() => -1);
+    let turnoVisto = -1;
+    historial.forEach((m, ii) => {
+      if (m.rol === 'user') turnoVisto++;
+      turnoDe[ii] = turnoVisto;
+    });
+    const ultimoAsistenteDe = new Map<number, number>();
+    historial.forEach((m, ii) => {
+      if (m.rol === 'assistant' && turnoDe[ii] >= 0) ultimoAsistenteDe.set(turnoDe[ii], ii);
+    });
+    /** Resumen desde acciones persistidas (sin tocar `cambios` de Files). */
+    function resumenDesdeAcciones(accionesTurno: AccionRecuperada[]): CambioArchivoPanel[] {
+      const entradas: CambioArchivoPanel[] = [];
+      for (const a of accionesTurno) {
+        const entrada = entradaDesdeAccion(
+          a.tool,
+          argumentosPersistidos(a.argumentos_json),
+          a.resumen,
+          a.diff ?? null,
+        );
+        if (entrada) entradas.push(entrada);
+      }
+      return entradas;
+    }
+    function pintarResumen(entradas: CambioArchivoPanel[]): void {
+      const bloque = crearResumenTurno(entradas, (ruta) => deps.verEnCambios(ruta));
+      if (bloque) mensajes.appendChild(bloque);
+    }
     historial.forEach((m, ii) => {
       if (m.rol === 'user') {
         usuariosHistorial.set(m.id, m.contenido);
@@ -190,6 +236,11 @@ export function crearHistorial(deps: HistorialDeps): HistorialChat {
             }),
           );
         }
+        // [129A-8 F2] El historial viejo también muestra su resumen, tras el
+        // pie de la última respuesta del turno (vacío = sin bloque).
+        if (ultimoAsistenteDe.get(turnoDe[ii]) === ii && turnoDe[ii] >= 0) {
+          pintarResumen(resumenDesdeAcciones(porTurno.get(turnoDe[ii]) ?? []));
+        }
       } else if (m.rol === 'reasoning' && m.contenido.trim() !== '') {
         /* [129A-1] Pensamiento persistido: mismo summary cerrado que en vivo
          * (`aplicarEventos`), intercalado por `creado_en` entre el usuario y
@@ -198,6 +249,9 @@ export function crearHistorial(deps: HistorialDeps): HistorialChat {
       }
     });
     residuales.forEach((a) => mensajes.appendChild(bloqueDesdeAccion(a)));
+    // [129A-8 F2] Acciones previas al primer usuario: resumen al final, donde
+    // se pintan (sin pie de turno al que anclarse).
+    if (residuales.length > 0) pintarResumen(resumenDesdeAcciones(residuales));
     mensajes.scrollTop = mensajes.scrollHeight;
   }
 
@@ -234,9 +288,18 @@ export function crearHistorial(deps: HistorialDeps): HistorialChat {
     cambios.length = 0;
   }
 
+  /** [129A-8 F1] Resumen en vivo tras el pie (sin cambios: sin bloque). */
+  function anadirResumenTurno(cambiosTurno: CambioArchivoPanel[]): void {
+    const bloque = crearResumenTurno(cambiosTurno, (ruta) => deps.verEnCambios(ruta));
+    if (!bloque) return;
+    mensajes.appendChild(bloque);
+    mensajes.scrollTop = mensajes.scrollHeight;
+  }
+
   return {
     pintarHistorial,
     anadirPieTurno,
+    anadirResumenTurno,
     limpiarHistorial,
     getTextoUsuario(id: string) {
       return usuariosHistorial.get(id);

@@ -1,6 +1,8 @@
 // Barrel de mensajes (split 089A-16 F2-resto): solo re-exports. Los bloques
-// viven en `mensajesBloques.ts`, las utilidades en `mensajesUtil.ts` y los
-// constructores de mensaje + render de historial en `mensajesNucleo.ts`.
+// viven en `mensajesBloques.ts`, las utilidades en `mensajesUtil.ts`, los
+// constructores de mensaje + render de historial en `mensajesNucleo.ts` y el
+// resumen de cambios del turno en `resumenTurno.ts` ([129A-8]).
+export { crearResumenTurno } from './resumenTurno';
 export {
   crearAvisoSistema,
   crearHerramienta,

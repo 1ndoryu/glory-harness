@@ -13,6 +13,7 @@ import {
   type HerramientaViva,
   type RazonamientoVivo,
 } from '../componentes/mensajes';
+import type { CambioArchivoPanel } from '../componentes/panelChatTipos';
 import { crearTareasViva, type TareasViva } from '../componentes/tareasMeta';
 import { notificarAprobacion } from '../componentes/notificacionSistema';
 import type { DecisionAprobacion } from '../dominio/tipos';
@@ -30,6 +31,10 @@ export interface EstadoTurno {
   herramienta: HerramientaViva | null;
   rutaHerramienta: string | null;
   uso: UsoTurno;
+  /** [129A-8] Escrituras del turno que SÍ cambiaron algo (para el resumen
+   * de fin de turno; se resetea en cada `montar`). Solo éxitos con ruta:
+   * una escritura fallida no es un cambio. */
+  cambiosResumen: CambioArchivoPanel[];
   /** [109A-5 F2] Bloque del plan visible. Sobrevive al fin del turno a
    * propósito: el plan es de la CONVERSACIÓN, así que el mismo bloque se
    * actualiza en los turnos siguientes (resume) en vez de duplicarse. */
@@ -129,6 +134,18 @@ export function aplicarEvento(ev: AgenteEvento, st: EstadoTurno, d: EventosDeps)
         dif
       ) {
         d.hooks.onCambioArchivo?.({
+          origen: 'tool',
+          tool: ev.tool,
+          ruta: st.rutaHerramienta,
+          titulo: descripcionDeTool(ev.tool, undefined),
+          resumen: ev.resumen,
+          diff: dif,
+        });
+      }
+      // [129A-8] Acumula el cambio para el resumen (sin exigir diff: el
+      // vault guarda el archivo igual y la tab Cambios lo lista).
+      if ((ev.tool === 'file_write' || ev.tool === 'file_patch') && st.rutaHerramienta && ev.ok) {
+        st.cambiosResumen.push({
           origen: 'tool',
           tool: ev.tool,
           ruta: st.rutaHerramienta,
