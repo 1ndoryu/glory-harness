@@ -71,7 +71,10 @@ export type AgenteEvento =
   | { tipo: 'done'; turno_id: string }
   /** [069A-1 F6] El agente ejecutó una operación del navegador interno.
    * `captura_base64` solo está presente para accion="capturar". */
-  | { tipo: 'tool_navegador'; accion: string; url?: string; selector?: string; captura_base64?: string; ok: boolean; descripcion: string };
+  | { tipo: 'tool_navegador'; accion: string; url?: string; selector?: string; captura_base64?: string; ok: boolean; descripcion: string }
+  /** [129A-10 F2] El agente quiere mostrar un archivo en Files (vista, no
+   * edición): el orquestador abre la tab y lo previsualiza. */
+  | { tipo: 'mostrar_archivo'; ruta: string; descripcion: string };
 
 export interface OpcionesTurno {
   proveedor: string;
@@ -265,6 +268,9 @@ export interface HooksAdaptador {
   /** [069A-1 F4] El agente usó una tool de navegador: refleja la acción
    * en el UI del navegador (log + anotaciones). */
   onToolNavegador?: (ev: AgenteEvento & { tipo: 'tool_navegador' }) => void;
+  /** [129A-10 F2] El agente mostró un archivo: el orquestador lo enseña en
+   * Files (vista, sin editar). */
+  onMostrarArchivo?: (ev: AgenteEvento & { tipo: 'mostrar_archivo' }) => void;
   /** [069A-2 F4] Estado de la conexión del transporte (solo el HTTP/SSE la
    * reporta; Tauri in-process no la usa). */
   onConexion?: (estado: 'conectando' | 'en-linea' | 'reconectando' | 'error', detalle?: string) => void;

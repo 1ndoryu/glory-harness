@@ -20,6 +20,12 @@ export interface GanchosDeps {
   registrarCambioArchivo: (cambio: CambioArchivoFiles) => void;
   /** [129A-7 F3] Refresco en vivo del panel Cambios (ruta + diff vivo). */
   registrarCambioVivo: (ruta: string, diff: string | null) => void;
+  /** [129A-10 F1] Auto-apertura de la tab por el agente (cierre perezoso de
+   * runtime, como `verEnCambios`): 'suprimida' = el usuario la cerró a mitad
+   * de turno y solo se avisa por toast. */
+  abrirNavegadorPorAgente: () => 'abierta' | 'ya' | 'suprimida';
+  /** [129A-10 F2] Muestra un archivo en Files (cierre perezoso, runtime). */
+  mostrarArchivoEnFiles: (ruta: string) => void;
 }
 
 export function crearGanchos(deps: GanchosDeps): HooksAdaptador {
@@ -56,6 +62,18 @@ export function crearGanchos(deps: GanchosDeps): HooksAdaptador {
       if (ev.accion === 'capturar' && ev.captura_base64) {
         navegador.actualizarCaptura(ev.captura_base64);
       }
+      // [129A-10 F1] "Ve a esa página" visible: al abrir/navegar ok se abre
+      // la tab SIN robar el foco (`abrirTab` solo conmuta la tab visible).
+      // click/capturar/js no reabren; el cierre intencional a mitad de turno
+      // se respeta (solo toast) hasta el próximo turno.
+      if (ev.ok && (ev.accion === 'abrir' || ev.accion === 'navegar')) {
+        const destino = ev.url ? ` a ${ev.url}` : '';
+        const r = deps.abrirNavegadorPorAgente();
+        if (r === 'abierta') deps.avisar(`el agente abrió el navegador${destino}`, '', '');
+        else if (r === 'suprimida') {
+          deps.avisar(`el agente navega${destino} (cerraste la tab: se reabre en el próximo turno)`, '', '');
+        }
+      }
     },
     // [069A-2 F4] Estado de conexión SSE (solo modo web): visible, nunca
     // silencioso. Seguro: `avisoGlobal` solo corre en runtime.
@@ -69,6 +87,13 @@ export function crearGanchos(deps: GanchosDeps): HooksAdaptador {
     onCambioArchivo(cambio) {
       deps.registrarCambioArchivo(cambio);
       deps.registrarCambioVivo(cambio.ruta, cambio.diff);
+    },
+    // [129A-10 F2] El agente muestra un archivo: se abre Files y se
+    // previsualiza la ruta (vista, sin editar), con aviso visible.
+    // Seguro: corre en runtime (cierre perezoso, como `verEnCambios`).
+    onMostrarArchivo(ev) {
+      deps.mostrarArchivoEnFiles(ev.ruta);
+      deps.avisar(`el agente muestra ${ev.ruta}`, '', '');
     },
   };
 }

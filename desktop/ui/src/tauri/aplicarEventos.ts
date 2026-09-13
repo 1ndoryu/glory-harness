@@ -298,6 +298,9 @@ export function aplicarEvento(ev: AgenteEvento, st: EstadoTurno, d: EventosDeps)
     case 'tool_navegador':
       d.hooks.onToolNavegador?.(ev);
       break;
+    case 'mostrar_archivo':
+      d.hooks.onMostrarArchivo?.(ev);
+      break;
   }
 }
 

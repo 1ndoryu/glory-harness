@@ -117,6 +117,60 @@ impl AgentTool for ToolFileRead {
     }
 }
 
+/// [129A-10 F2] Muestra un archivo del workspace en el panel Files del
+/// escritorio (vista, no edición): valida que la ruta exista dentro del
+/// workspace y no sea secreta, y emite `MostrarArchivo` para que el front
+/// la previsualice. Sin `efecto` (lectura libre, sin aprobación). Solo se
+/// registra en local con sandbox, como el resto de tools de archivo.
+pub struct ToolMostrarArchivo;
+
+#[async_trait]
+impl AgentTool for ToolMostrarArchivo {
+    fn id(&self) -> &'static str {
+        "mostrar_archivo"
+    }
+    fn descripcion(&self) -> &'static str {
+        "Muestra un archivo del workspace en el panel Files del escritorio (solo vista: abre la tab y lo previsualiza, sin editarlo).\nLÍMITES: solo rutas dentro del workspace que existan; archivos de secretos bloqueados (igual que file_read).\nCUÁNDO USARLA: cuando el usuario pide ver/abrir un archivo, o para enseñarle el archivo del que hablas sin editarlo.\nERRORES: ruta inexistente, fuera del workspace o bloqueada por secreto."
+    }
+    fn schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "ruta": {"type": "string", "description": "Ruta relativa al workspace (ej. src/main.rs)"}
+            },
+            "required": ["ruta"]
+        })
+    }
+    async fn ejecutar(
+        &self,
+        ctx: &AgentToolContext<'_>,
+        argumentos: Value,
+    ) -> Result<AgentToolResult> {
+        let sandbox = obtener_sandbox(ctx)?;
+        let ruta = argumentos
+            .get("ruta")
+            .and_then(Value::as_str)
+            .ok_or_else(|| Error::Argumentos("ruta requerida".into()))?;
+        /* Misma legibilidad que file_read: dentro del workspace, existente
+         * (`resolver` falla si no existe) y no secreta. */
+        sandbox.resolver(ruta)?;
+        if sandbox.es_secreto(ruta) {
+            return Err(Error::Validacion(
+                "ruta bloqueada: el agente no puede mostrar secretos".into(),
+            ));
+        }
+        let presentable = sandbox.ruta_presentable(ruta);
+        Ok(AgentToolResult::ok_con_evento(
+            format!("Archivo mostrado en Files: {presentable}"),
+            format!("mostrar {presentable}"),
+            crate::evento::AgenteEvento::MostrarArchivo {
+                ruta: ruta.to_string(),
+                descripcion: format!("el agente muestra {presentable}"),
+            },
+        ))
+    }
+}
+
 pub struct ToolFileWrite;
 
 #[async_trait]
@@ -417,6 +471,8 @@ pub fn registrar_tools_archivo(
      * tools lo leen del contexto. */
     registry.registrar_sandbox(sandbox);
     registry.registrar(Box::new(ToolFileRead));
+    /* [129A-10 F2] Vista de archivos en el panel Files (lectura libre). */
+    registry.registrar(Box::new(ToolMostrarArchivo));
     registry.registrar(Box::new(ToolFileWrite));
     registry.registrar(Box::new(ToolFilePatch));
     registry.registrar(Box::new(ToolFileSearch));

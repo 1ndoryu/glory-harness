@@ -28,6 +28,9 @@ export interface PanelFiles {
   recargar(): void;
   registrarCambio(cambio: CambioArchivoFiles): void;
   sincronizarCambios(cambios: CambioArchivoFiles[]): void;
+  /** [129A-10 F2] Previsualiza una ruta cualquiera (vista del agente, no
+   * cambio: no toca el mapa de cambios). */
+  mostrarArchivo(ruta: string): void;
 }
 
 export function montarPanelFiles(opts: {
@@ -266,5 +269,8 @@ export function montarPanelFiles(opts: {
     },
     registrarCambio,
     sincronizarCambios,
+    mostrarArchivo: (ruta) => {
+      if (ruta) void abrirArchivo(ruta);
+    },
   };
 }

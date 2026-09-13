@@ -36,6 +36,9 @@ export interface DepsCrearPanelCtx {
   alternarPanelDerecho: () => void;
   abrirAcciones: (panel: PanelChat, rect: DOMRect) => void;
   verEnCambios: (ruta: string) => void;
+  /** [129A-10 F1] El orquestador levanta vetos de UI al iniciar cada turno
+   * (cierre perezoso de runtime, como `verEnCambios`). */
+  alIniciarTurno: () => void;
 }
 
 export function crearDepsCrearPanel(c: DepsCrearPanelCtx): CrearPanelDeps {
@@ -66,7 +69,10 @@ export function crearDepsCrearPanel(c: DepsCrearPanelCtx): CrearPanelDeps {
     getProyectoActivoId: c.sesionVista.getProyectoActivoId,
     getPrincipal: c.getPrincipal,
     hayTurnoGlobal: () => c.vistaMeta.hayTurnoGlobal(),
-    notificarTurnoInicio: () => c.vistaMeta.notificarTurnoInicio(),
+    notificarTurnoInicio: () => {
+      c.vistaMeta.notificarTurnoInicio();
+      c.alIniciarTurno();
+    },
     notificarTurnoFin: () =>
       c.vistaMeta.notificarTurnoFin(() => {
         if (c.usaReal) void c.sesionVista.resincronizarSidebar();

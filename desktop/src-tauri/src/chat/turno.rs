@@ -261,6 +261,7 @@ fn tipo_de_evento(ev: &AgenteEvento) -> &'static str {
         AgenteEvento::Error { .. } => "error",
         AgenteEvento::Done { .. } => "done",
         AgenteEvento::ToolNavegador { .. } => "tool_navegador",
+        AgenteEvento::MostrarArchivo { .. } => "mostrar_archivo",
         AgenteEvento::TareasActualizadas { .. } => "tareas_actualizadas",
         AgenteEvento::MetaLograda { .. } => "meta_lograda",
         AgenteEvento::MetaPausadaPorBloqueo { .. } => "meta_pausada_por_bloqueo",

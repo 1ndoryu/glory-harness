@@ -15,11 +15,11 @@
 
 ## Siguiente bloque ejecutable
 
-**129A-10 — El agente controla GH (navegador + abrir archivos).**
+**129A-11 — Subagentes fijos + conversación de solo lectura.**
 Cierres 12-09: 129A-7 (panel "Cambios", gate PASS), 129A-12 (tema Synara,
-gate PASS) y 129A-8 (resumen fin turno, gate PASS) — evidencia en
-`Agente/completados/tareas-2026-09-12.md`.
-Siguiente en la serie de 6 pedidos: 129A-10 → 129A-11 → 129A-9.
+gate PASS), 129A-8 (resumen fin turno, gate PASS) y 129A-10 (agente controla
+GH, gate PASS) — evidencia en `Agente/completados/tareas-2026-09-12.md`.
+Siguiente en la serie de 6 pedidos: 129A-11 → 129A-9.
 (119A-2 queda pendiente solo de prueba en ventana Tauri real; ver Tareas.)
 Últimos cierres 11-09: 069A-6 (aviso de iframe bloqueado, a petición), 089A-5
 (historial de la app, gate PASS), Bloque B (pasada visual Tauri), 089A-16
@@ -65,11 +65,12 @@ Siguiente en la serie de 6 pedidos: 129A-10 → 129A-11 → 129A-9.
       (requiere decisión del usuario, bloquea F2+); F2+ réplica por bloques en
       `ajustes-pagina`. 12 paneles inventariados.
       Plan: `Agente/planes/plan-129A-9-configs-synara-2026-09-12.md`.
-- [ ] **129A-10 — El agente controla GH (navegador + abrir archivos)**
-      (la mitad ya existe): `navegador_reflejo` maneja la webview pero el front
-      no abre la tab (el usuario no ve nada); falta tool `mostrar_archivo`
-      para el preview de Files.
-      Plan: `Agente/planes/plan-129A-10-agente-controla-gh-2026-09-12.md`.
+- [x] **129A-10 — El agente controla GH (navegador + abrir archivos)**
+      (HECHO 12-09, gate PASS): F1 auto-apertura de la tab en abrir/navegar
+      ok sin robar foco + supresión si el usuario la cierra en turno;
+      F2 tool `mostrar_archivo` (lectura libre, respeta secretos) →
+      evento `mostrar_archivo` → Files + preview + toast. Smokes CDP
+      6/6 (F1) + 8/8 (F2); `tsc` EXIT 0; `vite build` OK; rust 471 tests ok.
 - [ ] **129A-11 — Subagentes fijos + conversación de solo lectura**
       (el core YA crea subagentes: tool `task`, 4 perfiles, eventos SSE; el
       front solo pinta una línea): tarjeta fija mientras trabajan; click abre

@@ -8,6 +8,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { porId } from '../util/dom';
 import { montarPanelNavegador, type PanelNavegador } from '../componentes/panelNavegador';
 import type { PanelChat } from '../componentes/panelChat';
+import { crearSupresionNavegador } from './navegadorAuto';
 
 export interface NavegadorVistaDeps {
   usaTauri: boolean;
@@ -18,6 +19,8 @@ export interface NavegadorVistaDeps {
   cerrarPanelDerechoSiVacio: () => void;
   abrirTabNavegador: (raiz: HTMLElement, onCerrar: () => void) => void;
   cerrarTabNavegador: () => void;
+  /** [129A-10 F1] true si hay un turno corriendo (cierre = intencional). */
+  turnoEnCurso: () => boolean;
 }
 
 export interface NavegadorVista {
@@ -25,6 +28,13 @@ export interface NavegadorVista {
   estaAbierto: () => boolean;
   abrirNavegador: () => void;
   cerrarNavegador: () => void;
+  /** [129A-10 F1] El orquestador la llama al iniciar cada turno (levanta la
+   * supresión del turno anterior). */
+  notificarTurnoInicio: () => void;
+  /** [129A-10 F1] Auto-apertura por el agente: abre sin robar el foco
+   * (`abrirTab` solo conmuta la tab visible); 'suprimida' = el usuario la
+   * cerró a mitad de turno (el llamador solo avisa por toast). */
+  abrirPorAgente: () => 'abierta' | 'ya' | 'suprimida';
 }
 
 export function montarNavegadorVista(deps: NavegadorVistaDeps): NavegadorVista {
@@ -47,6 +57,9 @@ export function montarNavegadorVista(deps: NavegadorVistaDeps): NavegadorVista {
     onAviso: (texto, detalle = '') => deps.avisar(texto, '', detalle),
   });
   let navegadorAbierto = false;
+  // [129A-10 F1] Cierre intencional a mitad de turno: el auto-abrir del
+  // agente se abstiene hasta el siguiente turno o reapertura manual.
+  const supresion = crearSupresionNavegador();
 
   function estaAbierto(): boolean {
     return navegadorAbierto;
@@ -54,6 +67,7 @@ export function montarNavegadorVista(deps: NavegadorVistaDeps): NavegadorVista {
 
   function abrirNavegador(): void {
     if (navegadorAbierto) return;
+    supresion.alAbrirManual();
     // [089A-2] El navegador vive como tab del panel derecho y convive con el
     // chat lateral, Files y Git local.
     navegadorAbierto = true;
@@ -106,6 +120,8 @@ export function montarNavegadorVista(deps: NavegadorVistaDeps): NavegadorVista {
   function cerrarNavegador(): void {
     if (!navegadorAbierto) return;
     navegadorAbierto = false;
+    // Los únicos llamadores son el × de la tab y el toggle: cierre manual.
+    supresion.alCerrarManual(deps.turnoEnCurso());
     navegador.mostrar(false);
     // [089A-2] Desmonta su tab; si no quedan tabs se cierra el panel derecho.
     deps.cerrarTabNavegador();
@@ -125,5 +141,16 @@ export function montarNavegadorVista(deps: NavegadorVistaDeps): NavegadorVista {
     }
   }
 
-  return { navegador, estaAbierto, abrirNavegador, cerrarNavegador };
+  function notificarTurnoInicio(): void {
+    supresion.alIniciarTurno();
+  }
+
+  function abrirPorAgente(): 'abierta' | 'ya' | 'suprimida' {
+    if (supresion.suprimido()) return 'suprimida';
+    if (navegadorAbierto) return 'ya';
+    abrirNavegador();
+    return 'abierta';
+  }
+
+  return { navegador, estaAbierto, abrirNavegador, cerrarNavegador, notificarTurnoInicio, abrirPorAgente };
 }

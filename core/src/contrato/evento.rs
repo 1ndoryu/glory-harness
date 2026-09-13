@@ -212,6 +212,10 @@ pub enum AgenteEvento {
         captura_base64: Option<String>,
         descripcion: String,
     },
+    /// [129A-10 F2] El agente quiere MOSTRAR un archivo del workspace en el
+    /// panel Files (vista, no edición). El front abre la tab y previsualiza
+    /// la ruta; si no puede leerla lo avisa de forma explícita. Aditivo.
+    MostrarArchivo { ruta: String, descripcion: String },
     /// [109A-5 F2] Plan visible de la conversación: se emite tras cada acción
     /// de la tool `todo` y también al arrancar un turno que ya tenía plan
     /// vigente (resume entre turnos por conversación). Lleva la lista COMPLETA,

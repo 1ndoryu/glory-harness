@@ -76,6 +76,8 @@ export interface PanelDerechoAperturas {
   abrirGit: () => void;
   /** [129A-8] Abre Cambios y revela el archivo (enlace del resumen). */
   abrirCambiosEn: (ruta: string) => void;
+  /** [129A-10 F2] Abre Files y previsualiza la ruta (vista del agente). */
+  abrirFilesEn: (ruta: string) => void;
   reposicionarWebview: () => void;
 }
 
@@ -257,6 +259,14 @@ export function montarPanelDerechoTodo(deps: PanelDerechoDeps): PanelDerechoTodo
     git.revelar(ruta);
   }
 
+  // [129A-10 F2] La tool `mostrar_archivo` enseña un archivo: abre la tab
+  // Files y lo previsualiza (vista, no cambio). `abrirTab` solo conmuta la
+  // tab visible, sin robar el foco del chat (igual que F1).
+  function abrirFilesEn(ruta: string): void {
+    abrirFiles();
+    files.mostrarArchivo(ruta);
+  }
+
   async function restaurarEstado(): Promise<void> {
     try {
       const anchoPreferido = await leerPreferencia(deps.persistencia, CLAVE_LATERAL_ANCHO);
@@ -338,6 +348,7 @@ export function montarPanelDerechoTodo(deps: PanelDerechoDeps): PanelDerechoTodo
     abrirFiles,
     abrirGit,
     abrirCambiosEn,
+    abrirFilesEn,
     reposicionarWebview,
   };
 }
