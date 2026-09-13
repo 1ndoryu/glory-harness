@@ -206,10 +206,13 @@ html[data-tema='synara'] .tarea,
 html[data-tema='synara'] .memoria-fila,
 html[data-tema='synara'] .memorias-detalle,
 html[data-tema='synara'] .resumen-turno,
-html[data-tema='synara'] .cambios-grupo,
-html[data-tema='synara'] .cambios-entrada,
-html[data-tema='synara'] .campo .valor {
+html[data-tema='synara'] .git-diff-caja {
     border-radius: var(--radio-caja);
+}
+
+/* Las filas del diff (fondos de adición/eliminación) se recortan al radio. */
+html[data-tema='synara'] .git-diff-caja {
+    overflow: hidden;
 }
 
 html[data-tema='synara'] .btn,

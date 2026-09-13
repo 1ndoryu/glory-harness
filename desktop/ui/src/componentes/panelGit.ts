@@ -32,6 +32,10 @@ export interface GitTransport {
 export interface PanelGit {
   raiz: HTMLElement;
   recargar(): void;
+  /** Pinta un estado ya consultado (evita la segunda consulta a git). */
+  fijar(resultado: EstadoGit): void;
+  /** Selecciona y muestra el diff de la ruta; false si no está en la lista. */
+  seleccionar(ruta: string): boolean;
 }
 
 export function montarPanelGit(opts: {
@@ -51,6 +55,7 @@ export function montarPanelGit(opts: {
 
   let secuencia = 0;
   let seleccion: { grupo: GrupoGit; ruta: string } | null = null;
+  let ultimos: { staged: ArchivoGit[]; changes: ArchivoGit[] } | null = null;
 
   function pintar(resultado: EstadoGit): void {
     lista.replaceChildren();
@@ -69,6 +74,7 @@ export function montarPanelGit(opts: {
       resultado.diff_staged ?? '',
       resultado.diff_unstaged ?? resultado.diff ?? '',
     );
+    ultimos = datos;
     const seleccionAnterior = seleccion;
     const archivoAnterior = seleccionAnterior
       ? datos[seleccionAnterior.grupo].find((archivo) => archivo.ruta === seleccionAnterior.ruta)
@@ -145,12 +151,33 @@ export function montarPanelGit(opts: {
     seleccion = { grupo, ruta: archivo.ruta };
     pintarDiff(diff, archivo);
     diff.hidden = false;
+    marcarSeleccion(grupo, archivo.ruta);
+  }
+
+  function marcarSeleccion(grupo: GrupoGit, ruta: string): void {
     lista.querySelectorAll<HTMLButtonElement>('.git-entrada').forEach((fila) => {
       fila.classList.toggle(
         'seleccionada',
-        fila.dataset.grupo === grupo && fila.dataset.ruta === archivo.ruta,
+        fila.dataset.grupo === grupo && fila.dataset.ruta === ruta,
       );
     });
+  }
+
+  /** [139A-1] Revelado externo (resumen "ver en Cambios" con git aplicable):
+   * selecciona la fila, muestra su diff y la desplaza a la vista. */
+  function seleccionar(ruta: string): boolean {
+    if (!ultimos) return false;
+    const grupos: GrupoGit[] = ['staged', 'changes'];
+    for (const grupo of grupos) {
+      const archivo = ultimos[grupo].find((a) => a.ruta === ruta);
+      if (!archivo) continue;
+      pintarSeleccion(archivo, grupo);
+      lista
+        .querySelector(`.git-entrada[data-ruta="${CSS.escape(ruta)}"]`)
+        ?.scrollIntoView({ block: 'nearest' });
+      return true;
+    }
+    return false;
   }
 
   async function cargar(): Promise<void> {
@@ -168,7 +195,7 @@ export function montarPanelGit(opts: {
     }
   }
 
-  return { raiz, recargar };
+  return { raiz, recargar, fijar: pintar, seleccionar };
 }
 
 function crearStat(marca: string, cantidad: number, clase: string): HTMLElement {

@@ -89,7 +89,11 @@ export function sumarCambios(archivos: ArchivoGit[]): { adiciones: number; elimi
   );
 }
 
-export function pintarDiff(contenedor: HTMLElement, archivo: ArchivoGit): void {
+export function pintarDiff(
+  contenedor: HTMLElement,
+  archivo: ArchivoGit,
+  acciones: HTMLElement[] = [],
+): void {
   contenedor.replaceChildren();
   contenedor.hidden = false;
 
@@ -103,7 +107,7 @@ export function pintarDiff(contenedor: HTMLElement, archivo: ArchivoGit): void {
     crearEstadistica('+', archivo.adiciones, 'git-diff-adiciones'),
     crearEstadistica('−', archivo.eliminaciones, 'git-diff-eliminaciones'),
   );
-  cabecera.append(ruta, estadistica);
+  cabecera.append(ruta, estadistica, ...acciones);
   caja.appendChild(cabecera);
 
   const cuerpo = el('div', 'git-diff-cuerpo');

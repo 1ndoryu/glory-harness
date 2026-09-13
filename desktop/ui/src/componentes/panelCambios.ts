@@ -1,6 +1,12 @@
 import '../estilos/cambios.css';
 import { el } from '../util/dom';
-import { montarPanelGit, type GitTransport, type PanelGit } from './panelGit';
+import { montarPanelGit, type EstadoGit, type GitTransport, type PanelGit } from './panelGit';
+import {
+  pintarDiff,
+  separarEntradas,
+  sumarCambios,
+  type ArchivoGit,
+} from './gitDiff';
 import type { CambioArchivoTurno, RestauracionArchivo } from '../tauri/realTipos';
 
 /** Transporte del panel Cambios: vault por turno + rechazo puntual. */
@@ -13,18 +19,17 @@ export interface PanelCambios {
   raiz: HTMLElement;
   recargar(): void;
   /** [129A-7 F3] Refresco en vivo tras una escritura del agente (el vault ya
-   * la tiene: re-consulta con antirrebote y conserva el diff vivo por ruta). */
+   * la tiene: re-consulta con antirrebote y conserva la selección por ruta). */
   registrarCambioVivo(ruta: string, diff: string | null): void;
-  /** [129A-8] Revela la fila del archivo en el próximo pintado: abre su
-   * carpeta, la desplaza a la vista y abre su diff vivo si lo hay. */
+  /** [129A-8] Revela el archivo en el próximo pintado: lo selecciona, muestra
+   * su diff y lo desplaza a la vista (en ambos modos: git o vault). */
   revelar(ruta: string): void;
 }
 
-/* [129A-7] Panel "Cambios": la tab antes llamada "Git local". Arriba la
- * sección filesystem (cambios del agente por turno, funciona sin git,
- * agrupados por carpeta y colapsados); debajo el estado git, que se queda
- * como está (sin escrituras). Aceptar = solo marca revisado (localStorage por
- * conversación). Rechazar = restaura el previo del vault, directo. */
+/* [139A-1] Panel "Cambios": con git aplicable muestra SOLO el estado git (la
+ * lista separada del vault era redundante); sin git muestra los cambios del
+ * vault con las MISMAS clases git (sección, filas, caja de diff) en vez de
+ * reinventar la lista (`cambios-lista` eliminada). */
 export function montarPanelCambios(opts: {
   git: GitTransport;
   cambios: CambiosTransport;
@@ -33,22 +38,20 @@ export function montarPanelCambios(opts: {
   onToast?: (texto: string, detalle?: string) => void;
 }): PanelCambios {
   const raiz = el('div', 'panel-cambios');
-  const lista = el('div', 'cambios-lista');
-  lista.setAttribute('role', 'list');
-  const separador = el('div', 'cambios-separador');
-  separador.textContent = 'Git (estado, sin cambios)';
+  const vault = el('div');
   const git: PanelGit = montarPanelGit({ transporte: opts.git, onError: opts.onError });
-  raiz.append(lista, separador, git.raiz);
+  git.raiz.hidden = true;
+  raiz.append(vault, git.raiz);
 
   let secuencia = 0;
   let debounce: ReturnType<typeof setTimeout> | null = null;
   let diffsVivos = new Map<string, string>();
-  let carpetasAbiertas = new Set<string>();
-  let diffAbierto: string | null = null;
-  // [129A-8] Revelado pendiente (la lista se recarga asíncrona: se aplica al
-  // pintar). `abrirDiffDe` abre además el diff vivo de esa ruta, si lo hay.
+  // [129A-8] Revelado pendiente (el listado es asíncrono: se aplica al pintar).
   let revelarPendiente: string | null = null;
-  let abrirDiffDe: string | null = null;
+  // Vista vault: una fila por ruta (el cambio más reciente) + selección viva.
+  let vaultTurnos = new Map<string, CambioArchivoTurno>();
+  let vaultArchivos: ArchivoGit[] = [];
+  let seleccionVault: string | null = null;
 
   function claveRevisados(conv: string): string {
     return `cambios-revisados:${conv}`;
@@ -72,182 +75,228 @@ export function montarPanelCambios(opts: {
     }
   }
 
-  function carpetaDe(ruta: string): string {
-    const i = Math.max(ruta.lastIndexOf('/'), ruta.lastIndexOf('\\'));
-    return i < 0 ? '(raíz)' : ruta.slice(0, i) || '(raíz)';
+  function normalizarRuta(ruta: string): string {
+    return ruta.replaceAll('\\', '/').trim();
   }
 
-  function nombreDe(ruta: string): string {
-    const i = Math.max(ruta.lastIndexOf('/'), ruta.lastIndexOf('\\'));
-    return i < 0 ? ruta : ruta.slice(i + 1);
+  function crearStat(marca: '+' | '−', cantidad: number): HTMLElement {
+    const nodo = el('span', marca === '+' ? 'git-adiciones' : 'git-eliminaciones');
+    nodo.textContent = `${marca}${cantidad}`;
+    return nodo;
   }
 
-  function etiquetaTurno(turnoId: string, enMs: number): string {
-    const corto = turnoId.slice(0, 8);
-    const hora = new Date(enMs).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    return `turno ${corto} · ${hora}`;
+  function pintarVaultVacio(texto: string): void {
+    vault.replaceChildren();
+    vaultArchivos = [];
+    vaultTurnos = new Map();
+    seleccionVault = null;
+    const vacio = el('div', 'git-vacio');
+    vacio.textContent = texto;
+    vault.appendChild(vacio);
   }
 
-  function pintar(cambios: CambioArchivoTurno[], conv: string): void {
-    lista.replaceChildren();
-    if (cambios.length === 0) {
+  function pintarVault(cambios: CambioArchivoTurno[], conv: string): void {
+    vault.replaceChildren();
+    // Una fila por ruta (el turno más reciente si varios la tocaron).
+    vaultTurnos = new Map();
+    for (const c of cambios) {
+      const clave = normalizarRuta(c.ruta);
+      const previo = vaultTurnos.get(clave);
+      if (!previo || c.en_ms >= previo.en_ms) vaultTurnos.set(clave, c);
+    }
+    const rutas = [...vaultTurnos.keys()].sort((a, b) => a.localeCompare(b));
+    if (rutas.length === 0) {
       revelarPendiente = null;
-      abrirDiffDe = null;
-      const vacio = el('div', 'cambios-vacio');
-      vacio.textContent = 'el agente aún no tocó archivos en esta conversación';
-      lista.appendChild(vacio);
+      pintarVaultVacio('el agente aún no tocó archivos en esta conversación');
       return;
     }
+    // Diffs vivos envueltos en cabecera `diff --git` para que
+    // `separarEntradas` los atribuya por ruta igual que con git real.
+    const vivos = new Map<string, string>();
+    for (const [ruta, diff] of diffsVivos) vivos.set(normalizarRuta(ruta), diff);
+    const diffUnstaged = rutas
+      .map((ruta) => {
+        const vivo = vivos.get(ruta)?.trim();
+        if (!vivo) return '';
+        return `diff --git a/${ruta} b/${ruta}\n--- a/${ruta}\n+++ b/${ruta}\n${vivo}`;
+      })
+      .filter((bloque) => bloque !== '')
+      .join('\n');
+    const datos = separarEntradas(
+      rutas.map((ruta) => ({ estado: ' M', ruta })),
+      '',
+      diffUnstaged,
+    );
+    vaultArchivos = datos.changes;
+
+    const contenido = el('div', 'git-contenido');
+    const lista = el('div', 'git-lista');
+    lista.setAttribute('role', 'list');
+    const cajaDiff = el('div', 'git-diff');
+    cajaDiff.hidden = true;
+    const seccion = el('section', 'git-seccion');
+    const cab = el('div', 'git-seccion-cabecera');
+    const titulo = el('span', 'git-seccion-titulo');
+    titulo.textContent = 'Cambios';
+    const contador = el('span', 'git-seccion-contador');
+    contador.textContent = String(vaultArchivos.length);
+    const stat = el('span', 'git-seccion-estadistica');
+    const totales = sumarCambios(vaultArchivos);
+    stat.append(crearStat('+', totales.adiciones), crearStat('−', totales.eliminaciones));
+    cab.append(titulo, contador, stat);
+    seccion.appendChild(cab);
+    const filas = el('div', 'git-seccion-lista');
     const revisados = leerRevisados(conv);
-    const porCarpeta = new Map<string, CambioArchivoTurno[]>();
-    for (const c of cambios) {
-      const carpeta = carpetaDe(c.ruta);
-      const g = porCarpeta.get(carpeta);
-      if (g) g.push(c);
-      else porCarpeta.set(carpeta, [c]);
+    for (const archivo of vaultArchivos) {
+      const fila = el('button', 'git-entrada');
+      fila.type = 'button';
+      fila.setAttribute('role', 'listitem');
+      fila.dataset.ruta = archivo.ruta;
+      fila.title = archivo.ruta;
+      fila.classList.toggle('revisado', revisados.has(archivo.ruta));
+      const codigo = el('span', 'git-codigo');
+      codigo.textContent = 'M';
+      const rutaNodo = el('span', 'git-ruta');
+      rutaNodo.textContent = archivo.ruta;
+      const statArchivo = el('span', 'git-entrada-estadistica');
+      statArchivo.append(crearStat('+', archivo.adiciones), crearStat('−', archivo.eliminaciones));
+      fila.append(codigo, rutaNodo, statArchivo);
+      fila.addEventListener('click', () => seleccionarVault(archivo, conv, lista, cajaDiff));
+      filas.appendChild(fila);
     }
-    for (const [carpeta, archivos] of [...porCarpeta.entries()].sort(([a], [b]) =>
-      a.localeCompare(b),
-    )) {
-      archivos.sort((a, b) => a.en_ms - b.en_ms);
-      const grupo = el('details', 'cambios-grupo');
-      if (carpetasAbiertas.has(`${conv}|${carpeta}`)) grupo.open = true;
-      grupo.addEventListener('toggle', () => {
-        const k = `${conv}|${carpeta}`;
-        if (grupo.open) carpetasAbiertas.add(k);
-        else carpetasAbiertas.delete(k);
-      });
-      const cab = el('summary', 'cambios-grupo-cabecera');
-      const nombre = el('span', 'cambios-grupo-nombre');
-      nombre.textContent = carpeta;
-      const contador = el('span', 'cambios-grupo-contador');
-      contador.textContent = String(archivos.length);
-      cab.append(nombre, contador);
-      grupo.appendChild(cab);
-      for (const c of archivos) {
-        grupo.appendChild(filaCambio(c, conv, revisados));
+    seccion.appendChild(filas);
+    lista.appendChild(seccion);
+    contenido.append(lista, cajaDiff);
+    vault.appendChild(contenido);
+
+    // Restaura la selección o aplica el revelado pendiente (una sola vez).
+    const objetivo = revelarPendiente;
+    revelarPendiente = null;
+    if (objetivo) {
+      const archivo = vaultArchivos.find(
+        (a) => a.ruta === objetivo || a.ruta === normalizarRuta(objetivo),
+      );
+      if (archivo) {
+        seleccionarVault(archivo, conv, lista, cajaDiff);
+        lista
+          .querySelector(`.git-entrada[data-ruta="${CSS.escape(archivo.ruta)}"]`)
+          ?.scrollIntoView({ block: 'nearest' });
       }
-      lista.appendChild(grupo);
-    }
-    // [129A-8] Aplica el revelado pendiente (una sola vez): abre la carpeta
-    // de la fila y la desplaza a la vista. Sin coincidencia se descarta.
-    if (revelarPendiente) {
-      const objetivo = revelarPendiente;
-      revelarPendiente = null;
-      abrirDiffDe = null;
-      const filas = lista.querySelectorAll('[data-ruta]');
-      for (const f of Array.from(filas)) {
-        if (!(f instanceof HTMLElement) || f.dataset.ruta !== objetivo) continue;
-        const grupo = f.closest('details');
-        if (grupo instanceof HTMLDetailsElement) grupo.open = true;
-        f.scrollIntoView({ block: 'nearest' });
-        break;
-      }
+    } else if (seleccionVault) {
+      const archivo = vaultArchivos.find((a) => a.ruta === seleccionVault);
+      if (archivo) seleccionarVault(archivo, conv, lista, cajaDiff);
+      else seleccionVault = null;
     }
   }
 
-  function filaCambio(
-    c: CambioArchivoTurno,
+  function seleccionarVault(
+    archivo: ArchivoGit,
     conv: string,
-    revisados: Set<string>,
-  ): HTMLElement {
-    const clave = `${c.turno_id}|${c.ruta}`;
-    const fila = el('div', 'cambios-entrada');
-    fila.setAttribute('role', 'listitem');
-    fila.dataset.ruta = c.ruta;
-    const principal = el('div', 'cambios-entrada-principal');
-    const ruta = el('span', 'cambios-ruta');
-    ruta.textContent = nombreDe(c.ruta);
-    ruta.title = c.ruta;
-    const turno = el('span', 'cambios-turno');
-    turno.textContent = etiquetaTurno(c.turno_id, c.en_ms);
-    turno.title = `turno ${c.turno_id}`;
-    principal.append(ruta, turno);
-    const acciones = el('div', 'cambios-acciones');
+    lista: HTMLElement,
+    cajaDiff: HTMLElement,
+  ): void {
+    seleccionVault = archivo.ruta;
+    cajaDiff.hidden = false;
+    pintarDiff(cajaDiff, archivo, accionesVault(archivo, conv, lista));
+    lista.querySelectorAll('.git-entrada').forEach((fila) => {
+      fila.classList.toggle(
+        'seleccionada',
+        fila instanceof HTMLElement && fila.dataset.ruta === archivo.ruta,
+      );
+    });
+  }
+
+  function accionesVault(archivo: ArchivoGit, conv: string, lista: HTMLElement): HTMLElement[] {
+    const cambio = vaultTurnos.get(archivo.ruta);
+    const revisados = leerRevisados(conv);
     const estado = el('span', 'cambios-estado');
-    const btnAceptar = el('button', 'btn cambios-boton') as HTMLButtonElement;
+    const btnAceptar = el('button', 'btn cambios-boton');
     btnAceptar.type = 'button';
     btnAceptar.textContent = 'Aceptar';
-    const btnRechazar = el('button', 'btn cambios-boton cambios-boton-rechazar') as HTMLButtonElement;
+    const btnRechazar = el('button', 'btn cambios-boton cambios-boton-rechazar');
     btnRechazar.type = 'button';
     btnRechazar.textContent = 'Rechazar';
-    const diff = diffsVivos.get(c.ruta) ?? null;
-    // [129A-8] El enlace del resumen abre además el diff vivo, si lo hay.
-    if (abrirDiffDe === c.ruta && diff) diffAbierto = clave;
-    let btnDiff: HTMLButtonElement | null = null;
-    if (diff) {
-      btnDiff = el('button', 'btn cambios-boton') as HTMLButtonElement;
-      btnDiff.type = 'button';
-      btnDiff.textContent = diffAbierto === clave ? 'Ocultar diff' : 'Ver diff';
-      btnDiff.addEventListener('click', () => {
-        diffAbierto = diffAbierto === clave ? null : clave;
-        recargar();
-      });
-    }
-    const refrescarEstado = () => {
-      const ok = revisados.has(clave);
+    const refrescar = () => {
+      const ok = revisados.has(archivo.ruta);
       estado.textContent = ok ? 'revisado' : '';
-      fila.classList.toggle('revisado', ok);
       btnAceptar.disabled = ok;
+      lista.querySelectorAll('.git-entrada').forEach((fila) => {
+        if (fila instanceof HTMLElement && fila.dataset.ruta === archivo.ruta) {
+          fila.classList.toggle('revisado', ok);
+        }
+      });
     };
-    refrescarEstado();
+    refrescar();
+    // Aceptar = solo marca revisado (localStorage por conversación).
     btnAceptar.addEventListener('click', () => {
-      revisados.add(clave);
+      revisados.add(archivo.ruta);
       guardarRevisados(conv, revisados);
-      refrescarEstado();
+      refrescar();
     });
+    // Rechazar = restaura el previo del vault, directo.
     btnRechazar.addEventListener('click', () => {
+      if (!cambio) return;
       btnAceptar.disabled = true;
       btnRechazar.disabled = true;
       estado.textContent = 'restaurando…';
       opts.cambios
-        .rechazar(conv, c.turno_id, c.ruta)
+        .rechazar(conv, cambio.turno_id, cambio.ruta)
         .then((r) => {
           if (r.estado === 'restaurado') {
-            opts.onToast?.(`rechazado: ${c.ruta}`, 'restaurado al estado previo del turno');
+            opts.onToast?.(`rechazado: ${cambio.ruta}`, 'restaurado al estado previo del turno');
             recargar();
           } else {
             opts.onToast?.(
-              `no se tocó ${c.ruta}`,
+              `no se tocó ${cambio.ruta}`,
               r.detalle ?? r.estado,
             );
             recargar();
           }
         })
         .catch((e: unknown) => {
-          opts.onToast?.(`no se pudo rechazar ${c.ruta}`, String(e));
+          opts.onToast?.(`no se pudo rechazar ${cambio.ruta}`, String(e));
           recargar();
         });
     });
-    acciones.append(estado, ...(btnDiff ? [btnDiff] : []), btnAceptar, btnRechazar);
-    fila.append(principal, acciones);
-    if (diff && diffAbierto === clave) {
-      const pre = el('pre', 'cambios-diff');
-      pre.textContent = diff;
-      fila.appendChild(pre);
-    }
-    return fila;
+    return [estado, btnAceptar, btnRechazar];
   }
 
   async function cargar(): Promise<void> {
     const id = ++secuencia;
-    git.recargar();
+    // Una sola consulta a git por recarga: decide el modo y pinta sin refetch.
+    let gitEstado: EstadoGit | null = null;
+    let gitError: string | null = null;
+    try {
+      gitEstado = await opts.git.estado();
+    } catch (error: unknown) {
+      gitError = String(error);
+    }
+    if (id !== secuencia) return;
+    if (gitEstado?.aplicable) {
+      vault.replaceChildren();
+      vault.hidden = true;
+      git.raiz.hidden = false;
+      git.fijar(gitEstado);
+      const objetivo = revelarPendiente;
+      revelarPendiente = null;
+      if (objetivo && !git.seleccionar(objetivo)) git.seleccionar(normalizarRuta(objetivo));
+      return;
+    }
+    if (gitError) opts.onError?.('no se pudo consultar Git', gitError);
+    git.raiz.hidden = true;
+    vault.hidden = false;
     const conv = opts.convId();
     if (!conv) {
-      if (id !== secuencia) return;
-      lista.replaceChildren();
-      const vacio = el('div', 'cambios-vacio');
-      vacio.textContent = 'abre una conversación para ver sus cambios';
-      lista.appendChild(vacio);
+      pintarVaultVacio('abre una conversación para ver sus cambios');
       return;
     }
     try {
       const cambios = await opts.cambios.listar(conv);
       if (id !== secuencia) return;
-      pintar(cambios, conv);
+      pintarVault(cambios, conv);
     } catch (error: unknown) {
       if (id !== secuencia) return;
-      lista.replaceChildren();
+      vault.replaceChildren();
       opts.onError?.('no se pudieron listar los cambios', String(error));
     }
   }
@@ -264,7 +313,6 @@ export function montarPanelCambios(opts: {
 
   function revelar(ruta: string): void {
     revelarPendiente = ruta;
-    abrirDiffDe = ruta;
     recargar();
   }
 
