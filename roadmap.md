@@ -85,18 +85,27 @@ Siguiente en la serie de 6 pedidos: 129A-11 → 129A-9.
       6/6 → después `repos=0 estado=0 listar=5 resumen=3` 6/6 (el +1 es el
       trailing del burst) + 24/24 139A-6 sin regresión; `tsc` EXIT 0.
        Plan: `Agente/planes/plan-139A-7-cambios-eficiente-2026-09-13.md`.
-- [ ] **139A-8 — Remediación de la auditoría integral (LISTO, pendiente "adelante")**
-      (pedido 13-09: plan para resolver la auditoría
+- [ ] **139A-8 — Remediación de la auditoría integral (EN EJECUCIÓN, plan v5
+      reconciliado 13-09)** (pedido 13-09: plan para resolver la auditoría
       `Agente/documentacion/auditoria-integral-2026-09-13.md` v2 verificada):
-      F0 re-resolución de citas → F1 seguridad ejecución (K1 jaula PTY, K13
-      secreto en log, K3 auth maestra loopback, K9 CSRF) → F2 SQLite async +
-      historial acotado (R1/R2/R3) → F3 filesystem/git (K2/K8/K7/S8) →
-      F4 puertos y god-objects (S1–S5) → F5 streaming/IPC frente (R5/G1–G3,
-      K11/G6) → F6 re-medidor + 10+5 reglas. Coordinar F5/G1 con 139A-7.
+      F0 re-resolución de citas → F1 seguridad ejecución (K1 jaula, K13
+      secreto en log, K3 loopback, K9 cookie firmada, K12 rate-limit std) →
+      F2 SQLite async + historial acotado (R1/R2/R3, p95 87,81→3,83 ms) →
+      F3n ALTA restantes (K2 entorno, K4 hooks exec, K5 jaula cwd, K6 SSRF
+      hooks, K7 MCP stdio) → F4 puertos y god-objects (S1–S5) → F5n
+      unificación path + SQLite (S7/S8/K8-TOCTOU/R4) → F6n streaming/DOM
+      (R5/R6/R8, R7 front condicional por 139A-9) → F7n pin glory-sentinel +
+      cierre (este repo solo sube el pin). v5 invalida F3–F6 v1–v4
+      (etiquetas no-auditadas, trabajo inventado, 5 ALTA fuera).
       Plan: `Agente/planes/plan-139A-8-remediacion-auditoria-2026-09-13.md`.
       F2 cerrada 13-09 (gate PASS, 477 tests): `con_conn` (`spawn_blocking`)
       en puerto/tareas, lectura de mensajes con filtro SQL + `conversacion_obtener`
-      puntual, p95 turno 87,81 ms → 3,83 ms; siguiente F3.
+      puntual, p95 turno 87,81 ms → 3,83 ms; F3n cerrada 13-09 (gate
+      PASS coverage/sccache/sentinel/rust, 12 tests nuevos k4/k6/k7/entorno):
+      `entorno.rs` (`env_clear` + allowlist) en jaula/hooks/MCP/ejecutor/git,
+      allowlist binarios hooks + `Hook::comando_interno`, `cd` con args
+      denegado, SSRF hooks (denegar por defecto + `egreso_extra`), allowlist
+      MCP + `GLORY_MCP_ALLOW`; en curso F4.
 - [ ] **129A-3 — Aprobación: el turno pausa y continúa (sin reenvío) + tarjeta fija + toast Windows**
       (rediseño 12-09 tras verificación real fallida: la tarjeta se duplicaba,
       el `mkdir` no se creaba y volvía a preguntar tras aceptar):

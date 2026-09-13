@@ -17,12 +17,14 @@
  * (`crate::tool::…`) y los de los consumidores (`glory_harness_core::tool`)
  * siguen resolviendo sin tocar ningún `use`. */
 mod contrato;
+mod entorno;
 mod herramientas;
 mod nucleo;
 mod politica;
 mod tareas_programadas;
 
 pub use contrato::*;
+pub use entorno::{aplicar_entorno_minimo, filtrar_entorno};
 pub use herramientas::*;
 pub use nucleo::*;
 pub use politica::*;

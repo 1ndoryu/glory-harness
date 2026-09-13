@@ -9,7 +9,9 @@
 //! registra como `mcp_<servidor>_<herramienta>` con categoría `mcp`, así la
 //! política F3 (ask/allow/deny por categoría) la cubre sin código extra.
 
+use crate::entorno::aplicar_entorno_minimo;
 use crate::error::{Error, Result};
+use crate::hooks::{normalizar_bin_hook, MAX_ARGS_HOOK, MAX_BYTES_ARGS_HOOK};
 use crate::ports::{McpHerramienta, McpProveedor};
 use crate::tool::{AgentTool, AgentToolContext, AgentToolResult};
 use async_trait::async_trait;
@@ -125,6 +127,65 @@ impl SesionStdio {
     }
 }
 
+/// [139A-8 F3n/K7] Runtimes que pueden hospedar un servidor MCP stdio.
+/// Nada de shells (`sh`, `cmd`, `powershell`) ni utilidades del sistema:
+/// el `comando` lo declara la config del operador (`GLORY_MCP_CONFIG`) y sin
+/// allowlist un comando inyectado ahí sería RCE en el arranque. Servidores
+/// compilados propios o rutas dedicadas entran por `GLORY_MCP_ALLOW`
+/// (basenames con `,`, bajo responsabilidad del operador). Misma
+/// normalización por basename que K4 ([`crate::hooks`]), mismos topes de
+/// argv (anti-bomba).
+pub const MCP_BINARIOS_PERMITIDOS: &[&str] = &[
+    "node", "npx", "python", "python3", "uv", "uvx", "bun", "deno",
+];
+
+/// Extras del operador desde `GLORY_MCP_ALLOW` (coma-separados).
+fn extras_mcp_desde_env() -> Vec<String> {
+    std::env::var("GLORY_MCP_ALLOW")
+        .unwrap_or_default()
+        .split(',')
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect()
+}
+
+/// Valida (comando, args) de un servidor MCP stdio. `extras` = allowlist
+/// adicional (el wrapper público la lee de `GLORY_MCP_ALLOW`; los tests la
+/// inyectan para no mutar el entorno del proceso).
+pub fn validar_servidor_mcp_con_extras(
+    comando: &str,
+    args: &[String],
+    extras: &[String],
+) -> std::result::Result<(), String> {
+    let bin = normalizar_bin_hook(comando);
+    let permitido = MCP_BINARIOS_PERMITIDOS.iter().any(|b| *b == bin)
+        || extras.iter().any(|e| normalizar_bin_hook(e) == bin);
+    if !permitido {
+        return Err(format!(
+            "servidor MCP denegado ('{comando}'): binario fuera de la allowlist K7 \
+             (ampliable con GLORY_MCP_ALLOW)"
+        ));
+    }
+    if args.len() > MAX_ARGS_HOOK {
+        return Err(format!(
+            "servidor MCP denegado ('{comando}'): {} args superan el tope {MAX_ARGS_HOOK}",
+            args.len()
+        ));
+    }
+    let bytes: usize = args.iter().map(|a| a.len()).sum();
+    if bytes > MAX_BYTES_ARGS_HOOK {
+        return Err(format!(
+            "servidor MCP denegado ('{comando}'): {bytes} bytes de argv superan el tope {MAX_BYTES_ARGS_HOOK}"
+        ));
+    }
+    Ok(())
+}
+
+/// Valida con los extras del entorno actual.
+pub fn validar_servidor_mcp(comando: &str, args: &[String]) -> std::result::Result<(), String> {
+    validar_servidor_mcp_con_extras(comando, args, &extras_mcp_desde_env())
+}
+
 /// Proveedor MCP estándar: arranca `comando argumentos...` como proceso hijo
 /// y habla JSON-RPC por stdin/stdout.
 pub struct McpProveedorStdio {
@@ -137,16 +198,25 @@ impl McpProveedorStdio {
     /// consumidor (el binario no existe, etc.) y se propaga antes de que
     /// ninguna tool se registre (fail-closed).
     pub async fn nuevo(comando: &str, argumentos: Vec<String>) -> Result<Self> {
-        let mut child = Command::new(comando)
+        // [139A-8 F3n/K7] Allowlist de binarios + topes de argv ANTES del
+        // spawn: config denegada = arranque abortado (fail-closed).
+        validar_servidor_mcp(comando, &argumentos).map_err(|motivo| Error::Proveedor {
+            detalle: format!("servidor MCP `{comando}` bloqueado por política K7: {motivo}"),
+            causa: None,
+        })?;
+        let mut spawn = Command::new(comando);
+        spawn
             .args(&argumentos)
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::inherit())
-            .spawn()
-            .map_err(|e| Error::Proveedor {
-                detalle: format!("arrancar servidor MCP `{comando}`: {e}"),
-                causa: None,
-            })?;
+            .stderr(std::process::Stdio::inherit());
+        // [139A-8 F3n/K2] El servidor NO hereda el entorno del operador
+        // (claves LLM): solo el subconjunto mínimo.
+        aplicar_entorno_minimo(&mut spawn);
+        let mut child = spawn.spawn().map_err(|e| Error::Proveedor {
+            detalle: format!("arrancar servidor MCP `{comando}`: {e}"),
+            causa: None,
+        })?;
         let stdin = child.stdin.take().ok_or_else(|| Error::Proveedor {
             detalle: format!("servidor MCP `{comando}` sin stdin"),
             causa: None,
@@ -482,5 +552,67 @@ mod tests {
     fn extraer_texto_fallback_json() {
         let r = json!({"clave": "valor"});
         assert!(extraer_texto(&r).contains("clave"));
+    }
+
+    /// [139A-8 F3n/K7] La allowlist acepta runtimes MCP habituales y deniega
+    /// shells y utilidades del sistema, vengan pelados, con ruta o con
+    /// extensión Windows.
+    #[test]
+    fn k7_acepta_runtimes_y_deniega_shells() {
+        let sin_args: Vec<String> = vec![];
+        for bin in [
+            "node", "npx", "python", "python3", "uv", "uvx", "bun", "deno",
+        ] {
+            assert!(
+                validar_servidor_mcp_con_extras(bin, &sin_args, &[]).is_ok(),
+                "{bin} debería pasar"
+            );
+        }
+        for bin in [
+            "sh",
+            "bash",
+            "cmd",
+            "powershell",
+            "pwsh",
+            "rm",
+            "curl",
+            r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe",
+            "/bin/sh",
+            "../node_modules/.bin/malicioso",
+        ] {
+            assert!(
+                validar_servidor_mcp_con_extras(bin, &sin_args, &[]).is_err(),
+                "{bin} debería denegarse"
+            );
+        }
+    }
+
+    /// [139A-8 F3n/K7] En Windows la extensión no cuela un binario distinto
+    /// (`node.exe` = `node`); fuera de Windows no hay stripping (el FS
+    /// distingue: `node.exe` no es `node`).
+    #[test]
+    fn k7_normaliza_extension_solo_en_windows() {
+        let sin_args: Vec<String> = vec![];
+        if cfg!(windows) {
+            assert!(validar_servidor_mcp_con_extras(r"C:\tools\NODE.EXE", &sin_args, &[]).is_ok());
+            assert!(validar_servidor_mcp_con_extras("powershell", &sin_args, &[]).is_err());
+        } else {
+            assert!(validar_servidor_mcp_con_extras("node", &sin_args, &[]).is_ok());
+        }
+    }
+
+    /// [139A-8 F3n/K7] `GLORY_MCP_ALLOW` (aquí inyectado) abre la puerta a un
+    /// servidor compilado del operador; los topes de argv frenan la
+    /// bomba de argumentos.
+    #[test]
+    fn k7_extras_y_topes_de_argv() {
+        let sin_args: Vec<String> = vec![];
+        let extras = vec!["mi-mcp-propio".to_string()];
+        assert!(validar_servidor_mcp_con_extras("mi-mcp-propio", &sin_args, &[]).is_err());
+        assert!(validar_servidor_mcp_con_extras("mi-mcp-propio", &sin_args, &extras).is_ok());
+        let muchos: Vec<String> = (0..40).map(|i| format!("arg{i}")).collect();
+        assert!(validar_servidor_mcp_con_extras("node", &muchos, &[]).is_err());
+        let gordo = vec!["x".repeat(70 * 1024)];
+        assert!(validar_servidor_mcp_con_extras("node", &gordo, &[]).is_err());
     }
 }

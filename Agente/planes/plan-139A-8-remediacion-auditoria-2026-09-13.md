@@ -1,9 +1,12 @@
 # Plan 139A-8 — Remediación de la auditoría integral (2026-09-13)
 
-> **Estado: EN EJECUCIÓN (v4, 13-09).** "Adelante" recibido; árbol limpio
-> (`c986dac` pusheado). **F0, F1 y F2 completadas** (gates PASS abajo);
-> siguiente F3.
-> Las 3 decisiones abiertas están cerradas abajo (§ Decisiones).
+> **Estado: EN EJECUCIÓN (v5, 13-09).** "Adelante" recibido; árbol limpio
+> (`c986dac` pusheado). **F0, F1, F2 y F3n completadas** (gates PASS abajo);
+> siguiente F4. Preflight F3n detectó que F3–F6 (v1–v4) usaban etiquetas
+> que NO corresponden a la auditoría e inventaban trabajo no pedido;
+> el usuario ordenó **reconciliar y reescribir F3–F6** (ver § Decisiones.4).
+> Fuente: `Agente/documentacion/auditoria-integral-2026-09-13.md` (v2 verificada).
+> IDs S/R/K/G según la auditoría. Siguiente ID libre tras este: 139A-9.
 > Fuente: `Agente/documentacion/auditoria-integral-2026-09-13.md` (v2 verificada).
 > IDs S/R/K/G según la auditoría. Siguiente ID libre tras este: 139A-9.
 
@@ -25,14 +28,37 @@
    por decisión del usuario). 139A-8/F5 NO reimplementa: arranca re-ejecutando el
    fixture de 139A-7 como regresión y sigue solo con R5/G3/G2/K11. Si el gate de
    139A-7 sigue pendiente al arrancar F5, se cierra primero ese gate.
+4. **Reconciliación F3–F6 (v5, 13-09, preflight F3n):** las fases F3–F6
+   (v1–v4) quedan **invalidadas y reescritas** como F3n/F4/F5n/F6n/F7n:
+   - Sus etiquetas K2/K7/K8/K10/G1/G2/G4 NO corresponden a la auditoría
+     (audit K2 = herencia de entorno; K7 = MCP stdio; K10 = IPC Tauri;
+     K8 = TOCTOU sandbox+`memoria.rs:417`; G1–G4/G8–G13 no son fases de
+     este repo sino gaps de reglas Sentinel §4.3–§4.4).
+   - Inventaban trabajo no pedido: rasgo `Redactor`/`SecretPattern`,
+     etiquetas `secreto:`, fixture medidor, `agent.event` binario,
+     normalización snake/camel, `core/src/estado/` (G11).
+   - Dejaban fuera 5 ALTA (audit K2 entorno, K4 hooks exec, K5 jaula `cd`/cwd,
+     K6 SSRF hooks, K7 MCP stdio) + R4 (índices) + R6/R8.
+   - `sandbox.rs:96-132,335-378` YA canonicaliza (verificado por grep):
+     queda solo el TOCTOU uso-vs-check, sin `OPENAT2` (Linux-only;
+     binario Windows) — revalidación + doc del invariante.
+   - S8 se implementa como dice la auditoría (`core::git::ServicioGit` +
+     pasarelas), NO partiendo `git.rs` en 5 módulos.
+   - F6n→F7n: la auditoría §5.6 dice "este repo solo sube el pin"
+     (`glory-sentinel`): sin medidor ni reglas en este repo.
+   - Cobertura v3 ("todos los CRÍTICO/ALTO tienen fase") queda invalidada;
+     la cobertura real la da v5 (F3n = los 5 ALTA restantes).
 
-## Objetivo
+## Objetivo (v5)
 
-Cerrar los hallazgos CRÍTICO/ALTO de la auditoría sin romper lo que ya funciona:
-seguridad de ejecución (K1), SQLite bajo async (R1/R2), historial por turno (R3),
-puerto de persistencia (S3/S4), `tool.rs`/`runtime` (S1/S2) e IPC del frente (G1–G3),
-más el re-medidor del gate (G8–G13). Los MEDIOS/BAJOS entran solo si su fase los
-roza; el resto queda registrado como deuda en la auditoría.
+Cerrar los hallazgos CRÍTICO/ALTO restantes de la auditoría sin romper lo que
+ya funciona: entorno/exec de hijos y hooks (K2/K4/K5/K6/K7, F3n), unificación
+filesystem/git/path + TOCTOU (S7/S8/K8, F5n), SQLite bajo async e índices
+(R1/R2/R3 hechos en F2; R4 en F5n), streaming/DOM (R5/R6/R8 [+R7 front
+condicional], F6n) y puertos/god-objects (S3/S4/S5/S1/S2, F4). El gate de
+reglas (§4.4) compete a `glory-sentinel`: este repo solo sube el pin (F7n).
+Los MEDIOS/BAJOS entran solo si su fase los roza; el resto queda como deuda
+en la auditoría.
 
 ## No alcance
 
@@ -75,18 +101,33 @@ Si una cita cayó (código cambiado), se anota en la auditoría §6 y se re-prio
    en el path de creación (`SELECT … WHERE id=?`). DoD: turno largo sin full-scan;
    test con 5k mensajes.
 
-## F3 — Filesystem/git/vault (K2, K8, K7, K10, S8)
+## F3n — Seguridad ALTA restante (K2, K4, K5, K6, K7)
 
-1. **K2:** canonicalización + `OPENAT2_RESOLVE_IN_ROOT`/equivalente y symlink-policy
-   en `sandbox.rs` y `fs()`; `comando_herramientas` valida argv contra el root
-   anclado. Tests de escape (`..`, symlink, TOCTOU rename).
-2. **K8:** `memoria.rs:417` — revalidar existencia/contenido tras leer (hash o
-   re-apertura) antes de indexar; doc del invariante.
-3. **K7:** `redact.rs`/`redact` detrás del rasgo `Redactor` + `SecretPattern`
-   documentado; tests de cada familia.
-4. **S8:** `git.rs` partido en `estado`/`historial`/`staging`/`stash`/`remoto`.
-5. **K10:** etiquetas `secreto:` namespaced por defecto + auditoría de `refs`
-   existentes; `mostrar_archivo`/exports vetan `secreto:` salvo opt-in explícito.
+Auditoría §K2/K4–K7 (13-09, ALTA). F0 previa confirmó: sin `env_clear` en
+`cli/`, `sandbox.rs` ya canonicaliza, sin `Redactor`/`secreto:` (no se crean).
+
+1. **K2 (entorno heredado):** `env_clear()` + allowlist mínima explícita en el
+   punto único de spawn (`cli/src/infra/ejecutor.rs` + jaula F1) y en el
+   cliente LLM (`core/src/nucleo/llm/red.rs:83`); allowlist documentada
+   (PATH/SYSTEMROOT/TEMP-TMP/HOME-USERPROFILE + las estrictamente necesarias);
+   las claves LLM solo viajan como variables nombradas. Tests: el hijo ve
+   SOLO la allowlist (aserción sobre `env -0`/equivalente + clave señuelo
+   ausente).
+2. **K4 (hooks ejecutan binario arbitrario):** allowlist de binarios + tope
+   de argv en `core/src/nucleo/hooks.rs` (dispatcher; el exec ya es directo
+   sin shell —matiz v2—); fuera de allowlist → evento `bloqueado` + error
+   tipado. Tests de bypass (ruta absoluta, `..`, extensión `.exe`/sin ext).
+3. **K5 (jaula evadible con `cd`):** tras F1 (sin shell) verificar que el cwd
+   del hijo queda anclado al workspace (`current_dir` explícito + denegar
+   `cd` como comando); test de escape de cwd.
+4. **K6 (SSRF vía hooks http):** allowlist de egreso en el cliente de hooks
+   (`hooks.rs:389-412`): denegar loopback/link-local/metadata
+   (`127.0.0.0/8`, `169.254.169.254`, `::1`) salvo allowlist explícita;
+   timeout ya existe (se conserva). Tests de URL prohibida/permitida.
+5. **K7 (MCP stdio sin allowlist):** allowlist de comandos + argv + env mínima
+   en `core/src/herramientas/mcp.rs` (spawn); tests de comando fuera de lista.
+   DoD: 5 suites verdes + `sentinel check` PASS; sin cambios de conducta salvo
+   denegaciones documentadas (fail-closed).
 
 ## F4 — Puertos y god-objects (S3, S4, S5, S1, S2)
 
@@ -102,30 +143,58 @@ Si una cita cayó (código cambiado), se anota en la auditoría §6 y se re-prio
    parte `memoria/` y `llm/` a sus módulos.
    Gate por sub-fase: compila + tests del crate + `u64`/`bool` sin cambios de conducta.
 
-## F5 — Streaming e IPC del frente (R5, G1, G2, G3, K11, G6)
+## F5n — Unificación path + SQLite restante (S7, S8, K8, R4)
 
-1. **G1:** 139A-7 ya lo entregó (ver § Decisiones.3): re-ejecutar su fixture como
-   regresión (`repos=0 estado=0` al cambiar de conversación) y nada más.
-2. **R5/G3:** `agent.event` como frame binario/`Uint8Array` + throttle `rAF`;
-   ventana de 200 eventos con `ResizeObserver`; `turno_id` en el frame.
-3. **G2:** normalizar disco `snake_case`↔`camelCase` en el boundary (test de ida/vuelta).
-4. **K11/G6:** `iconos.ts` a `data:`/máscara CSS; sanitizador compartido para
-   `memoria-contenido` (productor) manteniendo el del sink.
-   Verificación: CDP counts + captura, `tsc` + `vite build`.
+Auditoría §S7/S8 (DRY), §K8/G4 (TOCTOU), §R4 (índices). Paso 3 (+R4 del paso 2).
 
-## F6 — Gate: re-medidor y reglas (G8–G13, §4.4)
+1. **S7:** única `FileSystemPolicy` + `SandboxArchivos` como única validación;
+   Tauri (`filesystem.rs`) y `web_datos/files.rs` = adaptadores finos.
+   `tools_archivo.rs:18-24` (`MAX_LECTURA` 1 MB) vs `MAX_FILE_BYTES` 256 KB:
+   unificar el tope en la política con justificación documentada.
+2. **S8** (fix según auditoría): `core::git::ServicioGit` + pasarelas finas en
+   `desktop/.../proyecto/git.rs` y `cli/.../web_datos/git.rs` (NO partir en 5
+   módulos). Nota: 139A-2 añadió `arbol_repos`/barrido — se conserva vía el
+   servicio.
+3. **K8-TOCTOU:** `memoria.rs:417` (fuente = fila de BD) — revalidar
+   existencia/contenido tras leer (hash o re-apertura) antes de indexar + doc
+   del invariante; `sandbox.rs` ya canonicaliza: solo doc + test del check
+   (`..`, symlink, rename). Sin `OPENAT2` (Linux-only).
+4. **R4:** los 6 índices de la auditoría §R4; evidencia `EXPLAIN QUERY PLAN`
+   antes/después en las 4 consultas citadas.
+   DoD: tests de escape + índices verificados + gate PASS.
 
-1. Fixture de regresión del medidor (casos §4.2) + `||` multilínea corregido
-   (G8, G9) + modo `--strict` docs-vs-impl (G10) + tests `--check/--fix` (G13).
-2. Añadir las 10 reglas (§4.4) con `ignorar #[cfg(test)]` explícito; las 5
-   opcionales como warnings. Excepción `todo-pendiente` solo con ticket.
-3. `core/src/estado/` con invariantes + `debug_assert` (G11).
-   DoD: medidor verde en fixture + gate PASS sobre el árbol.
+## F6n — Streaming/DOM restante (R5, R6, R8, R7-condicional)
+
+Auditoría §R5/R6/R8 (+R7). Arranca re-ejecutando el fixture de 139A-7 como
+regresión (ver § Decisiones.3).
+
+1. **R5:** coalescing ~50–100 ms o N tokens en `turnos.rs:340-353`, evitar
+   `to_value` en path caliente, separar canal control/datos (`DifusionSse`).
+2. **R6:** `turn.finished` con título/uso incluido + actualización optimista;
+   `listar` incremental/paginado (mitiga G1-fan-out §4.3).
+3. **R8:** mover en vez de clonar en `sesion.rs:539,556-557`,
+   `turnos.rs:342-345`, `ui/turno.rs:76,85-89`, `runtime/turno/mod.rs:54-63`
+   (`Cow<str>`/buffers/hash-ventana).
+4. **R7 (condicional):** `pintarHistorial` incremental SOLO si no colisiona
+   con el trabajo sin commitear de 139A-9 en `desktop/ui` (verificar
+   `git status` primero); si colisiona → deuda + aviso.
+   Las etiquetas G1/G2/G3/K11/G6 de la v1–v4 no tienen sección en la
+   auditoría: fuera de alcance (deuda en auditoría). Verificación: CDP counts
+   + captura donde toque frente; `tsc` + `vite build`.
+
+## F7n — Pin del gate + cierre (auditoría §5.6)
+
+"Este repo solo sube el pin" (`glory-sentinel`): verificar si las 10+5 reglas
+(§4.4) ya existen upstream y subir el pin; si no existen → tarea externa en
+el proyecto dueño + cierre 139A-8 con la evidencia. Sin medidor ni reglas en
+este repo. DoD: pin subido o tarea externa creada + último gate PASS +
+roadmap limpio + completada + plan a `completados/`.
 
 ## Orden y dependencias
 
-F0 → F1 → F2 → F3 → F4 → F5 → F6. F1 y F2 son independientes entre sí tras F0;
-F5 depende de F4 solo en tipos tocados (re-export los desacopla); F6 cierra.
+F0 → F1 → F2 → F3n → F4 → F5n → F6n → F7n. F4 (puertos) y F5n (unificación)
+son independientes entre sí tras F3n; F6n depende de F4 solo en tipos tocados
+(re-export los desacopla); F7n cierra.
 
 ## Definition of Done (global)
 
@@ -187,6 +256,44 @@ F5 depende de F4 solo en tipos tocados (re-export los desacopla); F6 cierra.
   sigue ~11,7 GB (casi todo el target activo) por encima del tope 7 GB de
   `AGENTS.md`: pendiente higiene de target (mejora candidata, no creada).
 
+## Ejecución F3n (13-09, completada + gate PASS)
+
+- **K2** (`core/src/entorno.rs` nuevo): `env_clear()` + allowlist
+  (`VARS_ENTORNO_MINIMO` + prefijos `CARGO_`, `RUSTUP_`, case-insensitive en
+  Windows) vía `aplicar_entorno_minimo`, aplicada en el spawn de
+  `ejecutor.rs::construir_comando`, `hooks.rs::ejecutar_comando_local`,
+  `mcp.rs::McpProveedorStdio::nuevo` y `git.rs::ejecutar_git`. Tests:
+  `filtra_claves…`, `conserva_los_valores…` e `hijo_ve_solo_la_allowlist`
+  (señuelo `GLORY_HARNESS_SENUELLO_K2` barrido, `PATH` sobrevive).
+- **K4** (`hooks.rs`): `HOOKS_BINARIOS_PERMITIDOS` (lectura/inspección +
+  `git`), topes argv (`MAX_ARGS_HOOK=32`, `MAX_BYTES_ARGS_HOOK=64 KB`),
+  `validar_comando_hook[_con_extras]` + `GLORY_HOOKS_ALLOW`,
+  `Hook::{comando,comando_interno,interno}` (el interno salta la allowlist
+  solo para (comando, args) fijados en código); el runner valida externos
+  fail-closed. `notificar.rs` migrado a `comando_interno`.
+- **K5** (`jaula.rs`): `cd` con args denegado en Windows (`cd` pelado =
+  sonda de cwd); test `cd_con_destino_denegado_pelado_como_sonda`.
+- **K6** (`hooks.rs`): `host_bloqueado_por_nombre`,
+  `ip_egreso_denegada` (incluye IPv4-mapeadas), `ips_resueltas` por
+  `spawn_blocking`, `validar_egreso_http` (denegar por defecto;
+  `RunnerComandoHttp.egreso_extra` exime hosts exactos); el runner bloquea
+  K6 antes del POST. Tests sin red (literales/nombres) + fix E0521
+  (`host_auditable` por valor para el closure `spawn_blocking`).
+- **K7** (`mcp.rs`): `MCP_BINARIOS_PERMITIDOS` (runtimes, sin shells),
+  `validar_servidor_mcp[_con_extras]` + `GLORY_MCP_ALLOW`, misma
+  normalización/tope que K4, higiene K2 en el spawn. Tests k7.
+- **Gate**: `sentinel check 139A-8` **PASS** (20 archivos; coverage,
+  sccache, sentinel y rust verdes; rust 186 s). Primera pasada FAIL por
+  `clippy::useless_format` propio (`format!` sin interpolación en
+  `validar_egreso_http:605`): corregido a `.to_string()`. Queda el WARNING
+  preexistente `limite-lineas` en `hooks.rs` (ya tenía 1247 líneas antes de
+  F3n; partirlo es trabajo separado, no de esta fase).
+- **Fricción**: el árbol NO está `rustfmt`-limpio en general (deriva de
+  toolchain, decenas de ficheros no tocados); se dejaron fmt-limpias solo
+  las regiones propias (`entorno.rs`, `mcp.rs` a cero; `hooks.rs` sin hunks
+  nuevos) sin tocar líneas ajenas. Leases del guard: uno por comando
+  (`fmt --check`, `test`, …); `sentinel check` corre sin lease.
+
 ## Revisión
 
 - v1 (13-09): borrador en revisión.
@@ -199,3 +306,9 @@ F5 depende de F4 solo en tipos tocados (re-export los desacopla); F6 cierra.
    MEDIOS/BAJOS solo si los roza su fase; resto = deuda registrada en auditoría.
 - v4 (13-09): F2 ejecutada y cerrada con gate PASS (ver § Ejecución F2);
   siguiente F3.
+- v5 (13-09, reconciliación): preflight F3 detecta mismatch citas-plan vs
+  auditoría + código (sin `env_clear`, sandbox ya canonicaliza, sin
+  `Redactor`/`secreto:`, `OPENAT2` Linux-only, F6 compete a glory-sentinel,
+  5 ALTA + R4/R6/R8 fuera del plan). Usuario ordena reescribir: F3–F6
+  invalidadas → F3n (K2/K4/K5/K6/K7) → F4 (puertos, sin cambios) → F5n
+  (S7/S8/K8/R4) → F6n (R5/R6/R8/R7-cond) → F7n (pin + cierre).

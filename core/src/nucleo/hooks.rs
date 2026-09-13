@@ -19,9 +19,11 @@
 //! - Sin hooks configurados el dispatcher es un no-op barato: el runtime no
 //!   cambia su comportamiento (los hooks son observación/política opcional).
 
+use crate::entorno::aplicar_entorno_minimo;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::net::IpAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -143,10 +145,20 @@ pub struct Hook {
     pub tool_patron: Option<String>,
     pub tipo: TipoHook,
     pub timeout: Duration,
+    /// [139A-8 F3n/K4] `true` = hook de sistema construido en código
+    /// (notificaciones, …): salta la allowlist de binarios porque el
+    /// (comando, args) lo fijó el código, no una config. Cualquier futuro
+    /// loader de config (fichero, BD, API) DEBE usar [`Hook::comando`]
+    /// (validado en el runner); construir un interno desde input externo
+    /// reabriría el RCE que cierra K4.
+    interno: bool,
 }
 
 impl Hook {
-    /// Hook de tipo `command`: proceso local que recibe el payload por stdin.
+    /// Hook de tipo `command` desde config/externo: el runner valida el
+    /// binario contra la allowlist ([`validar_comando_hook`]) antes de
+    /// lanzarlo; fuera de lista → error y el hook se salta (fail-closed,
+    /// el turno continúa).
     #[must_use]
     pub fn comando(
         nombre: impl Into<String>,
@@ -163,6 +175,30 @@ impl Hook {
                 args,
             },
             timeout: TIMEOUT_HOOK_DEFAULT,
+            interno: false,
+        }
+    }
+
+    /// Hook de tipo `command` de sistema (código de confianza): sin
+    /// allowlist, pero con higiene de entorno y topes igual que el externo.
+    /// SOLO para (comando, args) fijados en código; jamás desde input.
+    #[must_use]
+    pub fn comando_interno(
+        nombre: impl Into<String>,
+        evento: EventoHook,
+        comando: impl Into<String>,
+        args: Vec<String>,
+    ) -> Self {
+        Self {
+            nombre: nombre.into(),
+            evento,
+            tool_patron: None,
+            tipo: TipoHook::Comando {
+                comando: comando.into(),
+                args,
+            },
+            timeout: TIMEOUT_HOOK_DEFAULT,
+            interno: true,
         }
     }
 
@@ -175,6 +211,7 @@ impl Hook {
             tool_patron: None,
             tipo: TipoHook::Http { url: url.into() },
             timeout: TIMEOUT_HOOK_DEFAULT,
+            interno: false,
         }
     }
 
@@ -191,6 +228,86 @@ impl Hook {
         self.timeout = timeout;
         self
     }
+}
+
+/// [139A-8 F3n/K4] Binarios que un hook EXTERNO (config) puede lanzar.
+/// Lectura/inspección + `git`: nada que sea un intérprete (powershell,
+/// cmd, sh, python, node…) ni que escale/borre. La config de gancho llega
+/// por flags, SQLite y API web (`ComandoGancho`): sin allowlist sería RCE
+/// remoto. Extra del operador vía `GLORY_HOOKS_ALLOW` (basenames separados
+/// por `,`; documentado, bajo su responsabilidad).
+pub const HOOKS_BINARIOS_PERMITIDOS: &[&str] = &[
+    "echo", "git", "jq", "yq", "rg", "fd", "cat", "date", "uname", "hostname",
+];
+
+/// Tope de argumentos por hook externo (anti-bomba de argv).
+pub const MAX_ARGS_HOOK: usize = 32;
+/// Tope de bytes totales de argv por hook externo.
+pub const MAX_BYTES_ARGS_HOOK: usize = 64 * 1024;
+
+/// Basename normalizado: quita directorios y extensiones Windows;
+/// minúsculas en Windows (el FS no distingue). `pub(crate)` para reuso en
+/// la allowlist MCP ([`crate::mcp`], K7): misma normalización, distinta lista.
+pub(crate) fn normalizar_bin_hook(comando: &str) -> String {
+    let base = comando.rsplit(['/', '\\']).next().unwrap_or(comando);
+    if cfg!(windows) {
+        let lower = base.to_lowercase();
+        lower
+            .strip_suffix(".exe")
+            .or_else(|| lower.strip_suffix(".cmd"))
+            .or_else(|| lower.strip_suffix(".bat"))
+            .or_else(|| lower.strip_suffix(".ps1"))
+            .unwrap_or(&lower)
+            .to_string()
+    } else {
+        base.to_string()
+    }
+}
+
+/// Extras del operador desde `GLORY_HOOKS_ALLOW` (coma-separados).
+fn extras_hooks_desde_env() -> Vec<String> {
+    std::env::var("GLORY_HOOKS_ALLOW")
+        .unwrap_or_default()
+        .split(',')
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect()
+}
+
+/// Valida (comando, args) de un hook externo. `extras` = allowlist adicional
+/// (el wrapper público la lee de `GLORY_HOOKS_ALLOW`; los tests la inyectan).
+pub fn validar_comando_hook_con_extras(
+    comando: &str,
+    args: &[String],
+    extras: &[String],
+) -> Result<(), String> {
+    let bin = normalizar_bin_hook(comando);
+    let permitido = HOOKS_BINARIOS_PERMITIDOS.iter().any(|b| *b == bin)
+        || extras.iter().any(|e| normalizar_bin_hook(e) == bin);
+    if !permitido {
+        return Err(format!(
+            "hook denegado ('{comando}'): binario fuera de la allowlist K4 \
+             (ampliable con GLORY_HOOKS_ALLOW); los hooks de sistema usan Hook::comando_interno"
+        ));
+    }
+    if args.len() > MAX_ARGS_HOOK {
+        return Err(format!(
+            "hook denegado ('{comando}'): {} args superan el tope {MAX_ARGS_HOOK}",
+            args.len()
+        ));
+    }
+    let bytes: usize = args.iter().map(|a| a.len()).sum();
+    if bytes > MAX_BYTES_ARGS_HOOK {
+        return Err(format!(
+            "hook denegado ('{comando}'): {bytes} bytes de argv superan el tope {MAX_BYTES_ARGS_HOOK}"
+        ));
+    }
+    Ok(())
+}
+
+/// Valida con los extras del entorno actual.
+pub fn validar_comando_hook(comando: &str, args: &[String]) -> Result<(), String> {
+    validar_comando_hook_con_extras(comando, args, &extras_hooks_desde_env())
 }
 
 /// Resultado de ejecutar un hook.
@@ -239,12 +356,17 @@ pub trait RunnerHook: Send + Sync {
 pub struct RunnerComandoHttp {
     /// Timeout aplicado cuando el hook no trae el suyo.
     pub timeout: Duration,
+    /// [139A-8 F3n/K6] Hosts extra permitidos aunque caigan en rangos
+    /// denegados (intranet del operador, `localhost` en dev…). Vacío por
+    /// defecto (fail-closed); bajo responsabilidad del operador.
+    pub egreso_extra: Vec<String>,
 }
 
 impl Default for RunnerComandoHttp {
     fn default() -> Self {
         Self {
             timeout: TIMEOUT_HOOK_DEFAULT,
+            egreso_extra: Vec::new(),
         }
     }
 }
@@ -282,13 +404,16 @@ async fn ejecutar_comando_local(
 ) -> std::result::Result<(std::process::ExitStatus, Vec<u8>), String> {
     let cuerpo = serde_json::to_string(payload).map_err(|e| e.to_string())?;
     let inicio = tokio::time::Instant::now();
-    let mut child = tokio::process::Command::new(comando)
+    // [139A-8 F3n/K2] El hijo del hook NO hereda el entorno del operador
+    // (claves LLM): solo el subconjunto mínimo.
+    let mut spawn = tokio::process::Command::new(comando);
+    spawn
         .args(args)
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::null())
-        .spawn()
-        .map_err(|e| format!("no se pudo lanzar '{comando}': {e}"))?;
+        .stderr(std::process::Stdio::null());
+    aplicar_entorno_minimo(&mut spawn);
+    let mut child = spawn.spawn().map_err(|e| format!("no se pudo lanzar '{comando}': {e}"))?;
     let stdout = match child.stdout.take() {
         Some(stdout) => stdout,
         None => {
@@ -402,6 +527,121 @@ fn destino_http_seguro(url: &str) -> String {
     format!("{}://{host}{puerto}", destino.scheme())
 }
 
+/// [139A-8 F3n/K6] Hostnames que jamás son egreso legítimo de un hook
+/// (metadata cloud, resolución local). Comparación exacta en minúsculas;
+/// los subdominios de metadata también caen (p. ej. `x.metadata.google.internal`).
+fn host_bloqueado_por_nombre(host: &str) -> bool {
+    const BLOQUEADOS: &[&str] = &[
+        "localhost",
+        "metadata.google.internal",
+        "instance-data",
+        "instance-data-compute",
+        "wpad",
+    ];
+    BLOQUEADOS
+        .iter()
+        .any(|b| host == *b || host.ends_with(&format!(".{b}")))
+        || host.ends_with(".localhost")
+        || host.ends_with(".internal")
+}
+
+/// [139A-8 F3n/K6] `true` = IP a la que un hook http JAMÁS debe POSTear
+/// (loopback, privadas, link-local, metadata `169.254.169.254`, multicast,
+/// sin-especificar, documentación, broadcast). Las IPv4-mapeadas (`::ffff:a.b.c.d`,
+/// forma habitual de escribir un bypass) se juzgan por su IPv4 interior.
+fn ip_egreso_denegada(ip: IpAddr) -> bool {
+    match ip {
+        IpAddr::V4(v4) => {
+            v4.is_loopback()
+                || v4.is_private()
+                || v4.is_link_local()
+                || v4.is_broadcast()
+                || v4.is_multicast()
+                || v4.is_unspecified()
+                || v4.is_documentation()
+                // 169.254.169.254 (metadata cloud) es link-local: ya cae
+                // arriba; se deja explícito por legibilidad del invariante.
+                || v4.octets() == [169, 254, 169, 254]
+        }
+        IpAddr::V6(v6) => {
+            if let Some(mapeada) = v6.to_ipv4_mapped() {
+                return ip_egreso_denegada(IpAddr::V4(mapeada));
+            }
+            v6.is_loopback()
+                || v6.is_multicast()
+                || v6.is_unspecified()
+                || v6.is_unicast_link_local()
+                || v6.is_unique_local()
+                || ((v6.segments()[0] & 0xff00) == 0x2000 && v6.segments()[1] == 0x0db8)
+        }
+    }
+}
+
+/// Resuelve el host a IPs (bloqueante → `spawn_blocking`, patrón R1/R2).
+/// Fallar al resolver = denegar (fail-closed): un hook no debe POSTear a
+/// lo que no se puede auditar. Residual documentado: TOCTOU de DNS
+/// (re-resolución entre el check y el POST); el riesgo restante exige
+/// controlar el DNS del operador.
+async fn ips_resueltas(host: &str, puerto: u16) -> Result<Vec<IpAddr>, String> {
+    let objetivo = format!("{host}:{puerto}");
+    let host_auditable = host.to_string();
+    tokio::task::spawn_blocking(move || {
+        use std::net::ToSocketAddrs;
+        objetivo
+            .to_socket_addrs()
+            .map(|addrs| addrs.map(|a| a.ip()).collect())
+            .map_err(|e| format!("no se pudo resolver '{host_auditable}': {e}"))
+    })
+    .await
+    .map_err(|e| format!("resolución DNS interrumpida: {e}"))?
+}
+
+/// [139A-8 F3n/K6] Valida el egreso de un hook http ANTES del POST.
+/// Deniega: esquema no http/https, IP literal en rango denegado, hostname
+/// bloqueado, o cualquier IP resuelta en rango denegado. `extra` (hosts
+/// exactos, case-insensitive) exime: vía de escape explícita del operador.
+pub async fn validar_egreso_http(url: &str, extra: &[String]) -> Result<(), String> {
+    let destino =
+        reqwest::Url::parse(url).map_err(|_| "hook http denegado: URL inválida".to_string())?;
+    if destino.scheme() != "http" && destino.scheme() != "https" {
+        return Err(format!(
+            "hook http denegado ('{}'): solo http/https",
+            destino.scheme()
+        ));
+    }
+    let host = destino.host_str().unwrap_or_default().to_lowercase();
+    if host.is_empty() {
+        return Err("hook http denegado: sin host".to_string());
+    }
+    if extra.iter().any(|e| e.to_lowercase() == host) {
+        return Ok(());
+    }
+    if let Ok(ip) = host.parse::<IpAddr>() {
+        if ip_egreso_denegada(ip) {
+            return Err(format!(
+                "hook http denegado ('{host}'): IP en rango prohibido (SSRF)"
+            ));
+        }
+        return Ok(());
+    }
+    if host_bloqueado_por_nombre(&host) {
+        return Err(format!(
+            "hook http denegado ('{host}'): hostname reservado (SSRF)"
+        ));
+    }
+    let puerto = destino
+        .port()
+        .unwrap_or(if destino.scheme() == "https" { 443 } else { 80 });
+    for ip in ips_resueltas(&host, puerto).await? {
+        if ip_egreso_denegada(ip) {
+            return Err(format!(
+                "hook http denegado ('{host}'): resuelve a IP prohibida {ip} (SSRF)"
+            ));
+        }
+    }
+    Ok(())
+}
+
 async fn ejecutar_http(
     url: &str,
     payload: &Value,
@@ -457,10 +697,26 @@ impl RunnerHook for RunnerComandoHttp {
         let timeout = timeout_efectivo(hook.timeout, self.timeout);
         match &hook.tipo {
             TipoHook::Comando { comando, args } => {
+                // [139A-8 F3n/K4] Los externos pasan la allowlist; los
+                // internos (código) ya vienen fijados. Denegar = no lanzar
+                // (el dispatcher registra el error y el turno continúa).
+                if !hook.interno {
+                    validar_comando_hook(comando, args).map_err(|motivo| {
+                        format!("hook '{}' bloqueado por política K4: {motivo}", hook.nombre)
+                    })?;
+                }
                 let (estado, salida) = ejecutar_comando_local(comando, args, payload, timeout).await?;
                 interpretar_salida_comando(hook.evento, comando, estado, salida)
             }
-            TipoHook::Http { url } => ejecutar_http(url, payload, timeout).await,
+            TipoHook::Http { url } => {
+                // [139A-8 F3n/K6] Sin egreso a red interna/metadata.
+                validar_egreso_http(url, &self.egreso_extra)
+                    .await
+                    .map_err(|motivo| {
+                        format!("hook '{}' bloqueado por política K6: {motivo}", hook.nombre)
+                    })?;
+                ejecutar_http(url, payload, timeout).await
+            }
         }
     }
 }
@@ -911,7 +1167,9 @@ mod tests {
 
     #[cfg(windows)]
     fn comando_pwsh(script: &str) -> Hook {
-        Hook::comando(
+        // [139A-8 F3n/K4] Hook de SISTEMA (args fijados en código): interno,
+        // sin allowlist. Un `Hook::comando` externo con powershell se deniega.
+        Hook::comando_interno(
             "proceso-real",
             EventoHook::PreCompact,
             "powershell.exe",
@@ -1003,5 +1261,171 @@ mod tests {
         assert!(!destino.contains("secreto"));
         assert!(!destino.contains("privado"));
         assert!(!destino.contains("/hooks"));
+    }
+
+    /// [139A-8 F3n/K4] La allowlist acepta lectura/inspección y deniega
+    /// intérpretes y escalada, vengan pelados o con ruta.
+    #[test]
+    fn k4_allowlist_acepta_lectura_y_deniega_interpretes() {
+        let sin_args: Vec<String> = vec![];
+        for bin in [
+            "echo", "git", "jq", "yq", "rg", "fd", "cat", "date", "uname", "hostname",
+        ] {
+            assert!(
+                validar_comando_hook_con_extras(bin, &sin_args, &[]).is_ok(),
+                "{bin} debería pasar"
+            );
+        }
+        for bin in [
+            "powershell",
+            "powershell.exe",
+            "cmd",
+            "sh",
+            "bash",
+            "python",
+            "python3",
+            "node",
+            "rm",
+            "sudo",
+            "curl",
+            "wget",
+        ] {
+            assert!(
+                validar_comando_hook_con_extras(bin, &sin_args, &[]).is_err(),
+                "{bin} debería denegarse"
+            );
+        }
+    }
+
+    /// [139A-8 F3n/K4] Bypass por ruta absoluta, `..` o extensión: el
+    /// basename manda, así que un intérprete no cuela aunque venga con
+    /// ruta; y un permitido con ruta absoluta sigue pasando (setups
+    /// del operador con `git` fuera del PATH).
+    #[test]
+    fn k4_bypass_por_ruta_y_extension_denegados() {
+        let sin_args: Vec<String> = vec![];
+        for bin in [
+            r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe",
+            r"C:\Windows\System32\cmd.exe",
+            "/bin/sh",
+            "/usr/bin/curl",
+            "../../bin/python",
+            "..\\..\\tools\\sh",
+        ] {
+            assert!(
+                validar_comando_hook_con_extras(bin, &sin_args, &[]).is_err(),
+                "{bin} debería denegarse"
+            );
+        }
+        assert!(validar_comando_hook_con_extras("git", &sin_args, &[]).is_ok());
+        if cfg!(windows) {
+            assert!(validar_comando_hook_con_extras(
+                r"C:\Program Files\Git\bin\git.exe",
+                &sin_args,
+                &[]
+            )
+            .is_ok());
+            assert!(validar_comando_hook_con_extras("ECHO.EXE", &sin_args, &[]).is_ok());
+        }
+    }
+
+    /// [139A-8 F3n/K4] `GLORY_HOOKS_ALLOW` (aquí inyectado) abre la puerta a
+    /// un binario del operador; los topes de argv frenan la bomba de
+    /// argumentos.
+    #[test]
+    fn k4_extras_y_topes_de_argv() {
+        let sin_args: Vec<String> = vec![];
+        let extras = vec!["mi-notificador".to_string()];
+        assert!(validar_comando_hook_con_extras("mi-notificador", &sin_args, &[]).is_err());
+        assert!(validar_comando_hook_con_extras("mi-notificador", &sin_args, &extras).is_ok());
+        let muchos: Vec<String> = (0..40).map(|i| format!("arg{i}")).collect();
+        assert!(validar_comando_hook_con_extras("echo", &muchos, &[]).is_err());
+        let gordo = vec!["x".repeat(70 * 1024)];
+        assert!(validar_comando_hook_con_extras("echo", &gordo, &[]).is_err());
+    }
+
+    /// [139A-8 F3n/K4] Un hook EXTERNO con intérprete se bloquea en el
+    /// runner (fail-closed: error K4, el turno continúa) mientras el gemelo
+    /// INTERNO (código) sí corre. Solo Windows (necesita proceso real).
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn k4_runner_bloquea_externo_powershell_y_permite_interno() {
+        let externo = Hook::comando(
+            "externo-malicioso",
+            EventoHook::Stop,
+            "powershell.exe",
+            vec!["-NoProfile".into(), "-Command".into(), "exit 0".into()],
+        );
+        let error = RunnerComandoHttp::default()
+            .correr(&externo, &serde_json::json!({}))
+            .await
+            .expect_err("el externo con powershell debe bloquearse");
+        assert!(error.contains("K4"), "mensaje inesperado: {error}");
+        let interno =
+            comando_pwsh("$input | Out-Null; exit 0").con_timeout(Duration::from_secs(10));
+        RunnerComandoHttp::default()
+            .correr(&interno, &serde_json::json!({}))
+            .await
+            .expect("el interno de sistema debe correr");
+    }
+
+    /// [139A-8 F3n/K6] SSRF: loopback, privadas, link-local/metadata,
+    /// `::1`, IPv4-mapeadas, hostnames reservados y esquemas no-http se
+    /// deniegan SIN tocar la red (literales o nombre bloqueado).
+    #[tokio::test]
+    async fn k6_deniega_egreso_interno_y_esquemas_raros() {
+        let extra: Vec<String> = vec![];
+        for url in [
+            "http://localhost:8080/hook",
+            "http://LOCALHOST/hook",
+            "http://127.0.0.1/hook",
+            "http://10.0.0.5/hook",
+            "http://192.168.1.1/hook",
+            "http://172.16.0.1/hook",
+            "http://169.254.169.254/latest/meta-data/",
+            "http://[::1]/hook",
+            "http://[::ffff:127.0.0.1]/hook",
+            "http://metadata.google.internal/hook",
+            "http://wpad/hook",
+            "ftp://example.com/hook",
+            "file:///etc/passwd",
+        ] {
+            assert!(
+                validar_egreso_http(url, &extra).await.is_err(),
+                "{url} debería denegarse"
+            );
+        }
+    }
+
+    /// [139A-8 F3n/K6] Una IP pública literal pasa (sin DNS); el allowlist
+    /// del operador (`egreso_extra`) exime un host interno exacto.
+    #[tokio::test]
+    async fn k6_permite_ip_publica_y_extra_exime_exacta() {
+        let extra: Vec<String> = vec![];
+        assert!(
+            validar_egreso_http("http://8.8.8.8/hook", &extra)
+                .await
+                .is_ok(),
+            "IP pública literal debería pasar"
+        );
+        assert!(
+            validar_egreso_http("https://1.1.1.1:8443/hook", &extra)
+                .await
+                .is_ok(),
+            "IP pública con puerto debería pasar"
+        );
+        let local = vec!["localhost".to_string()];
+        assert!(
+            validar_egreso_http("http://localhost:8080/hook", &local)
+                .await
+                .is_ok(),
+            "el extra exacto exime"
+        );
+        assert!(
+            validar_egreso_http("http://127.0.0.1/hook", &local)
+                .await
+                .is_err(),
+            "el extra es por nombre exacto, no abre el 127.0.0.1"
+        );
     }
 }

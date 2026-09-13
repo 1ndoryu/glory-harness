@@ -20,6 +20,7 @@ use tokio::process::Command;
 
 use super::{area_activa, error, sesion_y_comun, ApiError, AppState};
 use crate::servicio::SesionComun;
+use glory_harness_core::aplicar_entorno_minimo;
 
 const GIT_TIMEOUT: Duration = Duration::from_secs(5);
 const MAX_OUTPUT_BYTES: usize = 1024 * 1024;
@@ -201,13 +202,17 @@ fn raiz_activa(comun: &SesionComun) -> Result<std::path::PathBuf, ApiError> {
 }
 
 async fn ejecutar_git(raiz: &Path, argumentos: &[&str]) -> Result<ResultadoProceso, ApiError> {
-    let mut proceso = Command::new("git")
+    let mut spawn = Command::new("git");
+    spawn
         .args(argumentos)
         .current_dir(raiz)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
-        .kill_on_drop(true)
+        .kill_on_drop(true);
+    // [139A-8 F3n/K2] El hijo no hereda el entorno del operador (claves LLM).
+    aplicar_entorno_minimo(&mut spawn);
+    let mut proceso = spawn
         .spawn()
         .map_err(|e| error("git_no_disponible", format!("no se pudo iniciar git: {e}")))?;
 

@@ -69,6 +69,10 @@ const COMANDOS_PELIGROSOS: &[&str] = &[
 /// Deliberadamente SIN `del`/`rmdir`/`move`/`ren`/`copy`/`xcopy`/`mklink`:
 /// para mutar archivos están las tools `file_*`; el comando es para
 /// inspección y builds, no para borrar por la puerta de atrás.
+/// [139A-8 F3n/K5] `cd` figura solo como sonda PELADA de cwd (imprime el
+/// cwd, no lo cambia: cada comando es un proceso fresco con
+/// `current_dir(raiz)`); con argumentos se deniega en `denegar_por_riesgo`
+/// (intento de fuga del workspace anclado).
 #[cfg(windows)]
 const BUILTINS_CMD: &[&str] = &["cd", "dir", "echo", "type", "mkdir", "set", "ver", "cls"];
 
@@ -206,6 +210,18 @@ pub fn denegar_por_riesgo(comando: &str) -> Result<Vec<String>, String> {
             "comando denegado por la jaula ({bin}): escalada/shell/disco no permitidos"
         ));
     }
+    // [139A-8 F3n/K5] `cd` con destino = intento de fuga del cwd anclado
+    // (cada comando arranca ya con cwd = el workspace del run; un `cd` solo
+    // afectaría a su propio proceso efímero). El `cd` pelado se conserva
+    // como sonda de cwd en Windows. En Unix `cd` nunca estuvo permitido.
+    if cfg!(windows) && bin == "cd" && argv.len() > 1 {
+        return Err(
+            "comando denegado por la jaula (cd con argumentos): el cwd del hijo \
+             ya está anclado al workspace; `cd` solo se admite sin argumentos \
+             como sonda del directorio actual"
+                .to_string(),
+        );
+    }
     if clasificar_comando(comando) >= NivelRiesgo::Critico {
         return Err("comando denegado por la jaula (riesgo crítico)".to_string());
     }
@@ -334,6 +350,32 @@ mod tests {
         assert_eq!(normalizar_bin("/usr/bin/git"), "git");
         if cfg!(windows) {
             assert_eq!(normalizar_bin(r"C:\x\GIT.EXE"), "git");
+        }
+    }
+
+    /// [139A-8 F3n/K5] `cd` con destino = fuga del cwd anclado: denegado
+    /// (relativo, absoluto, con `..`). El `cd` pelado sigue siendo la sonda
+    /// de cwd en Windows (la usa el test de jaula del ejecutor); en Unix
+    /// `cd` nunca estuvo en la allowlist.
+    #[test]
+    fn cd_con_destino_denegado_pelado_como_sonda() {
+        for cmd in [
+            "cd ..",
+            "cd ../..",
+            r"cd C:\",
+            "cd /tmp",
+            "cd workspace",
+            "cd \"mi carpeta\"",
+        ] {
+            assert!(denegar_por_riesgo(cmd).is_err(), "debió denegar: {cmd}");
+        }
+        if cfg!(windows) {
+            assert!(
+                denegar_por_riesgo("cd").is_ok(),
+                "el cd pelado es la sonda de cwd"
+            );
+        } else {
+            assert!(denegar_por_riesgo("cd").is_err());
         }
     }
 }

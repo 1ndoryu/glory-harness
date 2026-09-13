@@ -30,6 +30,7 @@ use tokio::io::AsyncReadExt;
 use tokio::process::{Child, Command};
 use tokio::sync::Mutex;
 
+use glory_harness_core::aplicar_entorno_minimo;
 use glory_harness_core::error::{Error, Result};
 use glory_harness_core::ports::{EjecutorComando, ResultadoEjecucionComando};
 
@@ -76,9 +77,15 @@ impl EjecutorCliente {
     /// [139A-8 F1/K1] Construcción SIN shell vía `jaula::construir_directo`.
     /// La denegación de la jaula se traduce a `Error::Sandbox` (el sandbox
     /// bloqueó el comando) con el mensaje claro de la jaula.
+    /// [139A-8 F3n/K2] Punto único de spawn del modelo: el hijo NO hereda el
+    /// entorno del operador (claves LLM) — solo el subconjunto mínimo
+    /// (`aplicar_entorno_minimo`). Cubre `ejecutar_sincrono` y
+    /// `ejecutar_fondo` (ambos pasan por aquí).
     fn construir_comando(&self, comando: &str) -> Result<Command> {
-        construir_directo(comando, self.raiz.as_ref())
-            .map_err(|motivo| Error::Sandbox(format!("jaula: {motivo}")))
+        let mut construido = construir_directo(comando, self.raiz.as_ref())
+            .map_err(|motivo| Error::Sandbox(format!("jaula: {motivo}")))?;
+        aplicar_entorno_minimo(&mut construido);
+        Ok(construido)
     }
 
     /// [139A-8 F1] Truncado a 8 KB en BYTES (no en chars): la salida OEM

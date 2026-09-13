@@ -5,7 +5,9 @@
 //! Diseño: el runtime ya emite ambos eventos por `DispatcherHooks`
 //! (`turno/mod.rs` con `{"turno_id","resumen"}`, `permisos.rs` con
 //! `{"tool","tool_input"}`); aquí solo se registra un dispatcher con dos
-//! `Hook::comando` que invocan a `powershell.exe` con el script embebido
+//! `Hook::comando_interno` de sistema (comando fijado en código, fuera de la
+//! allowlist K4 pero con higiene de entorno K2) que invocan a
+//! `powershell.exe` con el script embebido
 //! ([`SCRIPT_TOAST`]) en `-EncodedCommand` (base64 UTF-16LE, sin quoting
 //! frágil) y el payload JSON por stdin. Sin dependencias nuevas (build
 //! offline): el base64 se implementa a mano ([`base64_encode`]).
@@ -93,8 +95,10 @@ fn script_codificado() -> String {
 }
 
 /// [069A-3] Dispatcher con los dos avisos (fin de turno + solicitud de
-/// permiso) vía `powershell.exe`. El runner por defecto
-/// (`RunnerComandoHttp`) ejecuta el comando con el payload en stdin.
+/// permiso) vía `powershell.exe`. Hook de SISTEMA (`comando_interno`: el
+/// comando lo fija el código, no una config — ver K4 en `hooks.rs`). El
+/// runner por defecto (`RunnerComandoHttp`) ejecuta el comando con el
+/// payload en stdin.
 #[must_use]
 pub fn dispatcher_notificacion() -> DispatcherHooks {
     let args = vec![
@@ -107,7 +111,7 @@ pub fn dispatcher_notificacion() -> DispatcherHooks {
     ];
     let mut dispatcher = DispatcherHooks::vacia();
     dispatcher.registrar(
-        Hook::comando(
+        Hook::comando_interno(
             "toast-stop",
             EventoHook::Stop,
             "powershell.exe",
@@ -116,7 +120,7 @@ pub fn dispatcher_notificacion() -> DispatcherHooks {
         .con_timeout(TIMEOUT_AVISO),
     );
     dispatcher.registrar(
-        Hook::comando(
+        Hook::comando_interno(
             "toast-permiso",
             EventoHook::PermissionRequest,
             "powershell.exe",
