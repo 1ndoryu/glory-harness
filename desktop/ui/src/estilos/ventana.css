@@ -47,8 +47,8 @@
     opacity: 0.35;
     cursor: default;
 }
-.barra-superior .caption-boton.ven-cerrar:hover { background: #c42b1c; color: #fff; }
-.barra-superior .caption-boton.ven-cerrar:active { background: #b9281b; color: #fff; }
+.barra-superior .caption-boton.ven-cerrar:hover { background: #c42b1c; color: #fff; } /* varsense-disable-line -- rojo de cierre Windows: convención de plataforma, constante en ambos temas */
+.barra-superior .caption-boton.ven-cerrar:active { background: #b9281b; color: #fff; } /* varsense-disable-line -- rojo de cierre Windows: convención de plataforma, constante en ambos temas */
 
 .barra-superior .caption-boton .ic {
     width: 16px;

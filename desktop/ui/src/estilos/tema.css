@@ -76,7 +76,6 @@ html[data-tema='oscuro'] .campo .selector-modelo.selector-modal {
     color: var(--texto) !important;
 }
 
-html[data-tema='oscuro'] .barra,
 html[data-tema='oscuro'] .ajustes-item:hover,
 html[data-tema='oscuro'] .ajustes-item.sel,
 html[data-tema='oscuro'] .ajustes-volver:hover,
@@ -117,7 +116,7 @@ html[data-tema='oscuro'] .pm-play {
 }
 
 html[data-tema='oscuro'] .modal-fondo {
-    background: rgba(0, 0, 0, 0.65) !important;
+    background: rgba(0, 0, 0, 0.65) !important; /* varsense-disable-line -- scrim: debe seguir oscuro en ambos temas */
 }
 
 /* El mensaje conserva solo su contorno también en oscuro; no es una tarjeta. */

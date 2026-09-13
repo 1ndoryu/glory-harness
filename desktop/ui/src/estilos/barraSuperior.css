@@ -44,7 +44,7 @@
     margin-left: auto;
 }
 .barra-superior .barra-zona-derecha.abierto {
-    width: var(--panel-derecho-ancho, 50%);
+    width: var(--panel-derecho-ancho);
     border-left: 1px solid var(--borde);
 }
 .barra-superior .barra-zona-derecha .tabs-barra {

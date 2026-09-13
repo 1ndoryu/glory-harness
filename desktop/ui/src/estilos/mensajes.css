@@ -28,7 +28,7 @@
     border: 1px solid #000;
     background: transparent;
     color: inherit;
-    font-size: 13px;
+    font-size: var(--md);
     display: none;
     align-items: center;
     justify-content: center;
@@ -41,8 +41,8 @@
     display: flex;
 }
 .msg-user .msg-mas:hover {
-    background: #000;
-    color: #fff;
+    background: var(--texto);
+    color: var(--invertido);
 }
 
 .msg-asis { max-width: 92%; font-size: var(--sm); }
@@ -53,7 +53,7 @@
     display: inline-block;
     width: 7px;
     height: 13px;
-    background: #000;
+    background: var(--texto);
     vertical-align: -2px;
     margin-left: 2px;
     animation: parpadeo 1s steps(1) infinite;
@@ -106,15 +106,15 @@
     font-size: var(--xs);
     line-height: 1;
     padding: 3px 6px;
-    background: #000;
-    color: #fff;
+    background: var(--texto);
+    color: var(--invertido);
     border: 1px solid #000;
     cursor: pointer;
     white-space: nowrap;
 }
 .aviso-sistema .aviso-accion:hover {
-    background: #fff;
-    color: #000;
+    background: var(--fondo);
+    color: var(--texto);
 }
 
 /* en ejecución: fila no abrible (se distingue por el icono de acción, no por opacidad) */
@@ -133,8 +133,8 @@
     padding: var(--sp-sm);
     font-size: var(--xs);
     white-space: pre-wrap;
-    background: #fff;
-    color: #000;
+    background: var(--fondo);
+    color: var(--texto);
 }
 /* Un resultado vacío no aporta información ni debe dejar un rectángulo vacío;
    al recibir texto, `:empty` deja de coincidir y el cuadro reaparece. */
@@ -175,7 +175,7 @@
     padding: var(--sp-sm);
 }
 .aprobacion .cab .estado { margin-left: auto; font-size: var(--xs); opacity: 0.6; }
-.aprobacion .args { margin: 0 var(--sp-sm) var(--sp-sm); border: 1px solid var(--borde); padding: var(--sp-sm); font-size: var(--xs); white-space: pre-wrap; background: #fff; }
+.aprobacion .args { margin: 0 var(--sp-sm) var(--sp-sm); border: 1px solid var(--borde); padding: var(--sp-sm); font-size: var(--xs); white-space: pre-wrap; background: var(--fondo); }
 .aprobacion .args .del { opacity: 0.45; }
 .aprobacion .args .del::before { content: '-'; }
 .aprobacion .args .add::before { content: '+'; }
@@ -188,8 +188,8 @@
 /* ---------- Botones genéricos ---------- */
 .btn {
     border: 1px solid #000;
-    background: #fff;
-    color: #000;
+    background: var(--fondo);
+    color: var(--texto);
     font-family: inherit;
     font-size: var(--sm);
     padding: 3px 14px;
@@ -197,7 +197,7 @@
     opacity: 0.8;
 }
 .btn:hover { opacity: 1; }
-.btn.primario { background: #000; color: #fff; }
+.btn.primario { background: var(--texto); color: var(--invertido); }
 .btn.primario:hover { opacity: 1; }
 .btn:disabled { opacity: .35; cursor: default; }
 .btn:disabled:hover { opacity: .35; }
@@ -226,7 +226,7 @@
     display: inline-flex;
     align-items: center;
     background: transparent;
-    color: #000;
+    color: var(--texto);
     border: none;
     font-family: inherit;
     line-height: 1;

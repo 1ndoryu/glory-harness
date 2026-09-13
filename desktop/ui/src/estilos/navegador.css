@@ -20,7 +20,7 @@
     font-size: var(--sm);
     /* [069A-2 fix] Ancho controlado por variable (redimensionable), con
        respaldo de min/max por si la variable queda sin valor. */
-    flex: 0 0 var(--navegador-ancho, 480px);
+    flex: 0 0 var(--navegador-ancho);
     min-width: 320px;
     max-width: 640px;
     overflow: hidden;

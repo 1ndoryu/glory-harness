@@ -7,7 +7,7 @@
 .modal-fondo {
     position: fixed;
     inset: 0;
-    background: rgba(255, 255, 255, 0.55);
+    background: rgba(255, 255, 255, 0.55); /* varsense-disable-line -- velo del modal en tema claro (oscuro/synara lo sobreescriben) */
     backdrop-filter: blur(4px);
     -webkit-backdrop-filter: blur(4px);
     display: flex;
@@ -17,7 +17,7 @@
 }
 .modal-fondo[hidden] { display: none; }
 .modal {
-    background: #fff;
+    background: var(--fondo);
     border: 1px solid #000;
     width: 580px;
     height: auto;

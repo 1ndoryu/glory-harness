@@ -77,7 +77,7 @@
     flex: none;
     font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
     font-size: var(--xs);
-    background: #00000011;
+    background: #00000011; /* varsense-disable-line -- veladura cebra: tinta translúcida independiente del tema */
     padding: 1px 6px;
 }
 
@@ -97,7 +97,7 @@
 .log-turno-json {
     margin: 0;
     padding: var(--sp-xs);
-    background: #00000008;
+    background: #00000008; /* varsense-disable-line -- veladura cebra: tinta translúcida independiente del tema */
     overflow-x: auto;
     font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
     font-size: var(--xs);
@@ -113,7 +113,7 @@
     padding: 2px;
     cursor: pointer;
     opacity: 0.7;
-    color: #000;
+    color: var(--texto);
 }
 
 .log-turno-copiar:hover { opacity: 1; }

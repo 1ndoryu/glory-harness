@@ -9,7 +9,7 @@
 
 .panel-meta {
   border: 1px solid #000;
-  background: #fff;
+  background: var(--fondo);
   margin-bottom: var(--sp-sm);
 }
 
@@ -40,8 +40,8 @@
   outline: none;
   resize: none;
   overflow-y: hidden;
-  background: #fff;
-  color: #000;
+  background: var(--fondo);
+  color: var(--texto);
   font-family: inherit;
   font-size: var(--sm);
   line-height: 1.45;
@@ -68,9 +68,9 @@
 }
 .pm-estado { display: inline-flex; align-items: center; gap: 5px; }
 .pm-estado .punto { width: 7px; height: 7px; display: inline-block; }
-.panel-meta.corriendo .pm-estado .punto { background: #000; animation: pm-parpadeo 1s steps(1) infinite; }
-.panel-meta.pausado .pm-estado .punto { background: #fff; border: 1px solid #000; }
-.panel-meta.inactivo .pm-estado .punto { background: #fff; border: 1px solid #000; opacity: 0.4; }
+.panel-meta.corriendo .pm-estado .punto { background: var(--texto); animation: pm-parpadeo 1s steps(1) infinite; }
+.panel-meta.pausado .pm-estado .punto { background: var(--fondo); border: 1px solid #000; }
+.panel-meta.inactivo .pm-estado .punto { background: var(--fondo); border: 1px solid #000; opacity: 0.4; }
 @keyframes pm-parpadeo { 0%, 49% { opacity: 1; } 50%, 100% { opacity: 0.25; } }
 .pm-metrica { display: inline-flex; align-items: center; gap: 4px; opacity: 0.8; }
 
@@ -83,10 +83,10 @@
   align-items: center;
   justify-content: center;
   border: 1px solid #000;
-  background: #000;
-  color: #fff;
+  background: var(--texto);
+  color: var(--invertido);
   cursor: pointer;
   padding: 0;
 }
-.pm-play .ic { color: #fff; }
+.pm-play .ic { color: var(--invertido); }
 .pm-play:hover { opacity: 0.85; }

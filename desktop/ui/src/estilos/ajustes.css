@@ -40,7 +40,7 @@
     cursor: pointer;
     white-space: nowrap;
 }
-.ajustes-volver:hover { background: #000; color: #fff; }
+.ajustes-volver:hover { background: var(--texto); color: var(--invertido); }
 .ajustes-titulo {
     flex: 1;
     min-width: 0;
@@ -75,8 +75,8 @@
     font-size: var(--xs);
     cursor: pointer;
 }
-.ajustes-item:hover { background: #000; color: #fff; }
-.ajustes-item.sel { background: #000; color: #fff; }
+.ajustes-item:hover { background: var(--texto); color: var(--invertido); }
+.ajustes-item.sel { background: var(--texto); color: var(--invertido); }
 .ajustes-item[hidden] { display: none; }
 .ajustes-paneles {
     flex: 1;
@@ -112,30 +112,30 @@
     font-size: var(--xs);
     padding: 3px 10px;
     cursor: pointer;
-    background: #fff;
-    color: #000;
+    background: var(--fondo);
+    color: var(--texto);
     border-right: 1px solid #000;
 }
 .toggle .opt:last-child { border-right: none; }
-.toggle .opt.sel { background: #000; color: #fff; }
+.toggle .opt.sel { background: var(--texto); color: var(--invertido); }
 
 /* entrada de texto (guardado al perder foco / Enter) */
 .input-texto {
     border: 1px solid #000;
-    background: #fff;
-    color: #000;
+    background: var(--fondo);
+    color: var(--texto);
     font-family: inherit;
     font-size: var(--sm);
     padding: var(--sp-xs) var(--sp-sm);
     width: 100%;
 }
-.input-texto:focus { outline: none; background: #fff; }
+.input-texto:focus { outline: none; background: var(--fondo); }
 
 /* selector desplegable */
 .select {
     border: 1px solid #000;
-    background: #fff;
-    color: #000;
+    background: var(--fondo);
+    color: var(--texto);
     font-family: inherit;
     font-size: var(--sm);
     padding: var(--sp-xs) var(--sp-sm);
@@ -195,8 +195,8 @@
    del diálogo de "Nuevo proyecto" y estiraría el botón). */
 .campo .selector-modelo.selector-modal {
     border: 1px solid #000;
-    background: #fff;
-    color: #000;
+    background: var(--fondo);
+    color: var(--texto);
     font-family: inherit;
     font-size: var(--sm);
     padding: var(--sp-xs) var(--sp-sm);

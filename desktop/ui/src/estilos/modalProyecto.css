@@ -33,8 +33,8 @@
 
 .proyecto-modal-input {
     border: 1px solid #000;
-    background: #fff;
-    color: #000;
+    background: var(--fondo);
+    color: var(--texto);
     font-family: inherit;
     font-size: var(--sm);
     padding: var(--sp-xs) var(--sp-sm);
@@ -43,7 +43,7 @@
 
 .proyecto-modal-input:focus {
     outline: none;
-    background: #fff;
+    background: var(--fondo);
 }
 
 .proyecto-modal-fila-ruta {
@@ -61,16 +61,16 @@
     align-items: center;
     justify-content: center;
     border: 1px solid #000;
-    background: #fff;
-    color: #000;
+    background: var(--fondo);
+    color: var(--texto);
     font-family: inherit;
     padding: var(--sp-xs) var(--sp-sm);
     cursor: pointer;
 }
 
 .proyecto-modal-boton-ruta:hover {
-    background: #000;
-    color: #fff;
+    background: var(--texto);
+    color: var(--invertido);
 }
 
 .proyecto-modal-botones {
@@ -82,8 +82,8 @@
 
 .proyecto-modal-btn {
     border: 1px solid #000;
-    background: #fff;
-    color: #000;
+    background: var(--fondo);
+    color: var(--texto);
     font-family: inherit;
     font-size: var(--sm);
     padding: var(--sp-xs) var(--sp-md);
@@ -91,16 +91,16 @@
 }
 
 .proyecto-modal-btn:hover {
-    background: #000;
-    color: #fff;
+    background: var(--texto);
+    color: var(--invertido);
 }
 
 .proyecto-modal-btn-primario {
-    background: #000;
-    color: #fff;
+    background: var(--texto);
+    color: var(--invertido);
 }
 
 .proyecto-modal-btn-primario:hover {
-    background: #fff;
-    color: #000;
+    background: var(--fondo);
+    color: var(--texto);
 }

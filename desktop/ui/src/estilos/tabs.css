@@ -5,7 +5,7 @@
    ============================================================ */
 
 .panel-derecho {
-    flex: 0 0 var(--panel-derecho-ancho, 50%);
+    flex: 0 0 var(--panel-derecho-ancho);
     min-width: 0;
     display: flex;
     flex-direction: column;
@@ -18,7 +18,7 @@
 #cuerpo > .panel-derecho-grip {
     position: absolute;
     top: 0;
-    right: var(--panel-derecho-ancho, 50%);
+    right: var(--panel-derecho-ancho);
     bottom: 0;
     width: 9px;
     transform: translateX(50%);

@@ -37,9 +37,16 @@
     /* [089A-9 fix] Altura única de las cabeceras de panel (chat, files,
        git): alinea la fila superior cuando el panel derecho está abierto. */
     --alto-cabecera: 46px;
+    /* Valores iniciales de las variables que el JS publica en runtime con
+       setProperty (panel redimensionable, reserva de la entrada flotante,
+       ancho del navegador): vivir aquí evita duplicar el respaldo en cada
+       var() con fallback hardcodeado. */
+    --panel-derecho-ancho: 50%;
+    --entrada-reserva: 200px;
+    --navegador-ancho: 480px;
 }
 
-html { font-size: 13px; }
+html { font-size: 13px; } /* varsense-disable-line -- raíz base de la escala: define 1rem, no existe token previo */
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
 
