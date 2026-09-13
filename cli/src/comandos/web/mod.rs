@@ -23,9 +23,8 @@
 //! `agent.event`, `turn.finished`, `error`); `data` es JSON compacto
 //! (sin `\n` literales: seguro para axum 0.8 sin sanitizar).
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::convert::Infallible;
-use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -49,10 +48,12 @@ use crate::servicio::{OpcionesSesion, SesionComun};
 
 // Dominios del servidor web, en subdirectorio para no abarrotar `comandos/`.
 pub mod meta;
+pub mod seguridad;
 pub mod sse;
 pub mod turnos;
 
 use self::meta::{actualizar_meta, leer_meta};
+use self::seguridad::SecretoSesion;
 use self::sse::DifusionSse;
 
 /// Token maestro opcional: solo crea sesiones. Nunca autoriza nada más.
@@ -113,6 +114,11 @@ pub(crate) struct AppState {
     pub(crate) token: Option<String>,
     pub(crate) sesiones: Mutex<HashMap<String, Arc<SesionWeb>>>,
     pub(crate) fixture: bool,
+    /// [139A-8 K9] Secreto de firma de la cookie `gh_sesion` (aleatorio por
+    /// arranque salvo `--secreto-sesion` / env para fijarlo).
+    pub(crate) secreto: SecretoSesion,
+    /// [139A-8 K12] Ventana deslizante de inicios de turno (rate-limit).
+    pub(crate) inicios_turno: Mutex<VecDeque<Instant>>,
 }
 
 // ── Errores API ──────────────────────────────────────────────────────────
@@ -120,7 +126,7 @@ pub(crate) struct AppState {
 #[derive(Debug, serde::Serialize)]
 pub(crate) struct ApiError {
     ok: bool,
-    code: String,
+    pub(crate) code: String,
     message: String,
 }
 
@@ -136,7 +142,9 @@ impl IntoResponse for ApiError {
             "turno_activo" | "sin_conversacion" | "sin_meta_activa" | "meta_ya_pausada"
             | "meta_no_pausada" => StatusCode::CONFLICT,
             "mensaje_largo" | "meta_larga" => StatusCode::PAYLOAD_TOO_LARGE,
-            "demasiadas_sesiones" => StatusCode::TOO_MANY_REQUESTS,
+            "demasiadas_sesiones" | "limite_turnos" | "demasiados_turnos" => {
+                StatusCode::TOO_MANY_REQUESTS
+            }
             "sesion_expirada" => StatusCode::GONE,
             "persistencia" => StatusCode::INTERNAL_SERVER_ERROR,
             _ => StatusCode::BAD_REQUEST,
@@ -203,9 +211,13 @@ async fn credencial(headers: &HeaderMap, state: &AppState) -> Option<Credencial>
         }
         return None;
     }
-    if let Some(sid) = cookie_sesion(headers) {
-        if Uuid::parse_str(&sid).is_ok() && state.sesiones.lock().await.contains_key(&sid) {
-            return Some(Credencial::SesionCookie(sid));
+    if let Some(valor) = cookie_sesion(headers) {
+        // [139A-8 K9] La cookie viaja firmada (`{sid}.{firma}`); sin firma
+        // válida no hay sesión, aunque el `sid` exista en el mapa.
+        if let Some(sid) = state.secreto.desempaquetar(&valor) {
+            if state.sesiones.lock().await.contains_key(&sid) {
+                return Some(Credencial::SesionCookie(sid));
+            }
         }
     }
     None
@@ -369,8 +381,11 @@ async fn crear_sesion(
          * la apertura ancló una existente. */
         "conversacion": conversacion,
     }));
-    let cookie =
-        format!("{COOKIE_SESION}={session_id}; HttpOnly; SameSite=Lax; Path=/; Max-Age=86400");
+    let cookie = format!(
+        "{COOKIE_SESION}={}; HttpOnly; SameSite=Lax; Path=/; Max-Age=86400",
+        // [139A-8 K9] La cookie viaja firmada con el secreto de arranque.
+        state.secreto.empaquetar(&session_id)
+    );
     Ok((StatusCode::OK, [(header::SET_COOKIE, cookie)], cuerpo).into_response())
 }
 
@@ -545,15 +560,34 @@ pub(crate) fn router(state: Arc<AppState>) -> Router {
 
 /// Punto de entrada del subcomando `web`: `--puerto <N>` (default 8799),
 /// `--dir-ui <ruta>` (default `../desktop/ui/dist` relativo al binario),
-/// `--fixture` (turnos sintéticos sin proveedor).
-pub async fn run(puerto: u16, ui_dir: Option<String>, fixture: bool) -> std::process::ExitCode {
+/// `--fixture` (turnos sintéticos sin proveedor), `--secreto-sesion <texto>`
+/// (fija el secreto de firma de la cookie; por defecto aleatorio por
+/// arranque; también vale `GLORY_HARNESS_SESION_SECRETO`, el flag prevalece).
+pub async fn run(
+    puerto: u16,
+    ui_dir: Option<String>,
+    fixture: bool,
+    secreto_fijo: Option<String>,
+) -> std::process::ExitCode {
     let token = token_desde_env();
     let tokenless = token.is_none();
+    // [139A-8 K9] Secreto de firma: flag > env > aleatorio por arranque.
+    let secreto = secreto_fijo
+        .filter(|s| !s.trim().is_empty())
+        .or_else(|| {
+            std::env::var(self::seguridad::ENV_SECRETO_SESION)
+                .ok()
+                .filter(|s| !s.trim().is_empty())
+        })
+        .map(|s| SecretoSesion::derivar(s.trim()))
+        .unwrap_or_else(SecretoSesion::aleatorio);
 
     let state = Arc::new(AppState {
         token,
         sesiones: Mutex::new(HashMap::new()),
         fixture,
+        secreto,
+        inicios_turno: Mutex::new(VecDeque::new()),
     });
 
     let mut app = router(Arc::clone(&state));
@@ -567,11 +601,9 @@ pub async fn run(puerto: u16, ui_dir: Option<String>, fixture: bool) -> std::pro
 
     // Sin token, bind loopback: el acceso tokenless es solo para el usuario
     // local. Con token explícito se puede servir en todas las interfaces.
-    let addr = if tokenless {
-        SocketAddr::from(([127, 0, 0, 1], puerto))
-    } else {
-        SocketAddr::from(([0, 0, 0, 0], puerto))
-    };
+    // [139A-8 K3] La decisión vive en `seguridad::direccion_escucha` (con
+    // tests); aquí solo se usa.
+    let addr = self::seguridad::direccion_escucha(!tokenless, puerto);
     eprintln!("[glory-harness web] escuchando en http://{addr}");
     if tokenless {
         eprintln!("[glory-harness web] modo local: sin token, solo loopback");
@@ -608,6 +640,8 @@ pub(crate) mod tests {
             token: Some("test-token".into()),
             sesiones: Mutex::new(HashMap::new()),
             fixture: true,
+            secreto: SecretoSesion::derivar("test"),
+            inicios_turno: Mutex::new(VecDeque::new()),
         })
     }
 
@@ -672,6 +706,8 @@ pub(crate) mod tests {
             token: None,
             sesiones: Mutex::new(HashMap::new()),
             fixture: true,
+            secreto: SecretoSesion::derivar("test"),
+            inicios_turno: Mutex::new(VecDeque::new()),
         })
     }
 
@@ -1064,7 +1100,8 @@ pub(crate) mod tests {
             .oneshot(
                 Request::builder()
                     .uri(format!("/api/v1/session/{sid}/events"))
-                    .header(header::COOKIE, format!("{COOKIE_SESION}={sid}"))
+                    // [139A-8 K9] La cookie viaja firmada.
+                    .header(header::COOKIE, format!("{COOKIE_SESION}={}", state.secreto.empaquetar(&sid)))
                     .body(Body::empty())
                     .unwrap(),
             )

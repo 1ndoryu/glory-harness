@@ -92,16 +92,32 @@ impl Daemon {
     }
 
     /// Asegura un token: usa el de la env `GLORY_HARNESS_DAEMON_TOKEN` o genera
-    /// uno aleatorio (se muestra en el arranque).
-    fn token_desde_env() -> String {
+    /// uno aleatorio efímero. Devuelve también la fuente para el arranque
+    /// (el operador debe saber si el token sobrevivirá al reinicio).
+    fn token_desde_env() -> (String, &'static str) {
         match std::env::var("GLORY_HARNESS_DAEMON_TOKEN") {
-            Ok(t) if !t.trim().is_empty() => t,
-            _ => Uuid::new_v4().to_string(),
+            Ok(t) if !t.trim().is_empty() => (t, "variable de entorno"),
+            _ => (Uuid::new_v4().to_string(), "generado aleatorio (efímero)"),
         }
     }
 
+    /// Comparación en tiempo constante: el `==` de strings corta en el primer
+    /// byte distinto y filtra longitud por tiempo (oráculo para adivinar el
+    /// token por la red, aunque sea loopback).
+    fn comparar_constante(a: &str, b: &str) -> bool {
+        let (ab, bb) = (a.as_bytes(), b.as_bytes());
+        if ab.is_empty() || bb.is_empty() {
+            return ab.is_empty() && bb.is_empty();
+        }
+        let mut diff = (ab.len() ^ bb.len()) as u8;
+        for i in 0..ab.len().max(bb.len()) {
+            diff |= ab[i % ab.len()] ^ bb[i % bb.len()];
+        }
+        diff == 0
+    }
+
     fn autorizado(&self, token: &str) -> bool {
-        token == self.token.as_str()
+        Self::comparar_constante(token, self.token.as_str())
     }
 
     /// Abre una sesión (tras validar token) y devuelve su id serializable.
@@ -277,12 +293,31 @@ async fn respond(daemon: Daemon, peticion: Peticion, writer: &mut WriteHalf<TcpS
     }
 }
 
+/// Redactado del token para el arranque: `****` + últimos 4 + longitud.
+/// El token completo solo sale con `--mostrar-token` explícito.
+fn redactar_token(token: &str) -> String {
+    let cola: String = token.chars().rev().take(4).collect::<String>().chars().rev().collect();
+    format!("****{cola} ({} caracteres)", token.chars().count())
+}
+
 /// Arranca el daemon en `127.0.0.1:<puerto>`. Devuelve `ExitCode::SUCCESS`
 /// solo cuando el proceso se detiene limpiamente (Ctrl+C).
+///
+/// [139A-8 F1/K13] El token NUNCA se imprime por defecto: solo un redactado
+/// (`****abcd`, 36 caracteres) + su fuente. `--mostrar-token` lo revela
+/// completo bajo responsabilidad del operador (no redirigir a logs).
+/// El bind es loopback fijo (`127.0.0.1`): ni el token ni el flag lo cambian.
 pub async fn run(puerto: u16, mostrar_token: bool) -> std::process::ExitCode {
-    let token = Daemon::token_desde_env();
+    let (token, fuente) = Daemon::token_desde_env();
     if mostrar_token {
         eprintln!("[glory-harness] daemon token: {token}");
+        eprintln!("[glory-harness] aviso: no pegues el token en logs ni chats (fuente: {fuente})");
+    } else {
+        eprintln!(
+            "[glory-harness] daemon token: {} ({}; usa --mostrar-token para revelarlo)",
+            redactar_token(&token),
+            fuente
+        );
     }
     let listener = match TcpListener::bind(("127.0.0.1", puerto)).await {
         Ok(l) => l,
@@ -314,5 +349,37 @@ pub async fn run(puerto: u16, mostrar_token: bool) -> std::process::ExitCode {
                 return std::process::ExitCode::SUCCESS;
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Daemon;
+
+    #[test]
+    fn redactado_oculta_el_token() {
+        let r = super::redactar_token("secreto-largo-1234");
+        assert!(!r.contains("secreto-largo"), "{r}");
+        assert!(r.contains("1234"), "{r}");
+    }
+
+    #[test]
+    fn comparacion_constante_coincide_con_igualdad() {
+        assert!(Daemon::comparar_constante("abc", "abc"));
+        assert!(!Daemon::comparar_constante("abc", "abd"));
+        assert!(!Daemon::comparar_constante("abc", "ab"));
+        assert!(!Daemon::comparar_constante("", "abc"));
+        assert!(Daemon::comparar_constante("", ""));
+    }
+
+    #[test]
+    fn token_vacio_env_cae_a_generado() {
+        // NOTA: manipula env del proceso; los tests lib corren en hilos pero
+        // la var es propia de este binario de test y nadie más la toca.
+        std::env::set_var("GLORY_HARNESS_DAEMON_TOKEN", "   ");
+        let (t, fuente) = Daemon::token_desde_env();
+        assert!(!t.trim().is_empty());
+        assert!(fuente.contains("efímero"), "{fuente}");
+        std::env::remove_var("GLORY_HARNESS_DAEMON_TOKEN");
     }
 }

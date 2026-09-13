@@ -21,6 +21,7 @@ use serde_json::Value;
 use tokio::sync::mpsc;
 use uuid::Uuid;
 
+use super::seguridad::control_inicio_turno;
 use super::{autorizar_sesion, cable, error, ApiError, AppState, SesionWeb, TurnoActivo};
 use crate::servicio::ResultadoBloqueo;
 
@@ -69,6 +70,9 @@ pub(crate) async fn iniciar_turno(
     Json(peticion): Json<CrearTurno>,
 ) -> Result<Json<Value>, ApiError> {
     let (sesion, _) = autorizar_sesion(&headers, &Method::POST, &state, &id).await?;
+    // [139A-8 K12] Rate-limit global + tope de concurrencia antes de
+    // cualquier trabajo del turno.
+    control_inicio_turno(&state).await?;
     let mensaje = peticion.message.trim().to_string();
     if mensaje.is_empty() {
         return Err(error("peticion_invalida", "mensaje vacío"));
@@ -455,13 +459,17 @@ mod tests {
     use tokio::time::{timeout, Duration};
     use tower::ServiceExt;
 
-    fn post_turno(sid: &str, cookie: bool, cuerpo: &str) -> Request<Body> {
+    fn post_turno(state: &Arc<AppState>, sid: &str, cookie: bool, cuerpo: &str) -> Request<Body> {
         let mut b = Request::builder()
             .method(Method::POST)
             .uri(format!("/api/v1/session/{sid}/turns"))
             .header(header::CONTENT_TYPE, "application/json");
         if cookie {
-            b = b.header(header::COOKIE, format!("{}={sid}", COOKIE_SESION));
+            // [139A-8 K9] La cookie viaja firmada con el secreto de arranque.
+            b = b.header(
+                header::COOKIE,
+                format!("{}={}", COOKIE_SESION, state.secreto.empaquetar(sid)),
+            );
         } else {
             b = b.header(header::AUTHORIZATION, format!("Bearer {sid}"));
         }
@@ -491,7 +499,7 @@ mod tests {
         let app = super::super::router(Arc::clone(&state));
 
         let res = app
-            .oneshot(post_turno(&sid, true, r#"{"message":"hola"}"#))
+            .oneshot(post_turno(&state, &sid, true, r#"{"message":"hola"}"#))
             .await
             .unwrap();
         assert_eq!(res.status(), axum::http::StatusCode::OK);
@@ -505,9 +513,9 @@ mod tests {
         assert_eq!(fin["turn_id"], body["turn_id"]);
 
         // El guard se liberó: un segundo turno arranca sin 409.
-        let app2 = super::super::router(state);
+        let app2 = super::super::router(Arc::clone(&state));
         let res2 = app2
-            .oneshot(post_turno(&sid, true, r#"{"message":"otro"}"#))
+            .oneshot(post_turno(&state, &sid, true, r#"{"message":"otro"}"#))
             .await
             .unwrap();
         assert_eq!(res2.status(), axum::http::StatusCode::OK);
@@ -524,7 +532,7 @@ mod tests {
         let mut rx = sesion.sse.lock().await.suscribir().1;
         let app = super::super::router(Arc::clone(&state));
         let res = app
-            .oneshot(post_turno(&sid, true, r#"{"message":"hola"}"#))
+            .oneshot(post_turno(&state, &sid, true, r#"{"message":"hola"}"#))
             .await
             .unwrap();
         assert_eq!(res.status(), axum::http::StatusCode::OK);
@@ -557,7 +565,7 @@ mod tests {
         });
         let app = super::super::router(Arc::clone(&state));
         let res = app
-            .oneshot(post_turno(&sid, false, r#"{"message":"hola"}"#))
+            .oneshot(post_turno(&state, &sid, false, r#"{"message":"hola"}"#))
             .await
             .unwrap();
         assert_eq!(res.status(), axum::http::StatusCode::CONFLICT);
@@ -575,9 +583,9 @@ mod tests {
     async fn mensaje_vacio_devuelve_400() {
         let state = state_test();
         let (sid, _) = sesion_memoria(&state).await;
-        let app = super::super::router(state);
+        let app = super::super::router(Arc::clone(&state));
         let res = app
-            .oneshot(post_turno(&sid, true, r#"{"message":"   "}"#))
+            .oneshot(post_turno(&state, &sid, true, r#"{"message":"   "}"#))
             .await
             .unwrap();
         assert_eq!(res.status(), axum::http::StatusCode::BAD_REQUEST);
@@ -587,14 +595,18 @@ mod tests {
     async fn cancelar_sin_turno_es_idempotente() {
         let state = state_test();
         let (sid, _) = sesion_memoria(&state).await;
-        let app = super::super::router(state);
+        let app = super::super::router(Arc::clone(&state));
         let tid = Uuid::new_v4();
         let res = app
             .oneshot(
                 Request::builder()
                     .method(Method::POST)
                     .uri(format!("/api/v1/session/{sid}/turns/{tid}/cancel"))
-                    .header(header::COOKIE, format!("{}={sid}", COOKIE_SESION))
+                    // [139A-8 K9] La cookie viaja firmada.
+                    .header(
+                        header::COOKIE,
+                        format!("{}={}", COOKIE_SESION, state.secreto.empaquetar(&sid)),
+                    )
                     .body(Body::empty())
                     .unwrap(),
             )
@@ -635,12 +647,16 @@ mod tests {
     async fn sse_con_cookie_devuelve_200() {
         let state = state_test();
         let (sid, _) = sesion_memoria(&state).await;
-        let app = super::super::router(state);
+        let app = super::super::router(Arc::clone(&state));
         let res = app
             .oneshot(
                 Request::builder()
                     .uri(format!("/api/v1/session/{sid}/events"))
-                    .header(header::COOKIE, format!("{}={sid}", COOKIE_SESION))
+                    // [139A-8 K9] La cookie viaja firmada.
+                    .header(
+                        header::COOKIE,
+                        format!("{}={}", COOKIE_SESION, state.secreto.empaquetar(&sid)),
+                    )
                     .body(Body::empty())
                     .unwrap(),
             )
@@ -653,8 +669,8 @@ mod tests {
     async fn mutacion_con_cookie_y_origen_ajeno_devuelve_403() {
         let state = state_test();
         let (sid, _) = sesion_memoria(&state).await;
-        let app = super::super::router(state);
-        let mut req = post_turno(&sid, true, r#"{"message":"hola"}"#);
+        let app = super::super::router(Arc::clone(&state));
+        let mut req = post_turno(&state, &sid, true, r#"{"message":"hola"}"#);
         req.headers_mut().insert(
             header::HOST,
             header::HeaderValue::from_static("127.0.0.1:8799"),
@@ -667,6 +683,83 @@ mod tests {
         assert_eq!(res.status(), axum::http::StatusCode::FORBIDDEN);
     }
 
+    /// [139A-8 K9] Cookie con `sid` válido pero SIN firma → 401 (fail-closed:
+    /// el formato anterior sin firmar ya no autoriza aunque la sesión exista).
+    #[tokio::test]
+    async fn cookie_sin_firmar_devuelve_401() {
+        let state = state_test();
+        let (sid, _) = sesion_memoria(&state).await;
+        let app = super::super::router(Arc::clone(&state));
+        let res = app
+            .oneshot(
+                Request::builder()
+                    .uri(format!("/api/v1/session/{sid}/events"))
+                    .header(header::COOKIE, format!("{}={sid}", COOKIE_SESION))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), axum::http::StatusCode::UNAUTHORIZED);
+    }
+
+    /// [139A-8 K12] Ventana de inicios llena → 429 `limite_turnos`.
+    #[tokio::test]
+    async fn ventana_de_inicios_llena_devuelve_429() {
+        let state = state_test();
+        let (sid, _) = sesion_memoria(&state).await;
+        for _ in 0..super::super::seguridad::MAX_INICIOS_VENTANA {
+            state
+                .inicios_turno
+                .lock()
+                .await
+                .push_back(std::time::Instant::now());
+        }
+        let app = super::super::router(Arc::clone(&state));
+        let res = app
+            .oneshot(post_turno(&state, &sid, false, r#"{"message":"hola"}"#))
+            .await
+            .unwrap();
+        assert_eq!(res.status(), axum::http::StatusCode::TOO_MANY_REQUESTS);
+        let body: Value =
+            serde_json::from_slice(&axum::body::to_bytes(res.into_body(), 1024).await.unwrap())
+                .unwrap();
+        assert_eq!(body["code"], "limite_turnos");
+    }
+
+    /// [139A-8 K12] Tope global de turnos concurrentes → 429
+    /// `demasiados_turnos` (distinto del 409 por sesión `turno_activo`).
+    #[tokio::test]
+    async fn tope_global_de_turnos_devuelve_429() {
+        let state = state_test();
+        let mut ocupadas = Vec::new();
+        for _ in 0..super::super::seguridad::MAX_TURNOS_GLOBAL {
+            let (_, sesion) = sesion_memoria(&state).await;
+            sesion.turno.lock().await.replace(TurnoActivo {
+                id: Uuid::new_v4(),
+                handle: tokio::spawn(std::future::pending::<()>()),
+            });
+            ocupadas.push(sesion);
+        }
+        let (sid, _) = sesion_memoria(&state).await;
+        let app = super::super::router(Arc::clone(&state));
+        let res = app
+            .oneshot(post_turno(&state, &sid, false, r#"{"message":"hola"}"#))
+            .await
+            .unwrap();
+        assert_eq!(res.status(), axum::http::StatusCode::TOO_MANY_REQUESTS);
+        let body: Value =
+            serde_json::from_slice(&axum::body::to_bytes(res.into_body(), 1024).await.unwrap())
+                .unwrap();
+        assert_eq!(body["code"], "demasiados_turnos");
+        // Limpieza: abortar los pendientes insertados.
+        for sesion in ocupadas {
+            if let Some(t) = sesion.turno.lock().await.take() {
+                t.handle.abort();
+            }
+        }
+    }
+
     /// Paridad §13 a nivel socket: servidor real en puerto efímero, cliente
     /// HTTP con cookie (como `EventSource` de navegador): health → turns →
     /// SSE con campo `event:` → `turn.finished`.
@@ -674,7 +767,7 @@ mod tests {
     async fn paridad_socket_turno_fixture() {
         let state = state_test();
         let (sid, _) = sesion_memoria(&state).await;
-        let app = super::super::router(state);
+        let app = super::super::router(Arc::clone(&state));
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
             .await
             .expect("bind efímero");
@@ -684,7 +777,8 @@ mod tests {
         });
         let base = format!("http://{addr}");
         let cliente = reqwest::Client::new();
-        let cookie = format!("{}={sid}", COOKIE_SESION);
+        // [139A-8 K9] La cookie viaja firmada con el secreto de arranque.
+        let cookie = format!("{}={}", COOKIE_SESION, state.secreto.empaquetar(&sid));
 
         let health: Value = cliente
             .get(format!("{base}/healthz"))

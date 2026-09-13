@@ -1,7 +1,8 @@
 # Plan 139A-8 — Remediación de la auditoría integral (2026-09-13)
 
-> **Estado: LISTO PARA EJECUCIÓN (v3, 13-09).** Las 3 decisiones abiertas están
-> cerradas abajo (§ Decisiones). Arranque de F0 pendiente solo de tu "adelante".
+> **Estado: EN EJECUCIÓN (v4, 13-09).** "Adelante" recibido; árbol limpio
+> (`c986dac` pusheado). **F0 y F1 completadas** (gate PASS abajo); siguiente F2.
+> Las 3 decisiones abiertas están cerradas abajo (§ Decisiones).
 > Fuente: `Agente/documentacion/auditoria-integral-2026-09-13.md` (v2 verificada).
 > IDs S/R/K/G según la auditoría. Siguiente ID libre tras este: 139A-9.
 
@@ -131,6 +132,30 @@ F5 depende de F4 solo en tipos tocados (re-export los desacopla); F6 cierra.
 - Sin cambios de conducta salvo los documentados (S4 firma, G2 casing, K3 auth).
 - Roadmap actualizado, completada en `Agente/completados/tareas-YYYY-MM-DD.md`,
   commit por fase con ID.
+
+## Ejecución F1 (13-09, completada + gate PASS)
+
+- **K1** (`cli/src/infra/jaula.rs` nuevo + `ejecutor.rs`): `Command` directo,
+  allowlist/denylist, `Error::Sandbox`; `truncar` en bytes, drenaje
+  concurrente de pipes, kill-antes-de-reunir.
+- **K13** (`daemon.rs`): token redactado por defecto (`****+4+len`),
+  `--mostrar-token` explícito, bind `127.0.0.1` fijo, comparación constante.
+- **K3** (`web/seguridad.rs::direccion_escucha`): sin token → loopback +
+  aviso; con token → `0.0.0.0` (ya existía inline, ahora extraído + tests).
+- **K9** (cookie firmada `{sid}.{firma:016x}`, SipHash por prefijo secreto
+  de 128 bits, sin deps nuevas): secreto aleatorio/arranque,
+  `--secreto-sesion <texto>` o `GLORY_HARNESS_SESION_SECRETO` para fijarlo;
+  formato sin firmar → 401 fail-closed; `SameSite=Lax` + check de origen
+  preexistentes se conservan; Bearer sin cambios.
+- **K12** (desvío documentado: **sin `tower_governor`** —dep nueva con red
+  no disponible—; ventana deslizante std de 30 inicios/minuto global
+  → 429 `limite_turnos`, tope global 4 turnos concurrentes
+  → 429 `demasiados_turnos`; el tope 1/sesión sigue en 409 `turno_activo`).
+- Tests: 5 unit (`seguridad.rs`) + 3 integración (`turnos.rs`: cookie sin
+  firmar 401, ventana 429, tope global 429); `web_datos/pruebas.rs` y
+  `turnos.rs` migran a cookie firmada.
+- Gate: `sentinel check 139A-8` **PASS** (21 archivos, 0 errores; 3 infos ISP
+  preexistentes en `desktop/ui`). `cargo test comandos::web`: 44/44.
 
 ## Revisión
 

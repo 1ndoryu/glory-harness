@@ -19,11 +19,18 @@ use uuid::Uuid;
 
 const COOKIE: &str = super::super::web::COOKIE_SESION;
 
-fn peticion(metodo: Method, uri: String, sid: &str, cuerpo: Option<String>) -> Request<Body> {
-    let mut b = Request::builder()
-        .method(metodo)
-        .uri(uri)
-        .header(header::COOKIE, format!("{COOKIE}={sid}"));
+fn peticion(
+    state: &Arc<super::super::web::AppState>,
+    metodo: Method,
+    uri: String,
+    sid: &str,
+    cuerpo: Option<String>,
+) -> Request<Body> {
+    let mut b = Request::builder().method(metodo).uri(uri).header(
+        header::COOKIE,
+        // [139A-8 K9] La cookie viaja firmada con el secreto de arranque.
+        format!("{COOKIE}={}", state.secreto.empaquetar(sid)),
+    );
     if let Some(c) = cuerpo {
         b = b.header(header::CONTENT_TYPE, "application/json");
         b.body(Body::from(c)).unwrap()
@@ -47,6 +54,7 @@ async fn conversaciones_ciclo_completo() {
     let app = super::super::web::router(Arc::clone(&state));
     let res = app
         .oneshot(peticion(
+            &state,
             Method::POST,
             format!("{base}/conversations"),
             &sid,
@@ -63,6 +71,7 @@ async fn conversaciones_ciclo_completo() {
     let app = super::super::web::router(Arc::clone(&state));
     let res = app
         .oneshot(peticion(
+            &state,
             Method::GET,
             format!("{base}/conversations"),
             &sid,
@@ -81,6 +90,7 @@ async fn conversaciones_ciclo_completo() {
     let app = super::super::web::router(Arc::clone(&state));
     let res = app
         .oneshot(peticion(
+            &state,
             Method::GET,
             format!("{base}/conversations/{cid}/messages"),
             &sid,
@@ -97,6 +107,7 @@ async fn conversaciones_ciclo_completo() {
     let app = super::super::web::router(Arc::clone(&state));
     let res = app
         .oneshot(peticion(
+            &state,
             Method::PATCH,
             format!("{base}/conversations/{cid}"),
             &sid,
@@ -113,6 +124,7 @@ async fn conversaciones_ciclo_completo() {
     let app = super::super::web::router(Arc::clone(&state));
     let res = app
         .oneshot(peticion(
+            &state,
             Method::DELETE,
             format!("{base}/conversations/{cid}"),
             &sid,
@@ -129,9 +141,10 @@ async fn conversaciones_ciclo_completo() {
 async fn conversacion_ajena_devuelve_404() {
     let state = state_test();
     let (sid, _) = sesion_memoria(&state).await;
-    let app = super::super::web::router(state);
+    let app = super::super::web::router(Arc::clone(&state));
     let res = app
         .oneshot(peticion(
+            &state,
             Method::GET,
             format!(
                 "/api/v1/session/{sid}/conversations/00000000-0000-0000-0000-000000000000/messages"
@@ -152,7 +165,7 @@ async fn config_get_y_patch_validado() {
 
     let app = super::super::web::router(Arc::clone(&state));
     let res = app
-        .oneshot(peticion(Method::GET, format!("{base}/config"), &sid, None))
+        .oneshot(peticion(&state, Method::GET, format!("{base}/config"), &sid, None))
         .await
         .unwrap();
     assert_eq!(res.status(), axum::http::StatusCode::OK);
@@ -163,6 +176,7 @@ async fn config_get_y_patch_validado() {
     let app = super::super::web::router(Arc::clone(&state));
     let res = app
         .oneshot(peticion(
+            &state,
             Method::PATCH,
             format!("{base}/config"),
             &sid,
@@ -176,6 +190,7 @@ async fn config_get_y_patch_validado() {
     let app = super::super::web::router(Arc::clone(&state));
     let res = app
         .oneshot(peticion(
+            &state,
             Method::PATCH,
             format!("{base}/config"),
             &sid,
@@ -190,9 +205,10 @@ async fn config_get_y_patch_validado() {
     assert_eq!(cfg2["config"]["max_ventana"], 20000);
 
     // Ventana bajo el mínimo → 400.
-    let app = super::super::web::router(state);
+    let app = super::super::web::router(Arc::clone(&state));
     let res = app
         .oneshot(peticion(
+            &state,
             Method::PATCH,
             format!("{base}/config"),
             &sid,
@@ -207,9 +223,10 @@ async fn config_get_y_patch_validado() {
 async fn providers_sin_credenciales() {
     let state = state_test();
     let (sid, _) = sesion_memoria(&state).await;
-    let app = super::super::web::router(state);
+    let app = super::super::web::router(Arc::clone(&state));
     let res = app
         .oneshot(peticion(
+            &state,
             Method::GET,
             format!("/api/v1/session/{sid}/providers"),
             &sid,
@@ -241,6 +258,7 @@ async fn workspace_relativo_e_inexistente_fallan() {
     let app = super::super::web::router(Arc::clone(&state));
     let res = app
         .oneshot(peticion(
+            &state,
             Method::POST,
             format!("{base}/workspace"),
             &sid,
@@ -253,6 +271,7 @@ async fn workspace_relativo_e_inexistente_fallan() {
     let app = super::super::web::router(Arc::clone(&state));
     let res = app
         .oneshot(peticion(
+            &state,
             Method::POST,
             format!("{base}/workspace"),
             &sid,
@@ -264,9 +283,10 @@ async fn workspace_relativo_e_inexistente_fallan() {
 
     // Ruta real (temp del sistema): cambia y persiste.
     let real = std::env::temp_dir();
-    let app = super::super::web::router(state);
+    let app = super::super::web::router(Arc::clone(&state));
     let res = app
         .oneshot(peticion(
+            &state,
             Method::POST,
             format!("{base}/workspace"),
             &sid,

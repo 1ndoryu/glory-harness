@@ -1,7 +1,7 @@
 //! Ejecutor real de comandos del CLI (318A-16 F3).
 //!
 //! Implementa el puerto `EjecutorComando` del núcleo con tokio `Command`:
-//! shell del sistema (`cmd /C` en Windows, `sh -c` en el resto), timeout
+//! ejecución DIRECTA sin shell (jaula `infra::jaula`, 139A-8 F1/K1), timeout
 //! acotado, truncado de salida a 8 KB y tareas de fondo identificadas por id
 //! (`comando_status`/`comando_matar`). El núcleo queda agnóstico: solo ve este
 //! trait; un consumidor sin runner (p. ej. PROYECTO TASKS, que deniega
@@ -10,10 +10,15 @@
 //! [119A-7 F0] Jaula: el ejecutor puede fijar el directorio de arranque de
 //! cada hijo (`en_raiz`). Los comandos heredan ese cwd, así que las rutas
 //! relativas del modelo caen dentro del workspace del run. Límite honesto:
-//! el shell puede hacer `cd` fuera (no hay namespace en Windows); la
-//! contención total la dan la clasificación de riesgo (`bash_clasificar`) +
-//! aprobación + supervisión, no el cwd. `nuevo()` (sin raíz, hereda el cwd
-//! del proceso) queda solo para diagnósticos sin run.
+//! el cwd no contiene `..` absolutos; la contención total la dan la jaula
+//! (sin shell + allowlist/denylist) + clasificación de riesgo
+//! (`bash_clasificar`) + aprobación + supervisión. `nuevo()` (sin raíz,
+//! hereda el cwd del proceso) queda solo para diagnósticos sin run.
+//!
+//! [139A-8 F1/K1] Sin shell: `ejecutar`/`ejecutar_fondo` construyen con
+//! `jaula::construir_directo` (argv directo, builtins `cmd` con veto en
+//! Windows). Tuberías/redirecciones/`&&`/`$()` se DENIEGAN con mensaje
+//! claro (cambio de conducta documentado en `jaula.rs`).
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -25,8 +30,10 @@ use tokio::io::AsyncReadExt;
 use tokio::process::{Child, Command};
 use tokio::sync::Mutex;
 
-use glory_harness_core::error::Result;
+use glory_harness_core::error::{Error, Result};
 use glory_harness_core::ports::{EjecutorComando, ResultadoEjecucionComando};
+
+use super::jaula::construir_directo;
 
 /// Límite de salida capturada por comando (8 KB, contrato del plan 318A-16).
 const LIMITE_SALIDA: usize = 8 * 1024;
@@ -66,28 +73,28 @@ impl EjecutorCliente {
         }
     }
 
-    fn construir_comando(&self, comando: &str) -> Command {
-        let mut c = if cfg!(windows) {
-            let mut c = Command::new("cmd");
-            c.arg("/C").arg(comando);
-            c
-        } else {
-            let mut c = Command::new("sh");
-            c.arg("-c").arg(comando);
-            c
-        };
-        if let Some(raiz) = &self.raiz {
-            c.current_dir(raiz);
-        }
-        c
+    /// [139A-8 F1/K1] Construcción SIN shell vía `jaula::construir_directo`.
+    /// La denegación de la jaula se traduce a `Error::Sandbox` (el sandbox
+    /// bloqueó el comando) con el mensaje claro de la jaula.
+    fn construir_comando(&self, comando: &str) -> Result<Command> {
+        construir_directo(comando, self.raiz.as_ref())
+            .map_err(|motivo| Error::Sandbox(format!("jaula: {motivo}")))
     }
 
+    /// [139A-8 F1] Truncado a 8 KB en BYTES (no en chars): la salida OEM
+    /// (`dir`, `ping`…) llega con tildes/ñ que `from_utf8_lossy` convierte
+    /// en `�` (3 bytes); contar chars dejaba pasar hasta 3× el límite y
+    /// rompía el contrato de 8 KB. El corte respeta borde de char.
     fn truncar(salida: &[u8]) -> (String, bool) {
-        let texto = String::from_utf8_lossy(salida).into_owned();
+        let texto = String::from_utf8_lossy(salida);
         if texto.len() <= LIMITE_SALIDA {
-            (texto, false)
+            (texto.into_owned(), false)
         } else {
-            let mut cortado: String = texto.chars().take(LIMITE_SALIDA).collect();
+            let mut fin = LIMITE_SALIDA;
+            while !texto.is_char_boundary(fin) {
+                fin -= 1;
+            }
+            let mut cortado: String = texto[..fin].to_string();
             cortado.push_str("\n…(salida truncada por límite del harness)");
             (cortado, true)
         }
@@ -100,7 +107,7 @@ impl EjecutorCliente {
     async fn ejecutar_fondo(&self, comando: &str) -> Result<ResultadoEjecucionComando> {
         let id = uuid::Uuid::new_v4().to_string();
         let handle: HandleTarea = Arc::new(Mutex::new(Some(
-            self.construir_comando(comando)
+            self.construir_comando(comando)?
                 .stdout(std::process::Stdio::piped())
                 .stderr(std::process::Stdio::piped())
                 .spawn()?,
@@ -161,7 +168,7 @@ impl EjecutorCliente {
     /// Rama síncrona: corre con timeout y devuelve la salida truncada a 8 KB.
     async fn ejecutar_sincrono(&self, comando: &str) -> Result<ResultadoEjecucionComando> {
         let mut child = self
-            .construir_comando(comando)
+            .construir_comando(comando)?
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
             .spawn()?;
@@ -169,17 +176,40 @@ impl EjecutorCliente {
         // timeout puede matarlo después sin mover el valor).
         let mut stdout = child.stdout.take();
         let mut stderr = child.stderr.take();
-        let mut capturado = Vec::new();
+        // [139A-8 F1] Drenaje CONCURRENTE de los pipes: si el hijo escribe
+        // más que el buffer del pipe (~64 KB) y nadie lee, se bloquea y el
+        // `wait()` muere por timeout aunque el comando sea instantáneo
+        // (`dir System32` = 299 KB lo demostró). Las lectoras son dueñas de
+        // los pipes; el `wait()` solo presta `child`.
+        let drenar_out = tokio::spawn(async move {
+            let mut buf = Vec::new();
+            if let Some(o) = stdout.as_mut() {
+                let _ = o.read_to_end(&mut buf).await;
+            }
+            buf
+        });
+        let drenar_err = tokio::spawn(async move {
+            let mut buf = Vec::new();
+            if let Some(e) = stderr.as_mut() {
+                let _ = e.read_to_end(&mut buf).await;
+            }
+            buf
+        });
 
         let estado = tokio::time::timeout(TIMEOUT_COMANDO, child.wait()).await;
+        if estado.is_err() {
+            // Timeout: matar PRIMERO para que los pipes lleguen a EOF y las
+            // lectoras terminen; solo después se reúnen. (Al revés se cuelga:
+            // el hijo vivo retiene la escritura y el `await` no vuelve.)
+            let _ = child.kill().await;
+            let _ = child.wait().await;
+        }
+        // Tras el `wait` (o el kill por timeout) los pipes llegan a EOF: las
+        // lectoras siempre terminan y se pueden reunir sin timeout extra.
+        let mut capturado = drenar_out.await.unwrap_or_default();
+        capturado.extend_from_slice(&drenar_err.await.unwrap_or_default());
         match estado {
             Ok(Ok(status)) => {
-                if let Some(o) = stdout.as_mut() {
-                    let _ = o.read_to_end(&mut capturado).await;
-                }
-                if let Some(e) = stderr.as_mut() {
-                    let _ = e.read_to_end(&mut capturado).await;
-                }
                 let (texto, truncada) = Self::truncar(&capturado);
                 Ok(ResultadoEjecucionComando {
                     codigo_salida: status.code(),
@@ -191,15 +221,7 @@ impl EjecutorCliente {
             }
             Ok(Err(e)) => Err(e.into()),
             Err(_) => {
-                // Timeout: matamos el proceso y devolvemos lo capturado hasta ahora.
-                let _ = child.kill().await;
-                let _ = child.wait().await;
-                if let Some(o) = stdout.as_mut() {
-                    let _ = o.read_to_end(&mut capturado).await;
-                }
-                if let Some(e) = stderr.as_mut() {
-                    let _ = e.read_to_end(&mut capturado).await;
-                }
+                // Timeout: devolvemos lo capturado hasta el kill.
                 let mut texto = format!(
                     "⏱ el comando excedió el límite de {} s y fue terminado\n",
                     TIMEOUT_COMANDO.as_secs()
@@ -269,7 +291,9 @@ mod tests {
     fn comando_lento(segundos: u64) -> String {
         if cfg!(windows) {
             // `ping -n N` en Windows espera ~N-1 segundos y sale con código 0.
-            format!("ping -n {} 127.0.0.1 >nul", segundos + 1)
+            // [139A-8 F1/K1] Sin `>nul`: la redirección la deniega la jaula
+            // (la salida capturada la archiva el ejecutor igualmente).
+            format!("ping -n {} 127.0.0.1", segundos + 1)
         } else {
             format!("sleep {segundos}")
         }
@@ -277,10 +301,14 @@ mod tests {
 
     fn comando_mucho_eco() -> String {
         if cfg!(windows) {
-            // ~10 KB de salida (900 líneas × 10 chars + CRLF) → fuerza el truncado.
-            "for /L %i in (1,1,900) do @echo xxxxxxxxxx".to_string()
+            // [139A-8 F1/K1] El `for /L … do @echo` es sintaxis cmd y la
+            // jaula lo deniega: `dir` de System32 (~5000 entradas, >200 KB)
+            // fuerza el truncado en segundos sin shell ni redirección.
+            r"dir C:\Windows\System32".to_string()
         } else {
-            "head -c 9000 /dev/zero | tr '\\0' 'x'".to_string()
+            // Sin tubería (la jaula la deniega): 90 KB de NULes bastan para
+            // forzar el truncado a 8 KB.
+            "head -c 90000 /dev/zero".to_string()
         }
     }
 

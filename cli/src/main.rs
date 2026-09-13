@@ -11,7 +11,7 @@
 //!   Con `--tui`: pantalla completa ratatui (paneles mensajes/estado/entrada).
 //! - `daemon [--puerto N] [--mostrar-token]` → proceso de fondo NDJSON en
 //!   `127.0.0.1`, multi-sesión, token obligatorio.
-//! - `web [--puerto N] [--dir-ui R] [--fixture]` → servidor HTTP loopback
+//! - `web [--puerto N] [--dir-ui R] [--fixture] [--secreto-sesion T]` → servidor HTTP
 //!   con SSE para el modo web local (`http://127.0.0.1:8799`).
 //! - `session <list|ver|resume|borrar> [id]` → gestiona las conversaciones
 //!   durables del CLI (misma BD y usuario que `chat`); `resume` reabre el REPL
@@ -163,7 +163,14 @@ fn despachar(args: Vec<String>) -> ExitCode {
                     })
                 });
             let fixture = args.iter().any(|a| a == "--fixture");
-            con_runtime("web", |rt| rt.block_on(web::run(puerto, dir_ui, fixture)))
+            let secreto = args
+                .iter()
+                .position(|a| a == "--secreto-sesion")
+                .and_then(|i| args.get(i + 1).cloned());
+            con_runtime(
+                "web",
+                |rt| rt.block_on(web::run(puerto, dir_ui, fixture, secreto)),
+            )
         }
         Some("schedule") => schedule_cmd::cmd_schedule(&args[1..]),
         Some("session") => cmd_session(&args[1..]),
@@ -217,6 +224,7 @@ fn imprimir_ayuda() {
     );
     println!("  chat      sesión interactiva; --tui para la interfaz enriquecida; --gancho-pre-compact para hook; --notificar para toast de Windows");
     println!("  daemon    servicio de fondo por NDJSON (consumidor-daemon.mjs)");
+    println!("  web       servidor HTTP local (--puerto/--dir-ui/--fixture/--secreto-sesion)");
     println!("  schedule  tareas programadas: <list|create|remove|logs|run>");
     println!("  session   conversaciones: <list|ver|resume|borrar> [id]");
     println!("  memoria   recuerdos: <listar|recordar|guardar|borrar|curar> [args]");
