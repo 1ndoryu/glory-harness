@@ -14,9 +14,9 @@
 
 html[data-tema='synara'] {
     color-scheme: dark;
-    /* Texto UI un poco más grande que en el resto de temas (13px → 14px):
+    /* Texto UI un poco más grande que en el resto de temas (13px → 15px):
        escala los tamaños en rem sin tocar la geometría en px. */
-    font-size: 14px;
+    font-size: 15px;
     /* Base del seed */
     --fondo: #0e0e0e;
     --texto: #f5f5f5;
