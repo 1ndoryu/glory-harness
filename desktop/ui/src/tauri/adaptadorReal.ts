@@ -11,6 +11,7 @@ import type {
   Workspace,
 } from '../dominio/tipos';
 import type {
+  CambioArchivoTurno,
   CargaConversacion,
   ComandoArea,
   EventoTurnoLog,
@@ -19,6 +20,7 @@ import type {
   InfoSesion,
   ListadoMemoria,
   ProveedorInfo,
+  RestauracionArchivo,
   ResultadoCarpetaMemoria,
   ResultadoRestauracionTramo,
   ResumenCompactacion,
@@ -94,6 +96,17 @@ export function crearAdaptadorReal(hooks: HooksAdaptador = {}, transporte: Trans
        * [039A-3 P5] Opera sobre el tramo del panel dado. */
       async restaurarTramo(panelId?: string): Promise<ResultadoRestauracionTramo> {
         return transporte.tramoRestaurar(panelId ?? null);
+      },
+      /** [129A-7] Panel "Cambios": archivos por turno de una conversación.
+       * En un transporte sin `cambiosListar` (web) falla con motivo. */
+      async cambios(conversacionId: string): Promise<CambioArchivoTurno[]> {
+        if (!transporte.cambiosListar) throw new Error('este transporte no expone los cambios por turno');
+        return transporte.cambiosListar(conversacionId);
+      },
+      /** [129A-7] "Rechazar" puntual del panel Cambios (restaura el previo). */
+      async rechazarCambio(conversacionId: string, turnoId: string, ruta: string): Promise<RestauracionArchivo> {
+        if (!transporte.cambioRechazar) throw new Error('este transporte no expone el rechazo de cambios');
+        return transporte.cambioRechazar(conversacionId, turnoId, ruta);
       },
       async proveedores(): Promise<ProveedorInfo[]> {
         return transporte.leerProveedores();

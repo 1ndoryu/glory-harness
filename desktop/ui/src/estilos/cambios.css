@@ -1,0 +1,122 @@
+/* [129A-7] Panel "Cambios": la tab antes llamada "Git local". */
+
+.panel-cambios {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow-y: auto;
+}
+
+.cambios-lista {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-xs);
+  padding: var(--sp-sm);
+}
+
+.cambios-vacio {
+  color: var(--texto-tenue);
+  font-size: var(--xs);
+  padding: var(--sp-sm) var(--sp-xs);
+}
+
+.cambios-grupo {
+  border: 1px solid var(--borde);
+}
+
+.cambios-grupo-cabecera {
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-sm);
+  padding: var(--sp-xs) var(--sp-sm);
+  user-select: none;
+}
+
+.cambios-grupo-nombre {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cambios-grupo-contador {
+  color: var(--texto-tenue);
+  font-size: var(--xs);
+}
+
+.cambios-entrada {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-xs);
+  padding: var(--sp-xs) var(--sp-sm) var(--sp-xs) var(--sp-md);
+  border-top: 1px solid var(--borde);
+}
+
+.cambios-entrada.revisado {
+  opacity: 0.65;
+}
+
+.cambios-entrada-principal {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-sm);
+  min-width: 0;
+}
+
+.cambios-ruta {
+  font-family: var(--font);
+  font-size: var(--xs);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cambios-turno {
+  color: var(--texto-tenue);
+  font-size: var(--xs);
+  white-space: nowrap;
+}
+
+.cambios-acciones {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-xs);
+}
+
+.cambios-estado {
+  color: var(--texto-tenue);
+  font-size: var(--xs);
+  margin-right: auto;
+}
+
+.cambios-boton {
+  font-size: var(--xs);
+  padding: 2px var(--sp-sm);
+  cursor: pointer;
+}
+
+.cambios-boton:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.cambios-diff {
+  font-family: var(--font);
+  font-size: var(--xs);
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin: 0;
+  padding: var(--sp-xs);
+  border: 1px solid var(--borde);
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.cambios-separador {
+  color: var(--texto-tenue);
+  font-size: var(--xs);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: var(--sp-sm) var(--sp-sm) 0;
+}

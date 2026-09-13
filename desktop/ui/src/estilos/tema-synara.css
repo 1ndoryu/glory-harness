@@ -1,0 +1,196 @@
+/* [129A-12 F2] Tema «Synara»: variante OSCURA del seed de la referencia
+   (`synara/apps/web/src/theme/theme.seed.generated.ts` → catálogo `synara`,
+   variante `dark`), traducida a los tokens de GH. Seed de origen, local:
+   surface #0e0e0e · ink #f5f5f5 · accent #6073cc · diffAdded #40c977 ·
+   diffRemoved #fa423e · skill #ad7bf9.
+
+   A diferencia de `tema.css` (oscuro monocromo), este tema SÍ usa color:
+   el acento marca selección/foco y los diffs llevan verde/rojo. Es una
+   excepción deliberada al «monocromo estricto» pedida por el usuario (12-09)
+   y vive SOLO aquí: `variables.css`, `tema.css` y el tema claro no se tocan.
+
+   Solo-overrides, igual que `tema.css`: los componentes siguen usando la misma
+   geometría y sus colores literales se rebajan con las mismas reglas. */
+
+html[data-tema='synara'] {
+    color-scheme: dark;
+    /* Base del seed */
+    --fondo: #0e0e0e;
+    --texto: #f5f5f5;
+    --invertido: #0e0e0e;
+    --borde: #2b2b2b;
+    --superficie-hover: #1c1c1c;
+    --superficie-active: #2a2a2a;
+    /* Selección = acento; el texto que va encima es `--invertido` */
+    --superficie-seleccionada: #6073cc;
+    /* Diffs: fondo teñido del semanticColor correspondiente */
+    --superficie-diff-adicion: #10301d;
+    --superficie-diff-eliminacion: #33191a;
+    --texto-tenue: #9a9a9a;
+    --foco: #6073cc;
+    /* Acentos propios del tema (no existen en claro/oscuro) */
+    --accent: #6073cc;
+    --diff-adicion: #40c977;
+    --diff-eliminacion: #fa423e;
+    --skill: #ad7bf9;
+    /* Scrollbar: la base de `scrollbar.css` es de tema claro */
+    --scrollbar-thumb: rgba(255, 255, 255, 0.09);
+    --scrollbar-thumb-hover: rgba(255, 255, 255, 0.16);
+}
+
+/* Algunos componentes conservan bordes monocromos explícitos en claro;
+   aquí se rebajan todos de forma uniforme (misma regla que el oscuro). */
+html[data-tema='synara'] * {
+    border-color: var(--borde);
+}
+
+html[data-tema='synara'] .cabecera-chat,
+html[data-tema='synara'] .cabecera-chat .titulo,
+html[data-tema='synara'] .msg-user,
+html[data-tema='synara'] .msg-asis,
+html[data-tema='synara'] .msg-asis .texto {
+    color: var(--texto) !important;
+}
+
+html[data-tema='synara'] body,
+html[data-tema='synara'] #app,
+html[data-tema='synara'] #cuerpo,
+html[data-tema='synara'] #paneles,
+html[data-tema='synara'] #sidebar,
+html[data-tema='synara'] .chat,
+html[data-tema='synara'] .entrada .caja,
+html[data-tema='synara'] .modal,
+html[data-tema='synara'] .ajustes-pagina,
+html[data-tema='synara'] .ajustes-nav,
+html[data-tema='synara'] .ajustes-paneles,
+html[data-tema='synara'] .menu-ctx,
+html[data-tema='synara'] .menu-ctx .menu-sub,
+html[data-tema='synara'] .ctx-detalle,
+html[data-tema='synara'] .herramienta .resultado,
+html[data-tema='synara'] .razonamiento .resultado,
+html[data-tema='synara'] .aviso-sistema .resultado,
+html[data-tema='synara'] .aprobacion .args {
+    background-color: var(--fondo) !important;
+    color: var(--texto) !important;
+}
+
+html[data-tema='synara'] #sidebar .nav-boton,
+html[data-tema='synara'] #sidebar .pie-boton,
+html[data-tema='synara'] .proyecto-grupo-boton,
+html[data-tema='synara'] .cabecera-chat .cab-boton,
+html[data-tema='synara'] .conv .conv-mas,
+html[data-tema='synara'] .prog-mas,
+html[data-tema='synara'] .prog-orden,
+html[data-tema='synara'] .entrada .controles .control,
+html[data-tema='synara'] .entrada .editando-msg,
+html[data-tema='synara'] .entrada .editando-msg-cancelar,
+html[data-tema='synara'] .pie-turno .pie-copiar,
+html[data-tema='synara'] .pie-turno .pie-log,
+html[data-tema='synara'] .menu-ctx .menu-item,
+html[data-tema='synara'] .msg-user .msg-mas,
+html[data-tema='synara'] .btn,
+html[data-tema='synara'] .entrada .selector-workspace-boton,
+html[data-tema='synara'] .entrada textarea,
+html[data-tema='synara'] .pm-campo textarea,
+html[data-tema='synara'] .input-texto,
+html[data-tema='synara'] .select,
+html[data-tema='synara'] .campo .selector-modelo.selector-modal {
+    background-color: var(--fondo) !important;
+    color: var(--texto) !important;
+}
+
+/* Estados invertidos (hover/primario): claro sobre oscuro, como el tema
+   oscuro pero partiendo del ink del seed. */
+html[data-tema='synara'] .barra,
+html[data-tema='synara'] .ajustes-item:hover,
+html[data-tema='synara'] .ajustes-item.sel,
+html[data-tema='synara'] .ajustes-volver:hover,
+html[data-tema='synara'] .cabecera-chat .cab-boton:hover,
+html[data-tema='synara'] .menu-ctx .menu-item:hover,
+html[data-tema='synara'] .menu-ctx .menu-grupo:hover > .menu-item,
+html[data-tema='synara'] .menu-ctx .menu-grupo:hover > .menu-sub .menu-item:hover,
+html[data-tema='synara'] .entrada .selector-workspace-boton:hover,
+html[data-tema='synara'] .btn.primario,
+html[data-tema='synara'] .entrada .btn-enviar,
+html[data-tema='synara'] .pm-play,
+html[data-tema='synara'] .check-box,
+html[data-tema='synara'] .toggle .opt.sel,
+html[data-tema='synara'] .aviso-sistema .aviso-accion {
+    background-color: var(--texto) !important;
+    color: var(--fondo) !important;
+}
+
+html[data-tema='synara'] .msg-user,
+html[data-tema='synara'] .msg-asis,
+html[data-tema='synara'] .modal,
+html[data-tema='synara'] .panel-meta,
+html[data-tema='synara'] .entrada .caja,
+html[data-tema='synara'] .campo .valor,
+html[data-tema='synara'] .check-box,
+html[data-tema='synara'] .toggle,
+html[data-tema='synara'] .input-texto,
+html[data-tema='synara'] .select,
+html[data-tema='synara'] .btn,
+html[data-tema='synara'] .entrada .selector-workspace-boton,
+html[data-tema='synara'] .campo .selector-modelo.selector-modal,
+html[data-tema='synara'] .herramienta .resultado,
+html[data-tema='synara'] .razonamiento .resultado,
+html[data-tema='synara'] .aviso-sistema .resultado,
+html[data-tema='synara'] .aprobacion .args,
+html[data-tema='synara'] .pm-play {
+    border-color: var(--borde) !important;
+}
+
+html[data-tema='synara'] .modal-fondo {
+    background: rgba(0, 0, 0, 0.65) !important;
+}
+
+/* El mensaje conserva solo su contorno también en synara; no es una tarjeta. */
+html[data-tema='synara'] .msg-user,
+html[data-tema='synara'] .msg-asis {
+    background: transparent !important;
+    color: var(--texto) !important;
+}
+
+/* ---------- Acentos y diffs en color (solo este tema) ---------- */
+
+/* El acento marca la selección real cuando su regla NO invierte el color
+   (p. ej. la conversación activa de la lista). */
+html[data-tema='synara'] .conv.sel,
+html[data-tema='synara'] .tarea.sel,
+html[data-tema='synara'] .memoria.sel {
+    background-color: var(--superficie-seleccionada) !important;
+    color: var(--invertido) !important;
+}
+
+/* Foco: anillo de acento en lugar del blanco del oscuro monocromo. */
+html[data-tema='synara'] *:focus-visible {
+    outline-color: var(--foco) !important;
+}
+
+/* Diffs: verde/rojo del seed en TODAS las superficies que los pintan
+   (`git.css` del panel Git/Cambios, `.add`/`.del` de los resultados de
+   herramienta en `mensajes.css` y del preview de Files en `panelVisor`). */
+html[data-tema='synara'] .add,
+html[data-tema='synara'] .git-adiciones,
+html[data-tema='synara'] .git-diff-adiciones,
+html[data-tema='synara'] .git-diff-adicion .git-diff-marca {
+    color: var(--diff-adicion) !important;
+    opacity: 1;
+}
+
+html[data-tema='synara'] .del,
+html[data-tema='synara'] .git-eliminaciones,
+html[data-tema='synara'] .git-diff-eliminaciones,
+html[data-tema='synara'] .git-diff-eliminacion .git-diff-marca {
+    color: var(--diff-eliminacion) !important;
+    opacity: 1;
+}
+
+html[data-tema='synara'] .git-diff-adicion {
+    background: var(--superficie-diff-adicion) !important;
+}
+
+html[data-tema='synara'] .git-diff-eliminacion {
+    background: var(--superficie-diff-eliminacion) !important;
+}

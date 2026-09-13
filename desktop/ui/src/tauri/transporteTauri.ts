@@ -9,6 +9,7 @@ import type {
   Workspace,
 } from '../dominio/tipos';
 import type {
+  CambioArchivoTurno,
   CargaConversacion,
   ComandoArea,
   EventoTurnoLog,
@@ -16,6 +17,7 @@ import type {
   InfoSesion,
   ListadoMemoria,
   ProveedorInfo,
+  RestauracionArchivo,
   ResultadoCarpetaMemoria,
   ResultadoRestauracionTramo,
   ResumenCompactacion,
@@ -151,6 +153,17 @@ export function transporteTauri(): Transporte {
       }),
     // [129A-4 F4] Log por turno (diagnosticar atascos sin ir a ciegas).
     logTurno: (turnoId) => invoke<EventoTurnoLog[]>('log_turno', { turnoId }),
+    // [129A-7] Panel "Cambios": lista por turno + rechazo puntual.
+    cambiosListar: (conversacionId) =>
+      invoke<CambioArchivoTurno[]>('cambios_archivo', {
+        conversacionId: conversacionId,
+      }),
+    cambioRechazar: (conversacionId, turnoId, ruta) =>
+      invoke<RestauracionArchivo>('rechazar_cambio', {
+        conversacionId: conversacionId,
+        turnoId: turnoId,
+        ruta: ruta,
+      }),
   };
 }
 

@@ -293,6 +293,9 @@ pub struct AccionRecuperada {
     pub diff: Option<String>,
     /// `creado_en` del turno (para intercalar entre los mensajes del turno).
     pub turno_en: String,
+    /// [129A-7] Id del turno (para agrupar cambios por turno en el panel
+    /// "Cambios" sin depender del timestamp).
+    pub turno_id: String,
 }
 
 /// Implementación SQLite de [`AgentPersistence`] (+ [`ProgramadorTareas`]).

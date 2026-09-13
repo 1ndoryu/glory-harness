@@ -40,9 +40,9 @@ import { crearPanel } from './orquestador/crearPanel';
 import { crearDepsCrearPanel } from './orquestador/depsCrearPanel';
 import { montarBarraLateral } from './orquestador/barraLateral';
 import {
-  CLAVE_TEMA_OSCURO,
+  CLAVE_TEMA,
   RAZONAMIENTO_ETIQUETA,
-  aplicarTemaOscuro,
+  aplicarTema,
   opcionesArranque,
   resolverEntorno,
 } from './orquestador/entorno';
@@ -146,6 +146,7 @@ const hooksAdaptador: HooksAdaptador = crearGanchos({
   getNavegador: () => todoNavegador.navegador,
   avisar: avisoGlobal,
   registrarCambioArchivo: (cambio) => files.registrarCambio(cambio),
+  registrarCambioVivo: (ruta, diff) => cambios.registrarCambioVivo(ruta, diff),
 });
 // Tauri → IPC in-process; web (`?api=`/`gh_api`/mismo origen) → HTTP/SSE.
 // `adaptador` se usa en cierres de runtime; en modo ni-ni nunca se monta.
@@ -216,13 +217,13 @@ const todoVistaModal = montarVistaModal({
   modoInicial: 'predeterminado',
   razonamientoInicial: 'medium',
   proveedores: PROVEEDORES,
-  claveTemaOscuro: CLAVE_TEMA_OSCURO,
+  claveTema: CLAVE_TEMA,
   etiquetasRazonamiento: RAZONAMIENTO_ETIQUETA,
   paneles: panelesRegistrados,
   usaReal: USA_REAL,
   usaTauri: USA_TAURI,
   sincronizarPanelMeta: vistaMeta.sincronizarPanelMeta,
-  aplicarTemaOscuro,
+  aplicarTema,
   configGuardar: (id, valor) => adaptador.sesion.configGuardar(id, valor),
   configGuardarModelo: async (nuevo) => {
     await adaptador.sesion.configGuardar('proveedor', nuevo.proveedor);
@@ -309,6 +310,7 @@ const todoPanelDerecho = montarPanelDerechoTodo({
 });
 const panelDerecho = todoPanelDerecho.panelDerecho;
 const files = todoPanelDerecho.files;
+const cambios = todoPanelDerecho.cambios;
 const toastGlobal = todoPanelDerecho.toastGlobal;
 const asegurarPanelDerecho = todoPanelDerecho.asegurarPanelDerecho;
 const cerrarPanelDerechoSiVacio = todoPanelDerecho.cerrarPanelDerechoSiVacio;
@@ -373,10 +375,11 @@ ejecutarArranque({
   usoUltimoTurno: () => adaptador.usoUltimoTurno(),
   asegurarSesion: () => adaptador.asegurarSesion(opcionesArranque()),
   configLeer: (id) => adaptador.sesion.configLeer(id),
+  configGuardar: (id, valor) => adaptador.sesion.configGuardar(id, valor),
   aplicarSesionGuardada: (sesion) => todoVistaModal.aplicarSesionGuardada(sesion),
   sincronizarPanelMeta: vistaMeta.sincronizarPanelMeta,
   resincronizarSidebar: sesionVista.resincronizarSidebar,
-  claveTemaOscuro: CLAVE_TEMA_OSCURO,
+  claveTema: CLAVE_TEMA,
   getConversaciones: sesionVista.getConversaciones,
   principal,
   seleccionarSidebar: (id) => sidebar.seleccionar(id),

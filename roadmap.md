@@ -15,14 +15,11 @@
 
 ## Siguiente bloque ejecutable
 
-**119A-2 — Menú contextual de proyecto (F1–F4 implementados y verificados;
-F4 commit 41cd31b con gate PASS 12-09).** Plan activo en
-`Agente/planes/plan-119A-2-menu-contextual-proyecto-2026-09-11.md`:
-menú de clic derecho en cada grupo de `Proyectos` con Open in Finder,
-Copy Path, Edit name, Pin project, Archive/Delete threads y Remove
-(Kanban eliminada; Start dev y Spaces diferidas por decisión del usuario).
-F1 (Copy Path / Edit name / Remove con confirmación) verificado con
-`tsc` + `vite build`; falta probarlo en la ventana Tauri real.
+**129A-8 — Resumen de cambios al finalizar el turno (estilo Synara).**
+Cierres 12-09: 129A-7 (panel "Cambios", gate PASS) y 129A-12 (tema Synara,
+gate PASS) — evidencia en `Agente/completados/tareas-2026-09-12.md`.
+Siguiente en la serie de 6 pedidos: 129A-8 → 129A-10 → 129A-11 → 129A-9.
+(119A-2 queda pendiente solo de prueba en ventana Tauri real; ver Tareas.)
 Últimos cierres 11-09: 069A-6 (aviso de iframe bloqueado, a petición), 089A-5
 (historial de la app, gate PASS), Bloque B (pasada visual Tauri), 089A-16
 (re-gate `unwrap-produccion-rs` PASS), 119A-1 (preflight de disco del gate) y
@@ -57,6 +54,26 @@ F1 (Copy Path / Edit name / Remove con confirmación) verificado con
 
 ## Tareas pendientes
 
+- [ ] **129A-8 — Resumen de cambios al finalizar el turno (estilo Synara)**
+      (pedido anterior no ejecutado): al `done`, bloque con creados/
+      modificados + enlace al diff; también en recarga (derivado de acciones).
+      Determinista desde eventos, sin pedir redacción al modelo.
+      Plan: `Agente/planes/plan-129A-8-resumen-fin-turno-2026-09-12.md`.
+- [ ] **129A-9 — Configuraciones Synara: inventario, decisión y réplica**
+      (quiere replicar casi todas): F1 tabla panel→opciones→equivalente GH
+      (requiere decisión del usuario, bloquea F2+); F2+ réplica por bloques en
+      `ajustes-pagina`. 12 paneles inventariados.
+      Plan: `Agente/planes/plan-129A-9-configs-synara-2026-09-12.md`.
+- [ ] **129A-10 — El agente controla GH (navegador + abrir archivos)**
+      (la mitad ya existe): `navegador_reflejo` maneja la webview pero el front
+      no abre la tab (el usuario no ve nada); falta tool `mostrar_archivo`
+      para el preview de Files.
+      Plan: `Agente/planes/plan-129A-10-agente-controla-gh-2026-09-12.md`.
+- [ ] **129A-11 — Subagentes fijos + conversación de solo lectura**
+      (el core YA crea subagentes: tool `task`, 4 perfiles, eventos SSE; el
+      front solo pinta una línea): tarjeta fija mientras trabajan; click abre
+      su conversación en el lateral sin poder enviar.
+      Plan: `Agente/planes/plan-129A-11-subagentes-fijos-2026-09-12.md`.
 - [ ] **129A-3 — Aprobación: el turno pausa y continúa (sin reenvío) + tarjeta fija + toast Windows**
       (rediseño 12-09 tras verificación real fallida: la tarjeta se duplicaba,
       el `mkdir` no se creaba y volvía a preguntar tras aceptar):

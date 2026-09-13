@@ -479,7 +479,7 @@ pub(crate) fn restaurar_archivos_tramo(
     })
 }
 
-/// [039A-3 P3] Resultado de la restauración explícita de un tramo, para que
+/// [129A-7] Resultado de la restauración explícita de un tramo, para que
 /// el front muestre qué se restauró y qué se omitió (y por qué).
 #[derive(serde::Serialize)]
 pub(crate) struct RestauracionTramo {
@@ -487,4 +487,74 @@ pub(crate) struct RestauracionTramo {
     archivos: Vec<String>,
     restaurados: Vec<vault::RestauracionArchivo>,
     omitidos: Vec<vault::RestauracionArchivo>,
+}
+
+/// [129A-7] Un archivo tocado por el agente en un turno (panel "Cambios"):
+/// primera escritura de cada (turno, ruta) del índice del vault.
+#[derive(serde::Serialize)]
+pub(crate) struct CambioArchivoTurno {
+    turno_id: String,
+    ruta: String,
+    herramienta: String,
+    en_ms: i64,
+}
+
+/// [129A-7] Lista los archivos que escribió el agente en una conversación,
+/// agrupados por turno (primera escritura de cada (turno, ruta), en orden de
+/// escritura). Solo lectura: no se bloquea con turno en curso (el panel se
+/// refresca en vivo). Funciona sin git (el vault respalda cada escritura).
+#[tauri::command]
+pub(crate) fn cambios_archivo(
+    estado: State<'_, Estado>,
+    conversacion_id: String,
+) -> Result<Vec<CambioArchivoTurno>, String> {
+    let sesion = sesion_actual(&estado)?;
+    let conv =
+        Uuid::parse_str(conversacion_id.trim()).map_err(|_| "id inválido".to_string())?;
+    let mut vistos = std::collections::HashSet::new();
+    let mut cambios = Vec::new();
+    for e in sesion.vault.leer_indice(conv) {
+        let clave = format!("{}|{}", e.turno_id, e.ruta_relativa);
+        if vistos.insert(clave) {
+            cambios.push(CambioArchivoTurno {
+                turno_id: e.turno_id,
+                ruta: e.ruta_relativa,
+                herramienta: e.tool_name,
+                en_ms: e.timestamp_ms,
+            });
+        }
+    }
+    Ok(cambios)
+}
+
+/// [129A-7] "Rechazar" del panel Cambios: restaura el archivo al contenido
+/// previo de la PRIMERA escritura de (turno, ruta) y purga sus entradas.
+/// Directo, sin confirmación (decisión de usuario 12-09). Misma comprobación
+/// de fuente que el rewind: si alguien editó fuera del harness, NO toca y
+/// avisa. Nunca borra archivos. Se bloquea con turno en curso (escribe disco).
+#[tauri::command]
+pub(crate) fn rechazar_cambio(
+    estado: State<'_, Estado>,
+    conversacion_id: String,
+    turno_id: String,
+    ruta: String,
+) -> Result<vault::RestauracionArchivo, String> {
+    let sesion = sesion_actual(&estado)?;
+    if estado.turno.lock().map(|t| t.activo).unwrap_or(true) {
+        return Err("hay un turno en curso".into());
+    }
+    let conv =
+        Uuid::parse_str(conversacion_id.trim()).map_err(|_| "id inválido".to_string())?;
+    let turno = Uuid::parse_str(turno_id.trim()).map_err(|_| "id inválido".to_string())?;
+    let punto = sesion
+        .vault
+        .leer_indice(conv)
+        .into_iter()
+        .find(|e| e.turno_id == turno.as_hyphenated().to_string() && e.ruta_relativa == ruta)
+        .ok_or_else(|| "ese cambio ya no está en el índice".to_string())?;
+    let resultado = sesion.vault.restaurar_ruta(&punto)?;
+    if resultado.estado == "restaurado" {
+        sesion.vault.purgar_escritura(conv, turno, &ruta);
+    }
+    Ok(resultado)
 }

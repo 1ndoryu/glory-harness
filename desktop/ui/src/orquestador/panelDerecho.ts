@@ -9,7 +9,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { porId } from '../util/dom';
 import { montarPanelDerecho, type PanelDerecho } from '../componentes/panelDerecho';
 import { montarPanelFiles, type PanelFiles } from '../componentes/panelFiles';
-import { montarPanelGit, type PanelGit } from '../componentes/panelGit';
+import { montarPanelCambios, type PanelCambios } from '../componentes/panelCambios';
 import { montarToastGlobal, type ToastGlobal } from '../componentes/toastGlobal';
 import type { PanelChat } from '../componentes/panelChat';
 import type { BarraSuperior } from '../componentes/barraSuperior';
@@ -54,7 +54,9 @@ export interface PanelDerechoDeps
 export interface PanelDerechoPiezas {
   panelDerecho: PanelDerecho;
   files: PanelFiles;
-  git: PanelGit;
+  /** [129A-7] La tab "Git local" ahora es "Cambios" (filesystem por turno +
+   * estado git debajo). El id de tab 'git' se conserva. */
+  cambios: PanelCambios;
   toastGlobal: ToastGlobal;
 }
 
@@ -97,9 +99,17 @@ export function montarPanelDerechoTodo(deps: PanelDerechoDeps): PanelDerechoTodo
       toastGlobal.mostrar(texto, detalle);
     },
   });
-  const git = montarPanelGit({
-    transporte: { estado: deps.adaptador.sesion.filesystem.gitEstado },
+  const git = montarPanelCambios({
+    git: { estado: deps.adaptador.sesion.filesystem.gitEstado },
+    cambios: {
+      listar: (conv) => deps.adaptador.sesion.cambios(conv),
+      rechazar: (conv, turno, ruta) => deps.adaptador.sesion.rechazarCambio(conv, turno, ruta),
+    },
+    convId: () => deps.panelActivo()?.conversaId ?? null,
     onError(texto, detalle) {
+      toastGlobal.mostrar(texto, detalle);
+    },
+    onToast(texto, detalle) {
       toastGlobal.mostrar(texto, detalle);
     },
   });
@@ -229,7 +239,7 @@ export function montarPanelDerechoTodo(deps: PanelDerechoDeps): PanelDerechoTodo
   function abrirGit(): void {
     git.recargar();
     asegurarPanelDerecho();
-    panelDerecho.abrirTab('git', 'Git local', git.raiz, () => {
+    panelDerecho.abrirTab('git', 'Cambios', git.raiz, () => {
       panelDerecho.cerrarTab('git');
       guardarEstadoPanel();
       cerrarPanelDerechoSiVacio();
@@ -307,7 +317,7 @@ export function montarPanelDerechoTodo(deps: PanelDerechoDeps): PanelDerechoTodo
   return {
     panelDerecho,
     files,
-    git,
+    cambios: git,
     toastGlobal,
     asegurarPanelDerecho,
     ocultarPanelDerecho,

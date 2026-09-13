@@ -3,7 +3,28 @@
  * constantes puras. Sin dependencias del orquestador. */
 import { leerMemoriaLocal, parametroUrl, protocolo } from '../plataforma/ventana';
 
-export const CLAVE_TEMA_OSCURO = 'temaOscuro';
+/** [129A-12 F1] Clave vigente del tema. Sustituye a `temaOscuro` (boolean),
+ * que sigue leyéndose solo para migrar la preferencia guardada. */
+export const CLAVE_TEMA = 'tema';
+/** Clave histórica (boolean true/false) — solo migración. */
+export const CLAVE_TEMA_LEGACY = 'temaOscuro';
+
+/** Tema visual de la app. `claro`/`oscuro` son los monocromos de siempre;
+ * `synara` es la variante oscura del seed de Synara (acentos y diffs en
+ * color). Solo `synara` rompe el monocromo estricto, por decisión del usuario
+ * (12-09) y sin tocar las otras dos. */
+export type Tema = 'claro' | 'oscuro' | 'synara';
+
+export const TEMAS: readonly Tema[] = ['claro', 'oscuro', 'synara'];
+
+/** Normaliza cualquier valor persistido a un tema válido; `null` si no hay
+ * valor reconocible. Acepta los formatos históricos de `temaOscuro`. */
+export function normalizarTema(valor: unknown): Tema | null {
+  if (valor === true || valor === 'true' || valor === '1') return 'oscuro';
+  if (valor === false || valor === 'false' || valor === '0') return 'claro';
+  if (valor === 'claro' || valor === 'oscuro' || valor === 'synara') return valor;
+  return null;
+}
 
 export const RAZONAMIENTO_ETIQUETA: Record<string, string> = {
   low: 'Bajo',
@@ -55,9 +76,10 @@ export function resolverEntorno(esTauri: boolean): Entorno {
   };
 }
 
-export function aplicarTemaOscuro(activo: boolean): void {
-  if (activo) document.documentElement.dataset.tema = 'oscuro';
-  else delete document.documentElement.dataset.tema;
+/** Refleja el tema en `data-tema` (fuente única para el CSS). `claro`
+ * conserva la base `:root`; ninguna regla apunta a ese valor. */
+export function aplicarTema(tema: Tema): void {
+  document.documentElement.dataset.tema = tema;
 }
 
 /** Opciones de turno para `asegurarSesion` en el arranque real.

@@ -409,6 +409,21 @@ impl VaultArchivos {
         self.gc_hashes_huerfanos();
     }
 
+    /// [129A-7] Poda del índice de una conversación las entradas de UN
+    /// (turno, ruta) ya deshecho (el "rechazar" del panel Cambios): el
+    /// contenido volvió al previo, su registro es historia muerta. + GC.
+    /// Best-effort.
+    pub fn purgar_escritura(&self, conv: Uuid, turno: Uuid, ruta: &str) {
+        let turno_s = turno.as_hyphenated().to_string();
+        let conservar: Vec<EntradaVault> = self
+            .leer_indice(conv)
+            .into_iter()
+            .filter(|e| !(e.turno_id == turno_s && e.ruta_relativa == ruta))
+            .collect();
+        self.escribir_indice(conv, &conservar);
+        self.gc_hashes_huerfanos();
+    }
+
     /// Elimina el índice completo de una conversación (al borrarla) + GC.
     pub fn eliminar_conversacion(&self, conv: Uuid) {
         let _ = fs::remove_file(self.ruta_indice(conv));
@@ -626,6 +641,36 @@ mod tests {
         assert_eq!(fs::read_to_string(dir.join("b.txt")).unwrap(), "nuevo");
         // El índice de esa conversación no existe (no hubo escritura atribuible).
         assert!(vault_leer_indices(&dir).is_empty());
+    }
+
+    /// [129A-7] Rechazo puntual: restaura la PRIMERA escritura de
+    /// (turno, ruta) y purga solo sus entradas (el resto del índice intacto).
+    #[test]
+    fn vault_rechazo_puntual_purga_solo_esa_ruta() {
+        let dir = dir_tmp();
+        let (sandbox, vault) = sandbox_con_vault(&dir);
+        fs::write(dir.join("a.txt"), "base-a").unwrap();
+        fs::write(dir.join("b.txt"), "base-b").unwrap();
+        let conv = Uuid::new_v4();
+        let t1 = Uuid::new_v4();
+        vault.fijar_contexto(ctx(conv, t1));
+        sandbox.escribir("a.txt", "uno").unwrap();
+        sandbox.escribir("b.txt", "dos").unwrap();
+        // Punto = primera escritura de (t1, a.txt); restaurar + purgar.
+        let punto = vault
+            .leer_indice(conv)
+            .into_iter()
+            .find(|e| e.turno_id == t1.as_hyphenated().to_string() && e.ruta_relativa == "a.txt")
+            .expect("debe existir la escritura de a.txt");
+        let r = vault.restaurar_ruta(&punto);
+        assert_eq!(r.unwrap().estado, "restaurado");
+        vault.purgar_escritura(conv, t1, "a.txt");
+        assert_eq!(fs::read_to_string(dir.join("a.txt")).unwrap(), "base-a");
+        // b.txt sigue tocado y su entrada sigue en el índice.
+        assert_eq!(fs::read_to_string(dir.join("b.txt")).unwrap(), "dos");
+        let restantes = vault.leer_indice(conv);
+        assert_eq!(restantes.len(), 1);
+        assert_eq!(restantes[0].ruta_relativa, "b.txt");
     }
 
     fn vault_leer_indices(dir: &Path) -> Vec<EntradaVault> {

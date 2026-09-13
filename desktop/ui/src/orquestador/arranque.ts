@@ -11,6 +11,7 @@ import type { PanelChat } from '../componentes/panelChat';
 import type { PanelMeta } from '../componentes/panelMeta';
 import type { Conversacion } from '../dominio/tipos';
 import { leerSidebar, type PersistenciaDeps } from './persistencia';
+import { CLAVE_TEMA_LEGACY, normalizarTema } from './entorno';
 import type { SesionGuardadaVista } from './vistaModal';
 import { pedirPermisoNotificaciones } from '../componentes/notificacionSistema';
 
@@ -33,7 +34,7 @@ export interface ArranqueEntorno {
   usaTauri: boolean;
   baseApi: string | null;
   modoTexto: string;
-  claveTemaOscuro: string;
+  claveTema: string;
 }
 
 /** Consultas de estado que el arranque lee. */
@@ -48,6 +49,7 @@ export interface ArranqueConsultas {
 export interface ArranqueAcciones {
   asegurarSesion: () => Promise<unknown>;
   configLeer: (id: string) => Promise<string | null>;
+  configGuardar: (id: string, valor: string) => Promise<unknown>;
   aplicarSesionGuardada: (sesion: SesionGuardadaVista) => void;
   sincronizarPanelMeta: () => void;
   resincronizarSidebar: () => Promise<void>;
@@ -118,7 +120,7 @@ export function ejecutarArranque(deps: ArranqueDeps): void {
     void (async () => {
       try {
         await deps.asegurarSesion();
-        const [provG, modG, modoG, razG, anchoG, colG, ctxG, ganchoG, temaG] = await Promise.all([
+        const [provG, modG, modoG, razG, anchoG, colG, ctxG, ganchoG, temaLeido] = await Promise.all([
           deps.configLeer('proveedor'),
           deps.configLeer('modelo'),
           deps.configLeer('modo'),
@@ -127,8 +129,24 @@ export function ejecutarArranque(deps: ArranqueDeps): void {
           deps.configLeer(CLAVE_COLAPSADA),
           deps.configLeer('contexto_max_ventana'),
           deps.configLeer('gancho_pre_compact'),
-          deps.configLeer(deps.claveTemaOscuro),
+          deps.configLeer(deps.claveTema),
         ]);
+        /* [129A-12] Migración del boolean histórico: si no hay valor nuevo
+         * pero sí `temaOscuro`, se normaliza y se reescribe bajo la clave
+         * vigente (best-effort; la legacy queda como lectura). */
+        let temaG = temaLeido;
+        if (temaG === null) {
+          const legacyG = await deps.configLeer(CLAVE_TEMA_LEGACY);
+          const migrado = normalizarTema(legacyG);
+          if (migrado !== null) {
+            temaG = migrado;
+            void deps
+              .configGuardar(deps.claveTema, migrado)
+              .catch((e: unknown) =>
+                deps.principal.avisoLocal(`no se pudo migrar el tema: ${String(e)}`, '', ''),
+              );
+          }
+        }
         if (anchoG) {
           const n = Number(anchoG);
           if (Number.isFinite(n))
@@ -145,7 +163,7 @@ export function ejecutarArranque(deps: ArranqueDeps): void {
           razonamiento: razG,
           contextoMaxVentana: ctxG,
           ganchoPreCompact: ganchoG,
-          temaOscuro: temaG,
+          tema: temaG,
         });
         deps.sincronizarPanelMeta();
         await deps.resincronizarSidebar();

@@ -127,6 +127,8 @@ export interface AccionRecuperada {
   argumentos_json: string | null;
   diff: string | null;
   turno_en: string;
+  /** [129A-7] Id del turno (agrupar cambios por turno en "Cambios"). */
+  turno_id: string;
 }
 
 export interface CargaConversacion {
@@ -159,6 +161,15 @@ export interface ResultadoRestauracionTramo {
   archivos: string[];
   restaurados: RestauracionArchivo[];
   omitidos: RestauracionArchivo[];
+}
+
+/** [129A-7] Un archivo tocado por el agente en un turno (panel "Cambios"):
+ * primera escritura de cada (turno, ruta) según el vault. */
+export interface CambioArchivoTurno {
+  turno_id: string;
+  ruta: string;
+  herramienta: string;
+  en_ms: number;
 }
 
 export interface ProveedorInfo {
@@ -343,6 +354,11 @@ export interface Transporte {
    * Opcional: el transporte web no lo expone (el visor avisa en vez de
    * simularlo). */
   logTurno?(turnoId: string): Promise<EventoTurnoLog[]>;
+  /** [129A-7] Panel "Cambios": lista por turno + rechazo puntual.
+   * Opcionales: el transporte web no los expone (el panel avisa en vez de
+   * simularlos). */
+  cambiosListar?(conversacionId: string): Promise<CambioArchivoTurno[]>;
+  cambioRechazar?(conversacionId: string, turnoId: string, ruta: string): Promise<RestauracionArchivo>;
 }
 
 /** [129A-4 F4] Evento de un turno para el visor (`log_turno` del backend).

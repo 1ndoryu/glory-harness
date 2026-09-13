@@ -375,7 +375,7 @@ impl PersistenciaSqlite {
         let conn = bloquear(&self.conn);
         let mut stmt = conn
             .prepare(
-                "SELECT a.tool, a.ok, a.resumen, a.argumentos_json, a.diff, t.creado_en
+                "SELECT a.tool, a.ok, a.resumen, a.argumentos_json, a.diff, t.creado_en, a.turno_id
                  FROM acciones a
                  JOIN turnos t ON t.id = a.turno_id
                  WHERE t.conversacion_id = ?1
@@ -391,6 +391,7 @@ impl PersistenciaSqlite {
                     argumentos_json: f.get::<_, Option<String>>(3)?,
                     diff: f.get::<_, Option<String>>(4)?,
                     turno_en: f.get::<_, String>(5)?,
+                    turno_id: f.get::<_, String>(6)?,
                 })
             })
             .map_err(|e| Error::Persistencia(e.to_string()))?;

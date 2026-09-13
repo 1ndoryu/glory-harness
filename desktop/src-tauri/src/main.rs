@@ -500,6 +500,9 @@ fn main() {
             conversaciones::cargar_conversacion,
             conversaciones::rewind_conversacion,
             conversaciones::restaurar_archivos_tramo,
+            // [129A-7] Panel "Cambios": lista por turno + rechazar puntual.
+            conversaciones::cambios_archivo,
+            conversaciones::rechazar_cambio,
             conversaciones::renombrar_conversacion,
             conversaciones::archivar_conversacion,
             conversaciones::eliminar_conversacion,

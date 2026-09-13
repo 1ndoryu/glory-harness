@@ -18,6 +18,8 @@ export interface GanchosDeps {
   getNavegador: () => PanelNavegador;
   avisar: (texto: string, meta: string, detalle: string) => void;
   registrarCambioArchivo: (cambio: CambioArchivoFiles) => void;
+  /** [129A-7 F3] Refresco en vivo del panel Cambios (ruta + diff vivo). */
+  registrarCambioVivo: (ruta: string, diff: string | null) => void;
 }
 
 export function crearGanchos(deps: GanchosDeps): HooksAdaptador {
@@ -62,9 +64,11 @@ export function crearGanchos(deps: GanchosDeps): HooksAdaptador {
         deps.avisar(`backend web: ${estado}`, '', detalle ?? '');
     },
     // [089A-12] Cambios de archivos del agente → preview integrado en Files.
+    // [129A-7 F3] …y refresco en vivo del panel Cambios (diff por ruta).
     // Seguro: corre en runtime, cuando `files` ya existe.
     onCambioArchivo(cambio) {
       deps.registrarCambioArchivo(cambio);
+      deps.registrarCambioVivo(cambio.ruta, cambio.diff);
     },
   };
 }

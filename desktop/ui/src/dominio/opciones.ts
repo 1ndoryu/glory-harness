@@ -177,11 +177,19 @@ export const OPCIONES_APARIENCIA: GrupoOpciones = {
   titulo: 'Apariencia',
   opciones: [
     {
-      id: 'temaOscuro',
-      etiqueta: 'Modo oscuro',
-      tipo: 'booleano',
-      valor: false,
-      nota: 'Invierte la paleta monocroma de la interfaz.',
+      // [129A-12 F1] Antes era el booleano `temaOscuro`; ahora es un enum de
+      // tres valores. El control `seleccion` sustituye al checkbox y el valor
+      // persistido migra solo (`true` → oscuro, `false`/ausente → claro).
+      id: 'tema',
+      etiqueta: 'Tema',
+      tipo: 'seleccion',
+      valor: 'claro',
+      opciones: [
+        { valor: 'claro', etiqueta: 'Claro' },
+        { valor: 'oscuro', etiqueta: 'Oscuro' },
+        { valor: 'synara', etiqueta: 'Synara' },
+      ],
+      nota: 'Synara usa el seed oscuro de la referencia, con acentos y diffs en color.',
     },
   ],
 };

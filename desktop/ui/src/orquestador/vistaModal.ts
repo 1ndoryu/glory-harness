@@ -10,6 +10,7 @@ import type { PanelChat } from '../componentes/panelChat';
 import type { MemoriasDeps } from '../componentes/memorias';
 import type { ModeloSeleccionado, ProveedorModelo } from '../dominio/tipos';
 import type { ModoEjecucion } from '../componentes/entrada';
+import { normalizarTema, type Tema } from './entorno';
 
 export interface EstadoVista {
   modelo: ModeloSeleccionado;
@@ -24,7 +25,7 @@ export interface SesionGuardadaVista {
   razonamiento: string | null;
   contextoMaxVentana: string | null;
   ganchoPreCompact: string | null;
-  temaOscuro: string | null;
+  tema: string | null;
 }
 
 /** Estado inicial del modal: modelo, modo, razonamiento y tema. */
@@ -33,7 +34,7 @@ export interface VistaModalEstado {
   modoInicial: ModoEjecucion;
   razonamientoInicial: string;
   proveedores: ProveedorModelo[];
-  claveTemaOscuro: string;
+  claveTema: string;
   etiquetasRazonamiento: Record<string, string>;
 }
 
@@ -47,7 +48,7 @@ export interface VistaModalEntorno {
 /** Acciones de persistencia y vista delegadas al orquestador. */
 export interface VistaModalAcciones {
   sincronizarPanelMeta: () => void;
-  aplicarTemaOscuro: (activo: boolean) => void;
+  aplicarTema: (tema: Tema) => void;
   configGuardar: (id: string, valor: string) => Promise<void>;
   configGuardarModelo: (nuevo: ModeloSeleccionado) => Promise<void>;
   guardarProyecto: (nombre: string, ruta: string) => Promise<void>;
@@ -99,8 +100,11 @@ export function montarVistaModal(deps: VistaModalDeps): VistaModal {
         // backend la consumirá al construir la sesión (inyección de
         // `contexto.max_ventana`, pendiente de P6 backend). No hay estado local
         // que actualizar: la fuente para el indicador es el ContextoDetalle.
-      } else if (id === deps.claveTemaOscuro) {
-        deps.aplicarTemaOscuro(valor === true || valor === 'true');
+      } else if (id === deps.claveTema) {
+        // [129A-12] El control es un `seleccion` de tres valores; cualquier
+        // resto histórico se normaliza (nunca se aplica un tema inválido).
+        const tema = normalizarTema(valor);
+        if (tema !== null) deps.aplicarTema(tema);
       }
       if (
         deps.usaReal &&
@@ -108,7 +112,7 @@ export function montarVistaModal(deps: VistaModalDeps): VistaModal {
           id === 'nivelRazonamiento' ||
           id === 'contexto_max_ventana' ||
           id === 'gancho_pre_compact' ||
-          id === deps.claveTemaOscuro)
+          id === deps.claveTema)
       ) {
         void deps
           .configGuardar(id, valor === true ? '1' : String(valor))
@@ -213,10 +217,12 @@ export function montarVistaModal(deps: VistaModalDeps): VistaModal {
     if (sesion.ganchoPreCompact !== null) {
       modal.asignarValor('gancho_pre_compact', sesion.ganchoPreCompact);
     }
-    if (sesion.temaOscuro !== null) {
-      const activo = sesion.temaOscuro === '1' || sesion.temaOscuro === 'true';
-      deps.aplicarTemaOscuro(activo);
-      modal.asignarValor(deps.claveTemaOscuro, activo);
+    if (sesion.tema !== null) {
+      const tema = normalizarTema(sesion.tema);
+      if (tema !== null) {
+        deps.aplicarTema(tema);
+        modal.asignarValor(deps.claveTema, tema);
+      }
     }
   }
 

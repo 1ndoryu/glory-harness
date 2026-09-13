@@ -101,7 +101,7 @@ export function montarPanelDerecho(opts: {
   }
 
   opcionInicio('files', 'carpeta', 'Files');
-  opcionInicio('git', 'flujo', 'Git local');
+  opcionInicio('git', 'flujo', 'Cambios');
   opcionInicio('navegador', 'navegador', 'Navegador');
   // Gating como Synara: el chat lateral solo si hay conversación activa
   // (el orquestador lo habilita con `fijarInicioChatDisponible`).
@@ -115,7 +115,7 @@ export function montarPanelDerecho(opts: {
       construir(menu) {
         for (const [opcion, etiqueta] of [
           ['files', 'Files'],
-          ['git', 'Git local'],
+          ['git', 'Cambios'],
           ['navegador', 'Navegador'],
           ...(chatLateralDisponible ? [['chat', 'Chat lateral']] : []),
         ] as Array<[OpcionInicio, string]>) {
