@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use chrono::Utc;
 use glory_harness_core::llm::{AiMessage, LlavesProveedor};
-use glory_harness_core::ports::{MensajePersistido, NavegadorPort};
+use glory_harness_core::ports::{MensajePersistido, NavegadorPort, PersistenciaTurnos};
 use glory_harness_core::runtime::AgentRuntime;
 use glory_harness_core::{AgentPersistence, ProgramadorTareas};
 use serde::Serialize;

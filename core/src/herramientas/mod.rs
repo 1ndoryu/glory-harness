@@ -6,9 +6,12 @@
 
 pub mod archivo;
 pub mod comando;
+pub mod contexto;
 pub mod mcp;
 pub mod navegador;
+pub mod registro;
 pub mod repo_map;
+pub mod resultado;
 pub mod skill;
 pub mod tareas;
 pub mod todo;

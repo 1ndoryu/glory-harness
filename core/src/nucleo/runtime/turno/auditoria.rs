@@ -2,7 +2,16 @@
 //! `AgentPersistence` (R3: nunca SQL en el núcleo) y el evento de cierre
 //! con agregados F0 antes de `Done`.
 
-use super::*;
+use tokio::sync::mpsc::Sender;
+use uuid::Uuid;
+
+use crate::error::Result;
+use crate::evento::AgenteEvento;
+use crate::ports::{MensajePersistido, TurnoPersistido};
+use crate::telemetria::{construir_evento, motivo_cierre, TelemetriaTurno};
+
+use super::EstadoTurno;
+use crate::nucleo::runtime::{mensajes_usuario_resumen, AgentRuntime};
 
 impl EstadoTurno {
     /// [129A-1] Conserva el pensamiento de una llamada LLM para persistirlo

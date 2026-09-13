@@ -400,7 +400,7 @@ mod tests {
     }
 
     #[async_trait::async_trait]
-    impl AgentPersistence for PersistenciaGrabadora {
+    impl crate::ports::PersistenciaTurnos for PersistenciaGrabadora {
         async fn guardar_turno(&self, _t: &TurnoPersistido) -> Result<()> {
             Ok(())
         }
@@ -416,9 +416,17 @@ mod tests {
         async fn conversacion_tocar(&self, _: Uuid) -> Result<()> {
             Ok(())
         }
+    }
+
+    #[async_trait::async_trait]
+    impl crate::ports::PersistenciaAuditoria for PersistenciaGrabadora {
         async fn registrar_accion(&self, _: &crate::ports::AccionAuditable) -> Result<()> {
             Ok(())
         }
+    }
+
+    #[async_trait::async_trait]
+    impl crate::ports::PersistenciaMemoria for PersistenciaGrabadora {
         async fn memoria_listar(
             &self,
             _: Uuid,
@@ -442,9 +450,17 @@ mod tests {
         ) -> Result<()> {
             Ok(())
         }
+    }
+
+    #[async_trait::async_trait]
+    impl crate::ports::PersistenciaSkills for PersistenciaGrabadora {
         async fn skills_listar(&self, _: Uuid) -> Result<Vec<SkillEntrada>> {
             Ok(Vec::new())
         }
+    }
+
+    #[async_trait::async_trait]
+    impl crate::ports::ColaTareas for PersistenciaGrabadora {
         async fn tareas_recuperar_interrumpidas(&self) -> Result<u64> {
             Ok(0)
         }
@@ -474,6 +490,26 @@ mod tests {
         ) -> Result<()> {
             self.reprogramadas.lock().expect("lock").push((id, proxima));
             Ok(())
+        }
+    }
+
+    /// [139A-8 F4/S3-S4] Compuesto: las caras ya están arriba. La grabadora
+    /// declara `SoportaAmbitos` porque su universo es solo el global (tienda
+    /// vacía de recuerdos): el curador la recorre sin nota y deja "sin
+    /// cambios". No declara `SoportaSkills` (no registra skills).
+    impl AgentPersistence for PersistenciaGrabadora {
+        fn como_soporta_ambitos(&self) -> Option<&dyn crate::ports::SoportaAmbitos> {
+            Some(self)
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl crate::ports::SoportaAmbitos for PersistenciaGrabadora {
+        async fn memoria_ambitos(
+            &self,
+            _: Uuid,
+        ) -> Result<Vec<crate::ports::AmbitoMemoria>> {
+            Ok(vec![crate::ports::AmbitoMemoria::Global])
         }
     }
 

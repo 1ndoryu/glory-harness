@@ -2,7 +2,7 @@
 
 use crate::{
     error::{Error, Result},
-    ports::NavegadorPort,
+    ports::{Automatizable, Capturable, Scriptable},
     tool::AgentToolResult,
 };
 use serde_json::Value;
@@ -17,8 +17,10 @@ pub(crate) fn arg_str<'a>(argumentos: &'a Value, clave: &str, operacion: &str) -
 }
 
 /// [079A-1 F2] Familia `js`/`cdp`: ejecuta script o comando CDP.
+/// [139A-8 F4/S5] Solo pide [`Scriptable`]: quien ejecuta scripts no conoce
+/// captura ni DOM.
 pub(crate) async fn op_script(
-    navegador: &dyn NavegadorPort,
+    navegador: &(impl Scriptable + ?Sized),
     operacion: &str,
     argumentos: &Value,
 ) -> Result<AgentToolResult> {
@@ -39,9 +41,11 @@ pub(crate) async fn op_script(
     }
 }
 
-/// [079A-1 F2] Familia DOM (`click`/`rellenar`/`snapshot`).
-pub(crate) async fn op_dom(
-    navegador: &dyn NavegadorPort,
+/// [079A-1 F2] Familia DOM de escritura (`click`/`rellenar`).
+/// [139A-8 F4/S5] Solo pide [`Automatizable`]: automatizar no conoce captura
+/// ni script.
+pub(crate) async fn op_automatizar(
+    navegador: &(impl Automatizable + ?Sized),
     operacion: &str,
     argumentos: &Value,
 ) -> Result<AgentToolResult> {
@@ -54,7 +58,7 @@ pub(crate) async fn op_dom(
             Ok(AgentToolResult::ok(format!("Click en {selector}"), "click"))
         }
 
-        "rellenar" => {
+        _ => {
             let valor = arg_str(argumentos, "valor", operacion)?;
 
             navegador.rellenar(selector, valor).await?;
@@ -64,18 +68,26 @@ pub(crate) async fn op_dom(
                 "rellenar formulario",
             ))
         }
-
-        _ => {
-            let resultado = navegador.snapshot(selector).await?;
-
-            Ok(AgentToolResult::ok(resultado, "snapshot DOM"))
-        }
     }
+}
+
+/// [139A-8 F4/S5] `snapshot`: solo pide [`Capturable`]. Vive separado de
+/// `op_automatizar` porque leer el DOM no es automatizarlo.
+pub(crate) async fn op_snapshot(
+    navegador: &(impl Capturable + ?Sized),
+    operacion: &str,
+    argumentos: &Value,
+) -> Result<AgentToolResult> {
+    let selector = arg_str(argumentos, "selector", operacion)?;
+    let resultado = navegador.snapshot(selector).await?;
+
+    Ok(AgentToolResult::ok(resultado, "snapshot DOM"))
 }
 
 /// [079A-1 F2] `capturar`: captura + evento ToolNavegador con la imagen
 /// base64 para que el front la muestre en el panel.
-pub(crate) async fn op_capturar(navegador: &dyn NavegadorPort) -> Result<AgentToolResult> {
+/// [139A-8 F4/S5] Solo pide [`Capturable`].
+pub(crate) async fn op_capturar(navegador: &(impl Capturable + ?Sized)) -> Result<AgentToolResult> {
     let base64_str = navegador.capturar().await?;
 
     // [069A-1 F6] Emitir evento ToolNavegador con la imagen

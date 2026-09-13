@@ -7,7 +7,7 @@ use crate::{
 use async_trait::async_trait;
 use serde_json::{json, Value};
 
-use super::operaciones::{arg_str, op_capturar, op_dom, op_script};
+use super::operaciones::{arg_str, op_automatizar, op_capturar, op_script, op_snapshot};
 
 // ---------------------------------------------------------------------------
 
@@ -199,7 +199,9 @@ impl AgentTool for ToolNavegadorReflejo {
 
             "js" | "cdp" => op_script(navegador, operacion, &argumentos).await,
 
-            "click" | "rellenar" | "snapshot" => op_dom(navegador, operacion, &argumentos).await,
+            "click" | "rellenar" => op_automatizar(navegador, operacion, &argumentos).await,
+
+            "snapshot" => op_snapshot(navegador, operacion, &argumentos).await,
 
             "cerrar" => {
                 navegador.cerrar().await?;

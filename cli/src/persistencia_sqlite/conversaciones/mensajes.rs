@@ -136,7 +136,7 @@ mod pruebas {
     use super::super::super::PersistenciaSqlite;
     use chrono::{SecondsFormat, Utc};
     use glory_harness_core::ports::MensajePersistido;
-    use glory_harness_core::AgentPersistence;
+    use glory_harness_core::PersistenciaTurnos;
     use uuid::Uuid;
 
     /// [139A-8 F2] (R3) DoD: el turno largo no hace full-scan — con marca, el

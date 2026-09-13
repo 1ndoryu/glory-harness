@@ -9,7 +9,7 @@ use chrono::{DateTime, SecondsFormat, Utc};
 use glory_harness_core::runtime::CompactarManual;
 /* El trait trae `listar_mensajes`: la persistencia se usa por su interfaz, no
  * por el tipo SQLite concreto. */
-use glory_harness_core::AgentPersistence;
+use glory_harness_core::PersistenciaTurnos;
 use uuid::Uuid;
 
 use super::{historial_desde_persistencia, Error, SesionComun};

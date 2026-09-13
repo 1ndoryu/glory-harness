@@ -353,7 +353,7 @@ mod pruebas {
     /// con un proyecto activo no aparece en el global ni en otro proyecto.
     #[tokio::test]
     async fn sync_escribe_solo_en_su_ambito() {
-        use crate::ports::{AgentPersistence, AmbitoMemoria};
+        use crate::ports::{AmbitoMemoria, PersistenciaMemoria};
         let tienda = Arc::new(TiendaPrueba::default());
         let user_id = Uuid::new_v4();
         let ambito = AmbitoMemoria::Proyecto(Uuid::new_v4());
@@ -364,11 +364,11 @@ mod pruebas {
             .expect("sync");
         assert!(!guardadas.is_empty(), "el candidato explícito se guarda");
 
-        let en_proyecto = AgentPersistence::memoria_listar(tienda.as_ref(), user_id, ambito)
+        let en_proyecto = PersistenciaMemoria::memoria_listar(tienda.as_ref(), user_id, ambito)
             .await
             .expect("listar proyecto");
         assert_eq!(en_proyecto.len(), guardadas.len());
-        let en_global = AgentPersistence::memoria_listar(
+        let en_global = PersistenciaMemoria::memoria_listar(
             tienda.as_ref(),
             user_id,
             AmbitoMemoria::Global,
@@ -376,7 +376,7 @@ mod pruebas {
         .await
         .expect("listar global");
         assert!(en_global.is_empty(), "el global sigue vacío");
-        let en_otro = AgentPersistence::memoria_listar(
+        let en_otro = PersistenciaMemoria::memoria_listar(
             tienda.as_ref(),
             user_id,
             AmbitoMemoria::Proyecto(Uuid::new_v4()),

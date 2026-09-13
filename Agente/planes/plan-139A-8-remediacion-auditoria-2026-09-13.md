@@ -12,10 +12,16 @@
 
 ## Decisiones (cerradas 13-09, v3)
 
-1. **F4/S4 — rotura de API del puerto:** rotura dura `cdp(URL)`, SIN shim de
+1. **F4/S4 — rotura de API del puerto:** rotura dura, SIN shim de
    compat en runtime. El compilador la hace segura: todos los call sites que no
    compilen se corrigen en la misma sub-fase; `cargo build --workspace` verde es
    la prueba de cobertura total. Sin `#[deprecated]` a medias.
+   (Corrección F0-F4: la v3 decía `cdp(URL)`, pero ese símbolo no existe en el
+   código — `cdp(metodo, parametros)` en `ports.rs:591` — ni `attach_shell_por_defecto`
+   (solo aparecía en este plan). El fix vigente es el de la auditoría §S4:
+   subtraits `SoportaSkills`/`SoportaAmbitos` + detección de capacidad explícita;
+   la rotura es igualmente dura: quitar los 2 defaults obliga a todos los
+   implementadores a declarar capacidad y al curador a comprobarla.)
 2. **F2 — método de medición p95:** test de integración
    `cli/tests/p95_turno.rs` (fixture vault con 5k mensajes, N=2 sesiones
    concurrentes, 50 iteraciones): mide bootstrap de turno + `listar_mensajes`,
@@ -131,17 +137,62 @@ Auditoría §K2/K4–K7 (13-09, ALTA). F0 previa confirmó: sin `env_clear` en
 
 ## F4 — Puertos y god-objects (S3, S4, S5, S1, S2)
 
-1. **S3:** `AgentPersistence` → `Conversaciones`/`Mensajes`/`Sesiones`/`Ajustes`/
-   `Proyectos`/`VaultMemoria`/`TareasProgramadas`/`Mem0Store` (+ `AtomicStore`
-   si se adopta). Re-export temporal con `#[deprecated]`.
-2. **S4:** firma `cdp(URL)` con rotura dura (ver § Decisiones.1): sin shim,
-   corregir todos los call sites en la sub-fase; quitar `attach_shell_por_defecto`.
-3. **S5:** `NavegadorPort` → `Navegacion`+`Captura`+`Interaccion`+`InspeccionDom`
-   con `Navegador = Interaccion` como alias de compat.
-4. **S1/S2:** extraer de `tool.rs` el bloque de espera (`espera.rs`) y de
-   `runtime/mod.rs` el ciclo de reintentos/tool-loop (`ciclo.rs`); `context.rs`
-   parte `memoria/` y `llm/` a sus módulos.
-   Gate por sub-fase: compila + tests del crate + `u64`/`bool` sin cambios de conducta.
+F0-F4 (verificado 13-09): las 5 citas [S] siguen vigentes (`tool.rs` 1354 lín.
+con `AgentToolContext:33`/`AgentToolResult:73`/`AgentTool:147`/`AgentToolRegistry:169`;
+`runtime/mod.rs` 1232 lín. con `::nuevo:261-322`; `ports.rs:281-369` S3 verbatim +
+defaults S4 `:349-368`; `NavegadorPort:581-600` 9 métodos). Lo que cayó es la
+paráfrasis de este plan (v1–v4), no la auditoría: valen los nombres de fix de la
+auditoría. Inventario in-repo a tocar: 6 impls `AgentPersistence`
+(`cli/infra/persistencia.rs` Memoria, `cli/persistencia_sqlite/puerto.rs` Sqlite,
+`TiendaPrueba` en `memoria/soporte.rs`, `PersistenciaMock` en `contrato_tests.rs`,
+`PersistenciaGrabadora` en `cron.rs:403`, `PersistenciaScheduler` en
+`scheduler.rs:384`); consumidores S4 en `curador.rs:184` (`memoria_ambitos`) y
+`:320` (`skills_registrar`) + test `:430-431` (`sin_registro`); adaptador S5 en
+`desktop/.../navegador/puerto.rs` + tool en `core/herramientas/navegador/`
+(`operaciones.rs`, `reflejo.rs`, `pruebas.rs`); consumidores `NavegadorPort` en
+`cli/comandos/run.rs:24,65,84` y `tool.rs:15,68`. Orden: S3 → S4 → S5 → S1 → S2.
+
+1. **S3:** segregar `PersistenciaTurnos` / `PersistenciaMemoria` /
+   `PersistenciaSkills` / `ColaTareas` (+ `PersistenciaAuditoria`/`PersistenciaConversacion`
+   si el corte lo pide); `AgentPersistence` = trait compuesto (supertraits), no
+   monolito. Sin `#[deprecated]`: el alias compuesto mantiene compilando a los 6
+   impls y a los consumidores externos (`Proyectos`/`VaultMemoria`/`Mem0Store` viven
+   fuera de este repo; romperán en su sync, no aquí).
+2. **S4:** subtraits `SoportaSkills` / `SoportaAmbitos` + detección de capacidad
+   explícita en el curador (rotura dura según § Decisiones.1 corregida): se eliminan
+   los 2 defaults; `Memoria`/`Sqlite` declaran ambas capacidades; los dobles de test
+   declaran lo que simulan (`TiendaPrueba::sin_registro` pasa a NO implementar
+   `SoportaSkills`, el test de curador verifica el aviso por capacidad, no por `Err`).
+   Sin tocar `cdp` (firma vigente y fuera de S4) y sin `attach_shell_por_defecto`
+   (inexistente).
+3. **S5:** `NavegadorBase` + `Capturable` + `Scriptable` + `Automatizable`
+   (nombres de la auditoría; sustituyen a los de la v1–v4); el adaptador desktop
+   implementa las 4 caras y la tool consume las caras que necesita (`None` en
+   CLI/web sigue siendo fail-closed). El `snapshot` desktop ignora hoy el selector
+   (`puerto.rs:99-102`): observado, fuera del alcance de S5, sin cambio de conducta.
+4. **S1/S2:** extraer de `tool.rs` el bloque de espera (`espera.rs`) y partir según
+   auditoría en `herramientas/contexto.rs`, `herramientas/resultado.rs`,
+   `herramientas/registro.rs` (`tool.rs` solo el trait, ~120 lín.); de
+   `runtime/mod.rs` el ciclo de reintentos/tool-loop (`ciclo.rs`) + `runtime/construccion.rs`
+   (builder + lista declarativa), telemetría a `runtime/telemetria.rs`, modos a
+   `runtime/modos.rs`; `context.rs` parte `memoria/` y `llm/` a sus módulos.
+    Gate por sub-fase: compila + tests del crate + `u64`/`bool` sin cambios de conducta.
+
+    **Ejecución F4 (13-09, un commit):** S3 → S4 → S5 → S1 → S2 en este orden.
+    S1 = `herramientas/contexto.rs` + `resultado.rs` + `registro.rs` (`tool.rs`
+    solo el trait); sin `espera.rs` (no existe tal bloque en `tool.rs`).
+    S2 = `runtime/construccion.rs` (TurnoConfig + PuertosHarness + `nuevo` +
+    guardas/hooks/sandbox) + `modos.rs` (GuardaModoTurno) + `telemetria.rs`
+    (bloqueo/telemetría/CompactarManual) + `ciclo.rs` (planes, tareas, curador
+    nativo, aprobación, prompt, hooks); `mod.rs` fachada (struct + re-exports +
+    19 tests verbatim). Deglob completo: los 5 hermanos (`subagente.rs`,
+    `tools.rs`, `turno/mod.rs|auditoria.rs|permisos.rs`) + los 4 nuevos con
+    imports explícitos desde paths canónicos; `mod.rs` conserva solo lo que usa
+    su cuerpo (Arc/Uuid/HashMap/AgentContextManager/GuardasTurno/
+    DispatcherHooks/TelemetriaTurno/AgentToolRegistry). Regiones propias a cero
+    en `fmt --check`; resto del árbol con suciedad preexistente intacta.
+    Evidencia: `cargo check --workspace --all-targets` 0 errores/0 warnings;
+    `cargo test --workspace` 158+2+1+330+15 ok; `sentinel check 139A-8` PASS.
 
 ## F5n — Unificación path + SQLite restante (S7, S8, K8, R4)
 

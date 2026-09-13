@@ -1,7 +1,19 @@
 //! [059A-N S2] Split mecánico de `runtime.rs`: capa de llamada LLM y ejecución de
 //! tools del bucle principal (`llm_llamada`, `ejecutar_tool`). Movimiento puro.
 
-use super::*;
+use tokio::sync::mpsc::Sender;
+use uuid::Uuid;
+
+use serde_json::Value;
+
+use crate::error::Result;
+use crate::evento::AgenteEvento;
+use crate::hooks::EventoHook;
+use crate::llm::{AiChatOptions, AiMessage, AiToolCall};
+use crate::ports::AccionAuditable;
+use crate::tool::AgentToolContext;
+
+use super::{wrap_up_instruccion, AgentRuntime};
 use crate::nucleo::llm::SalidasVivo;
 
 /// [129A-2] Emisión throttled de texto en vivo hacia `tx` (el `Token` por

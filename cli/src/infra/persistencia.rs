@@ -16,9 +16,10 @@ use std::sync::{Arc, Mutex};
 use uuid::Uuid;
 
 use glory_harness_core::ports::{
-    AccionAuditable, AmbitoMemoria, LogTareaEjecucion, MemoriaEntrada, MensajePersistido,
-    NuevaTareaProgramada, ProgramadorTareas, SkillEntrada, TareaProgramada,
-    TareaProgramadaPendiente, TurnoPersistido,
+    AccionAuditable, AmbitoMemoria, ColaTareas, LogTareaEjecucion, MemoriaEntrada, MensajePersistido,
+    NuevaTareaProgramada, PersistenciaAuditoria, PersistenciaMemoria as MemoriaPort,
+    PersistenciaSkills, PersistenciaTurnos, ProgramadorTareas, SkillEntrada, SoportaAmbitos,
+    SoportaSkills, TareaProgramada, TareaProgramadaPendiente, TurnoPersistido,
 };
 use glory_harness_core::{AgentPersistence, HarnessResult};
 
@@ -71,7 +72,7 @@ impl PersistenciaMemoria {
 }
 
 #[async_trait]
-impl AgentPersistence for PersistenciaMemoria {
+impl PersistenciaTurnos for PersistenciaMemoria {
     async fn guardar_turno(&self, turno: &TurnoPersistido) -> HarnessResult<()> {
         let mut estado = self
             .estado
@@ -138,7 +139,10 @@ impl AgentPersistence for PersistenciaMemoria {
             .insert(conversacion_id, Utc::now());
         Ok(())
     }
+}
 
+#[async_trait]
+impl PersistenciaAuditoria for PersistenciaMemoria {
     async fn registrar_accion(&self, accion: &AccionAuditable) -> HarnessResult<()> {
         let mut estado = self
             .estado
@@ -147,6 +151,10 @@ impl AgentPersistence for PersistenciaMemoria {
         estado.acciones.push(accion.clone());
         Ok(())
     }
+}
+
+#[async_trait]
+impl MemoriaPort for PersistenciaMemoria {
 
     async fn memoria_listar(
         &self,
@@ -197,6 +205,10 @@ impl AgentPersistence for PersistenciaMemoria {
         }
         Ok(())
     }
+}
+
+#[async_trait]
+impl SoportaAmbitos for PersistenciaMemoria {
 
     async fn memoria_ambitos(&self, user_id: Uuid) -> HarnessResult<Vec<AmbitoMemoria>> {
         let estado = self
@@ -215,6 +227,10 @@ impl AgentPersistence for PersistenciaMemoria {
         ambitos.sort_by_key(|a| (a.proyecto_id().is_some(), a.proyecto_id()));
         Ok(ambitos)
     }
+}
+
+#[async_trait]
+impl PersistenciaSkills for PersistenciaMemoria {
 
     async fn skills_listar(&self, user_id: Uuid) -> HarnessResult<Vec<SkillEntrada>> {
         let estado = self
@@ -223,6 +239,10 @@ impl AgentPersistence for PersistenciaMemoria {
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         Ok(estado.skills.get(&user_id).cloned().unwrap_or_default())
     }
+}
+
+#[async_trait]
+impl SoportaSkills for PersistenciaMemoria {
 
     async fn skills_registrar(&self, user_id: Uuid, skill: &SkillEntrada) -> HarnessResult<()> {
         // [069A-4] Paridad con la tienda sqlite (alta o sustitución por nombre).
@@ -238,6 +258,10 @@ impl AgentPersistence for PersistenciaMemoria {
         }
         Ok(())
     }
+}
+
+#[async_trait]
+impl ColaTareas for PersistenciaMemoria {
 
     async fn tareas_recuperar_interrumpidas(&self) -> HarnessResult<u64> {
         let mut estado = self
@@ -306,6 +330,17 @@ impl AgentPersistence for PersistenciaMemoria {
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         estado.tareas_tomadas.remove(&id);
         Ok(())
+    }
+}
+
+/// [139A-8 F4/S3-S4] Compuesto: la tienda en memoria declara ambas
+/// capacidades (ámbitos reales + registro de skills con paridad sqlite).
+impl AgentPersistence for PersistenciaMemoria {
+    fn como_soporta_ambitos(&self) -> Option<&dyn SoportaAmbitos> {
+        Some(self)
+    }
+    fn como_soporta_skills(&self) -> Option<&dyn SoportaSkills> {
+        Some(self)
     }
 }
 

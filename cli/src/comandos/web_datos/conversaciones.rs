@@ -116,7 +116,7 @@ pub(crate) async fn cargar_conversacion(
     headers: HeaderMap,
     Path((id, cid)): Path<(String, String)>,
 ) -> Result<Json<Value>, ApiError> {
-    use glory_harness_core::AgentPersistence as _;
+    use glory_harness_core::PersistenciaTurnos as _;
     let (sesion, comun) = sesion_y_comun(&headers, &Method::GET, &state, &id).await?;
     if turno_en_curso(&sesion).await {
         return Err(error("turno_activo", "hay un turno en curso"));

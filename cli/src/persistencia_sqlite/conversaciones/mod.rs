@@ -612,7 +612,7 @@ mod tests {
     use super::*;
     use chrono::Utc;
     use glory_harness_core::ports::{AccionAuditable, MensajePersistido, TurnoPersistido};
-    use glory_harness_core::AgentPersistence;
+    use glory_harness_core::{PersistenciaAuditoria, PersistenciaTurnos};
     use std::path::PathBuf;
 
     /// Ruta temporal ├║nica para la BD de un test (se borra al terminar).

@@ -256,7 +256,15 @@ async fn accion_memoria_listar(args: &[String]) -> Result<(), String> {
     let (tiendas, user_id) = abrir_memoria()?;
     let persistencia: Arc<dyn AgentPersistence> = tiendas.clone();
     let ambitos = if args.iter().any(|a| a == "--todos") {
-        persistencia.memoria_ambitos(user_id).await.map_err(|e| e.to_string())?
+        // [139A-8 F4/S4] Capacidad explícita sobre la tienda concreta (sqlite
+        // la declara siempre; el `None` es defensa, no camino esperado).
+        match tiendas.como_soporta_ambitos() {
+            Some(soporta) => soporta
+                .memoria_ambitos(user_id)
+                .await
+                .map_err(|e| e.to_string())?,
+            None => vec![AmbitoMemoria::Global],
+        }
     } else {
         vec![ambito_pedido(args, &tiendas, user_id)?]
     };
@@ -521,6 +529,8 @@ mod pruebas {
             .await
             .expect("siembra");
         tienda
+            .como_soporta_skills()
+            .expect("la tienda en memoria soporta skills")
             .skills_registrar(
                 user_id,
                 &SkillEntrada {

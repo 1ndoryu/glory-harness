@@ -10,10 +10,12 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use uuid::Uuid;
 
-use crate::error::{Error, Result};
+use crate::error::Result;
 use crate::ports::{
-    AccionAuditable, AgentPersistence, AmbitoMemoria, MemoriaEntrada, MensajePersistido, SkillEntrada,
-    TareaProgramadaPendiente, TurnoPersistido,
+    AccionAuditable, AgentPersistence, AmbitoMemoria, ColaTareas, MemoriaEntrada,
+    MensajePersistido, PersistenciaAuditoria, PersistenciaMemoria, PersistenciaSkills,
+    PersistenciaTurnos, SkillEntrada, SoportaAmbitos, SoportaSkills, TareaProgramadaPendiente,
+    TurnoPersistido,
 };
 
 #[derive(Default)]
@@ -22,20 +24,9 @@ pub(crate) struct TiendaPrueba {
     /// mezclarse con la global ni con la de otro proyecto.
     memoria: Mutex<HashMap<(Uuid, AmbitoMemoria), HashMap<String, MemoriaEntrada>>>,
     skills: Mutex<HashMap<Uuid, Vec<SkillEntrada>>>,
-    /// Simula una tienda sin `skills_registrar` (legacy): la promoción
-    /// deja nota en vez de romper la pasada.
-    pub(crate) sin_registro: bool,
 }
 
 impl TiendaPrueba {
-    /// Tienda legacy sin `skills_registrar` (la promoción deja nota).
-    pub(crate) fn sin_registro() -> Self {
-        Self {
-            sin_registro: true,
-            ..Self::default()
-        }
-    }
-
     pub(crate) fn sembrar(&self, user_id: Uuid, entradas: Vec<MemoriaEntrada>) {
         self.sembrar_en(user_id, AmbitoMemoria::Global, entradas);
     }
@@ -73,7 +64,7 @@ impl TiendaPrueba {
 }
 
 #[async_trait]
-impl AgentPersistence for TiendaPrueba {
+impl PersistenciaTurnos for TiendaPrueba {
     async fn guardar_turno(&self, _: &TurnoPersistido) -> Result<()> {
         Ok(())
     }
@@ -89,9 +80,17 @@ impl AgentPersistence for TiendaPrueba {
     async fn conversacion_tocar(&self, _: Uuid) -> Result<()> {
         Ok(())
     }
+}
+
+#[async_trait]
+impl PersistenciaAuditoria for TiendaPrueba {
     async fn registrar_accion(&self, _: &AccionAuditable) -> Result<()> {
         Ok(())
     }
+}
+
+#[async_trait]
+impl PersistenciaMemoria for TiendaPrueba {
     async fn memoria_listar(&self, user_id: Uuid, ambito: AmbitoMemoria) -> Result<Vec<MemoriaEntrada>> {
         Ok(self
             .memoria
@@ -131,6 +130,10 @@ impl AgentPersistence for TiendaPrueba {
         }
         Ok(())
     }
+}
+
+#[async_trait]
+impl SoportaAmbitos for TiendaPrueba {
     async fn memoria_ambitos(&self, user_id: Uuid) -> Result<Vec<AmbitoMemoria>> {
         let mapa = self.memoria.lock().unwrap_or_else(|p| p.into_inner());
         let mut ambitos: Vec<AmbitoMemoria> = mapa
@@ -146,6 +149,10 @@ impl AgentPersistence for TiendaPrueba {
         ambitos.sort_by_key(|a| a.proyecto_id().map(|id| id.to_string()).unwrap_or_default());
         Ok(ambitos)
     }
+}
+
+#[async_trait]
+impl PersistenciaSkills for TiendaPrueba {
     async fn skills_listar(&self, user_id: Uuid) -> Result<Vec<SkillEntrada>> {
         Ok(self
             .skills
@@ -155,21 +162,23 @@ impl AgentPersistence for TiendaPrueba {
             .cloned()
             .unwrap_or_default())
     }
+}
+
+#[async_trait]
+impl SoportaSkills for TiendaPrueba {
     async fn skills_registrar(&self, user_id: Uuid, skill: &SkillEntrada) -> Result<()> {
-        if self.sin_registro {
-            return Err(Error::Persistencia(
-                "skills_registrar no implementado por esta tienda".into(),
-            ));
-        }
-        let mut guard = self.skills.lock().unwrap_or_else(|p| p.into_inner());
-        let lista = guard.entry(user_id).or_default();
-        if let Some(previa) = lista.iter_mut().find(|s| s.nombre == skill.nombre) {
-            *previa = skill.clone();
-        } else {
-            lista.push(skill.clone());
-        }
+        self.skills
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .entry(user_id)
+            .or_default()
+            .push(skill.clone());
         Ok(())
     }
+}
+
+#[async_trait]
+impl ColaTareas for TiendaPrueba {
     async fn tareas_recuperar_interrumpidas(&self) -> Result<u64> {
         Ok(0)
     }
@@ -184,6 +193,20 @@ impl AgentPersistence for TiendaPrueba {
     }
     async fn tarea_reprogramar(&self, _: Uuid, _: Uuid, _: Option<DateTime<Utc>>) -> Result<()> {
         Ok(())
+    }
+}
+
+/// [139A-8 F4/S3-S4] Compuesto: las caras ya están arriba. La tienda de
+/// pruebas declara AMBAS capacidades porque las emula de verdad (ámbitos
+/// leídos de su mapa, skills guardadas en su mapa): el curador la recorre
+/// y promueve sin notas. El camino sin capacidad se prueba con el mock de
+/// contrato, que no declara ninguna.
+impl AgentPersistence for TiendaPrueba {
+    fn como_soporta_ambitos(&self) -> Option<&dyn SoportaAmbitos> {
+        Some(self)
+    }
+    fn como_soporta_skills(&self) -> Option<&dyn SoportaSkills> {
+        Some(self)
     }
 }
 

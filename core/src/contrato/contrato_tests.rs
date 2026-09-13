@@ -24,7 +24,7 @@ pub struct PersistenciaMock {
 }
 
 #[async_trait::async_trait]
-impl AgentPersistence for PersistenciaMock {
+impl crate::ports::PersistenciaTurnos for PersistenciaMock {
     async fn guardar_turno(&self, _turno: &TurnoPersistido) -> crate::error::Result<()> {
         Ok(())
     }
@@ -51,10 +51,18 @@ impl AgentPersistence for PersistenciaMock {
     async fn conversacion_tocar(&self, _conversacion_id: uuid::Uuid) -> crate::error::Result<()> {
         Ok(())
     }
+}
+
+#[async_trait::async_trait]
+impl crate::ports::PersistenciaAuditoria for PersistenciaMock {
     async fn registrar_accion(&self, accion: &AccionAuditable) -> crate::error::Result<()> {
         let _ = accion.tool.as_str();
         Ok(())
     }
+}
+
+#[async_trait::async_trait]
+impl crate::ports::PersistenciaMemoria for PersistenciaMock {
     async fn memoria_listar(
         &self,
         _user_id: uuid::Uuid,
@@ -84,9 +92,17 @@ impl AgentPersistence for PersistenciaMock {
     ) -> crate::error::Result<()> {
         Ok(())
     }
+}
+
+#[async_trait::async_trait]
+impl crate::ports::PersistenciaSkills for PersistenciaMock {
     async fn skills_listar(&self, _user_id: uuid::Uuid) -> crate::error::Result<Vec<SkillEntrada>> {
         Ok(self.skills.clone())
     }
+}
+
+#[async_trait::async_trait]
+impl crate::ports::ColaTareas for PersistenciaMock {
     async fn tareas_recuperar_interrumpidas(&self) -> crate::error::Result<u64> {
         Ok(0)
     }
@@ -116,6 +132,9 @@ impl AgentPersistence for PersistenciaMock {
         Ok(())
     }
 }
+
+/// [139A-8 F4/S3] Compuesto vacío: el mock no declara capacidades S4.
+impl AgentPersistence for PersistenciaMock {}
 
 /// Proveedor LLM falso: emite dos tokens y un fin.
 struct ProveedorMock;

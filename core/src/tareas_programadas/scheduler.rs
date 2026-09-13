@@ -381,7 +381,7 @@ mod tests {
     }
 
     #[async_trait::async_trait]
-    impl AgentPersistence for PersistenciaScheduler {
+    impl crate::ports::PersistenciaTurnos for PersistenciaScheduler {
         async fn guardar_turno(&self, _t: &crate::ports::TurnoPersistido) -> CoreResult<()> {
             Ok(())
         }
@@ -405,9 +405,17 @@ mod tests {
         async fn conversacion_tocar(&self, _c: Uuid) -> CoreResult<()> {
             Ok(())
         }
+    }
+
+    #[async_trait::async_trait]
+    impl crate::ports::PersistenciaAuditoria for PersistenciaScheduler {
         async fn registrar_accion(&self, _a: &crate::ports::AccionAuditable) -> CoreResult<()> {
             Ok(())
         }
+    }
+
+    #[async_trait::async_trait]
+    impl crate::ports::PersistenciaMemoria for PersistenciaScheduler {
         async fn memoria_listar(
             &self,
             _u: Uuid,
@@ -431,9 +439,17 @@ mod tests {
         ) -> CoreResult<()> {
             Ok(())
         }
+    }
+
+    #[async_trait::async_trait]
+    impl crate::ports::PersistenciaSkills for PersistenciaScheduler {
         async fn skills_listar(&self, _u: Uuid) -> CoreResult<Vec<crate::ports::SkillEntrada>> {
             Ok(Vec::new())
         }
+    }
+
+    #[async_trait::async_trait]
+    impl crate::ports::ColaTareas for PersistenciaScheduler {
         async fn tareas_recuperar_interrumpidas(&self) -> CoreResult<u64> {
             Ok(0)
         }
@@ -473,6 +489,9 @@ mod tests {
             Ok(())
         }
     }
+
+    /// [139A-8 F4/S3] Compuesto vacío: el doble no declara capacidades S4.
+    impl AgentPersistence for PersistenciaScheduler {}
 
     #[test]
     fn cron_diario_avanza_un_dia() {

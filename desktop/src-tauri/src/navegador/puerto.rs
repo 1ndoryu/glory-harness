@@ -3,7 +3,7 @@
 use async_trait::async_trait;
 use glory_harness_core::error::Error as HarnessError;
 use glory_harness_core::error::Result as CoreResult;
-use glory_harness_core::ports::NavegadorPort;
+use glory_harness_core::ports::{Automatizable, Capturable, NavegadorBase, NavegadorPort, Scriptable};
 use tauri::AppHandle;
 
 use super::comandos::{
@@ -47,9 +47,15 @@ impl NavegadorTauri {
     }
 }
 
-#[async_trait]
+// ---------------------------------------------------------------------------
 
-impl NavegadorPort for NavegadorTauri {
+// Caras del navegador (F5, segregadas en 139A-8 F4/S5): el adaptador declara
+// cada familia por separado; `NavegadorPort` solo las compone.
+
+// ---------------------------------------------------------------------------
+
+#[async_trait]
+impl NavegadorBase for NavegadorTauri {
     async fn abrir(&self, url: &str) -> CoreResult<()> {
         navegador_abrir(self.app.clone(), url.to_string(), None, None, None, None)
             .await
@@ -62,12 +68,36 @@ impl NavegadorPort for NavegadorTauri {
             .map_err(|e| HarnessError::Interno(format!("navegador_navegar: {e}")))
     }
 
+    async fn cerrar(&self) -> CoreResult<()> {
+        navegador_cerrar(self.app.clone())
+            .await
+            .map_err(|e| HarnessError::Interno(format!("navegador_cerrar: {e}")))
+    }
+}
+
+#[async_trait]
+impl Capturable for NavegadorTauri {
     async fn capturar(&self) -> CoreResult<String> {
         navegador_capturar(self.app.clone())
             .await
             .map_err(|e| HarnessError::Interno(format!("navegador_capturar: {e}")))
     }
 
+    async fn snapshot(&self, _selector: &str) -> CoreResult<String> {
+        /* [069A-1 F5] navegador_snapshot captura texto visible de toda la
+
+        * página. El parámetro `selector` se ignora en esta implementación
+
+        * de escritorio. */
+
+        navegador_snapshot(self.app.clone())
+            .await
+            .map_err(|e| HarnessError::Interno(format!("navegador_snapshot: {e}")))
+    }
+}
+
+#[async_trait]
+impl Scriptable for NavegadorTauri {
     async fn js(&self, codigo: &str) -> CoreResult<String> {
         navegador_js(self.app.clone(), codigo.to_string())
             .await
@@ -79,7 +109,10 @@ impl NavegadorPort for NavegadorTauri {
             .await
             .map_err(|e| HarnessError::Interno(format!("navegador_cdp: {e}")))
     }
+}
 
+#[async_trait]
+impl Automatizable for NavegadorTauri {
     async fn click(&self, selector: &str) -> CoreResult<()> {
         navegador_click(self.app.clone(), selector.to_string())
             .await
@@ -95,22 +128,6 @@ impl NavegadorPort for NavegadorTauri {
 
         Ok(())
     }
-
-    async fn snapshot(&self, _selector: &str) -> CoreResult<String> {
-        /* [069A-1 F5] navegador_snapshot captura texto visible de toda la
-
-        * página. El parámetro `selector` se ignora en esta implementación
-
-        * de escritorio. */
-
-        navegador_snapshot(self.app.clone())
-            .await
-            .map_err(|e| HarnessError::Interno(format!("navegador_snapshot: {e}")))
-    }
-
-    async fn cerrar(&self) -> CoreResult<()> {
-        navegador_cerrar(self.app.clone())
-            .await
-            .map_err(|e| HarnessError::Interno(format!("navegador_cerrar: {e}")))
-    }
 }
+
+impl NavegadorPort for NavegadorTauri {}

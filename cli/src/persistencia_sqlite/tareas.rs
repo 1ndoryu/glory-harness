@@ -240,7 +240,7 @@ impl ProgramadorTareas for PersistenciaSqlite {
 mod tests {
     use super::*;
     use chrono::Utc;
-    use glory_harness_core::AgentPersistence;
+    use glory_harness_core::ColaTareas;
 
     #[tokio::test]
     async fn tareas_claim_atomico_y_finalizar() {

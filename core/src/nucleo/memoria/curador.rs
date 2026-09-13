@@ -181,7 +181,18 @@ pub async fn ejecutar_curador_todos(
     politica: &PoliticaCurador,
 ) -> Result<ResumenCurador> {
     let mut total = ResumenCurador::default();
-    for ambito in persistencia.memoria_ambitos(user_id).await? {
+    // [139A-8 F4/S4] Capacidad explícita: sin `SoportaAmbitos` solo se cura el
+    // global y se deja nota (antes el default tramposo lo fingía en silencio).
+    let ambitos = match persistencia.como_soporta_ambitos() {
+        Some(soporta) => soporta.memoria_ambitos(user_id).await?,
+        None => {
+            total
+                .notas
+                .push("ámbitos no soportados: solo se cura el global".into());
+            vec![AmbitoMemoria::Global]
+        }
+    };
+    for ambito in ambitos {
         let mut pasada = ejecutar_curador(persistencia, user_id, ambito, politica).await?;
         if let Some(id) = ambito.proyecto_id() {
             let marca = format!(" [proyecto {id}]", id = id.as_hyphenated());
@@ -283,7 +294,8 @@ async fn archivar_obsoletas(
 }
 
 /// 3) Promoción: madura + muy usada + sin skill homónima → skill activa.
-///    La tienda sin `skills_registrar` deja nota (no rompe la pasada).
+///    La tienda sin capacidad [`SoportaSkills`](crate::ports::SoportaSkills)
+///    deja nota (no rompe la pasada): detección explícita, no `Err` tramposo.
 async fn promover_maduras(
     persistencia: &Arc<dyn AgentPersistence>,
     user_id: Uuid,
@@ -317,7 +329,17 @@ async fn promover_maduras(
             instrucciones: entrada.contenido.clone(),
             activa: true,
         };
-        match persistencia.skills_registrar(user_id, &skill).await {
+        // [139A-8 F4/S4] Sin capacidad no hay a quién llamar: nota única.
+        let Some(soporta) = persistencia.como_soporta_skills() else {
+            if !sin_registro_avisado {
+                sin_registro_avisado = true;
+                resumen.notas.push(
+                    "promoción omitida: la tienda no soporta registro de skills".into(),
+                );
+            }
+            continue;
+        };
+        match soporta.skills_registrar(user_id, &skill).await {
             Ok(()) => {
                 let mut marcada = entrada.clone();
                 marcada.origen = format!("promovido-a-skill:{}", entrada.clave);
@@ -427,24 +449,49 @@ mod pruebas {
     }
 
     #[tokio::test]
-    async fn curador_no_duplica_skill_existente_y_avisa_sin_registro() {
-        let tienda = Arc::new(TiendaPrueba::sin_registro());
+    async fn curador_avisa_si_tienda_sin_registro_skills() {
+        // [139A-8 F4/S4] El mock de contrato implementa todas las caras pero
+        // no declara `SoportaSkills`: la promoción deja UNA nota por capacidad
+        // ausente en vez de fallar en runtime (el default tramposo anterior).
+        use crate::contrato_tests::PersistenciaMock;
+        let persistencia: Arc<dyn AgentPersistence> = Arc::new(PersistenciaMock::default());
         let user_id = Uuid::new_v4();
-        tienda.sembrar(
+        let entrada = entrada_vieja("atajo", "usa pnpm siempre", 10, 5);
+        let mut vivas = HashMap::new();
+        vivas.insert(entrada.clave.clone(), entrada);
+        let mut resumen = ResumenCurador::default();
+        promover_maduras(
+            &persistencia,
             user_id,
-            vec![entrada_vieja("atajo", "usa pnpm siempre", 10, 5)],
-        );
-        let persistencia: Arc<dyn AgentPersistence> = tienda;
-        let resumen = ejecutar_curador(&persistencia, user_id, GLOBAL, &PoliticaCurador::default())
-            .await
-            .expect("curador");
+            GLOBAL,
+            Utc::now(),
+            &PoliticaCurador::default(),
+            &mut resumen,
+            &vivas,
+        )
+        .await
+        .expect("la falta de capacidad avisa, no falla");
         assert!(resumen.promovidas.is_empty());
-        assert_eq!(
-            resumen.notas.len(),
-            1,
-            "la tienda legacy deja nota, no rompe"
-        );
+        assert_eq!(resumen.notas.len(), 1, "una sola nota por pasada");
         assert!(resumen.texto().contains("promoción omitida"));
+    }
+
+    #[tokio::test]
+    async fn curador_todos_avisa_si_tienda_sin_ambitos() {
+        // [139A-8 F4/S4] Sin `SoportaAmbitos` solo se cura el global y queda
+        // nota (antes el default tramposo fingía `[Global]` en silencio).
+        use crate::contrato_tests::PersistenciaMock;
+        let persistencia: Arc<dyn AgentPersistence> = Arc::new(PersistenciaMock::default());
+        let resumen = ejecutar_curador_todos(
+            &persistencia,
+            Uuid::new_v4(),
+            &PoliticaCurador::default(),
+        )
+        .await
+        .expect("la falta de capacidad avisa, no falla");
+        assert!(resumen.vacio());
+        assert_eq!(resumen.notas.len(), 1, "una sola nota por pasada");
+        assert!(resumen.texto().contains("ámbitos no soportados"));
     }
 
     #[test]

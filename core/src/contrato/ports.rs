@@ -277,8 +277,12 @@ pub struct AccionAuditable {
 /// Puerto de persistencia: **todo** acceso a estado durable del agente pasa
 /// por aquí. El núcleo nunca escribe por su cuenta; el consumidor es el único
 /// dueño de la base de datos (R3 del plan 318A-13).
+///
+/// [139A-8 F4/S3] Segregado por dominios (ISP): cada cara es un trait propio y
+/// [`AgentPersistence`] es solo el compuesto. Quien solo necesita turnos ya no
+/// conoce memoria/skills/scheduler.
 #[async_trait]
-pub trait AgentPersistence: Send + Sync {
+pub trait PersistenciaTurnos: Send + Sync {
     // --- Turnos y mensajes ---
     async fn guardar_turno(&self, turno: &TurnoPersistido) -> Result<()>;
     async fn finalizar_turno(
@@ -293,10 +297,16 @@ pub trait AgentPersistence: Send + Sync {
     /// Toca la recencia de una conversación (p. ej. al persistir la respuesta
     /// del asistente, para que el orden por `actualizado_en` sea correcto).
     async fn conversacion_tocar(&self, conversacion_id: Uuid) -> Result<()>;
+}
 
+#[async_trait]
+pub trait PersistenciaAuditoria: Send + Sync {
     // --- Acciones (auditoría) ---
     async fn registrar_accion(&self, accion: &AccionAuditable) -> Result<()>;
+}
 
+#[async_trait]
+pub trait PersistenciaMemoria: Send + Sync {
     // --- Memoria ---
     /// Recuerdos del usuario **en ese ámbito y solo en ese** ([109A-2]).
     async fn memoria_listar(
@@ -316,10 +326,35 @@ pub trait AgentPersistence: Send + Sync {
         ambito: AmbitoMemoria,
         clave: &str,
     ) -> Result<()>;
+}
 
+#[async_trait]
+pub trait PersistenciaSkills: Send + Sync {
     // --- Skills (solo lectura para el agente) ---
     async fn skills_listar(&self, user_id: Uuid) -> Result<Vec<SkillEntrada>>;
+}
 
+/// [139A-8 F4/S4] Capacidad de listar ámbitos con recuerdos
+/// ([109A-2], antes default tramposo `Ok(vec![Global])` en el monolito).
+#[async_trait]
+pub trait SoportaAmbitos: Send + Sync {
+    /// Ámbitos con recuerdos de este usuario, para que el curador
+    /// recorra todos sin dejar proyectos sin curar.
+    async fn memoria_ambitos(&self, user_id: Uuid) -> Result<Vec<AmbitoMemoria>>;
+}
+
+/// [139A-8 F4/S4] Capacidad de registrar skills ([069A-4], antes default
+/// tramposo `Err("no implementado")` en el monolito: peor que `todo!`, fallo
+/// en runtime en vez de en compilación).
+#[async_trait]
+pub trait SoportaSkills: Send + Sync {
+    /// Promueve un recuerdo a skill persistente (el curador la usa;
+    /// el agente no: las skills del agente son de solo lectura).
+    async fn skills_registrar(&self, user_id: Uuid, skill: &SkillEntrada) -> Result<()>;
+}
+
+#[async_trait]
+pub trait ColaTareas: Send + Sync {
     // --- Tareas programadas (scheduler) ---
     /// Recupera tareas interrumpidas (heartbeat vencido) → 'pendiente'.
     async fn tareas_recuperar_interrumpidas(&self) -> Result<u64>;
@@ -337,34 +372,31 @@ pub trait AgentPersistence: Send + Sync {
         user_id: Uuid,
         proxima: Option<DateTime<Utc>>,
     ) -> Result<()>;
+}
 
-    /// [069A-4] Promueve un recuerdo a skill persistente (el curador la usa;
-    /// el agente no: las skills del agente son de solo lectura). Default que
-    /// falla explícito para no romper consumidores existentes (DIP sin
-    /// breaking change): cada tienda lo implementa si guarda skills. Va el
-    /// último del trait a propósito: `funcion-larga-rs` mide las firmas sin
-    /// cuerpo contra el siguiente bloque con cuerpo del fichero y las
-    /// declara largas pasados ~100; con el único default al final, ninguna
-    /// firma queda tras un cuerpo y el conteo es correcto.
-    async fn skills_registrar(&self, user_id: Uuid, skill: &SkillEntrada) -> Result<()> {
-        let _ = (user_id, skill);
-        Err(crate::error::Error::Persistencia(
-            "skills_registrar no implementado por esta tienda".into(),
-        ))
+/// Compuesto de las caras de persistencia: existe para que los consumidores
+/// que necesitan **todo** (runtime, sesión, curador) sigan nombrando un solo
+/// tipo (`Arc<dyn AgentPersistence>`) mientras cada tienda implementa las
+/// caras por separado.
+///
+/// La detección de capacidad es explícita (S4): [`SoportaAmbitos`] y
+/// [`SoportaSkills`] NO son supertraits. `None` = la tienda no declara la
+/// capacidad y el llamador decide (p. ej. el curador deja nota en vez de
+/// romper la pasada); nunca se finge éxito ni se falla en runtime por defecto.
+pub trait AgentPersistence:
+    PersistenciaTurnos
+    + PersistenciaAuditoria
+    + PersistenciaMemoria
+    + PersistenciaSkills
+    + ColaTareas
+{
+    /// Devuelve la cara de ámbitos si la tienda la declara.
+    fn como_soporta_ambitos(&self) -> Option<&dyn SoportaAmbitos> {
+        None
     }
-
-    /// [109A-2] Ámbitos con recuerdos de este usuario, para que el curador
-    /// recorra todos sin dejar proyectos sin curar. Default conservador
-    /// (solo global) para tiendas que aún no separan ámbitos: una tienda que
-    /// no lo implemente no pierde recuerdos, solo no los cura por proyecto.
-    ///
-    /// Va el ÚLTIMO del trait a propósito: es el segundo método con cuerpo
-    /// por defecto y la regla `funcion-larga-rs` mide las firmas sin cuerpo
-    /// contra el siguiente bloque con cuerpo del fichero; con los defaults
-    /// al final, ninguna firma queda tras un cuerpo.
-    async fn memoria_ambitos(&self, user_id: Uuid) -> Result<Vec<AmbitoMemoria>> {
-        let _ = user_id;
-        Ok(vec![AmbitoMemoria::Global])
+    /// Devuelve la cara de registro de skills si la tienda la declara.
+    fn como_soporta_skills(&self) -> Option<&dyn SoportaSkills> {
+        None
     }
 }
 
@@ -574,30 +606,52 @@ pub trait ProviderPort: Send + Sync {
 // ---------------------------------------------------------------------------
 
 /// Puerto de navegador interno WebView2 child. El consumidor (desktop Tauri)
-/// implementa este trait para que la tool del agente pueda navegar, capturar
+/// implementa estas caras para que la tool del agente pueda navegar, capturar
 /// y manipular la webview hija. `None` en el runtime → la tool no se registra
 /// (fail-closed: el modelo ni la ve si no hay navegador disponible).
+///
+/// [139A-8 F4/S5] Segregado por familias (ISP): ciclo de vida, captura,
+/// script y automatización DOM son traits propios y [`NavegadorPort`] es solo
+/// el compuesto. Cada operación de la tool pide únicamente la cara que usa.
 #[async_trait]
-pub trait NavegadorPort: Send + Sync {
+pub trait NavegadorBase: Send + Sync {
     /// Abre el navegador en una URL.
     async fn abrir(&self, url: &str) -> Result<()>;
     /// Navega a una URL.
     async fn navegar(&self, url: &str) -> Result<()>;
+    /// Cierra el navegador.
+    async fn cerrar(&self) -> Result<()>;
+}
+
+#[async_trait]
+pub trait Capturable: Send + Sync {
     /// Captura la webview y devuelve PNG en Base64.
     async fn capturar(&self) -> Result<String>;
+    /// Toma un snapshot parcial (método específico CDP).
+    async fn snapshot(&self, selector: &str) -> Result<String>;
+}
+
+#[async_trait]
+pub trait Scriptable: Send + Sync {
     /// Ejecuta JavaScript en la webview.
     async fn js(&self, codigo: &str) -> Result<String>;
     /// Invoca un método CDP.
     async fn cdp(&self, metodo: &str, parametros: &str) -> Result<String>;
+}
+
+#[async_trait]
+pub trait Automatizable: Send + Sync {
     /// Hace click en el primer elemento que coincida con el selector CSS.
     async fn click(&self, selector: &str) -> Result<()>;
     /// Rellena un campo de formulario.
     async fn rellenar(&self, selector: &str, valor: &str) -> Result<()>;
-    /// Toma un snapshot parcial (método específico CDP).
-    async fn snapshot(&self, selector: &str) -> Result<String>;
-    /// Cierra el navegador.
-    async fn cerrar(&self) -> Result<()>;
 }
+
+/// Compuesto de las caras del navegador: existe para que los consumidores
+/// que necesitan **todo** (runtime, sesión, tool `navegador_reflejo`) sigan
+/// nombrando un solo tipo (`Arc<dyn NavegadorPort>`) mientras cada
+/// implementación declara las caras por separado.
+pub trait NavegadorPort: NavegadorBase + Capturable + Scriptable + Automatizable {}
 
 /// Eventos que puede emitir un proveedor durante el streaming.
 #[derive(Debug, Clone, Serialize, Deserialize)]

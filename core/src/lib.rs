@@ -35,9 +35,11 @@ pub use error::{Error as HarnessError, Result as HarnessResult};
 /// Frontera de puertos (traits) que define el núcleo y que el consumidor
 /// implementa. Ver [`ports`].
 pub use ports::{
-    AgentPersistence, AmbitoMemoria, ContenidoWeb, EjecutorComando, MemoriaEntrada, NavegadorPort,
-    ProgramadorTareas, ProveedorMemoria, ProviderPort, SkillEntrada, WebFetchProvider,
-    WebSearchProvider,
+    AgentPersistence, AmbitoMemoria, Automatizable, Capturable, ColaTareas, ContenidoWeb,
+    EjecutorComando, MemoriaEntrada, NavegadorBase, NavegadorPort, PersistenciaAuditoria,
+    PersistenciaMemoria, PersistenciaSkills, PersistenciaTurnos, ProgramadorTareas,
+    ProveedorMemoria, ProviderPort, Scriptable, SkillEntrada, SoportaAmbitos, SoportaSkills,
+    WebFetchProvider, WebSearchProvider,
 };
 
 /// Versión del contrato de puertos y eventos.

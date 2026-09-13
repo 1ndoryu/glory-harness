@@ -14,8 +14,9 @@ use uuid::Uuid;
 
 use glory_harness_core::error::Error;
 use glory_harness_core::ports::{
-    AccionAuditable, AmbitoMemoria, MemoriaEntrada, MensajePersistido, SkillEntrada,
-    TareaProgramadaPendiente, TurnoPersistido,
+    AccionAuditable, AmbitoMemoria, ColaTareas, MemoriaEntrada, MensajePersistido,
+    PersistenciaAuditoria, PersistenciaMemoria, PersistenciaSkills, PersistenciaTurnos, SkillEntrada,
+    SoportaAmbitos, SoportaSkills, TareaProgramadaPendiente, TurnoPersistido,
 };
 use glory_harness_core::{AgentPersistence, HarnessResult};
 
@@ -25,7 +26,7 @@ use super::{
 };
 
 #[async_trait]
-impl AgentPersistence for PersistenciaSqlite {
+impl PersistenciaTurnos for PersistenciaSqlite {
     async fn guardar_turno(&self, turno: &TurnoPersistido) -> HarnessResult<()> {
         let turno = turno.clone();
         self.con_conn(move |conn| {
@@ -113,7 +114,10 @@ impl AgentPersistence for PersistenciaSqlite {
         })
         .await
     }
+}
 
+#[async_trait]
+impl PersistenciaAuditoria for PersistenciaSqlite {
     async fn registrar_accion(&self, accion: &AccionAuditable) -> HarnessResult<()> {
         let accion = accion.clone();
         self.con_conn(move |conn| {
@@ -135,7 +139,10 @@ impl AgentPersistence for PersistenciaSqlite {
         })
         .await
     }
+}
 
+#[async_trait]
+impl PersistenciaMemoria for PersistenciaSqlite {
     async fn memoria_listar(
         &self,
         user_id: Uuid,
@@ -254,7 +261,10 @@ impl AgentPersistence for PersistenciaSqlite {
         })
         .await
     }
+}
 
+#[async_trait]
+impl SoportaAmbitos for PersistenciaSqlite {
     /// Ámbitos con recuerdos del usuario ([109A-2]). El curador los recorre
     /// todos, así que el orden debe ser estable entre pasadas: global primero
     /// y después los proyectos por UUID. El global siempre está presente
@@ -285,7 +295,10 @@ impl AgentPersistence for PersistenciaSqlite {
         })
         .await
     }
+}
 
+#[async_trait]
+impl PersistenciaSkills for PersistenciaSqlite {
     async fn skills_listar(&self, user_id: Uuid) -> HarnessResult<Vec<SkillEntrada>> {
         self.con_conn(move |conn| {
             let mut stmt = conn
@@ -320,7 +333,10 @@ impl AgentPersistence for PersistenciaSqlite {
         })
         .await
     }
+}
 
+#[async_trait]
+impl SoportaSkills for PersistenciaSqlite {
     async fn skills_registrar(&self, user_id: Uuid, skill: &SkillEntrada) -> HarnessResult<()> {
         // [069A-4] Alta o sustitución por (user_id, nombre): el curador
         // promueve recuerdos sin duplicar skills.
@@ -348,7 +364,10 @@ impl AgentPersistence for PersistenciaSqlite {
         })
         .await
     }
+}
 
+#[async_trait]
+impl ColaTareas for PersistenciaSqlite {
     async fn tareas_recuperar_interrumpidas(&self) -> HarnessResult<u64> {
         self.con_conn(move |conn| {
             let n = conn
@@ -459,5 +478,16 @@ impl AgentPersistence for PersistenciaSqlite {
             Ok(())
         })
         .await
+    }
+}
+
+/// [139A-8 F4/S3-S4] Compuesto: la tienda sqlite declara ambas capacidades
+/// (ámbitos por `workspace_id` + alta/sustitución de skills por id).
+impl AgentPersistence for PersistenciaSqlite {
+    fn como_soporta_ambitos(&self) -> Option<&dyn SoportaAmbitos> {
+        Some(self)
+    }
+    fn como_soporta_skills(&self) -> Option<&dyn SoportaSkills> {
+        Some(self)
     }
 }

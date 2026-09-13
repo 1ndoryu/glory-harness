@@ -5,7 +5,7 @@
 
 use std::sync::Arc;
 
-use glory_harness_core::AgentPersistence;
+use glory_harness_core::PersistenciaTurnos;
 use uuid::Uuid;
 
 use crate::persistencia_sqlite::{InfoConversacion, PersistenciaSqlite};

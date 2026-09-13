@@ -499,3 +499,13 @@ calibración de ruido (`todo`, `claseHuerfana`, `barras`) → estructural (S9+S1
    **`scheduler.rs:66` acotado** (lote de 5).
 6. Lección para el plan: toda cita [S] se re-verifica en F0; el gate no distingue
    test/prod en reglas futuras (`ignorar #[cfg(test)]` explícito en §4.4).
+7. F0-F4 (139A-8, 13-09): S1–S5 vigentes sin cambios (ver detalle en el plan F4).
+   Lo que cayó fue la paráfrasis del plan v1–v4, no las citas: S3 se corrige a los
+   nombres de esta auditoría (`PersistenciaTurnos`/`PersistenciaMemoria`/
+   `PersistenciaSkills`/`ColaTareas` + compuesto; `Conversaciones`/`Mensajes`/.../
+   `Mem0Store` son stores del consumidor externo, no de este repo); S4 a
+   `SoportaSkills`/`SoportaAmbitos` (`cdp(URL)` y `attach_shell_por_defecto` del
+   plan no existen en el código: `cdp(metodo, parametros)` en `ports.rs:591`);
+   S5 a `NavegadorBase`+`Capturable`+`Scriptable`+`Automatizable`. Observación sin
+   fix (fuera de S5): el adaptador desktop ignora el selector de `snapshot`
+   (`desktop/src-tauri/src/navegador/puerto.rs:99-102`).

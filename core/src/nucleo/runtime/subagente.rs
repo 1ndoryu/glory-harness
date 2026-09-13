@@ -3,7 +3,23 @@
 //! [059A-S3] Refactor: el bucle hijo delega el riesgo por perfil y el
 //! veredicto de permiso en helpers (misma semántica, funciones < 100 ef).
 
-use super::*;
+use std::collections::HashSet;
+use tokio::sync::mpsc::Sender;
+use uuid::Uuid;
+
+use serde_json::Value;
+
+use crate::error::Result;
+use crate::evento::AgenteEvento;
+use crate::hooks::EventoHook;
+use crate::llm::{AiMessage, AiToolCall};
+use crate::subagente::{
+    concurrencia_permitida, perfil_subagente, perfiles_disponibles, presupuesto_efectivo,
+    profundidad_permitida, schema_hijo, GuardiaConcurrencia, GuardiaProfundidad, PerfilSubagente,
+    CONCURRENTES_MAX_SUBAGENTES, SUBAGENTES_EN_CURSO,
+};
+
+use super::{decidir_permiso, wrap_up_instruccion, AgentRuntime, VerdictoPermiso};
 
 impl AgentRuntime {
     /// [318A-15 F4] Intercepta la tool `task` (paridad opencode/claurst):

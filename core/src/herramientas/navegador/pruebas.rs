@@ -7,7 +7,7 @@
 use super::*;
 
 use crate::error::Result;
-use crate::ports::NavegadorPort;
+use crate::ports::{Automatizable, Capturable, NavegadorBase, NavegadorPort, Scriptable};
 use crate::tool::{AgentTool, AgentToolContext};
 use async_trait::async_trait;
 use serde_json::json;
@@ -16,9 +16,10 @@ struct StubNavegador {
     abierto: std::sync::Mutex<bool>,
 }
 
+/// [139A-8 F4/S5] El stub declara cada cara por separado, como el adaptador
+/// real: un stub de captura no necesita automatizar.
 #[async_trait]
-
-impl NavegadorPort for StubNavegador {
+impl NavegadorBase for StubNavegador {
     async fn abrir(&self, _url: &str) -> Result<()> {
         *self.abierto.lock().unwrap() = true;
 
@@ -29,10 +30,26 @@ impl NavegadorPort for StubNavegador {
         Ok(())
     }
 
+    async fn cerrar(&self) -> Result<()> {
+        *self.abierto.lock().unwrap() = false;
+
+        Ok(())
+    }
+}
+
+#[async_trait]
+impl Capturable for StubNavegador {
     async fn capturar(&self) -> Result<String> {
         Ok("stub_captura_base64".into())
     }
 
+    async fn snapshot(&self, _selector: &str) -> Result<String> {
+        Ok("<html/>".into())
+    }
+}
+
+#[async_trait]
+impl Scriptable for StubNavegador {
     async fn js(&self, _codigo: &str) -> Result<String> {
         Ok("stub_resultado".into())
     }
@@ -40,7 +57,10 @@ impl NavegadorPort for StubNavegador {
     async fn cdp(&self, _metodo: &str, _parametros: &str) -> Result<String> {
         Ok("{}".into())
     }
+}
 
+#[async_trait]
+impl Automatizable for StubNavegador {
     async fn click(&self, _selector: &str) -> Result<()> {
         Ok(())
     }
@@ -48,17 +68,9 @@ impl NavegadorPort for StubNavegador {
     async fn rellenar(&self, _selector: &str, _valor: &str) -> Result<()> {
         Ok(())
     }
-
-    async fn snapshot(&self, _selector: &str) -> Result<String> {
-        Ok("<html/>".into())
-    }
-
-    async fn cerrar(&self) -> Result<()> {
-        *self.abierto.lock().unwrap() = false;
-
-        Ok(())
-    }
 }
+
+impl NavegadorPort for StubNavegador {}
 
 fn ctx_con_navegador() -> AgentToolContext<'static> {
     let persistencia: &'static crate::contrato_tests::PersistenciaMock =

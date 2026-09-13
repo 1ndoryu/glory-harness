@@ -1,7 +1,18 @@
 //! [059A-S3] Flujo de permiso de una tool del lote: veredicto F3,
 //! rama no-ejecutada (ask/deny) y ejecución aprobada con timeout.
 
-use super::*;
+use tokio::sync::mpsc::Sender;
+use uuid::Uuid;
+
+use crate::error::Result;
+use crate::evento::AgenteEvento;
+use crate::hooks::EventoHook;
+use crate::llm::{AiMessage, AiToolCall};
+use crate::pregunta::procesar_pregunta;
+
+use super::EstadoTurno;
+use super::PasoTool;
+use crate::nucleo::runtime::{decidir_permiso, AgentRuntime, VerdictoPermiso};
 
 impl AgentRuntime {
     /// [059A-S3] Una tool del lote: emite `ToolStart`, resuelve el veredicto de

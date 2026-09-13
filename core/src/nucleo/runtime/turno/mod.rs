@@ -5,7 +5,20 @@
 //!  - `auditoria`: persistencia del turno y telemetría final.
 //!  - `permisos`: flujo de permiso/veredicto y ejecución de una tool.
 
-use super::*;
+use std::sync::Arc;
+use tokio::sync::mpsc::Sender;
+use uuid::Uuid;
+
+use serde_json::Value;
+
+use crate::context::AgentContextManager;
+use crate::error::Result;
+use crate::evento::AgenteEvento;
+use crate::guardas::{aviso_por_repeticion, aviso_vacio, decidir_reintento_vacio, texto_vacio};
+use crate::hooks::{EventoHook, SalidaHook};
+use crate::llm::AiMessage;
+
+use super::{mensajes_usuario_resumen, AgentRuntime, CompactarManual, DesgloseContexto};
 use crate::context::tokens_de_mensaje;
 
 mod auditoria;

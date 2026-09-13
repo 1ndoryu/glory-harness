@@ -37,8 +37,9 @@ impl PersistenciaSqlite {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use glory_harness_core::ports::{AmbitoMemoria, MemoriaEntrada};
-    use glory_harness_core::AgentPersistence;
+    use glory_harness_core::ports::{
+        AmbitoMemoria, MemoriaEntrada, PersistenciaMemoria, PersistenciaSkills, SoportaAmbitos,
+    };
 
     /// Recuerdo mínimo para las pruebas de aislamiento.
     fn recuerdo(clave: &str, contenido: &str) -> MemoriaEntrada {

@@ -17,8 +17,7 @@ use uuid::Uuid;
 
 use glory_harness::servicio::sesion::{OpcionesSesion, SesionComun};
 use glory_harness::PersistenciaSqlite;
-use glory_harness_core::ports::MensajePersistido;
-use glory_harness_core::AgentPersistence;
+use glory_harness_core::ports::{MensajePersistido, PersistenciaTurnos};
 
 /// Baseline medido ANTES del cambio (13-09, debug, en memoria):
 /// p50=61ms p95=88ms. `Some(ms)` = modo verificación (`p95 <= 0,5 × ms`).
