@@ -17,7 +17,7 @@ import {
   type ProveedorInfo,
   type Transporte,
 } from '../tauri/real';
-import type { EstadoGit } from '../componentes/panelGit';
+import type { EstadoGit, RepoGit } from '../componentes/panelGit';
 import type { ListadoWorkspace, ResultadoBusqueda } from '../dominio/tipos';
 import { crearClienteApi } from './apiCliente';
 import { crearTransporteMeta } from './apiMeta';
@@ -275,8 +275,17 @@ export function crearTransporteApi(base: string, hooks: HooksAdaptador = {}): Tr
         `/api/v1/session/${cliente.getSid()}/files/buscar?consulta=${encodeURIComponent(consulta)}${extra}`,
       );
     },
-    workspaceGitEstado: async (): Promise<EstadoGit> =>
-      http<EstadoGit>('GET', `/api/v1/session/${cliente.getSid()}/git/estado`),
+    workspaceGitEstado: async (ruta?): Promise<EstadoGit> => {
+      // [139A-2] El modo web no expone repos por ruta: nunca se devuelve el
+      // área haciéndola pasar por el repo (explícito en vez de dato erróneo).
+      if (ruta) throw new Error('estado por repo no disponible en modo web');
+      return http<EstadoGit>('GET', `/api/v1/session/${cliente.getSid()}/git/estado`);
+    },
+    // [139A-2] Sin espejo `git/repos` en el servidor web: el front usa el
+    // modo simple (una sola consulta al área).
+    workspaceGitRepos: async (): Promise<RepoGit[]> => {
+      throw new Error('repos multi-git no disponibles en modo web');
+    },
     // [109A-3] El servidor web no expone rutas de memoria (el ámbito lo
     // resuelve el backend de escritorio): se rechaza con motivo explícito en
     // vez de devolver una lista vacía, que se leería como "no hay recuerdos".

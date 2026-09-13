@@ -1,6 +1,6 @@
 /* Tipos del adaptador real (contrato AgenteEvento, sesión, transporte).
  * Solo tipos + `esEntornoTauri`; sin runtime salvo esa guarda. */
-import type { EstadoGit } from '../componentes/panelGit';
+import type { EstadoGit, RepoGit, ResumenRepo } from '../componentes/panelGit';
 import type {
   ComandoMetaVisible,
   EstadoMetaVisible,
@@ -344,7 +344,13 @@ export interface Transporte {
   workspaceLeerArchivo(ruta: string): Promise<{ ruta: string; lineas: number; contenido: string }>;
   workspaceAbrirCon(ruta: string): Promise<void>;
   workspaceBuscar(consulta: string, ruta?: string): Promise<ResultadoBusqueda>;
-  workspaceGitEstado(): Promise<EstadoGit>;
+  /** [139A-2] Estado git del área o de un repo concreto (`workspace_git_repos`). */
+  workspaceGitEstado(ruta?: string): Promise<EstadoGit>;
+  /** [139A-2] Repos bajo el área activa (barrido descendente). */
+  workspaceGitRepos(): Promise<RepoGit[]>;
+  /** [139A-7] Resumen batch (descubrir+estado por repo en 1 IPC).
+   * Opcional: el transporte web no lo expone (el panel usa el fan-out). */
+  workspaceGitResumen?(): Promise<ResumenRepo[]>;
   // [109A-3] Memorias del proyecto activo (panel "Memorias" del modal).
   memoriaListar(): Promise<ListadoMemoria>;
   memoriaBorrar(clave: string): Promise<ListadoMemoria>;

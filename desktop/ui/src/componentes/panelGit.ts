@@ -23,10 +23,35 @@ export interface EstadoGit {
   mensaje: string | null;
   diff_unstaged?: string | null;
   diff_staged?: string | null;
+  /** [139A-2] Rama actual (`HEAD@<7>` en detached, null sin commits). */
+  rama?: string | null;
+}
+
+/** [139A-2] Repo descubierto bajo el área. `prefijo` = ruta del repo
+ * relativa al área (`""` = el área misma): atribuye cambios del vault
+ * (rutas relativas al área) a su sección sin duplicar. */
+export interface RepoGit {
+  nombre: string;
+  ruta: string;
+  prefijo: string;
 }
 
 export interface GitTransport {
-  estado(): Promise<EstadoGit>;
+  /** Estado del área (sin args) o de un repo concreto. */
+  estado(ruta?: string | null): Promise<EstadoGit>;
+  /** Repos bajo el área (barrido descendente, anidados colapsados). */
+  repos(): Promise<RepoGit[]>;
+  /** [139A-7] Resumen batch: repos + estado por repo en una sola llamada.
+   * Si el transporte no lo ofrece, el dueño usa el fan-out repos+estados. */
+  resumen?(): Promise<ResumenRepo[]>;
+}
+
+/** [139A-7] Un repo con su estado ya consultado (o el error: el repo
+ * ilegible se oculta y sus cambios del vault caen a huérfanos). */
+export interface ResumenRepo {
+  repo: RepoGit;
+  est: EstadoGit | null;
+  error: string | null;
 }
 
 export interface PanelGit {
@@ -40,6 +65,8 @@ export interface PanelGit {
 
 export function montarPanelGit(opts: {
   transporte: GitTransport;
+  /** [139A-2] Repo que pinta este panel (`null` = área activa). */
+  ruta?: string | null;
   onError?: (texto: string, detalle?: string) => void;
 }): PanelGit {
   const raiz = el('div', 'panel-git');
@@ -183,7 +210,7 @@ export function montarPanelGit(opts: {
   async function cargar(): Promise<void> {
     const id = ++secuencia;
     try {
-      const resultado = await opts.transporte.estado();
+      const resultado = await opts.transporte.estado(opts.ruta ?? null);
       if (id !== secuencia) return;
       pintar(resultado);
     } catch (error: unknown) {

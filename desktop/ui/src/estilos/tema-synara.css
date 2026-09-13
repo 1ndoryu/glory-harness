@@ -206,6 +206,7 @@ html[data-tema='synara'] .tarea,
 html[data-tema='synara'] .memoria-fila,
 html[data-tema='synara'] .memorias-detalle,
 html[data-tema='synara'] .resumen-turno,
+html[data-tema='synara'] .toast-item,
 html[data-tema='synara'] .git-diff-caja {
     border-radius: var(--radio-caja);
 }

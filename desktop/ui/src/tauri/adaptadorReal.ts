@@ -2,7 +2,7 @@
 // vive aquí; `real.ts` queda como barrel. Sin ciclos: solo importa tipos de
 // dominio, tipos/transporte/turno propios y el tipo de estado git.
 
-import type { EstadoGit } from '../componentes/panelGit';
+import type { EstadoGit, RepoGit, ResumenRepo } from '../componentes/panelGit';
 import type {
   ComandoMetaVisible,
   EstadoMetaVisible,
@@ -31,6 +31,8 @@ import { crearTurnoReal } from './turnoReal';
 
 export function crearAdaptadorReal(hooks: HooksAdaptador = {}, transporte: Transporte = transporteTauri()) {
   const turno = crearTurnoReal(hooks, transporte);
+  /** [139A-7] Batch git: solo existe si el transporte lo expone (web no). */
+  const resumenBatch = transporte.workspaceGitResumen;
 
   return {
     montar: turno.montar,
@@ -215,9 +217,16 @@ export function crearAdaptadorReal(hooks: HooksAdaptador = {}, transporte: Trans
         async buscar(consulta: string, ruta?: string): Promise<ResultadoBusqueda> {
           return transporte.workspaceBuscar(consulta, ruta);
         },
-        async gitEstado(): Promise<EstadoGit> {
-          return transporte.workspaceGitEstado();
+        async gitEstado(ruta?: string | null): Promise<EstadoGit> {
+          return transporte.workspaceGitEstado(ruta ?? undefined);
         },
+        /** [139A-2] Repos bajo el área activa. */
+        async gitRepos(): Promise<RepoGit[]> {
+          return transporte.workspaceGitRepos();
+        },
+        /** [139A-7] Resumen batch; `undefined` si el transporte no lo expone
+         * (el panel cae al fan-out clásico, sin simular el batch). */
+        gitResumen: resumenBatch ? (): Promise<ResumenRepo[]> => resumenBatch() : undefined,
       },
       // [109A-3] Memorias del proyecto activo (panel "Memorias"). El ámbito
       // lo decide el backend con el área activa de la sesión: aquí no viaja

@@ -271,6 +271,12 @@ const depsCrearPanel = crearDepsCrearPanel({
   abrirAcciones: (panel, rect) => abrirAccionesPanel(depsLaterales, panel, rect),
   // [129A-8] Cierre perezoso como `alternarPanelDerecho` (fuera de la TDZ).
   verEnCambios: (ruta) => todoPanelDerecho.abrirCambiosEn(ruta),
+  // [139A-2] Cambios se revalida al cerrar turnos y al cambiar de
+  // conversación (cierres perezosos; `cambios` se crea más abajo).
+  // [139A-7] El cambio de conversación solo repinta el vault (cero git: el
+  // estado git no depende de la conversación).
+  alTerminarTurno: () => cambios.recargar(),
+  alCambiarConversacion: () => cambios.recargarVault(),
   // [129A-10 F1] Levanta la supresión del auto-abrir al iniciar cada turno.
   alIniciarTurno: () => todoNavegador.notificarTurnoInicio(),
 });

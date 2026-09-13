@@ -103,8 +103,15 @@ export function montarPanelDerechoTodo(deps: PanelDerechoDeps): PanelDerechoTodo
       toastGlobal.mostrar(texto, detalle);
     },
   });
+  // [139A-7] Resumen batch si el transporte lo expone; si no, el panel usa
+  // el fan-out clásico (sin simular el batch en web).
+  const gitResumenBatch = deps.adaptador.sesion.filesystem.gitResumen;
   const git = montarPanelCambios({
-    git: { estado: deps.adaptador.sesion.filesystem.gitEstado },
+    git: {
+      estado: (ruta) => deps.adaptador.sesion.filesystem.gitEstado(ruta),
+      repos: () => deps.adaptador.sesion.filesystem.gitRepos(),
+      ...(gitResumenBatch ? { resumen: () => gitResumenBatch() } : {}),
+    },
     cambios: {
       listar: (conv) => deps.adaptador.sesion.cambios(conv),
       rechazar: (conv, turno, ruta) => deps.adaptador.sesion.rechazarCambio(conv, turno, ruta),

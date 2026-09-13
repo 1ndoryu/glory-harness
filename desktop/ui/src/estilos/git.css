@@ -26,7 +26,10 @@
     font-size: var(--xs);
     opacity: .6;
 }
-.git-seccion + .git-seccion { border-top: 1px solid var(--borde); }
+/* Solo grupos internos (Staged/Changes dentro de `.git-lista`): las
+ * secciones colapsables externas (repos, vault) ya dividen con su propia
+ * cabecera y esta regla sin acotar les sumaba un segundo borde (2px). */
+.git-lista > .git-seccion + .git-seccion { border-top: 1px solid var(--borde); }
 .git-seccion-cabecera {
     display: flex;
     align-items: center;

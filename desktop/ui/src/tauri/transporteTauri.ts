@@ -1,7 +1,7 @@
 /* Transporte Tauri in-process (comportamiento 039A-1 intacto): cada método es
  * un `invoke` directo al comando del backend con el mismo nombre. */
 import { invoke } from '@tauri-apps/api/core';
-import type { EstadoGit } from '../componentes/panelGit';
+import type { EstadoGit, RepoGit, ResumenRepo } from '../componentes/panelGit';
 import type {
   EstadoMetaVisible,
   ListadoWorkspace,
@@ -130,8 +130,14 @@ export function transporteTauri(): Transporte {
         consulta,
         rutaRelativa: ruta ?? null,
       }),
-    workspaceGitEstado: () =>
-      invoke<EstadoGit>('workspace_git_estado'),
+    workspaceGitEstado: (ruta?) =>
+      ruta
+        ? invoke<EstadoGit>('workspace_git_estado_en', { ruta })
+        : invoke<EstadoGit>('workspace_git_estado'),
+    /** [139A-2] Repos bajo el área activa. */
+    workspaceGitRepos: () => invoke<RepoGit[]>('workspace_git_repos'),
+    /** [139A-7] Resumen batch: descubrir+estado por repo en un solo IPC. */
+    workspaceGitResumen: () => invoke<ResumenRepo[]>('workspace_git_resumen'),
     // [109A-3] Memorias: el backend resuelve el ámbito con el área activa y
     // no acepta rutas del front (export/import van a `.glory/memorias`).
     memoriaListar: () => invoke<ListadoMemoria>('memoria_listar_proyecto'),

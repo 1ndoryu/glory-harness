@@ -36,6 +36,10 @@ export interface DepsCrearPanelCtx {
   alternarPanelDerecho: () => void;
   abrirAcciones: (panel: PanelChat, rect: DOMRect) => void;
   verEnCambios: (ruta: string) => void;
+  /** [139A-2] Cambios se revalida al cerrar cada turno y al cambiar la
+   * conversación enfocada (cierres perezosos de runtime, como `verEnCambios`). */
+  alTerminarTurno: () => void;
+  alCambiarConversacion: () => void;
   /** [129A-10 F1] El orquestador levanta vetos de UI al iniciar cada turno
    * (cierre perezoso de runtime, como `verEnCambios`). */
   alIniciarTurno: () => void;
@@ -76,6 +80,8 @@ export function crearDepsCrearPanel(c: DepsCrearPanelCtx): CrearPanelDeps {
     notificarTurnoFin: () =>
       c.vistaMeta.notificarTurnoFin(() => {
         if (c.usaReal) void c.sesionVista.resincronizarSidebar();
+        // [139A-2] El turno cerró: git + vault pueden haber cambiado.
+        c.alTerminarTurno();
       }),
     registrarUltimoEnvio: (panel) => c.vistaMeta.registrarUltimoEnvio(panel),
     panelActivo: c.panelActivo,
@@ -87,5 +93,7 @@ export function crearDepsCrearPanel(c: DepsCrearPanelCtx): CrearPanelDeps {
     alternarPanelDerecho: c.alternarPanelDerecho,
     abrirAcciones: c.abrirAcciones,
     verEnCambios: c.verEnCambios,
+    alTerminarTurno: c.alTerminarTurno,
+    alCambiarConversacion: c.alCambiarConversacion,
   };
 }

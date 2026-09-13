@@ -34,3 +34,67 @@
     cursor: default;
     opacity: 0.5;
 }
+
+/* [139A-2] Repos apilados. [139A-6] Repos y vault comparten la sección
+ * colapsable (`seccionColapsable`), plana y sin cajas. Sistema de líneas
+ * (una sola en cada frontera, nunca 2px): la cabecera divide por abajo con
+ * el `border-bottom` heredado de `git.css` (aquí solo se resetea el botón
+ * nativo, sin re-declararlo) y los grupos internos Staged/Changes dividen
+ * con `.git-lista > .git-seccion + .git-seccion`. La lista plegada del vault
+ * anula su propio borde para no pegarse al de la cabecera. */
+.panel-cambios-repos {
+  display: flex;
+  flex-direction: column;
+}
+
+.git-seccion-cabecera.git-seccion-boton {
+  width: 100%;
+  background: transparent;
+  /* Resetea el botón nativo pero conserva la línea de `git.css`: este
+   * selector (0,2,0) gana siempre a `.git-seccion-cabecera` (0,1,0), así que
+   * la línea va explícita aquí y en un solo sitio (antes estaba duplicada
+   * y, junto al `border-top` sin acotar, sumaba 2px). */
+  border-style: solid;
+  border-width: 0 0 1px;
+  border-color: var(--borde);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.git-seccion-boton:hover {
+  background: var(--superficie-hover);
+}
+
+.git-seccion-boton:focus-visible {
+  outline: 1px solid var(--foco);
+  outline-offset: -1px;
+}
+
+.git-seccion-marcador {
+  min-width: 2ch;
+  color: var(--texto-tenue);
+  font-size: var(--xs);
+}
+
+/* [139A-6] Cuerpo plegado: el dueño marca su cuerpo con `.seccion-cuerpo`
+ * (el PanelGit de cada repo, la lista de filas del vault). El diff del
+ * vault vive fuera de la sección y se coordina desde `vaultCambios`. */
+.git-seccion.colapsado > .seccion-cuerpo {
+  display: none;
+}
+
+/* [139A-6] Vault plegado: la lista (`.git-lista` trae `border-bottom` para
+ * separar lista y diff) quedaría pegada a la línea de la cabecera (2px);
+ * mientras dura el plegado se anula desde `vaultCambios`. */
+.panel-cambios .git-lista.lista-plegada {
+  border-bottom: 0;
+}
+
+/* [139A-2] Barra de revalidación manual: discreta, arriba a la derecha. */
+.cambios-barra {
+  display: flex;
+  justify-content: flex-end;
+  padding: var(--sp-sm) var(--sp-sm) 0;
+}

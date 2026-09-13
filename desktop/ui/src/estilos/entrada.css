@@ -88,12 +88,12 @@
     font-weight: inherit;
     line-height: 1.45;
     padding: 0;
-    /* Autoexpandible hasta 5 líneas: el alto lo mide `ajustarEntrada()`
-       (entradaBarras.ts) contra `scrollHeight` y lo publica como variable;
-       aquí solo se aplica. Con `auto` el scrollbar sale justo cuando el texto
-       supera el tope. */
+    /* Autoexpandible hasta 5 líneas: el alto lo mide `ajustarTextArea()`
+       (util/autoAlto.ts) contra `scrollHeight` y lo publica como variable;
+       aquí solo se aplica. El overflow lo conmuta el helper (`hidden`
+       mientras crece, `auto` solo al llegar al tope): sin scrollbar fantasma. */
     height: var(--entrada-alto, auto);
-    overflow-y: auto;
+    overflow-y: hidden;
 }
 /* barra de controles bajo el textarea, dentro de la misma caja */
 .entrada .controles {
@@ -275,7 +275,9 @@
     position: fixed;
     z-index: 100;
     background: var(--fondo);
-    border: 1px solid #000;
+    /* [139A-3] `var(--borde)` en vez de `#000` literal: en oscuro/synara el
+       negro sobre negro era invisible (en claro es idéntico: #000000). */
+    border: 1px solid var(--borde);
     min-width: 230px;
     padding: 4px 0;
     /* Nace oculto y `.visible` lo destapa al final de abrirMenuContextual(),
@@ -310,7 +312,7 @@
 .menu-ctx .menu-item .flecha { display: inline-flex; flex: none; align-items: center; opacity: 0.5; }
 .menu-ctx .menu-item:hover .flecha { opacity: 1; }
 .menu-ctx .menu-sep {
-    border-top: 1px solid #000;
+    border-top: 1px solid var(--borde);
     margin: 4px 0;
 }
 /* submenú de modelos: se muestra/oculta por JS (hover sobre el proveedor) */
@@ -321,7 +323,7 @@
     left: 100%;
     margin-left: -1px;
     background: var(--fondo);
-    border: 1px solid #000;
+    border: 1px solid var(--borde);
     min-width: 250px;
     padding: 4px 0;
     z-index: 101;

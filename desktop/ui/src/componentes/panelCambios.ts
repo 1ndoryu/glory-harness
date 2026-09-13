@@ -1,12 +1,10 @@
 import '../estilos/cambios.css';
 import { el } from '../util/dom';
+import { dentroDePrefijo, normalizarRutaArea } from '../util/reposUtil';
+import { crearVueloUnico, type ModoVuelo } from '../util/vueloUnico';
+import { consultarGit, crearGestorRepos } from './cambiosRepos';
 import { montarPanelGit, type EstadoGit, type GitTransport, type PanelGit } from './panelGit';
-import {
-  pintarDiff,
-  separarEntradas,
-  sumarCambios,
-  type ArchivoGit,
-} from './gitDiff';
+import { crearVaultCambios } from './vaultCambios';
 import type { CambioArchivoTurno, RestauracionArchivo } from '../tauri/realTipos';
 
 /** Transporte del panel Cambios: vault por turno + rechazo puntual. */
@@ -18,6 +16,8 @@ export interface CambiosTransport {
 export interface PanelCambios {
   raiz: HTMLElement;
   recargar(): void;
+  /** [139A-7] Solo vault (cambiar de conversación): cero consultas a git. */
+  recargarVault(): void;
   /** [129A-7 F3] Refresco en vivo tras una escritura del agente (el vault ya
    * la tiene: re-consulta con antirrebote y conserva la selección por ruta). */
   registrarCambioVivo(ruta: string, diff: string | null): void;
@@ -28,8 +28,12 @@ export interface PanelCambios {
 
 /* [139A-1] Panel "Cambios": con git aplicable muestra SOLO el estado git (la
  * lista separada del vault era redundante); sin git muestra los cambios del
- * vault con las MISMAS clases git (sección, filas, caja de diff) en vez de
- * reinventar la lista (`cambios-lista` eliminada). */
+ * vault con las MISMAS clases git (`vaultCambios`). [139A-2] Con varios repos,
+ * una sección por repo (cabecera `nombre · rama`) y los huérfanos en "Sin
+ * repositorio". [139A-6] Repos y vault comparten `seccionColapsable` (planos,
+ * minimizados por defecto; el revelado expande). [139A-7] Recargas
+ * eficientes: single-flight con trailing, pipeline partido (cambiar de
+ * conversación no toca git) y pintar-solo-si-cambió (firmas). */
 export function montarPanelCambios(opts: {
   git: GitTransport;
   cambios: CambiosTransport;
@@ -38,231 +42,136 @@ export function montarPanelCambios(opts: {
   onToast?: (texto: string, detalle?: string) => void;
 }): PanelCambios {
   const raiz = el('div', 'panel-cambios');
-  const vault = el('div');
-  const git: PanelGit = montarPanelGit({ transporte: opts.git, onError: opts.onError });
-  git.raiz.hidden = true;
-  raiz.append(vault, git.raiz);
+  // [139A-2] Revalidación manual (el resto de refrescos son automáticos:
+  // fin de turno, escritura viva, abrir la tab, cambio de área/conversación).
+  const barra = el('div', 'cambios-barra');
+  const btnActualizar = el('button', 'btn cambios-boton');
+  btnActualizar.type = 'button';
+  btnActualizar.textContent = 'Actualizar';
+  btnActualizar.addEventListener('click', () => recargar());
+  barra.appendChild(btnActualizar);
+  const gitSimple: PanelGit = montarPanelGit({ transporte: opts.git, onError: opts.onError });
+  gitSimple.raiz.hidden = true;
 
   let secuencia = 0;
   let debounce: ReturnType<typeof setTimeout> | null = null;
-  let diffsVivos = new Map<string, string>();
+  const diffsVivos = new Map<string, string>();
   // [129A-8] Revelado pendiente (el listado es asíncrono: se aplica al pintar).
   let revelarPendiente: string | null = null;
-  // Vista vault: una fila por ruta (el cambio más reciente) + selección viva.
-  let vaultTurnos = new Map<string, CambioArchivoTurno>();
-  let vaultArchivos: ArchivoGit[] = [];
-  let seleccionVault: string | null = null;
+  // [139A-7] Caché anti re-análisis: git cargado al menos una vez, prefijos
+  // cubiertos, firmas del último pintado, conv pintada y sello de vivos (un
+  // diff vivo nuevo fuerza el repintado del vault aunque el listado coincida).
+  let gitListo = false;
+  let cubiertosActuales: string[] = [];
+  let firmaGitAnterior: string | null = null;
+  let firmaVaultAnterior: string | null = null;
+  let convPintada: string | null = null;
+  let sellosVivos = 0;
 
-  function claveRevisados(conv: string): string {
-    return `cambios-revisados:${conv}`;
-  }
+  const gestor = crearGestorRepos({
+    git: opts.git,
+    onError: opts.onError,
+    revelarHuerfano: (ruta) => vault.revelar(ruta),
+  });
 
-  function leerRevisados(conv: string): Set<string> {
-    try {
-      const crudo = localStorage.getItem(claveRevisados(conv));
-      const arr: unknown = crudo ? JSON.parse(crudo) : [];
-      return new Set(Array.isArray(arr) ? arr.filter((x): x is string => typeof x === 'string') : []);
-    } catch {
-      return new Set();
-    }
-  }
-
-  function guardarRevisados(conv: string, revisados: Set<string>): void {
-    try {
-      localStorage.setItem(claveRevisados(conv), JSON.stringify([...revisados]));
-    } catch {
-      /* sin persistencia: la marca vive en memoria esta sesión */
-    }
-  }
-
-  function normalizarRuta(ruta: string): string {
-    return ruta.replaceAll('\\', '/').trim();
-  }
-
-  function crearStat(marca: '+' | '−', cantidad: number): HTMLElement {
-    const nodo = el('span', marca === '+' ? 'git-adiciones' : 'git-eliminaciones');
-    nodo.textContent = `${marca}${cantidad}`;
-    return nodo;
-  }
-
-  function pintarVaultVacio(texto: string): void {
-    vault.replaceChildren();
-    vaultArchivos = [];
-    vaultTurnos = new Map();
-    seleccionVault = null;
-    const vacio = el('div', 'git-vacio');
-    vacio.textContent = texto;
-    vault.appendChild(vacio);
-  }
-
-  function pintarVault(cambios: CambioArchivoTurno[], conv: string): void {
-    vault.replaceChildren();
-    // Una fila por ruta (el turno más reciente si varios la tocaron).
-    vaultTurnos = new Map();
-    for (const c of cambios) {
-      const clave = normalizarRuta(c.ruta);
-      const previo = vaultTurnos.get(clave);
-      if (!previo || c.en_ms >= previo.en_ms) vaultTurnos.set(clave, c);
-    }
-    const rutas = [...vaultTurnos.keys()].sort((a, b) => a.localeCompare(b));
-    if (rutas.length === 0) {
+  const vault = crearVaultCambios({
+    cambios: opts.cambios,
+    diffsVivos,
+    tomarRevelado: () => {
+      const objetivo = revelarPendiente;
       revelarPendiente = null;
-      pintarVaultVacio('el agente aún no tocó archivos en esta conversación');
-      return;
-    }
-    // Diffs vivos envueltos en cabecera `diff --git` para que
-    // `separarEntradas` los atribuya por ruta igual que con git real.
-    const vivos = new Map<string, string>();
-    for (const [ruta, diff] of diffsVivos) vivos.set(normalizarRuta(ruta), diff);
-    const diffUnstaged = rutas
-      .map((ruta) => {
-        const vivo = vivos.get(ruta)?.trim();
-        if (!vivo) return '';
-        return `diff --git a/${ruta} b/${ruta}\n--- a/${ruta}\n+++ b/${ruta}\n${vivo}`;
-      })
-      .filter((bloque) => bloque !== '')
-      .join('\n');
-    const datos = separarEntradas(
-      rutas.map((ruta) => ({ estado: ' M', ruta })),
-      '',
-      diffUnstaged,
-    );
-    vaultArchivos = datos.changes;
+      return objetivo;
+    },
+    recargar: () => recargar(),
+    onToast: opts.onToast,
+  });
+  raiz.append(barra, vault.raiz, gestor.raiz, gitSimple.raiz);
 
-    const contenido = el('div', 'git-contenido');
-    const lista = el('div', 'git-lista');
-    lista.setAttribute('role', 'list');
-    const cajaDiff = el('div', 'git-diff');
-    cajaDiff.hidden = true;
-    const seccion = el('section', 'git-seccion');
-    const cab = el('div', 'git-seccion-cabecera');
-    const titulo = el('span', 'git-seccion-titulo');
-    titulo.textContent = 'Cambios';
-    const contador = el('span', 'git-seccion-contador');
-    contador.textContent = String(vaultArchivos.length);
-    const stat = el('span', 'git-seccion-estadistica');
-    const totales = sumarCambios(vaultArchivos);
-    stat.append(crearStat('+', totales.adiciones), crearStat('−', totales.eliminaciones));
-    cab.append(titulo, contador, stat);
-    seccion.appendChild(cab);
-    const filas = el('div', 'git-seccion-lista');
-    const revisados = leerRevisados(conv);
-    for (const archivo of vaultArchivos) {
-      const fila = el('button', 'git-entrada');
-      fila.type = 'button';
-      fila.setAttribute('role', 'listitem');
-      fila.dataset.ruta = archivo.ruta;
-      fila.title = archivo.ruta;
-      fila.classList.toggle('revisado', revisados.has(archivo.ruta));
-      const codigo = el('span', 'git-codigo');
-      codigo.textContent = 'M';
-      const rutaNodo = el('span', 'git-ruta');
-      rutaNodo.textContent = archivo.ruta;
-      const statArchivo = el('span', 'git-entrada-estadistica');
-      statArchivo.append(crearStat('+', archivo.adiciones), crearStat('−', archivo.eliminaciones));
-      fila.append(codigo, rutaNodo, statArchivo);
-      fila.addEventListener('click', () => seleccionarVault(archivo, conv, lista, cajaDiff));
-      filas.appendChild(fila);
-    }
-    seccion.appendChild(filas);
-    lista.appendChild(seccion);
-    contenido.append(lista, cajaDiff);
-    vault.appendChild(contenido);
-
-    // Restaura la selección o aplica el revelado pendiente (una sola vez).
+  function consumirRevelado(): string | null {
     const objetivo = revelarPendiente;
     revelarPendiente = null;
-    if (objetivo) {
-      const archivo = vaultArchivos.find(
-        (a) => a.ruta === objetivo || a.ruta === normalizarRuta(objetivo),
-      );
-      if (archivo) {
-        seleccionarVault(archivo, conv, lista, cajaDiff);
-        lista
-          .querySelector(`.git-entrada[data-ruta="${CSS.escape(archivo.ruta)}"]`)
-          ?.scrollIntoView({ block: 'nearest' });
-      }
-    } else if (seleccionVault) {
-      const archivo = vaultArchivos.find((a) => a.ruta === seleccionVault);
-      if (archivo) seleccionarVault(archivo, conv, lista, cajaDiff);
-      else seleccionVault = null;
+    return objetivo;
+  }
+
+  function firmaCambios(cambios: CambioArchivoTurno[]): string {
+    return JSON.stringify(cambios.map((c) => [c.ruta, c.turno_id, c.en_ms, c.herramienta]));
+  }
+
+  /* Vault en modo multi-repo: huérfanos fuera de prefijos cubiertos. Solo
+   * pinta si cambió algo visible (conv, lista, vivos o visibilidad git).
+   * Devuelve el revelado consumido para aplicarlo sobre el DOM final. */
+  async function pintarVaultRepos(id: number): Promise<string | null> {
+    const conv = opts.convId();
+    const ocultoGit = gestor.raiz.hidden;
+    if (!conv) {
+      convPintada = null;
+      vault.ocultar();
+      if (ocultoGit) vault.pintarVacio('sin cambios en el área');
+      return null;
     }
+    let cambios: CambioArchivoTurno[] = [];
+    try {
+      cambios = await opts.cambios.listar(conv);
+    } catch (error: unknown) {
+      if (id !== secuencia) return null;
+      convPintada = null;
+      vault.ocultar();
+      opts.onError?.('no se pudieron listar los cambios', String(error));
+      return null;
+    }
+    if (id !== secuencia) return null;
+    const objetivo = consumirRevelado();
+    const huerfanos = cambios.filter(
+      (c) => !cubiertosActuales.some((prefijo) => dentroDePrefijo(normalizarRutaArea(c.ruta), prefijo)),
+    );
+    const firma = `R|${conv}|${sellosVivos}|${ocultoGit}|${firmaCambios(huerfanos)}`;
+    if (convPintada !== conv || firma !== firmaVaultAnterior) {
+      firmaVaultAnterior = firma;
+      convPintada = conv;
+      if (huerfanos.length > 0) {
+        vault.pintar(huerfanos, conv, 'Sin repositorio', objetivo);
+      } else {
+        vault.ocultar();
+        if (ocultoGit) vault.pintarVacio('sin cambios en el área');
+      }
+    }
+    return objetivo;
   }
 
-  function seleccionarVault(
-    archivo: ArchivoGit,
-    conv: string,
-    lista: HTMLElement,
-    cajaDiff: HTMLElement,
-  ): void {
-    seleccionVault = archivo.ruta;
-    cajaDiff.hidden = false;
-    pintarDiff(cajaDiff, archivo, accionesVault(archivo, conv, lista));
-    lista.querySelectorAll('.git-entrada').forEach((fila) => {
-      fila.classList.toggle(
-        'seleccionada',
-        fila instanceof HTMLElement && fila.dataset.ruta === archivo.ruta,
-      );
-    });
-  }
-
-  function accionesVault(archivo: ArchivoGit, conv: string, lista: HTMLElement): HTMLElement[] {
-    const cambio = vaultTurnos.get(archivo.ruta);
-    const revisados = leerRevisados(conv);
-    const estado = el('span', 'cambios-estado');
-    const btnAceptar = el('button', 'btn cambios-boton');
-    btnAceptar.type = 'button';
-    btnAceptar.textContent = 'Aceptar';
-    const btnRechazar = el('button', 'btn cambios-boton cambios-boton-rechazar');
-    btnRechazar.type = 'button';
-    btnRechazar.textContent = 'Rechazar';
-    const refrescar = () => {
-      const ok = revisados.has(archivo.ruta);
-      estado.textContent = ok ? 'revisado' : '';
-      btnAceptar.disabled = ok;
-      lista.querySelectorAll('.git-entrada').forEach((fila) => {
-        if (fila instanceof HTMLElement && fila.dataset.ruta === archivo.ruta) {
-          fila.classList.toggle('revisado', ok);
-        }
-      });
-    };
-    refrescar();
-    // Aceptar = solo marca revisado (localStorage por conversación).
-    btnAceptar.addEventListener('click', () => {
-      revisados.add(archivo.ruta);
-      guardarRevisados(conv, revisados);
-      refrescar();
-    });
-    // Rechazar = restaura el previo del vault, directo.
-    btnRechazar.addEventListener('click', () => {
-      if (!cambio) return;
-      btnAceptar.disabled = true;
-      btnRechazar.disabled = true;
-      estado.textContent = 'restaurando…';
-      opts.cambios
-        .rechazar(conv, cambio.turno_id, cambio.ruta)
-        .then((r) => {
-          if (r.estado === 'restaurado') {
-            opts.onToast?.(`rechazado: ${cambio.ruta}`, 'restaurado al estado previo del turno');
-            recargar();
-          } else {
-            opts.onToast?.(
-              `no se tocó ${cambio.ruta}`,
-              r.detalle ?? r.estado,
-            );
-            recargar();
-          }
-        })
-        .catch((e: unknown) => {
-          opts.onToast?.(`no se pudo rechazar ${cambio.ruta}`, String(e));
-          recargar();
-        });
-    });
-    return [estado, btnAceptar, btnRechazar];
-  }
-
-  async function cargar(): Promise<void> {
+  async function ejecutar(modo: ModoVuelo): Promise<void> {
     const id = ++secuencia;
+    // Vault-only (cambio de conversación): el revelado pendiente es de otra
+    // conversación y se descarta; git ni se consulta. Sin git cargado aún,
+    // cae al total para descubrir repos y prefijos cubiertos.
+    if (modo === 'vault' && gitListo) {
+      revelarPendiente = null;
+      await pintarVaultRepos(id);
+      return;
+    }
+    // [139A-2] Una consulta git por recarga total (batch `resumen` si el
+    // transporte lo ofrece, si no fan-out); sin repos el camino simple 139A-1
+    // queda intacto.
+    let consulta: Awaited<ReturnType<typeof consultarGit>> | null = null;
+    try {
+      consulta = await consultarGit(opts.git);
+    } catch {
+      consulta = null;
+    }
+    if (id !== secuencia) return;
+    if (consulta && consulta.repos.length > 0) {
+      gitListo = true;
+      gitSimple.raiz.hidden = true;
+      gestor.sincronizar(consulta.repos);
+      const { cubiertos, oculto } = gestor.pintar(consulta.resultados);
+      cubiertosActuales = cubiertos;
+      gestor.raiz.hidden = oculto;
+      const objetivo = await pintarVaultRepos(id);
+      if (id !== secuencia) return;
+      if (objetivo) gestor.revelarAhora(normalizarRutaArea(objetivo));
+      return;
+    }
+    gitListo = true;
+    gestor.raiz.hidden = true;
     // Una sola consulta a git por recarga: decide el modo y pinta sin refetch.
     let gitEstado: EstadoGit | null = null;
     let gitError: string | null = null;
@@ -273,40 +182,61 @@ export function montarPanelCambios(opts: {
     }
     if (id !== secuencia) return;
     if (gitEstado?.aplicable) {
-      vault.replaceChildren();
-      vault.hidden = true;
-      git.raiz.hidden = false;
-      git.fijar(gitEstado);
-      const objetivo = revelarPendiente;
-      revelarPendiente = null;
-      if (objetivo && !git.seleccionar(objetivo)) git.seleccionar(normalizarRuta(objetivo));
+      vault.ocultar();
+      gitSimple.raiz.hidden = false;
+      convPintada = null;
+      const firma = JSON.stringify(gitEstado);
+      if (firma !== firmaGitAnterior) {
+        firmaGitAnterior = firma;
+        gitSimple.fijar(gitEstado);
+      }
+      const objetivo = consumirRevelado();
+      if (objetivo && !gitSimple.seleccionar(objetivo)) gitSimple.seleccionar(normalizarRutaArea(objetivo));
       return;
     }
     if (gitError) opts.onError?.('no se pudo consultar Git', gitError);
-    git.raiz.hidden = true;
-    vault.hidden = false;
+    gitSimple.raiz.hidden = true;
+    firmaGitAnterior = null;
+    const objetivo = consumirRevelado();
     const conv = opts.convId();
     if (!conv) {
-      pintarVaultVacio('abre una conversación para ver sus cambios');
+      convPintada = null;
+      vault.pintarVacio('abre una conversación para ver sus cambios');
       return;
     }
     try {
+      if (id !== secuencia) return;
       const cambios = await opts.cambios.listar(conv);
       if (id !== secuencia) return;
-      pintarVault(cambios, conv);
+      const firma = `S|${conv}|${sellosVivos}|${firmaCambios(cambios)}`;
+      if (convPintada !== conv || firma !== firmaVaultAnterior) {
+        firmaVaultAnterior = firma;
+        convPintada = conv;
+        vault.pintar(cambios, conv, 'Cambios', objetivo);
+      }
     } catch (error: unknown) {
       if (id !== secuencia) return;
-      vault.replaceChildren();
+      convPintada = null;
+      vault.ocultar();
       opts.onError?.('no se pudieron listar los cambios', String(error));
     }
   }
 
+  const vuelo = crearVueloUnico(ejecutar);
+
   function recargar(): void {
-    void cargar();
+    vuelo.solicitar('total');
+  }
+
+  function recargarVault(): void {
+    vuelo.solicitar('vault');
   }
 
   function registrarCambioVivo(ruta: string, diff: string | null): void {
-    if (diff) diffsVivos.set(ruta, diff);
+    if (diff) {
+      diffsVivos.set(ruta, diff);
+      sellosVivos++;
+    }
     if (debounce) clearTimeout(debounce);
     debounce = setTimeout(recargar, 800);
   }
@@ -316,5 +246,5 @@ export function montarPanelCambios(opts: {
     recargar();
   }
 
-  return { raiz, recargar, registrarCambioVivo, revelar };
+  return { raiz, recargar, recargarVault, registrarCambioVivo, revelar };
 }

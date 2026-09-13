@@ -12,9 +12,11 @@
 .toast-item {
     max-width: min(420px, calc(100vw - (2 * var(--sp-md))));
     padding: var(--sp-sm) var(--sp-md);
-    color: var(--fondo);
-    background: var(--texto);
-    border: 1px solid var(--texto);
+    /* [139A-3] Superficie normal (no invertida): en oscuro/synara la caja
+       invertida quedaba como un pegote claro; con variables se adapta sola. */
+    color: var(--texto);
+    background: var(--fondo);
+    border: 1px solid var(--borde);
     font-size: var(--xs);
     pointer-events: auto;
 }

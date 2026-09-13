@@ -67,6 +67,10 @@ export interface CrearPanelVista {
   abrirAcciones: (panel: PanelChat, rect: DOMRect) => void;
   /** [129A-8] Abre la tab Cambios en el archivo (enlace del resumen). */
   verEnCambios: (ruta: string) => void;
+  /** [139A-2] Cambios se refresca al cerrar cada turno (cierre perezoso). */
+  alTerminarTurno: () => void;
+  /** [139A-2] …y al cambiar la conversación del panel enfocado. */
+  alCambiarConversacion: () => void;
 }
 
 export interface CrearPanelDeps
@@ -129,6 +133,8 @@ export function crearPanel(
         if (deps.panelActivo() === panel) {
           if (id) deps.sidebar.seleccionar(id);
           else deps.sidebar.seleccionar('');
+          // [139A-2] Cambios sigue la conversación enfocada: revalida.
+          deps.alCambiarConversacion();
         }
         // El panel meta no forma parte del borrador inicial: aparece al
         // escribir el primer mensaje o al cargar una conversación real.

@@ -4,6 +4,7 @@
 import type { ElementoSeleccionado } from '../dominio/tipos';
 import { ponerIcono } from './iconos';
 import { el } from '../util/dom';
+import { ajustarTextArea } from '../util/autoAlto';
 
 export interface BarrasEntradaDeps {
   idPrefijo: string;
@@ -151,19 +152,10 @@ export function crearBarrasEntrada(deps: BarrasEntradaDeps): BarrasEntrada {
   }
 
   // ---------- textarea autoexpandible (máx 5 líneas) ----------
-  // El alto nace de una medida (`scrollHeight`), no del diseño: se publica como
-  // variable y lo aplica `entrada.css`. El tope se calcula aquí porque depende
-  // del `line-height` ya resuelto por el navegador.
+  // La medida vive en `util/autoAlto` (testeable, sin scrollbar fantasma);
+  // aquí solo se delega en cada `input` y al montar.
   function ajustarEntrada(): void {
-    textarea.style.setProperty('--entrada-alto', 'auto');
-    const lh = getComputedStyle(textarea).lineHeight;
-    const linea = lh === 'normal' ? 18 : parseFloat(lh);
-    const max = linea * 5;
-    /* +1px de holgura: el line-height fraccional (1.45) deja scrollHeight
-       con decimales y publicar el valor exacto provocaba un scrollbar
-       fantasma con una sola fila. El tope de 5 líneas no cambia. */
-    const alto = Math.min(max, textarea.scrollHeight + 1);
-    textarea.style.setProperty('--entrada-alto', `${alto}px`);
+    ajustarTextArea(textarea, 5);
   }
   textarea.addEventListener('input', ajustarEntrada);
   ajustarEntrada();

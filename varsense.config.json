@@ -1,10 +1,14 @@
 {
-  "variableFiles": [],
+  "variableFiles": [
+    "desktop/ui/src/estilos/variables.css",
+    "desktop/ui/src/estilos/tema-synara.css"
+  ],
   "includePatterns": [
     "core/src/**/*.rs",
     "cli/src/**/*.rs",
     "desktop/src-tauri/src/**/*.rs",
-    "desktop/ui/src/**/*.ts"
+    "desktop/ui/src/**/*.ts",
+    "desktop/ui/src/**/*.css"
   ],
   "excludePatterns": [
     "**/node_modules/**",
