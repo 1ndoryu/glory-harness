@@ -85,7 +85,7 @@
     padding: var(--sp-sm);
 }
 .git-diff-caja {
-    min-width: max-content;
+    max-width: 100%;
     border: 1px solid var(--borde);
     background: var(--fondo);
 }
@@ -102,9 +102,9 @@
 .git-diff-cuerpo { font-size: var(--xs); line-height: 1.5; }
 .git-diff-linea {
     display: grid;
-    grid-template-columns: 4ch 4ch 2ch minmax(max-content, 1fr);
-    min-width: max-content;
-    white-space: pre;
+    grid-template-columns: 4ch 4ch 2ch minmax(0, 1fr);
+    min-width: 0;
+    white-space: pre-wrap;
 }
 .git-diff-linea:hover { background: var(--superficie-hover); }
 .git-diff-numero {
@@ -116,7 +116,7 @@
     user-select: none;
 }
 .git-diff-marca { text-align: center; user-select: none; }
-.git-diff-texto { padding: 0 var(--sp-sm); }
+.git-diff-texto { min-width: 0; padding: 0 var(--sp-sm); overflow-wrap: anywhere; }
 .git-diff-adicion { background: var(--superficie-diff-adicion); }
 .git-diff-eliminacion { background: var(--superficie-diff-eliminacion); }
 .git-diff-adicion .git-diff-marca { font-weight: 700; }
@@ -131,5 +131,5 @@
 }
 @media (max-width: 620px) {
     .git-lista { max-height: 48%; }
-    .git-diff-linea { grid-template-columns: 3ch 3ch 2ch minmax(max-content, 1fr); }
+    .git-diff-linea { grid-template-columns: 3ch 3ch 2ch minmax(0, 1fr); }
 }

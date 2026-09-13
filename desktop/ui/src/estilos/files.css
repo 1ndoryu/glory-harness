@@ -151,7 +151,7 @@
 }
 .files-visor-linea {
     display: flex;
-    min-width: max-content;
+    min-width: 0;
     padding-right: var(--sp-md);
 }
 .files-visor-linea:hover { background: var(--texto); }
@@ -166,12 +166,13 @@
     opacity: .4;
     user-select: none;
 }
-.files-visor-texto { white-space: pre; }
+.files-visor-texto { flex: 1; min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 .files-visor-plano {
     margin: 0;
     padding: 0 var(--sp-sm);
     font: inherit;
-    white-space: pre;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
 }
 
 @media (max-width: 620px) {
