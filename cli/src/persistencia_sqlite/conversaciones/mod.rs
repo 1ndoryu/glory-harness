@@ -2,10 +2,12 @@
 //! turnos, mensajes, acciones y rewind. Partido de `persistencia_sqlite.rs`
 //! (limite-lineas 1006 + nivel-2).
 
+use chrono::{DateTime, Utc};
 use rusqlite::{params, OptionalExtension};
 use uuid::Uuid;
 
 use glory_harness_core::error::Error;
+use glory_harness_core::ports::MensajePersistido;
 use glory_harness_core::HarnessResult;
 
 use super::{
@@ -14,6 +16,7 @@ use super::{
 };
 
 mod lote;
+pub(crate) mod mensajes;
 
 impl PersistenciaSqlite {
     // --- CRUD de conversaciones (inherente: no forma parte del trait) ---
@@ -72,6 +75,29 @@ impl PersistenciaSqlite {
             )
             .map_err(|e| Error::Persistencia(e.to_string()))?;
         Ok(())
+    }
+
+    /// [139A-8 F2] (R3) Una conversación propia por id: SELECT puntual para
+    /// el auto-nombre del primer mensaje (evita el full-scan de
+    /// `conversaciones_listar` + `find`). Núcleo en `mensajes`.
+    pub fn conversacion_obtener(
+        &self,
+        user_id: Uuid,
+        conversacion_id: Uuid,
+    ) -> HarnessResult<Option<InfoConversacion>> {
+        mensajes::leer_conversacion(&bloquear(&self.conn), user_id, conversacion_id)
+    }
+
+    /// [139A-8 F2] (R3) Mensajes con filtro en SQL (`desde`/`limite`; sin
+    /// filtros equivale al listado completo). Núcleo en `mensajes`; el puerto
+    /// (`listar_mensajes`) delega aquí.
+    pub async fn listar_mensajes_desde(
+        &self,
+        conversacion_id: Uuid,
+        desde: Option<DateTime<Utc>>,
+        limite: Option<u64>,
+    ) -> HarnessResult<Vec<MensajePersistido>> {
+        mensajes::listar_mensajes_desde(self, conversacion_id, desde, limite).await
     }
 
     /// Lista TODAS las conversaciones del usuario (recientes primero).

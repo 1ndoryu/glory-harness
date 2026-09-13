@@ -484,13 +484,27 @@ impl SesionComun {
             Ok(estado) => estado.activa.map(|activa| activa.texto).or(meta_borrador),
             Err(e) => return Err(Error::Turno(format!("meta de la conversación: {e}"))),
         };
-        let mensajes_previos = self
-            .persistencia
-            .listar_mensajes(conversacion_id)
-            .await
-            .map_err(|e| Error::Persistencia(e.to_string()))?;
+        /* [139A-8 F2] (R3) El punto se resuelve ANTES de leer: con marca, el
+         * filtro `>=` baja al SQL (`listar_mensajes_desde`) y el turno largo
+         * ya no recorre todo el historial. Sin marca el comportamiento no
+         * cambia (el modelo necesita el historial completo). */
+        let punto = self.punto_de_compactacion(conversacion_id)?;
+        let mensajes_previos = match punto.as_ref().map(|(cuando, _)| *cuando) {
+            Some(cuando) => {
+                self.persistencia
+                    .listar_mensajes_desde(conversacion_id, Some(cuando), None)
+                    .await
+                    .map_err(|e| Error::Persistencia(e.to_string()))?
+            }
+            None => {
+                self.persistencia
+                    .listar_mensajes(conversacion_id)
+                    .await
+                    .map_err(|e| Error::Persistencia(e.to_string()))?
+            }
+        };
         let habia_historial = !mensajes_previos.is_empty();
-        let historial = match self.punto_de_compactacion(conversacion_id)? {
+        let historial = match punto {
             /* [109A-4 F3] Compactación manual previa: el modelo arranca del
              * resumen persistido y solo ve los mensajes posteriores a la marca
              * (verbatim). Nada se borra en disco: el historial visible, el
@@ -516,12 +530,12 @@ impl SesionComun {
          * el título sigue siendo el default "Nueva conversación" y no había
          * historial previo (evita pisar renombres manuales). */
         if !habia_historial {
+            /* [139A-8 F2] (R3) SELECT puntual por id: el auto-nombre del
+             * primer mensaje ya no lista todas las conversaciones. */
             let es_default = self
                 .persistencia
-                .conversaciones_listar(self.user_id)
+                .conversacion_obtener(self.user_id, conversacion_id)
                 .map_err(|e| Error::Persistencia(e.to_string()))?
-                .into_iter()
-                .find(|c| c.id == conversacion_id)
                 .map(|c| c.titulo == "Nueva conversación")
                 .unwrap_or(false);
             if es_default {

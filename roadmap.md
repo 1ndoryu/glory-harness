@@ -94,6 +94,9 @@ Siguiente en la serie de 6 pedidos: 129A-11 → 129A-9.
       F4 puertos y god-objects (S1–S5) → F5 streaming/IPC frente (R5/G1–G3,
       K11/G6) → F6 re-medidor + 10+5 reglas. Coordinar F5/G1 con 139A-7.
       Plan: `Agente/planes/plan-139A-8-remediacion-auditoria-2026-09-13.md`.
+      F2 cerrada 13-09 (gate PASS, 477 tests): `con_conn` (`spawn_blocking`)
+      en puerto/tareas, lectura de mensajes con filtro SQL + `conversacion_obtener`
+      puntual, p95 turno 87,81 ms → 3,83 ms; siguiente F3.
 - [ ] **129A-3 — Aprobación: el turno pausa y continúa (sin reenvío) + tarjeta fija + toast Windows**
       (rediseño 12-09 tras verificación real fallida: la tarjeta se duplicaba,
       el `mkdir` no se creaba y volvía a preguntar tras aceptar):

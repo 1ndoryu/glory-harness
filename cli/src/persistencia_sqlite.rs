@@ -325,6 +325,33 @@ fn bloquear<'a>(conn: &'a Arc<Mutex<Connection>>) -> std::sync::MutexGuard<'a, C
 }
 
 impl PersistenciaSqlite {
+    /// [139A-8 F2] (R1/R2) Ejecuta `op` con la conexión en el pool de hilos
+    /// bloqueantes de tokio en vez del worker async: rusqlite es síncrono y
+    /// una consulta larga (turno sobre miles de mensajes) retenía el worker y
+    /// elevaba el p99 de SSE, Tauri y `preparar_turno`. La conexión es `Send`,
+    /// así que mover el `Arc` al cierre es seguro; el `Mutex` sigue
+    /// serializando el acceso intra-proceso y el `busy_timeout` de 5 s cubre
+    /// el `SQLITE_BUSY` entre procesos (CLI + escritorio sobre la misma BD).
+    /// Los métodos inherentes síncronos de una sola fila (PK) no lo usan: son
+    /// microsegundos y también los llaman contextos síncronos (CLI/Tauri).
+    async fn con_conn<F, T>(&self, op: F) -> HarnessResult<T>
+    where
+        F: FnOnce(&Connection) -> HarnessResult<T> + Send + 'static,
+        T: Send + 'static,
+    {
+        let conn = Arc::clone(&self.conn);
+        tokio::task::spawn_blocking(move || {
+            let c = conn
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            op(&c)
+        })
+        .await
+        .map_err(|e| Error::Persistencia(format!("hilo bloqueante: {e}")))?
+    }
+}
+
+impl PersistenciaSqlite {
     fn abrir_conexion(ruta: Option<&Path>) -> HarnessResult<Connection> {
         let conn = match ruta {
             Some(r) => {

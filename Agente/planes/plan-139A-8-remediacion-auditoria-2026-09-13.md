@@ -1,7 +1,8 @@
 # Plan 139A-8 — Remediación de la auditoría integral (2026-09-13)
 
 > **Estado: EN EJECUCIÓN (v4, 13-09).** "Adelante" recibido; árbol limpio
-> (`c986dac` pusheado). **F0 y F1 completadas** (gate PASS abajo); siguiente F2.
+> (`c986dac` pusheado). **F0, F1 y F2 completadas** (gates PASS abajo);
+> siguiente F3.
 > Las 3 decisiones abiertas están cerradas abajo (§ Decisiones).
 > Fuente: `Agente/documentacion/auditoria-integral-2026-09-13.md` (v2 verificada).
 > IDs S/R/K/G según la auditoría. Siguiente ID libre tras este: 139A-9.
@@ -157,6 +158,35 @@ F5 depende de F4 solo en tipos tocados (re-export los desacopla); F6 cierra.
 - Gate: `sentinel check 139A-8` **PASS** (21 archivos, 0 errores; 3 infos ISP
   preexistentes en `desktop/ui`). `cargo test comandos::web`: 44/44.
 
+## Ejecución F2 (13-09, completada + gate PASS)
+
+- **R1/R2** (`persistencia_sqlite.rs::con_conn`): `spawn_blocking` + `Arc` +
+  `Mutex` sobre la conexión única (`busy_timeout` 5 s); `puerto.rs`
+  (`AgentPersistence`, 17 métodos) y `tareas.rs` (`ProgramadorTareas`) clonan
+  sus argumentos a valores propios y ejecutan el SQL en `con_conn`. Las
+  inherentes puntuales de 1 fila por PK quedan síncronas (sin `await` que
+  mover: no había bloqueo que corregir).
+- **R3** (`conversaciones/mensajes.rs` nuevo, partido de `mod.rs` por
+  limite-lineas 500): `leer_mensajes` (una consulta con `creado_en >= ?` +
+  `LIMIT` opcionales, `ORDER BY creado_en ASC, rowid ASC`),
+  `listar_mensajes_desde` (async, convierte la marca a segundos RFC 3339),
+  `leer_conversacion` (SELECT puntual por PK para el auto-nombre);
+  `sesion.rs::preparar_turno_con_modo` resuelve el punto de compactación
+  ANTES de leer y usa `listar_mensajes_desde(Some(cuando))` (turno largo sin
+  full-scan). `>=` conserva la semántica de segundos de `sesion.rs`.
+- **Medición** (`cli/tests/p95_turno.rs` nuevo): fixture 5 k mensajes, N=2
+  tareas × 25 iters = 50 `preparar_turno` concurrentes; baseline debug
+  `p50=61,02 ms p95=87,81 ms` (`P95_BASELINE_MS=Some(88,0)`); tras el fix
+  `p50=1,90 ms p95=3,83 ms` (≤ 0,5× = 44 ms, ~23× mejor).
+- **DoD**: `mensajes_desde_filtra_en_sql_y_obtener_es_puntual` (200 mensajes,
+  100 posteriores con `>=` mismo segundo, ownership ajena/inexistente).
+- **Gate**: `sentinel check 139A-8` **PASS** (18 archivos, rust 83 s, 0
+  errores, 0 warnings; 477 tests ok). Fricción de disco: el guard exige 8 GB
+  en C: (`GLORY_MIN_FREE_GB` no atraviesa `sentinel check`, usa 8 fijo);
+  liberado borrando `debug/incremental` (4,66 GB, se regenera). `C:\tmp`
+  sigue ~11,7 GB (casi todo el target activo) por encima del tope 7 GB de
+  `AGENTS.md`: pendiente higiene de target (mejora candidata, no creada).
+
 ## Revisión
 
 - v1 (13-09): borrador en revisión.
@@ -164,6 +194,8 @@ F5 depende de F4 solo en tipos tocados (re-export los desacopla); F6 cierra.
   F1; cabeceras F1/F3 actualizadas.
 - v3 (13-09, cierre): 3 decisiones tomadas (§ Decisiones: rotura dura S4, test
   `p95_turno.rs` con umbral 0,5×, F5/G1 = solo regresión de 139A-7). Plan LISTO;
-  arranque F0 pendiente de tu "adelante". Cobertura de hallazgos: todos los
-  CRÍTICO/ALTO tienen fase (K1,K13,K3,K9,K12,K2,K8,K10,R1,R2,R3,S1–S5,G1);
-  MEDIOS/BAJOS solo si los roza su fase; resto = deuda registrada en auditoría.
+   arranque F0 pendiente de tu "adelante". Cobertura de hallazgos: todos los
+   CRÍTICO/ALTO tienen fase (K1,K13,K3,K9,K12,K2,K8,K10,R1,R2,R3,S1–S5,G1);
+   MEDIOS/BAJOS solo si los roza su fase; resto = deuda registrada en auditoría.
+- v4 (13-09): F2 ejecutada y cerrada con gate PASS (ver § Ejecución F2);
+  siguiente F3.

@@ -2,6 +2,10 @@
 //! turnos, mensajes, acciones, memoria, skills y cola del scheduler.
 //! Un solo bloque `impl` (el trait no admite repartos por fichero); los
 //! dominios inherentes viven en `conversaciones` / `memoria` / `tareas`.
+//!
+//! [139A-8 F2] (R1/R2) Cada método mueve sus argumentos a valores propios y
+//! ejecuta el SQL en `con_conn` (`spawn_blocking`): rusqlite es síncrono y
+//! estos `await` retenían el worker async.
 
 use async_trait::async_trait;
 use chrono::{DateTime, SecondsFormat, Utc};
@@ -16,15 +20,16 @@ use glory_harness_core::ports::{
 use glory_harness_core::{AgentPersistence, HarnessResult};
 
 use super::{
-    a_fecha, a_uuid, ahora_rfc3339, ambito_a_workspace_id, bloquear, workspace_id_a_ambito,
+    a_fecha, a_uuid, ahora_rfc3339, ambito_a_workspace_id, workspace_id_a_ambito,
     PersistenciaSqlite,
 };
 
 #[async_trait]
 impl AgentPersistence for PersistenciaSqlite {
     async fn guardar_turno(&self, turno: &TurnoPersistido) -> HarnessResult<()> {
-        bloquear(&self.conn)
-            .execute(
+        let turno = turno.clone();
+        self.con_conn(move |conn| {
+            conn.execute(
                 "INSERT INTO turnos (id, conversacion_id, user_id, estado, resumen, creado_en,
                  provider, modelo, tokens_prompt, tokens_complecion, tools_ejecutadas, duracion_ms, error)
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
@@ -45,7 +50,9 @@ impl AgentPersistence for PersistenciaSqlite {
                 ],
             )
             .map_err(|e| Error::Persistencia(e.to_string()))?;
-        Ok(())
+            Ok(())
+        })
+        .await
     }
 
     async fn finalizar_turno(
@@ -54,18 +61,23 @@ impl AgentPersistence for PersistenciaSqlite {
         estado_final: &str,
         resumen: Option<&str>,
     ) -> HarnessResult<()> {
-        bloquear(&self.conn)
-            .execute(
+        let estado_final = estado_final.to_owned();
+        let resumen = resumen.map(str::to_owned);
+        self.con_conn(move |conn| {
+            conn.execute(
                 "UPDATE turnos SET estado = ?1, resumen = ?2 WHERE id = ?3",
                 params![estado_final, resumen, turno_id.as_hyphenated().to_string()],
             )
             .map_err(|e| Error::Persistencia(e.to_string()))?;
-        Ok(())
+            Ok(())
+        })
+        .await
     }
 
     async fn guardar_mensaje(&self, mensaje: &MensajePersistido) -> HarnessResult<()> {
-        bloquear(&self.conn)
-            .execute(
+        let mensaje = mensaje.clone();
+        self.con_conn(move |conn| {
+            conn.execute(
                 "INSERT INTO mensajes (id, conversacion_id, rol, contenido, creado_en)
                  VALUES (?1, ?2, ?3, ?4, ?5)",
                 params![
@@ -77,62 +89,35 @@ impl AgentPersistence for PersistenciaSqlite {
                 ],
             )
             .map_err(|e| Error::Persistencia(e.to_string()))?;
-        Ok(())
+            Ok(())
+        })
+        .await
     }
 
     async fn listar_mensajes(
         &self,
         conversacion_id: Uuid,
     ) -> HarnessResult<Vec<MensajePersistido>> {
-        let conn = bloquear(&self.conn);
-        let mut stmt = conn
-            .prepare(
-                /* [129A-1] `rowid` desempata el mismo segundo: las filas
-                 * `reasoning` se insertan justo antes de su `assistant` y la
-                 * precisión de `creado_en` es 1 s, así que sin desempate el
-                 * summary podría pintarse después de la respuesta. */
-                "SELECT id, rol, contenido, creado_en FROM mensajes
-                 WHERE conversacion_id = ?1 ORDER BY creado_en ASC, rowid ASC",
-            )
-            .map_err(|e| Error::Persistencia(e.to_string()))?;
-        let filas = stmt
-            .query_map(params![conversacion_id.as_hyphenated().to_string()], |f| {
-                Ok((
-                    f.get::<_, String>(0)?,
-                    f.get::<_, String>(1)?,
-                    f.get::<_, String>(2)?,
-                    f.get::<_, String>(3)?,
-                ))
-            })
-            .map_err(|e| Error::Persistencia(e.to_string()))?;
-        let mut out = Vec::new();
-        for fila in filas {
-            let (id, rol, contenido, creado) =
-                fila.map_err(|e| Error::Persistencia(e.to_string()))?;
-            out.push(MensajePersistido {
-                id: a_uuid(id)?,
-                conversacion_id,
-                rol,
-                contenido,
-                creado_en: a_fecha(creado)?,
-            });
-        }
-        Ok(out)
+        // Sin filtros: el núcleo (`leer_mensajes`) vive en `conversaciones`.
+        self.listar_mensajes_desde(conversacion_id, None, None).await
     }
 
     async fn conversacion_tocar(&self, conversacion_id: Uuid) -> HarnessResult<()> {
-        bloquear(&self.conn)
-            .execute(
+        self.con_conn(move |conn| {
+            conn.execute(
                 "UPDATE conversaciones SET actualizada_en = ?1 WHERE id = ?2",
                 params![ahora_rfc3339(), conversacion_id.as_hyphenated().to_string()],
             )
             .map_err(|e| Error::Persistencia(e.to_string()))?;
-        Ok(())
+            Ok(())
+        })
+        .await
     }
 
     async fn registrar_accion(&self, accion: &AccionAuditable) -> HarnessResult<()> {
-        bloquear(&self.conn)
-            .execute(
+        let accion = accion.clone();
+        self.con_conn(move |conn| {
+            conn.execute(
                 "INSERT INTO acciones (turno_id, tool, ok, resumen, argumentos_json, diff, creado_en)
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
                 params![
@@ -146,7 +131,9 @@ impl AgentPersistence for PersistenciaSqlite {
                 ],
             )
             .map_err(|e| Error::Persistencia(e.to_string()))?;
-        Ok(())
+            Ok(())
+        })
+        .await
     }
 
     async fn memoria_listar(
@@ -154,57 +141,59 @@ impl AgentPersistence for PersistenciaSqlite {
         user_id: Uuid,
         ambito: AmbitoMemoria,
     ) -> HarnessResult<Vec<MemoriaEntrada>> {
-        let conn = bloquear(&self.conn);
-        let mut stmt = conn
-            .prepare(
-                "SELECT clave, contenido, actualizada_en, origen, usos, ultimo_uso
-                 FROM memoria WHERE user_id = ?1 AND workspace_id = ?2",
-            )
-            .map_err(|e| Error::Persistencia(e.to_string()))?;
-        let filas = stmt
-            .query_map(
-                params![
-                    user_id.as_hyphenated().to_string(),
-                    ambito_a_workspace_id(ambito)
-                ],
-                |f| {
-                    Ok((
-                        f.get::<_, String>(0)?,
-                        f.get::<_, String>(1)?,
-                        f.get::<_, Option<String>>(2)?,
-                        f.get::<_, Option<String>>(3)?,
-                        f.get::<_, i64>(4)?,
-                        f.get::<_, Option<String>>(5)?,
-                    ))
-                },
-            )
-            .map_err(|e| Error::Persistencia(e.to_string()))?;
-        let mut out = Vec::new();
-        for fila in filas {
-            let (clave, contenido, actualizada_en, origen, usos, ultimo_uso) =
-                fila.map_err(|e| Error::Persistencia(e.to_string()))?;
-            // [069A-4] Filas de BDs antiguas (NULL): se tratan como nuevas
-            // (fecha actual), nunca como obsoletas ÔÇö el curador no poda lo
-            // que no sabe fechar.
-            let leida = actualizada_en
-                .filter(|s| !s.is_empty())
-                .map(a_fecha)
-                .transpose()?
-                .unwrap_or_else(Utc::now);
-            let usado = ultimo_uso
-                .filter(|s| !s.is_empty())
-                .map(a_fecha)
-                .transpose()?;
-            out.push(MemoriaEntrada {
-                clave,
-                contenido,
-                actualizada_en: leida,
-                origen: origen.unwrap_or_default(),
-                usos: usos.max(0) as u32,
-                ultimo_uso: usado,
-            });
-        }
-        Ok(out)
+        self.con_conn(move |conn| {
+            let mut stmt = conn
+                .prepare(
+                    "SELECT clave, contenido, actualizada_en, origen, usos, ultimo_uso
+                     FROM memoria WHERE user_id = ?1 AND workspace_id = ?2",
+                )
+                .map_err(|e| Error::Persistencia(e.to_string()))?;
+            let filas = stmt
+                .query_map(
+                    params![
+                        user_id.as_hyphenated().to_string(),
+                        ambito_a_workspace_id(ambito)
+                    ],
+                    |f| {
+                        Ok((
+                            f.get::<_, String>(0)?,
+                            f.get::<_, String>(1)?,
+                            f.get::<_, Option<String>>(2)?,
+                            f.get::<_, Option<String>>(3)?,
+                            f.get::<_, i64>(4)?,
+                            f.get::<_, Option<String>>(5)?,
+                        ))
+                    },
+                )
+                .map_err(|e| Error::Persistencia(e.to_string()))?;
+            let mut out = Vec::new();
+            for fila in filas {
+                let (clave, contenido, actualizada_en, origen, usos, ultimo_uso) =
+                    fila.map_err(|e| Error::Persistencia(e.to_string()))?;
+                // [069A-4] Filas de BDs antiguas (NULL): se tratan como nuevas
+                // (fecha actual), nunca como obsoletas — el curador no poda lo
+                // que no sabe fechar.
+                let leida = actualizada_en
+                    .filter(|s| !s.is_empty())
+                    .map(a_fecha)
+                    .transpose()?
+                    .unwrap_or_else(Utc::now);
+                let usado = ultimo_uso
+                    .filter(|s| !s.is_empty())
+                    .map(a_fecha)
+                    .transpose()?;
+                out.push(MemoriaEntrada {
+                    clave,
+                    contenido,
+                    actualizada_en: leida,
+                    origen: origen.unwrap_or_default(),
+                    usos: usos.max(0) as u32,
+                    ultimo_uso: usado,
+                });
+            }
+            Ok(out)
+        })
+        .await
     }
 
     async fn memoria_upsert(
@@ -213,8 +202,9 @@ impl AgentPersistence for PersistenciaSqlite {
         ambito: AmbitoMemoria,
         entrada: &MemoriaEntrada,
     ) -> HarnessResult<()> {
-        bloquear(&self.conn)
-            .execute(
+        let entrada = entrada.clone();
+        self.con_conn(move |conn| {
+            conn.execute(
                 "INSERT INTO memoria
                      (user_id, workspace_id, clave, contenido, actualizada_en, origen, usos, ultimo_uso)
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
@@ -238,7 +228,9 @@ impl AgentPersistence for PersistenciaSqlite {
                 ],
             )
             .map_err(|e| Error::Persistencia(e.to_string()))?;
-        Ok(())
+            Ok(())
+        })
+        .await
     }
 
     async fn memoria_borrar(
@@ -247,8 +239,9 @@ impl AgentPersistence for PersistenciaSqlite {
         ambito: AmbitoMemoria,
         clave: &str,
     ) -> HarnessResult<()> {
-        bloquear(&self.conn)
-            .execute(
+        let clave = clave.to_owned();
+        self.con_conn(move |conn| {
+            conn.execute(
                 "DELETE FROM memoria WHERE user_id = ?1 AND workspace_id = ?2 AND clave = ?3",
                 params![
                     user_id.as_hyphenated().to_string(),
@@ -257,7 +250,9 @@ impl AgentPersistence for PersistenciaSqlite {
                 ],
             )
             .map_err(|e| Error::Persistencia(e.to_string()))?;
-        Ok(())
+            Ok(())
+        })
+        .await
     }
 
     /// Ámbitos con recuerdos del usuario ([109A-2]). El curador los recorre
@@ -265,68 +260,73 @@ impl AgentPersistence for PersistenciaSqlite {
     /// y después los proyectos por UUID. El global siempre está presente
     /// aunque no tenga recuerdos, para que el curador pueda avisar de él.
     async fn memoria_ambitos(&self, user_id: Uuid) -> HarnessResult<Vec<AmbitoMemoria>> {
-        let conn = bloquear(&self.conn);
-        let mut stmt = conn
-            .prepare("SELECT DISTINCT workspace_id FROM memoria WHERE user_id = ?1")
-            .map_err(|e| Error::Persistencia(e.to_string()))?;
-        let filas = stmt
-            .query_map(params![user_id.as_hyphenated().to_string()], |f| {
-                f.get::<_, String>(0)
-            })
-            .map_err(|e| Error::Persistencia(e.to_string()))?;
-        let mut ambitos = Vec::new();
-        for fila in filas {
-            let valor = fila.map_err(|e| Error::Persistencia(e.to_string()))?;
-            let ambito = workspace_id_a_ambito(&valor)?;
-            if !ambitos.contains(&ambito) {
-                ambitos.push(ambito);
+        self.con_conn(move |conn| {
+            let mut stmt = conn
+                .prepare("SELECT DISTINCT workspace_id FROM memoria WHERE user_id = ?1")
+                .map_err(|e| Error::Persistencia(e.to_string()))?;
+            let filas = stmt
+                .query_map(params![user_id.as_hyphenated().to_string()], |f| {
+                    f.get::<_, String>(0)
+                })
+                .map_err(|e| Error::Persistencia(e.to_string()))?;
+            let mut ambitos = Vec::new();
+            for fila in filas {
+                let valor = fila.map_err(|e| Error::Persistencia(e.to_string()))?;
+                let ambito = workspace_id_a_ambito(&valor)?;
+                if !ambitos.contains(&ambito) {
+                    ambitos.push(ambito);
+                }
             }
-        }
-        if !ambitos.contains(&AmbitoMemoria::Global) {
-            ambitos.push(AmbitoMemoria::Global);
-        }
-        ambitos.sort_by_key(|a| (a.proyecto_id().is_some(), a.proyecto_id()));
-        Ok(ambitos)
+            if !ambitos.contains(&AmbitoMemoria::Global) {
+                ambitos.push(AmbitoMemoria::Global);
+            }
+            ambitos.sort_by_key(|a| (a.proyecto_id().is_some(), a.proyecto_id()));
+            Ok(ambitos)
+        })
+        .await
     }
 
     async fn skills_listar(&self, user_id: Uuid) -> HarnessResult<Vec<SkillEntrada>> {
-        let conn = bloquear(&self.conn);
-        let mut stmt = conn
-            .prepare(
-                "SELECT id, nombre, descripcion, instrucciones, activa FROM skills WHERE user_id = ?1",
-            )
-            .map_err(|e| Error::Persistencia(e.to_string()))?;
-        let filas = stmt
-            .query_map(params![user_id.as_hyphenated().to_string()], |f| {
-                Ok((
-                    f.get::<_, String>(0)?,
-                    f.get::<_, String>(1)?,
-                    f.get::<_, String>(2)?,
-                    f.get::<_, String>(3)?,
-                    f.get::<_, i64>(4)?,
-                ))
-            })
-            .map_err(|e| Error::Persistencia(e.to_string()))?;
-        let mut out = Vec::new();
-        for fila in filas {
-            let (id, nombre, descripcion, instrucciones, activa) =
-                fila.map_err(|e| Error::Persistencia(e.to_string()))?;
-            out.push(SkillEntrada {
-                id: a_uuid(id)?,
-                nombre,
-                descripcion,
-                instrucciones,
-                activa: activa != 0,
-            });
-        }
-        Ok(out)
+        self.con_conn(move |conn| {
+            let mut stmt = conn
+                .prepare(
+                    "SELECT id, nombre, descripcion, instrucciones, activa FROM skills WHERE user_id = ?1",
+                )
+                .map_err(|e| Error::Persistencia(e.to_string()))?;
+            let filas = stmt
+                .query_map(params![user_id.as_hyphenated().to_string()], |f| {
+                    Ok((
+                        f.get::<_, String>(0)?,
+                        f.get::<_, String>(1)?,
+                        f.get::<_, String>(2)?,
+                        f.get::<_, String>(3)?,
+                        f.get::<_, i64>(4)?,
+                    ))
+                })
+                .map_err(|e| Error::Persistencia(e.to_string()))?;
+            let mut out = Vec::new();
+            for fila in filas {
+                let (id, nombre, descripcion, instrucciones, activa) =
+                    fila.map_err(|e| Error::Persistencia(e.to_string()))?;
+                out.push(SkillEntrada {
+                    id: a_uuid(id)?,
+                    nombre,
+                    descripcion,
+                    instrucciones,
+                    activa: activa != 0,
+                });
+            }
+            Ok(out)
+        })
+        .await
     }
 
     async fn skills_registrar(&self, user_id: Uuid, skill: &SkillEntrada) -> HarnessResult<()> {
-        // [069A-4] Alta o sustituci├│n por (user_id, nombre): el curador
+        // [069A-4] Alta o sustitución por (user_id, nombre): el curador
         // promueve recuerdos sin duplicar skills.
-        bloquear(&self.conn)
-            .execute(
+        let skill = skill.clone();
+        self.con_conn(move |conn| {
+            conn.execute(
                 "INSERT INTO skills (id, user_id, nombre, descripcion, instrucciones, activa)
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6)
                  ON CONFLICT(id) DO UPDATE SET
@@ -344,71 +344,81 @@ impl AgentPersistence for PersistenciaSqlite {
                 ],
             )
             .map_err(|e| Error::Persistencia(e.to_string()))?;
-        Ok(())
+            Ok(())
+        })
+        .await
     }
 
     async fn tareas_recuperar_interrumpidas(&self) -> HarnessResult<u64> {
-        let n = bloquear(&self.conn)
-            .execute(
-                "UPDATE tareas SET estado = 'pendiente' WHERE estado = 'ejecutando'",
-                [],
-            )
-            .map_err(|e| Error::Persistencia(e.to_string()))?;
-        Ok(n as u64)
+        self.con_conn(move |conn| {
+            let n = conn
+                .execute(
+                    "UPDATE tareas SET estado = 'pendiente' WHERE estado = 'ejecutando'",
+                    [],
+                )
+                .map_err(|e| Error::Persistencia(e.to_string()))?;
+            Ok(n as u64)
+        })
+        .await
     }
 
     async fn tareas_pendientes(&self, limite: u32) -> HarnessResult<Vec<TareaProgramadaPendiente>> {
-        let conn = bloquear(&self.conn);
-        let mut stmt = conn
-            .prepare(
-                "SELECT id, user_id, nombre, prompt, tipo, cron_expr, programacion FROM tareas
-                 WHERE estado = 'pendiente' ORDER BY creado_en ASC LIMIT ?1",
-            )
-            .map_err(|e| Error::Persistencia(e.to_string()))?;
-        let filas = stmt
-            .query_map(params![i64::from(limite)], |f| {
-                Ok((
-                    f.get::<_, String>(0)?,
-                    f.get::<_, String>(1)?,
-                    f.get::<_, String>(2)?,
-                    f.get::<_, String>(3)?,
-                    f.get::<_, String>(4)?,
-                    f.get::<_, Option<String>>(5)?,
-                    f.get::<_, String>(6)?,
-                ))
-            })
-            .map_err(|e| Error::Persistencia(e.to_string()))?;
-        let mut out = Vec::new();
-        for fila in filas {
-            let (id, user_id, nombre, prompt, tipo, cron_expr, programacion) =
-                fila.map_err(|e| Error::Persistencia(e.to_string()))?;
-            out.push(TareaProgramadaPendiente {
-                id: a_uuid(id)?,
-                user_id: a_uuid(user_id)?,
-                nombre,
-                prompt,
-                tipo,
-                cron_expr,
-                /* Fila legacy (programacion '') → None: el scheduler cae al
-                 * espejo `tipo`+`cron_expr` heredado. */
-                programacion: if programacion.is_empty() {
-                    None
-                } else {
-                    Some(programacion)
-                },
-            });
-        }
-        Ok(out)
+        self.con_conn(move |conn| {
+            let mut stmt = conn
+                .prepare(
+                    "SELECT id, user_id, nombre, prompt, tipo, cron_expr, programacion FROM tareas
+                     WHERE estado = 'pendiente' ORDER BY creado_en ASC LIMIT ?1",
+                )
+                .map_err(|e| Error::Persistencia(e.to_string()))?;
+            let filas = stmt
+                .query_map(params![i64::from(limite)], |f| {
+                    Ok((
+                        f.get::<_, String>(0)?,
+                        f.get::<_, String>(1)?,
+                        f.get::<_, String>(2)?,
+                        f.get::<_, String>(3)?,
+                        f.get::<_, String>(4)?,
+                        f.get::<_, Option<String>>(5)?,
+                        f.get::<_, String>(6)?,
+                    ))
+                })
+                .map_err(|e| Error::Persistencia(e.to_string()))?;
+            let mut out = Vec::new();
+            for fila in filas {
+                let (id, user_id, nombre, prompt, tipo, cron_expr, programacion) =
+                    fila.map_err(|e| Error::Persistencia(e.to_string()))?;
+                out.push(TareaProgramadaPendiente {
+                    id: a_uuid(id)?,
+                    user_id: a_uuid(user_id)?,
+                    nombre,
+                    prompt,
+                    tipo,
+                    cron_expr,
+                    /* Fila legacy (programacion '') → None: el scheduler cae al
+                     * espejo `tipo`+`cron_expr` heredado. */
+                    programacion: if programacion.is_empty() {
+                        None
+                    } else {
+                        Some(programacion)
+                    },
+                });
+            }
+            Ok(out)
+        })
+        .await
     }
 
     async fn tarea_tomar(&self, id: Uuid) -> HarnessResult<bool> {
-        let n = bloquear(&self.conn)
-            .execute(
-                "UPDATE tareas SET estado = 'ejecutando' WHERE id = ?1 AND estado = 'pendiente'",
-                params![id.as_hyphenated().to_string()],
-            )
-            .map_err(|e| Error::Persistencia(e.to_string()))?;
-        Ok(n == 1)
+        self.con_conn(move |conn| {
+            let n = conn
+                .execute(
+                    "UPDATE tareas SET estado = 'ejecutando' WHERE id = ?1 AND estado = 'pendiente'",
+                    params![id.as_hyphenated().to_string()],
+                )
+                .map_err(|e| Error::Persistencia(e.to_string()))?;
+            Ok(n == 1)
+        })
+        .await
     }
 
     async fn tarea_finalizar(
@@ -417,8 +427,8 @@ impl AgentPersistence for PersistenciaSqlite {
         ok: bool,
         _resumen: Option<&str>,
     ) -> HarnessResult<()> {
-        bloquear(&self.conn)
-            .execute(
+        self.con_conn(move |conn| {
+            conn.execute(
                 "UPDATE tareas SET estado = ?1 WHERE id = ?2",
                 params![
                     if ok { "completada" } else { "pendiente" },
@@ -426,7 +436,9 @@ impl AgentPersistence for PersistenciaSqlite {
                 ],
             )
             .map_err(|e| Error::Persistencia(e.to_string()))?;
-        Ok(())
+            Ok(())
+        })
+        .await
     }
 
     async fn tarea_reprogramar(
@@ -435,8 +447,8 @@ impl AgentPersistence for PersistenciaSqlite {
         _user_id: Uuid,
         proxima: Option<DateTime<Utc>>,
     ) -> HarnessResult<()> {
-        bloquear(&self.conn)
-            .execute(
+        self.con_conn(move |conn| {
+            conn.execute(
                 "UPDATE tareas SET proxima_ejecucion = ?1, estado = 'pendiente' WHERE id = ?2",
                 params![
                     proxima.map(|d| d.to_rfc3339_opts(SecondsFormat::Secs, true)),
@@ -444,6 +456,8 @@ impl AgentPersistence for PersistenciaSqlite {
                 ],
             )
             .map_err(|e| Error::Persistencia(e.to_string()))?;
-        Ok(())
+            Ok(())
+        })
+        .await
     }
 }

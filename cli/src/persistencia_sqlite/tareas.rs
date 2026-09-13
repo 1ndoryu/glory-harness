@@ -2,6 +2,10 @@
 //! [B3-F8a]): cola del scheduler (`AgentPersistence`) + CRUD de
 //! [`ProgramadorTareas`]. Partido de `persistencia_sqlite.rs`
 //! (limite-lineas 1006 + nivel-2).
+//!
+//! [139A-8 F2] (R1/R2) Cada método mueve sus argumentos a valores propios y
+//! ejecuta el SQL en `con_conn` (`spawn_blocking`): rusqlite es síncrono y
+//! estos `await` retenían el worker async.
 
 use async_trait::async_trait;
 use chrono::{SecondsFormat, Utc};
@@ -14,14 +18,15 @@ use glory_harness_core::ports::{
 };
 use glory_harness_core::HarnessResult;
 
-use super::{a_fecha, a_uuid, ahora_rfc3339, bloquear, PersistenciaSqlite};
+use super::{a_fecha, a_uuid, ahora_rfc3339, PersistenciaSqlite};
 
 #[async_trait]
 impl ProgramadorTareas for PersistenciaSqlite {
     async fn tarea_crear(&self, nueva: &NuevaTareaProgramada) -> HarnessResult<Uuid> {
-        let id = Uuid::new_v4();
-        bloquear(&self.conn)
-            .execute(
+        let nueva = nueva.clone();
+        self.con_conn(move |conn| {
+            let id = Uuid::new_v4();
+            conn.execute(
                 "INSERT INTO tareas (id, user_id, nombre, prompt, tipo, cron_expr, programacion, zona_horaria, notificacion, reintentos, proxima_ejecucion, estado, creado_en)
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, 'pendiente', ?12)",
                 params![
@@ -40,72 +45,79 @@ impl ProgramadorTareas for PersistenciaSqlite {
                 ],
             )
             .map_err(|e| Error::Persistencia(e.to_string()))?;
-        Ok(id)
+            Ok(id)
+        })
+        .await
     }
 
     async fn tareas_listar(&self, user_id: Uuid) -> HarnessResult<Vec<TareaProgramada>> {
-        let conn = bloquear(&self.conn);
-        let mut stmt = conn
-            .prepare(
-                "SELECT id, nombre, prompt, tipo, cron_expr, programacion, zona_horaria, notificacion, reintentos, proxima_ejecucion, estado, creado_en
-                 FROM tareas WHERE user_id = ?1 ORDER BY creado_en ASC",
-            )
-            .map_err(|e| Error::Persistencia(e.to_string()))?;
-        let filas = stmt
-            .query_map(params![user_id.as_hyphenated().to_string()], |f| {
-                Ok((
-                    f.get::<_, String>(0)?,
-                    f.get::<_, String>(1)?,
-                    f.get::<_, String>(2)?,
-                    f.get::<_, String>(3)?,
-                    f.get::<_, Option<String>>(4)?,
-                    f.get::<_, String>(5)?,
-                    f.get::<_, String>(6)?,
-                    f.get::<_, String>(7)?,
-                    f.get::<_, i64>(8)?,
-                    f.get::<_, Option<String>>(9)?,
-                    f.get::<_, String>(10)?,
-                    f.get::<_, String>(11)?,
-                ))
-            })
-            .map_err(|e| Error::Persistencia(e.to_string()))?;
-        let mut out = Vec::new();
-        for fila in filas {
-            let (id, nombre, prompt, tipo, cron_expr, programacion, zona, notif, reint, proxima, estado, creado) =
-                fila.map_err(|e| Error::Persistencia(e.to_string()))?;
-            out.push(TareaProgramada {
-                id: a_uuid(id)?,
-                user_id,
-                nombre,
-                prompt,
-                tipo,
-                cron_expr,
-                programacion,
-                zona_horaria: zona,
-                proxima_ejecucion: match proxima {
-                    Some(s) => Some(a_fecha(s)?),
-                    None => None,
-                },
-                estado,
-                creado_en: a_fecha(creado)?,
-                notificacion: notif,
-                reintentos: u32::try_from(reint).unwrap_or(0),
-            });
-        }
-        Ok(out)
+        self.con_conn(move |conn| {
+            let mut stmt = conn
+                .prepare(
+                    "SELECT id, nombre, prompt, tipo, cron_expr, programacion, zona_horaria, notificacion, reintentos, proxima_ejecucion, estado, creado_en
+                     FROM tareas WHERE user_id = ?1 ORDER BY creado_en ASC",
+                )
+                .map_err(|e| Error::Persistencia(e.to_string()))?;
+            let filas = stmt
+                .query_map(params![user_id.as_hyphenated().to_string()], |f| {
+                    Ok((
+                        f.get::<_, String>(0)?,
+                        f.get::<_, String>(1)?,
+                        f.get::<_, String>(2)?,
+                        f.get::<_, String>(3)?,
+                        f.get::<_, Option<String>>(4)?,
+                        f.get::<_, String>(5)?,
+                        f.get::<_, String>(6)?,
+                        f.get::<_, String>(7)?,
+                        f.get::<_, i64>(8)?,
+                        f.get::<_, Option<String>>(9)?,
+                        f.get::<_, String>(10)?,
+                        f.get::<_, String>(11)?,
+                    ))
+                })
+                .map_err(|e| Error::Persistencia(e.to_string()))?;
+            let mut out = Vec::new();
+            for fila in filas {
+                let (id, nombre, prompt, tipo, cron_expr, programacion, zona, notif, reint, proxima, estado, creado) =
+                    fila.map_err(|e| Error::Persistencia(e.to_string()))?;
+                out.push(TareaProgramada {
+                    id: a_uuid(id)?,
+                    user_id,
+                    nombre,
+                    prompt,
+                    tipo,
+                    cron_expr,
+                    programacion,
+                    zona_horaria: zona,
+                    proxima_ejecucion: match proxima {
+                        Some(s) => Some(a_fecha(s)?),
+                        None => None,
+                    },
+                    estado,
+                    creado_en: a_fecha(creado)?,
+                    notificacion: notif,
+                    reintentos: u32::try_from(reint).unwrap_or(0),
+                });
+            }
+            Ok(out)
+        })
+        .await
     }
 
     async fn tarea_cancelar(&self, id: Uuid, user_id: Uuid) -> HarnessResult<bool> {
-        let n = bloquear(&self.conn)
-            .execute(
-                "UPDATE tareas SET estado = 'cancelada' WHERE id = ?1 AND user_id = ?2",
-                params![
-                    id.as_hyphenated().to_string(),
-                    user_id.as_hyphenated().to_string()
-                ],
-            )
-            .map_err(|e| Error::Persistencia(e.to_string()))?;
-        Ok(n == 1)
+        self.con_conn(move |conn| {
+            let n = conn
+                .execute(
+                    "UPDATE tareas SET estado = 'cancelada' WHERE id = ?1 AND user_id = ?2",
+                    params![
+                        id.as_hyphenated().to_string(),
+                        user_id.as_hyphenated().to_string()
+                    ],
+                )
+                .map_err(|e| Error::Persistencia(e.to_string()))?;
+            Ok(n == 1)
+        })
+        .await
     }
 
     async fn tarea_logs(
@@ -114,67 +126,69 @@ impl ProgramadorTareas for PersistenciaSqlite {
         user_id: Uuid,
         limite: u32,
     ) -> HarnessResult<Vec<LogTareaEjecucion>> {
-        let conn = bloquear(&self.conn);
-        let es_suya: bool = conn
-            .query_row(
-                "SELECT 1 FROM tareas WHERE id = ?1 AND user_id = ?2",
-                params![
-                    id.as_hyphenated().to_string(),
-                    user_id.as_hyphenated().to_string()
-                ],
-                |_| Ok(true),
-            )
-            .optional()
-            .map_err(|e| Error::Persistencia(e.to_string()))?
-            .unwrap_or(false);
-        if !es_suya {
-            return Ok(Vec::new());
-        }
-        let mut stmt = conn
-            .prepare(
-                "SELECT id, ok, resumen, ejecutada_en, iniciado_en, finalizado_en, resultado FROM tarea_logs
-                 WHERE tarea_id = ?1 ORDER BY ejecutada_en DESC LIMIT ?2",
-            )
-            .map_err(|e| Error::Persistencia(e.to_string()))?;
-        let filas = stmt
-            .query_map(
-                params![id.as_hyphenated().to_string(), i64::from(limite)],
-                |f| {
-                    Ok((
-                        f.get::<_, String>(0)?,
-                        f.get::<_, i64>(1)?,
-                        f.get::<_, String>(2)?,
-                        f.get::<_, String>(3)?,
-                        f.get::<_, Option<String>>(4)?,
-                        f.get::<_, Option<String>>(5)?,
-                        f.get::<_, Option<String>>(6)?,
-                    ))
-                },
-            )
-            .map_err(|e| Error::Persistencia(e.to_string()))?;
-        let mut out = Vec::new();
-        for fila in filas {
-            let (lid, ok, resumen, ejecutada, iniciado, finalizado, resultado) =
-                fila.map_err(|e| Error::Persistencia(e.to_string()))?;
-            out.push(LogTareaEjecucion {
-                id: a_uuid(lid)?,
-                tarea_id: id,
-                ok: ok != 0,
-                resumen,
-                ejecutada_en: a_fecha(ejecutada)?,
-                iniciado_en: match iniciado {
-                    Some(s) => Some(a_fecha(s)?),
-                    None => None,
-                },
-                finalizado_en: match finalizado {
-                    Some(s) => Some(a_fecha(s)?),
-                    None => None,
-                },
-                resultado,
-            });
-        }
-        out.reverse();
-        Ok(out)
+        self.con_conn(move |conn| {
+            let es_suya: bool = conn
+                .query_row(
+                    "SELECT 1 FROM tareas WHERE id = ?1 AND user_id = ?2",
+                    params![
+                        id.as_hyphenated().to_string(),
+                        user_id.as_hyphenated().to_string()
+                    ],
+                    |_| Ok(true),
+                )
+                .optional()
+                .map_err(|e| Error::Persistencia(e.to_string()))?
+                .unwrap_or(false);
+            if !es_suya {
+                return Ok(Vec::new());
+            }
+            let mut stmt = conn
+                .prepare(
+                    "SELECT id, ok, resumen, ejecutada_en, iniciado_en, finalizado_en, resultado FROM tarea_logs
+                     WHERE tarea_id = ?1 ORDER BY ejecutada_en DESC LIMIT ?2",
+                )
+                .map_err(|e| Error::Persistencia(e.to_string()))?;
+            let filas = stmt
+                .query_map(
+                    params![id.as_hyphenated().to_string(), i64::from(limite)],
+                    |f| {
+                        Ok((
+                            f.get::<_, String>(0)?,
+                            f.get::<_, i64>(1)?,
+                            f.get::<_, String>(2)?,
+                            f.get::<_, String>(3)?,
+                            f.get::<_, Option<String>>(4)?,
+                            f.get::<_, Option<String>>(5)?,
+                            f.get::<_, Option<String>>(6)?,
+                        ))
+                    },
+                )
+                .map_err(|e| Error::Persistencia(e.to_string()))?;
+            let mut out = Vec::new();
+            for fila in filas {
+                let (lid, ok, resumen, ejecutada, iniciado, finalizado, resultado) =
+                    fila.map_err(|e| Error::Persistencia(e.to_string()))?;
+                out.push(LogTareaEjecucion {
+                    id: a_uuid(lid)?,
+                    tarea_id: id,
+                    ok: ok != 0,
+                    resumen,
+                    ejecutada_en: a_fecha(ejecutada)?,
+                    iniciado_en: match iniciado {
+                        Some(s) => Some(a_fecha(s)?),
+                        None => None,
+                    },
+                    finalizado_en: match finalizado {
+                        Some(s) => Some(a_fecha(s)?),
+                        None => None,
+                    },
+                    resultado,
+                });
+            }
+            out.reverse();
+            Ok(out)
+        })
+        .await
     }
 
     async fn tarea_registrar_log(
@@ -187,35 +201,38 @@ impl ProgramadorTareas for PersistenciaSqlite {
         // [B3-F8a] Entrega durable del cron: solo la tarea propia recibe log
         // (misma guarda que `tarea_logs`; la ajena se ignora sin error para
         // no abortar la pasada del ejecutor por una carrera de ownership).
-        let conn = bloquear(&self.conn);
-        let es_suya: bool = conn
-            .query_row(
-                "SELECT 1 FROM tareas WHERE id = ?1 AND user_id = ?2",
+        let resumen = resumen.to_owned();
+        self.con_conn(move |conn| {
+            let es_suya: bool = conn
+                .query_row(
+                    "SELECT 1 FROM tareas WHERE id = ?1 AND user_id = ?2",
+                    params![
+                        id.as_hyphenated().to_string(),
+                        user_id.as_hyphenated().to_string()
+                    ],
+                    |_| Ok(true),
+                )
+                .optional()
+                .map_err(|e| Error::Persistencia(e.to_string()))?
+                .unwrap_or(false);
+            if !es_suya {
+                return Ok(());
+            }
+            conn.execute(
+                "INSERT INTO tarea_logs (id, tarea_id, ok, resumen, ejecutada_en)
+                 VALUES (?1, ?2, ?3, ?4, ?5)",
                 params![
+                    Uuid::new_v4().as_hyphenated().to_string(),
                     id.as_hyphenated().to_string(),
-                    user_id.as_hyphenated().to_string()
+                    if ok { 1 } else { 0 },
+                    resumen,
+                    Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true),
                 ],
-                |_| Ok(true),
             )
-            .optional()
-            .map_err(|e| Error::Persistencia(e.to_string()))?
-            .unwrap_or(false);
-        if !es_suya {
-            return Ok(());
-        }
-        conn.execute(
-            "INSERT INTO tarea_logs (id, tarea_id, ok, resumen, ejecutada_en)
-             VALUES (?1, ?2, ?3, ?4, ?5)",
-            params![
-                Uuid::new_v4().as_hyphenated().to_string(),
-                id.as_hyphenated().to_string(),
-                if ok { 1 } else { 0 },
-                resumen,
-                Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true),
-            ],
-        )
-        .map_err(|e| Error::Persistencia(e.to_string()))?;
-        Ok(())
+            .map_err(|e| Error::Persistencia(e.to_string()))?;
+            Ok(())
+        })
+        .await
     }
 }
 
