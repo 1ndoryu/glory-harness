@@ -265,7 +265,9 @@
     margin-top: var(--sp-xs);
     padding: 6px 10px;
     border: 1px solid var(--borde);
-    font-size: var(--xs);
+    /* Mismo cuerpo que el mensaje que lo contiene (`.msg-asis`: --sm);
+     * con --xs quedaba visiblemente más pequeño que el texto de alrededor. */
+    font-size: var(--sm);
 }
 .resumen-turno-cabecera { opacity: 0.75; }
 .resumen-turno-lista { margin-top: 4px; }
@@ -282,17 +284,11 @@
     white-space: nowrap;
 }
 .resumen-turno-clase { flex: none; opacity: 0.55; }
+/* Solo posición en la fila: la pintura la pone el botón canónico `.btn`
+ * (borde, fondo y hover por tema, igual que el resto de botones). */
 .resumen-turno-ver {
     flex: none;
     margin-left: auto;
-    background: transparent;
-    border: none;
-    padding: 0;
-    font: inherit;
-    color: inherit;
-    cursor: pointer;
-    opacity: 0.7;
     white-space: nowrap;
 }
-.resumen-turno-ver:hover { opacity: 1; text-decoration: underline; }
 

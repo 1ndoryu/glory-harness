@@ -40,7 +40,9 @@ export function crearResumenTurno(
     nombre.title = c.ruta;
     const clase = el('span', 'resumen-turno-clase');
     clase.textContent = c.tool === 'file_write' ? 'creado' : 'modificado';
-    const ver = el('button', 'resumen-turno-ver') as HTMLButtonElement;
+    /* Botón canónico `.btn` (mismo que aprobación/acciones del chat);
+     * `resumen-turno-ver` solo aporta posición en la fila. */
+    const ver = el('button', 'btn resumen-turno-ver') as HTMLButtonElement;
     ver.type = 'button';
     ver.textContent = 'ver en Cambios';
     ver.title = `abrir ${c.ruta} en la tab Cambios`;
