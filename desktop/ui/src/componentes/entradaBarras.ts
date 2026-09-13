@@ -159,7 +159,10 @@ export function crearBarrasEntrada(deps: BarrasEntradaDeps): BarrasEntrada {
     const lh = getComputedStyle(textarea).lineHeight;
     const linea = lh === 'normal' ? 18 : parseFloat(lh);
     const max = linea * 5;
-    const alto = textarea.scrollHeight > max ? max : textarea.scrollHeight;
+    /* +1px de holgura: el line-height fraccional (1.45) deja scrollHeight
+       con decimales y publicar el valor exacto provocaba un scrollbar
+       fantasma con una sola fila. El tope de 5 líneas no cambia. */
+    const alto = Math.min(max, textarea.scrollHeight + 1);
     textarea.style.setProperty('--entrada-alto', `${alto}px`);
   }
   textarea.addEventListener('input', ajustarEntrada);

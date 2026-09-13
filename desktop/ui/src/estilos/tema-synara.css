@@ -21,7 +21,7 @@ html[data-tema='synara'] {
     --fondo: #0e0e0e;
     --texto: #f5f5f5;
     --invertido: #0e0e0e;
-    --borde: rgba(245, 245, 245, 0.14);
+    --borde: rgba(245, 245, 245, 0.08);
     /* Radio solo-synara: la base es angulosa por diseño; aquí todas las
        cajas van redondeadas (caja 12px, controles 8px). */
     --radio-caja: 10px;
@@ -205,6 +205,9 @@ html[data-tema='synara'] .conv,
 html[data-tema='synara'] .tarea,
 html[data-tema='synara'] .memoria-fila,
 html[data-tema='synara'] .memorias-detalle,
+html[data-tema='synara'] .resumen-turno,
+html[data-tema='synara'] .cambios-grupo,
+html[data-tema='synara'] .cambios-entrada,
 html[data-tema='synara'] .campo .valor {
     border-radius: var(--radio-caja);
 }

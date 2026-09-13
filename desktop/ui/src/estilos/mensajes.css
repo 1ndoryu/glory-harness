@@ -105,7 +105,7 @@
     font: inherit;
     font-size: var(--xs);
     line-height: 1;
-    padding: 3px 6px;
+    padding: 5px 10px;
     background: var(--texto);
     color: var(--invertido);
     border: 1px solid #000;
@@ -192,7 +192,7 @@
     color: var(--texto);
     font-family: inherit;
     font-size: var(--sm);
-    padding: 3px 14px;
+    padding: 5px 16px;
     cursor: pointer;
     opacity: 0.8;
 }
@@ -290,5 +290,6 @@
     flex: none;
     margin-left: auto;
     white-space: nowrap;
+    font-size: var(--xs);
 }
 
