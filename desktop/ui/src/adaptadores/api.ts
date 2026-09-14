@@ -104,6 +104,9 @@ export function crearTransporteApi(base: string, hooks: HooksAdaptador = {}): Tr
     escucharTurno: async (onEvento, onFin) => {
       cliente.abrirFuente(onEvento, onFin);
     },
+    /** [139A-8 F6n R6] El cliente guarda los extras del último
+     * `turn.finished` (título + uso) para el cierre optimista. */
+    leerCierreUltimoTurno: () => cliente.leerUltimoCierre(),
     convNueva: async (titulo) => {
       const r = await http<{ conversacion: InfoConversacion }>(
         'POST',

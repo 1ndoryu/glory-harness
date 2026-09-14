@@ -2,6 +2,7 @@
  * composición de sesión y estado compartido (sid/turno/último info). */
 import type {
   AgenteEvento,
+  CierreTurno,
   HooksAdaptador,
   InfoSesion,
 } from '../tauri/real';
@@ -40,6 +41,9 @@ export interface ClienteApi {
   getUltimoInfo: () => InfoSesion | null;
   getUltimoTurno: () => string | null;
   setUltimoTurno: (tid: string | null) => void;
+  /** [139A-8 F6n R6] Extras del último `turn.finished` (título + uso
+   * autoritativo), o `null` si aún no cerró ningún turno en esta sesión. */
+  leerUltimoCierre: () => CierreTurno | null;
 }
 
 export function crearClienteApi(
@@ -49,6 +53,9 @@ export function crearClienteApi(
   const maestro = tokenMaestro();
   let sid = '';
   let ultimoTurno: string | null = null;
+  /** [139A-8 F6n R6] Extras del último `turn.finished` (se pisan por turno;
+   * el cierre los lee en el mismo tick del `onFin`, sin carrera). */
+  let ultimoCierre: CierreTurno | null = null;
   let fuente: EventSource | null = null;
   let ultimoInfo: InfoSesion | null = null;
   let ultimoAviso: string | null = null;
@@ -145,10 +152,23 @@ export function crearClienteApi(
     evento('turn.started', (d) => {
       const t = (d as { turn_id?: string }).turn_id;
       if (t) ultimoTurno = t;
+      ultimoCierre = null;
     });
     evento('turn.finished', (d) => {
-      const f = d as { turn_id?: string; ok?: boolean; error?: string };
+      const f = d as {
+        turn_id?: string;
+        ok?: boolean;
+        error?: string;
+        titulo?: string | null;
+        uso?: CierreTurno['uso'];
+      };
       ultimoTurno = null;
+      // [139A-8 F6n R6] El backend cierra con título + uso: se guardan para
+      // el camino optimista (el `onFin` los lee en el mismo tick).
+      ultimoCierre = {
+        titulo: typeof f.titulo === 'string' ? f.titulo : null,
+        uso: f.uso ?? null,
+      };
       onFin(f.ok === true, f.error ?? undefined);
     });
     evento('error', (d) => {
@@ -192,5 +212,6 @@ export function crearClienteApi(
     setUltimoTurno: (tid) => {
       ultimoTurno = tid;
     },
+    leerUltimoCierre: () => ultimoCierre,
   };
 }

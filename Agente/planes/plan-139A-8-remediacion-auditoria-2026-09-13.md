@@ -374,3 +374,44 @@ son independientes entre sí tras F3n; F6n depende de F4 solo en tipos tocados
   5 ALTA + R4/R6/R8 fuera del plan). Usuario ordena reescribir: F3–F6
   invalidadas → F3n (K2/K4/K5/K6/K7) → F4 (puertos, sin cambios) → F5n
   (S7/S8/K8/R4) → F6n (R5/R6/R8/R7-cond) → F7n (pin + cierre).
+
+## Ejecución F6n (14-09, R5/R6/R7/R8)
+
+- **F0**: fixture 139A-7 re-ejecutado sobre `HEAD` en `C:\tmp\gh-f6n-f0`
+  (bundle esbuild + Edge headless `--dump-dom`): `repos=0 estado=0 listar=5
+  resumen=3 disparos total=4 vault=2`, 6/6 PASS. R7 sin colisión (139A-9 no
+  toca `panelChatHistorial`).
+- **R5** (`cli/src/comandos/web/turnos.rs`): `CoalescedorEventos`
+  (`nuevo/acumulado/ingesta/vaciar/por_techo`, puro + 3 tests) y
+  `reenviar_eventos` con `select!` + `interval(75 ms, Skip)` + `emitir_lote`:
+  ventana `VENTANA_COALESCING_MS=75`, techo `MAX_TEXTO_ACUMULADO=4_000`,
+  vacía-antes-viaja (emite el lote acumulado antes del evento de control),
+  `Done`/cierre vacían. `cargo test comandos::web::turnos` 18/18 (4 nuevos).
+- **R6** (backend + front): `turn.finished` ok/error/fixture con
+  `{titulo, uso{entrada,salida,proveedor,modelo}}` (`titulo_actual()` por
+  SELECT puntual, `None` = borrador); `apiCliente.ts` guarda el cierre
+  (`turn.started` lo limpia); `panelChatTurno.ts:alTerminar` lee el uso
+  autoritativo, compone `proveedor/modelo` reales y con cierre+título pone el
+  título optimista SIN `listar` (fallback clásico intacto sin extras).
+  Test backend `turno_fixture_finished_trae_titulo_y_uso`; harness DOM
+  `C:\tmp\gh-f6n-r6` (bundle del árbol + Edge headless) 18/18: stash/limpieza
+  del cierre, título optimista con cero `listar`, `listar` clásico sin
+  cierre, pie con modelo autoritativo.
+- **R7** (`panelChatHistorial.ts`): alcance honesto —no hay repintado por
+  turno (los nodos vivos persisten por diseño; R6 eliminó el último
+  `listar`)—. `pintarHistorial` autocontenida (resetea mapa+cambios como
+  `limpiarHistorial`: el repintado sin limpiar ya no duplica nodos ni
+  re-registra cambios de Files) + agrupación de acciones por bisección
+  O(log U) en vez de barrido O(U) (misma precondición de orden que el
+  `break` anterior). Verificado en el harness 18/18 (doble pintado sin
+  duplicados, orden de agrupación, cambios ×1). `tsc --noEmit` limpio salvo
+  `src/main.ts` (hunks 139A-9 preexistentes, no tocados).
+- **R8** (mover vs clonar): `sesion.rs::preparar_turno_con_modo` mueve
+  `mensaje` en el camino común (1 clon solo para el persistido en modo
+  meta); `turnos.rs:enviar_turno` mueve `mensaje` al preparar y el fixture
+  toma `&preparacion.mensaje_efectivo` por préstamo (cero clones por turno).
+  Resto auditado como inherente (doble ownership real): `Token` ya viaja por
+  préstamo; clones por-tool (evento reenviado + acumulador), `Mutex` guards,
+  `respuesta_final` + `respuestas_asistente`, `meta_borrador` de `/meta`
+  (cambiar la firma a `&str` no compensa: el clon vive solo en ese path
+  raro). `cargo check -p glory-harness --lib` 0 errores; turnos 18/18.

@@ -128,22 +128,42 @@ export function crearHistorial(deps: HistorialDeps): HistorialChat {
     return null;
   }
 
-  /** Pinta historial persistido intercalando las herramientas del turno. */
+  /** Pinta historial persistido intercalando las herramientas del turno.
+   * [139A-8 F6n R7] Autocontenida: parte del contenedor vacío (resetea mapa
+   * y cambios como `limpiarHistorial`) para que un repintado sin limpiar no
+   * duplique nodos ni re-registre cambios de Files. Los llamadores conservan
+   * su `limpiarChat` previo (cancela la edición en curso). */
   function pintarHistorial(
     historial: MensajeGuardado[],
     acciones: AccionRecuperada[] = [],
     ultimo_uso?: { provider: string; modelo: string; tokens_prompt: number; tokens_complecion: number } | null,
   ): void {
+    // [139A-8 F6n R7] Sin colisión: el repintado parte de cero aunque el
+    // llamador no haya limpiado (mismo reset que `limpiarHistorial`, sin
+    // tocar la entrada — eso sigue siendo de `limpiarChat`).
+    mensajes.replaceChildren();
+    usuariosHistorial = new Map<string, string>();
+    cambios.length = 0;
     const users = historial.filter((m) => m.rol === 'user');
     const en = (s: string): number => Date.parse(s) || 0;
     const porTurno = new Map<number, AccionRecuperada[]>();
     const residuales: AccionRecuperada[] = [];
     acciones.forEach((a) => {
       const t = en(a.turno_en);
+      // [139A-8 F6n R7] Usuarios ordenados por `creado_en`: el último previo
+      // se busca por bisección O(log U) en vez del barrido lineal O(U) por
+      // acción (misma precondición de orden que el `break` anterior).
+      let lo = 0;
+      let hi = users.length - 1;
       let indice = -1;
-      for (let i = 0; i < users.length; i++) {
-        if (en(users[i].creado_en) <= t) indice = i;
-        else break;
+      while (lo <= hi) {
+        const mid = (lo + hi) >> 1;
+        if (en(users[mid].creado_en) <= t) {
+          indice = mid;
+          lo = mid + 1;
+        } else {
+          hi = mid - 1;
+        }
       }
       if (indice < 0) {
         residuales.push(a);

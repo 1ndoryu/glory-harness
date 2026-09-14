@@ -545,12 +545,34 @@ impl SesionComun {
                     .map_err(|e| Error::Persistencia(e.to_string()))?;
             }
         }
+        /* El modo del TURNO (si lo hay) manda sobre el de la sesión: es el
+         * único punto donde la meta vigente se antepone al mensaje. */
+        /* [139A-8 F6n R8] Sin clones de más: el camino común MUEVE `mensaje`
+         * al efectivo y solo clona para el persistido; en modo meta el
+         * prefijo se antepone por préstamo y el original se mueve al
+         * persistido. Antes eran dos clones de hasta 32 KB por turno
+         * (`contenido` + efectivo). El contenido persistido sigue siendo el
+         * mensaje original (sin prefijo `[META]`), como antes. */
+        let modo_efectivo = modo_turno.unwrap_or(self.modo.as_str());
+        let mensaje_para_guardar: Option<String>;
+        let mensaje_efectivo = match (modo_efectivo, meta_efectiva.as_deref()) {
+            ("meta", Some(m)) if !m.trim().is_empty() => {
+                let efectivo = format!("[META: {}]\n{}", m.trim(), mensaje);
+                mensaje_para_guardar = Some(mensaje);
+                efectivo
+            }
+            _ => {
+                mensaje_para_guardar = None;
+                mensaje
+            }
+        };
         self.persistencia
             .guardar_mensaje(&MensajePersistido {
                 id: Uuid::new_v4(),
                 conversacion_id,
                 rol: "user".into(),
-                contenido: mensaje.clone(),
+                contenido: mensaje_para_guardar
+                    .unwrap_or_else(|| mensaje_efectivo.clone()),
                 creado_en: Utc::now(),
             })
             .await
@@ -560,15 +582,6 @@ impl SesionComun {
             .await
             .map_err(|e| Error::Persistencia(e.to_string()))?;
 
-        /* El modo del TURNO (si lo hay) manda sobre el de la sesión: es el
-         * único punto donde la meta vigente se antepone al mensaje. */
-        let modo_efectivo = modo_turno.unwrap_or(self.modo.as_str());
-        let mensaje_efectivo = match (modo_efectivo, meta_efectiva.as_deref()) {
-            ("meta", Some(m)) if !m.trim().is_empty() => {
-                format!("[META: {}]\n{}", m.trim(), mensaje)
-            }
-            _ => mensaje.clone(),
-        };
         Ok(PreparacionTurno {
             turno_id: Uuid::new_v4(),
             conversacion_id,

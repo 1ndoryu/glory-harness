@@ -19,6 +19,7 @@ use glory_harness_core::evento::AgenteEvento;
 use serde::Deserialize;
 use serde_json::Value;
 use tokio::sync::mpsc;
+use tokio::time::{Duration, MissedTickBehavior};
 use uuid::Uuid;
 
 use super::seguridad::control_inicio_turno;
@@ -122,8 +123,10 @@ pub(crate) async fn iniciar_turno(
     }
 
     let meta = sesion.meta.lock().await.clone();
+    /* [139A-8 F6n R8] `mensaje` se MUEVE (ya no se usa después) y el clon
+     * para el fixture baja a su rama (por préstamo): cero clones por turno. */
     let preparacion = comun
-        .preparar_turno(conv_id, mensaje.clone(), meta)
+        .preparar_turno(conv_id, mensaje, meta)
         .await
         .map_err(|e| error("turno", e.to_string()))?;
     let turno_id = preparacion.turno_id;
@@ -139,10 +142,9 @@ pub(crate) async fn iniciar_turno(
     let sesion2 = Arc::clone(&sesion);
     let user_id = comun.user_id;
     let persistencia = Arc::clone(&comun.persistencia);
-    let mensaje_fixture = preparacion.mensaje_efectivo.clone();
     let handle = tokio::spawn(async move {
         if fixture {
-            turno_fixture(&sesion2, turno_id, &mensaje_fixture).await;
+            turno_fixture(&sesion2, turno_id, &preparacion.mensaje_efectivo).await;
         } else {
             turno_real(&sesion2, preparacion, user_id, persistencia).await;
         }
@@ -219,6 +221,23 @@ pub(crate) async fn responder_aprobacion(
 
 // ── Ejecución ────────────────────────────────────────────────────────────
 
+/// [139A-8 F6n R6] Título vigente para `turn.finished`: el front lo aplica en
+/// optimista y se ahorra el `listar` post-turno (el refetch que la auditoría
+/// caza en `panelChatTurno`). `None` = sin fila todavía (borrador): el front
+/// conserva el refetch, sin inventarse título. SELECT puntual por PK (índice
+/// §R4), no un listado.
+async fn titulo_actual(sesion: &Arc<SesionWeb>) -> Option<String> {
+    let comun = sesion.comun.lock().await.clone();
+    let conversacion_id = *sesion.conversacion_id.lock().await;
+    let conversacion_id = conversacion_id?;
+    comun
+        .persistencia
+        .conversacion_obtener(comun.user_id, conversacion_id)
+        .ok()
+        .flatten()
+        .map(|c| c.titulo)
+}
+
 /// Turno sintético (`--fixture`): eco + `Done` sin proveedor. Comprueba el
 /// ciclo de vida (started → eventos → finished) y los caminos de error.
 ///
@@ -249,6 +268,9 @@ async fn turno_fixture(sesion: &Arc<SesionWeb>, turno_id: Uuid, mensaje: &str) {
             ))
             .await;
     }
+    // [139A-8 F6n R6] Paridad con el turno real: el fixture también cierra con
+    // título + uso para servir de oráculo del camino optimista del front.
+    let titulo = titulo_actual(sesion).await;
     sesion
         .emitir(cable(
             "turn.finished",
@@ -256,6 +278,8 @@ async fn turno_fixture(sesion: &Arc<SesionWeb>, turno_id: Uuid, mensaje: &str) {
                 "turn_id": turno_id,
                 "ok": true,
                 "error": null,
+                "titulo": titulo,
+                "uso": { "entrada": 0, "salida": 0, "proveedor": null, "modelo": null },
             }),
         ))
         .await;
@@ -316,47 +340,147 @@ async fn escalar_bloqueo_del_turno(
 /// proveedor, modelo) tal como lo reporta el runtime.
 type UsoTurno = (u32, u32, Option<String>, Option<String>);
 
+/// [139A-8 F6n R5] Ventana de coalescing del streaming (banda 50–100 ms de la
+/// auditoría): los deltas de texto salen en UN cable por ventana en vez de uno
+/// por token; la liveness se conserva porque la ventana es corta.
+const VENTANA_COALESCING_MS: u64 = 75;
+/// Techo del acumulado: un volcado gigante no espera a la ventana para salir.
+const MAX_TEXTO_ACUMULADO: usize = 4_000;
+
+/// [139A-8 F6n R5] Coalescing de deltas de streaming. El volumen del cable son
+/// los fragmentos de texto (`Token`/`RazonamientoDelta`): se acumulan por
+/// clase y salen como UN solo evento por ventana. El control (`ToolStart`,
+/// `Usage`, `Done`…) vacía lo acumulado ANTES de viajar, así que el orden
+/// relativo se conserva y el control nunca espera a la ventana. Sin esto cada
+/// token era un `to_value` + un `emitir` (lock del `sse` + clon por
+/// suscriptor). Puro (sin IO) para probarlo sin socket.
+struct CoalescedorEventos {
+    token: String,
+    razonamiento: String,
+}
+
+impl CoalescedorEventos {
+    fn nuevo() -> Self {
+        Self {
+            token: String::new(),
+            razonamiento: String::new(),
+        }
+    }
+
+    fn acumulado(&self) -> usize {
+        self.token.len() + self.razonamiento.len()
+    }
+
+    /// Eventos listos para emitir ante la llegada de `ev`. Los deltas solo
+    /// salen si llenan el techo; el control vacía primero y viaja inmediato.
+    fn ingesta(&mut self, ev: AgenteEvento) -> Vec<AgenteEvento> {
+        match ev {
+            AgenteEvento::Token { texto } => {
+                self.token.push_str(&texto);
+                self.por_techo()
+            }
+            AgenteEvento::RazonamientoDelta { texto } => {
+                self.razonamiento.push_str(&texto);
+                self.por_techo()
+            }
+            control => {
+                let mut listos = self.vaciar();
+                listos.push(control);
+                listos
+            }
+        }
+    }
+
+    /// Lo acumulado (vacío = nada que emitir; el tick de ventana es no-op).
+    fn vaciar(&mut self) -> Vec<AgenteEvento> {
+        let mut listos = Vec::new();
+        if !self.token.is_empty() {
+            listos.push(AgenteEvento::Token {
+                texto: std::mem::take(&mut self.token),
+            });
+        }
+        if !self.razonamiento.is_empty() {
+            listos.push(AgenteEvento::RazonamientoDelta {
+                texto: std::mem::take(&mut self.razonamiento),
+            });
+        }
+        listos
+    }
+
+    fn por_techo(&mut self) -> Vec<AgenteEvento> {
+        if self.acumulado() >= MAX_TEXTO_ACUMULADO {
+            self.vaciar()
+        } else {
+            Vec::new()
+        }
+    }
+}
+
 /// Reenvía al cable SSE cada evento que el runtime publica durante el turno y
 /// acumula el uso REAL mientras lo hace.
 ///
 /// En su propia función por dos razones: el consumo termina cuando llega `Done`
 /// (no cuando se cierra el canal) y el cierre del turno se lee mejor sin 30
 /// líneas de contabilidad en medio.
+///
+/// [139A-8 F6n R5] Los deltas de texto viajan coalescados (ventana 75 ms +
+/// techo 4 KB): un `to_value` + un `emitir` por lote en vez de por token. El
+/// control bypassa inmediato con vaciado previo (orden conservado).
 async fn reenviar_eventos(
     sesion: Arc<SesionWeb>,
     mut rx_ev: mpsc::Receiver<AgenteEvento>,
 ) -> UsoTurno {
+    async fn emitir_lote(sesion: &Arc<SesionWeb>, lote: Vec<AgenteEvento>) {
+        for ev in lote {
+            sesion
+                .emitir(cable(
+                    "agent.event",
+                    serde_json::to_value(&ev).unwrap_or(Value::Null),
+                ))
+                .await;
+        }
+    }
+
     let mut uso_p = 0u32;
     let mut uso_c = 0u32;
     let mut prov: Option<String> = None;
     let mut mod_: Option<String> = None;
-    while let Some(ev) = rx_ev.recv().await {
-        let es_done = matches!(ev, AgenteEvento::Done { .. });
-        if let AgenteEvento::Usage {
-            tokens_prompt,
-            tokens_complecion,
-            provider,
-            modelo,
-            ..
-        } = &ev
-        {
-            uso_p = uso_p.saturating_add(*tokens_prompt);
-            uso_c = uso_c.saturating_add(*tokens_complecion);
-            if prov.is_none() {
-                prov = provider.clone();
+    let mut coa = CoalescedorEventos::nuevo();
+    let mut ventana = tokio::time::interval(Duration::from_millis(VENTANA_COALESCING_MS));
+    ventana.set_missed_tick_behavior(MissedTickBehavior::Skip);
+    loop {
+        tokio::select! {
+            recepcion = rx_ev.recv() => {
+                let Some(ev) = recepcion else {
+                    emitir_lote(&sesion, coa.vaciar()).await;
+                    break;
+                };
+                let es_done = matches!(ev, AgenteEvento::Done { .. });
+                if let AgenteEvento::Usage {
+                    tokens_prompt,
+                    tokens_complecion,
+                    provider,
+                    modelo,
+                    ..
+                } = &ev
+                {
+                    uso_p = uso_p.saturating_add(*tokens_prompt);
+                    uso_c = uso_c.saturating_add(*tokens_complecion);
+                    if prov.is_none() {
+                        prov = provider.clone();
+                    }
+                    if mod_.is_none() {
+                        mod_ = modelo.clone();
+                    }
+                }
+                emitir_lote(&sesion, coa.ingesta(ev)).await;
+                if es_done {
+                    break;
+                }
             }
-            if mod_.is_none() {
-                mod_ = modelo.clone();
+            _ = ventana.tick() => {
+                emitir_lote(&sesion, coa.vaciar()).await;
             }
-        }
-        sesion
-            .emitir(cable(
-                "agent.event",
-                serde_json::to_value(&ev).unwrap_or(Value::Null),
-            ))
-            .await;
-        if es_done {
-            break;
         }
     }
     (uso_p, uso_c, prov, mod_)
@@ -407,6 +531,11 @@ async fn turno_real(
                 preparacion.conversacion_id,
             )
             .await;
+            /* [139A-8 F6n R6] Cierre completo: título vigente + uso acumulado.
+             * El front aplica el título en optimista (sin `listar`) y toma el
+             * uso como total autoritativo (la acumulación viva puede perder
+             * frames ante un lector lento, ver `sse.rs`). */
+            let titulo = titulo_actual(sesion).await;
             sesion
                 .emitir(cable(
                     "turn.finished",
@@ -414,6 +543,8 @@ async fn turno_real(
                         "turn_id": turno_id,
                         "ok": true,
                         "error": null,
+                        "titulo": titulo,
+                        "uso": { "entrada": uso_p, "salida": uso_c, "proveedor": prov, "modelo": mod_ },
                     }),
                 ))
                 .await;
@@ -431,7 +562,11 @@ async fn turno_real(
                 .await;
             /* Un turno fallido no se cuenta como turno bloqueado: el conteo del
              * runtime ya lo lleva el plan, pero pausar la meta por un fallo de
-             * proveedor sería culpar al bloqueo de un problema de red. */
+             * proveedor sería culpar al bloqueo de un problema de red. El
+             * cierre lleva título + uso igual que el camino ok (el front solo
+             * aplica el optimista cuando `ok`, pero el uso autoritativo vale
+             * en ambos). */
+            let titulo = titulo_actual(sesion).await;
             sesion
                 .emitir(cable(
                     "turn.finished",
@@ -439,6 +574,8 @@ async fn turno_real(
                         "turn_id": turno_id,
                         "ok": false,
                         "error": e.to_string(),
+                        "titulo": titulo,
+                        "uso": { "entrada": uso_p, "salida": uso_c, "proveedor": prov, "modelo": mod_ },
                     }),
                 ))
                 .await;
@@ -491,9 +628,77 @@ mod tests {
         .expect("turn.finished a tiempo")
     }
 
+    /// [139A-8 F6n R5] El coalescing agrupa deltas por clase y el control
+    /// vacía antes de viajar: 2 tokens + 1 control salen como lote + control
+    /// (orden conservado), no como 3 cables.
+    #[test]
+    fn coalescing_agrupa_deltas_y_respeta_el_orden_del_control() {
+        let mut coa = CoalescedorEventos::nuevo();
+        assert!(coa.ingesta(AgenteEvento::Token { texto: "a".into() }).is_empty());
+        assert!(coa.ingesta(AgenteEvento::Token { texto: "b".into() }).is_empty());
+        let listos = coa.ingesta(AgenteEvento::ToolStart {
+            tool: "leer".into(),
+            argumentos: Value::Null,
+        });
+        assert_eq!(listos.len(), 2);
+        assert!(matches!(&listos[0], AgenteEvento::Token { texto } if texto == "ab"));
+        assert!(matches!(&listos[1], AgenteEvento::ToolStart { .. }));
+        // Tras el vaciado no queda nada pendiente.
+        assert!(coa.vaciar().is_empty());
+    }
+
+    /// [139A-8 F6n R5] Token y razonamiento no se mezclan: cada clase sale en
+    /// su propio evento (el front los pinta en bloques distintos).
+    #[test]
+    fn coalescing_separa_token_de_razonamiento() {
+        let mut coa = CoalescedorEventos::nuevo();
+        assert!(coa.ingesta(AgenteEvento::Token { texto: "t".into() }).is_empty());
+        assert!(coa
+            .ingesta(AgenteEvento::RazonamientoDelta { texto: "r".into() })
+            .is_empty());
+        let listos = coa.vaciar();
+        assert_eq!(listos.len(), 2);
+        assert!(matches!(&listos[0], AgenteEvento::Token { .. }));
+        assert!(matches!(&listos[1], AgenteEvento::RazonamientoDelta { .. }));
+    }
+
+    /// [139A-8 F6n R5] El techo evita que un volcado gigante espere a la
+    /// ventana: al superarlo sale solo, sin control de por medio.
+    #[test]
+    fn coalescing_techo_vacia_sin_esperar_control() {
+        let mut coa = CoalescedorEventos::nuevo();
+        let listos = coa.ingesta(AgenteEvento::Token {
+            texto: "x".repeat(MAX_TEXTO_ACUMULADO),
+        });
+        assert_eq!(listos.len(), 1);
+        assert!(matches!(&listos[0], AgenteEvento::Token { .. }));
+    }
+
+    /// [139A-8 F6n R6] El `turn.finished` del fixture cierra con título + uso
+    /// (paridad con el turno real): oráculo del camino optimista del front.
     #[tokio::test]
-    async fn turno_fixture_completa_ciclo() {
+    async fn turno_fixture_finished_trae_titulo_y_uso() {
         let state = state_test();
+        let (sid, sesion) = sesion_memoria(&state).await;
+        let mut rx = sesion.sse.lock().await.suscribir().1;
+        let app = super::super::router(Arc::clone(&state));
+
+        let res = app
+            .oneshot(post_turno(&state, &sid, true, r#"{"message":"hola"}"#))
+            .await
+            .unwrap();
+        assert_eq!(res.status(), axum::http::StatusCode::OK);
+
+        let fin = esperar_finished(&mut rx).await;
+        assert_eq!(fin["ok"], true);
+        assert!(fin.get("titulo").is_some(), "finished con título");
+        assert!(fin.get("uso").is_some(), "finished con uso");
+        assert!(fin["uso"].get("entrada").is_some());
+        assert!(fin["uso"].get("salida").is_some());
+    }
+
+    #[tokio::test]
+    async fn turno_fixture_completa_ciclo() {        let state = state_test();
         let (sid, sesion) = sesion_memoria(&state).await;
         let mut rx = sesion.sse.lock().await.suscribir().1;
         let app = super::super::router(Arc::clone(&state));

@@ -33,6 +33,9 @@ export function crearAdaptadorReal(hooks: HooksAdaptador = {}, transporte: Trans
   const turno = crearTurnoReal(hooks, transporte);
   /** [139A-7] Batch git: solo existe si el transporte lo expone (web no). */
   const resumenBatch = transporte.workspaceGitResumen;
+  /** [139A-8 F6n R6] Cierre optimista: solo existe si el transporte expone
+   * los extras del `turn.finished` (web sí, Tauri no). */
+  const cierreBatch = transporte.leerCierreUltimoTurno;
 
   return {
     montar: turno.montar,
@@ -43,6 +46,9 @@ export function crearAdaptadorReal(hooks: HooksAdaptador = {}, transporte: Trans
     /** [129A-8] Resumen del turno: escrituras con éxito para pintar el
      * bloque tras el pie (el turno las acumula en `tool_result`). */
     cambiosUltimoTurno: turno.cambiosUltimoTurno,
+    /** [139A-8 F6n R6] Extras del último `turn.finished`; `undefined` si el
+     * transporte no los expone (el panel conserva el refetch). */
+    cierreUltimoTurno: cierreBatch ? () => cierreBatch() : undefined,
     /** [fix 12-09] Pendientes para el reenvío tras aprobar: el orquestador
      * solo reenvía cuando quedan cero (todas las peticiones resueltas). */
     aprobacionesPendientes: () => transporte.pendientesAprobacion(),

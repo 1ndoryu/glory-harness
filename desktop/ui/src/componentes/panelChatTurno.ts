@@ -136,6 +136,17 @@ export function crearTurno(deps: TurnoDeps): TurnoChat {
       if (d.usaReal) {
         d.panelMeta.setEstado('inactivo');
         const u = d.adaptador.usoUltimoTurno();
+        // [139A-8 F6n R6] El `turn.finished` web trae el uso autoritativo: la
+        // acumulación viva puede perder frames ante un lector lento (descarte
+        // `sse.rs`), así que el cierre manda cuando existe.
+        const cierre = d.adaptador.cierreUltimoTurno?.() ?? null;
+        if (cierre?.uso) {
+          u.tokensPrompt = cierre.uso.entrada;
+          u.tokensComplecion = cierre.uso.salida;
+          if (cierre.uso.modelo) {
+            u.modelo = cierre.uso.proveedor ? `${cierre.uso.proveedor}/${cierre.uso.modelo}` : cierre.uso.modelo;
+          }
+        }
         d.panelMeta.setTokens(u.tokensPrompt + u.tokensComplecion);
         if (inicio !== null) {
           const seg = (Date.now() - inicio) / 1000;
@@ -150,6 +161,14 @@ export function crearTurno(deps: TurnoDeps): TurnoChat {
         }
         void (async () => {
           await d.resincronizarSidebar();
+          // [139A-8 F6n R6] Cierre optimista: el `turn.finished` web ya trae
+          // el título vigente — se aplica sin `listar`. Solo en `ok` (en
+          // error la fila puede ser nueva y el refetch sigue mandando) y con
+          // extras presentes (Tauri/aborto conservan el camino clásico).
+          if (d.adaptador.resultadoUltimoTurno() === 'ok' && cierre?.titulo && deps.getConversaId()) {
+            cabecera.ponerTitulo(cierre.titulo);
+            return;
+          }
           if (deps.getConversaId()) {
             try {
               const lista2 = await d.adaptador.sesion.listar();

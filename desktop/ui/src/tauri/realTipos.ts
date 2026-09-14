@@ -204,6 +204,20 @@ export interface UsoTurno {
 /** Resultado de cierre de un turno, para que el llamador decida el pie. */
 export type ResultadoTurno = 'ok' | 'error' | 'cancelado';
 
+/** [139A-8 F6n R6] Extras del `turn.finished` web (título vigente + uso
+ * autoritativo): el front los aplica en optimista y se ahorra el `listar`
+ * post-turno. `null` = el transporte no los expone (Tauri/aborto) y el front
+ * conserva el refetch. */
+export interface CierreTurno {
+  titulo: string | null;
+  uso: {
+    entrada: number;
+    salida: number;
+    proveedor: string | null;
+    modelo: string | null;
+  } | null;
+}
+
 /** [109A-3] Un recuerdo del proyecto activo (DTO del backend). */
 export interface RecuerdoMemoria {
   clave: string;
@@ -305,6 +319,10 @@ export interface Transporte {
     onEvento: (ev: AgenteEvento) => void,
     onFin: (ok: boolean, error?: string) => void,
   ): Promise<void>;
+  /** [139A-8 F6n R6] Extras del último `turn.finished` (título + uso).
+   * Opcional como `workspaceGitResumen`: solo el transporte web lo expone;
+   * ausente = refetch clásico, sin simular el optimista. */
+  leerCierreUltimoTurno?: () => CierreTurno | null;
   convNueva(titulo: string | null, panelId: string | null): Promise<InfoConversacion>;
   convListar(): Promise<InfoConversacion[]>;
   convCargar(id: string, panelId: string | null): Promise<CargaConversacion>;
