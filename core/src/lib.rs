@@ -18,6 +18,7 @@
  * siguen resolviendo sin tocar ningún `use`. */
 mod contrato;
 mod entorno;
+mod git;
 mod herramientas;
 mod nucleo;
 mod politica;
@@ -25,6 +26,8 @@ mod tareas_programadas;
 
 pub use contrato::*;
 pub use entorno::{aplicar_entorno_minimo, filtrar_entorno};
+/// [139A-8 F5n/S8] Servicio Git único (los adaptadores Tauri/web delegan).
+pub use git::{EntradaGit, ErrorGit, EstadoGit, PoliticaGit, ServicioGit};
 pub use herramientas::*;
 pub use nucleo::*;
 pub use politica::*;

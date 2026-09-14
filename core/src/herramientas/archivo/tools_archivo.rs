@@ -9,13 +9,12 @@
 
 use crate::diff::diff_lineas;
 use crate::error::{Error, Result};
-use crate::sandbox::SandboxArchivos;
+use crate::sandbox::{FileSystemPolicy, SandboxArchivos};
 use crate::tool::{AgentTool, AgentToolContext, AgentToolResult};
 use async_trait::async_trait;
 use serde_json::{json, Value};
 use std::sync::Arc;
 
-const MAX_LECTURA_BYTES: usize = 1_048_576; // 1MB (truncado con aviso)
 const MAX_LECTURA_LINEAS: u64 = 400;
 
 /// Límite de búsqueda de archivos: resultados, profundidad y tamaño agregado.
@@ -64,7 +63,7 @@ impl AgentTool for ToolFileRead {
         // Sin rango: comportamiento actual (archivo completo, truncado a 1 MB).
         let (contenido, aviso, resumen_rango) = match (offset, limite) {
             (None, None) => {
-                let (contenido, truncado) = sandbox.leer(ruta, MAX_LECTURA_BYTES)?;
+                let (contenido, truncado) = sandbox.leer(ruta, FileSystemPolicy::MAX_LECTURA_BYTES)?;
                 let aviso = if truncado {
                     "\n[AVISO: archivo truncado a 1MB]".to_string()
                 } else {
@@ -211,7 +210,7 @@ impl AgentTool for ToolFileWrite {
         /* Diff contra el contenido previo (archivo nuevo → vacío) para
          * mostrarlo en el front (Fase 4). */
         let previo = sandbox
-            .leer(ruta, MAX_LECTURA_BYTES)
+            .leer(ruta, FileSystemPolicy::MAX_LECTURA_BYTES)
             .map(|(contenido_previo, _)| contenido_previo)
             .unwrap_or_default();
         /* [318A-16 F5] Modo plan: la escritura NO se aplica; se registra la
@@ -287,7 +286,7 @@ impl AgentTool for ToolFilePatch {
         if buscar.is_empty() {
             return Err(Error::Argumentos("buscar no puede estar vacío".into()));
         }
-        let (original, _) = sandbox.leer(ruta, MAX_LECTURA_BYTES)?;
+        let (original, _) = sandbox.leer(ruta, FileSystemPolicy::MAX_LECTURA_BYTES)?;
         let ocurrencias = original.matches(buscar).count();
         if ocurrencias == 0 {
             return Err(Error::NoEncontrado(format!(

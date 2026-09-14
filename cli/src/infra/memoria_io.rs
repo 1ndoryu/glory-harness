@@ -21,6 +21,91 @@ use uuid::Uuid;
 /// Carpeta versionable dentro del área de trabajo (destino `project`).
 pub const CARPETA_PROYECTO: &str = ".glory/memorias";
 
+/// Raíz del área contenida: canonicaliza `ruta_area` (resuelve `..`,
+/// enlaces y montajes) y exige carpeta real. Todo destino `project` deriva
+/// de aquí, nunca de la cadena de la BD tal cual.
+///
+/// [139A-8 F5n/K8] Sin esto, `Path::new(&area.ruta).join(CARPETA_PROYECTO)`
+/// escribía donde apuntara la cadena registrada (un área renombrada,
+/// sustituida por un enlace o con `..` se llevaba el export fuera del área
+/// real). Fail-closed: si el área ya no existe o no es carpeta, error, no
+/// creación silenciosa en otro sitio.
+pub fn raiz_area_contenida(ruta_area: &str) -> Result<PathBuf, String> {
+    let raiz = Path::new(ruta_area).canonicalize().map_err(|e| {
+        format!("el área de trabajo '{ruta_area}' ya no es accesible: {e}")
+    })?;
+    if !raiz.is_dir() {
+        return Err(format!(
+            "el área de trabajo '{}' no es una carpeta",
+            raiz.display()
+        ));
+    }
+    Ok(raiz)
+}
+
+/// Carpeta `project` sobre una raíz ya contenida (join puro de la constante;
+/// `CARPETA_PROYECTO` no contiene `..` ni separadores que escapen).
+pub fn carpeta_proyecto_en(raiz_contenida: &Path) -> PathBuf {
+    raiz_contenida.join(CARPETA_PROYECTO)
+}
+
+/// Destino de export contenido: crea la carpeta y REVALIDA tras crearla que
+/// sigue dentro de la raíz (cierra el hueco entre resolver y escribir si un
+/// componente —`.glory`, `memorias`— se sustituyó por un enlace o se renombró
+/// en medio; sin `OPENAT2` en Windows/std queda una ventana residual mínima,
+/// documentada, no un chequeo único al inicio). Devuelve el destino canónico.
+///
+/// Lo usan `memoria exportar --project` (CLI) y el panel "Memorias" del
+/// escritorio: una sola validación para ambos.
+pub fn carpeta_export_contenida(ruta_area: &str) -> Result<PathBuf, String> {
+    let raiz = raiz_area_contenida(ruta_area)?;
+    let destino = carpeta_proyecto_en(&raiz);
+    std::fs::create_dir_all(&destino)
+        .map_err(|e| format!("no se pudo crear {}: {e}", destino.display()))?;
+    let canon = destino.canonicalize().map_err(|e| {
+        format!(
+            "la carpeta de memorias '{}' dejó de ser accesible tras crearla: {e}",
+            destino.display()
+        )
+    })?;
+    if !canon.starts_with(&raiz) {
+        return Err(format!(
+            "la carpeta de memorias '{}' escapa del área '{}'",
+            canon.display(),
+            raiz.display()
+        ));
+    }
+    Ok(canon)
+}
+
+/// Revalidación para el import: la carpeta ya debe existir (el import no crea
+/// nada) y su forma canónica debe seguir dentro de la raíz contenida. Así el
+/// import no lee a través de un enlace plantado tras la resolución.
+pub fn carpeta_import_contenida(ruta_area: &str) -> Result<PathBuf, String> {
+    let raiz = raiz_area_contenida(ruta_area)?;
+    let destino = carpeta_proyecto_en(&raiz);
+    if !destino.is_dir() {
+        return Err(format!(
+            "no hay carpeta de memorias que importar: {}",
+            destino.display()
+        ));
+    }
+    let canon = destino.canonicalize().map_err(|e| {
+        format!(
+            "la carpeta de memorias '{}' dejó de ser accesible: {e}",
+            destino.display()
+        )
+    })?;
+    if !canon.starts_with(&raiz) {
+        return Err(format!(
+            "la carpeta de memorias '{}' escapa del área '{}'",
+            canon.display(),
+            raiz.display()
+        ));
+    }
+    Ok(canon)
+}
+
 /// Render de un recuerdo a Markdown con frontmatter (termina en salto de
 /// línea para que el archivo sea estable al reexportar).
 pub fn render_recuerdo(entrada: &MemoriaEntrada) -> String {
@@ -394,5 +479,70 @@ mod pruebas {
         );
 
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// [139A-8 F5n/K8] `..` en la ruta registrada no saca el export del área:
+    /// la canonicalización lo resuelve y el destino sigue contenido.
+    #[test]
+    fn destino_contenido_resuelve_puntos_y_sigue_dentro() {
+        let base = std::env::temp_dir().join(format!("glory-mem-k8-{}", uuid::Uuid::new_v4()));
+        let area = base.join("area");
+        std::fs::create_dir_all(area.join("sub")).expect("área temporal");
+        let con_puntos = area.join("sub").join("..").to_string_lossy().into_owned();
+
+        let destino = carpeta_export_contenida(&con_puntos).expect("destino contenido");
+        let raiz = area.canonicalize().expect("raíz canónica");
+        assert!(destino.starts_with(&raiz), "sigue dentro: {}", destino.display());
+
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    /// [139A-8 F5n/K8] Un área renombrada/movida tras registrarse falla
+    /// cerrado (no se crea nada en la ruta vieja ni en otro sitio).
+    #[test]
+    fn destino_contenido_falla_cerrado_si_el_area_desaparece() {
+        let base = std::env::temp_dir().join(format!("glory-mem-k8mv-{}", uuid::Uuid::new_v4()));
+        let area = base.join("area");
+        std::fs::create_dir_all(&area).expect("área temporal");
+        let ruta = area.to_string_lossy().into_owned();
+        std::fs::rename(&area, base.join("area-movida")).expect("renombrar");
+
+        let error = carpeta_export_contenida(&ruta).expect_err("fail-closed");
+        assert!(error.contains("ya no es accesible"), "motivo útil: {error}");
+
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    /// [139A-8 F5n/K8] Si `.glory` se sustituye por un enlace fuera del área
+    /// entre la resolución y la escritura, la revalidación tras crear lo
+    /// detecta y no devuelve ese destino.
+    ///
+    /// Crear enlaces exige privilegio en Windows (modo desarrollador/admin):
+    /// si el SO lo deniega, la prueba se omite en vez de fallar.
+    #[test]
+    fn destino_contenido_detecta_enlace_fuera_tras_crear() {
+        let base = std::env::temp_dir().join(format!("glory-mem-k8ln-{}", uuid::Uuid::new_v4()));
+        let area = base.join("area");
+        let fuera = base.join("fuera");
+        std::fs::create_dir_all(&area).expect("área temporal");
+        std::fs::create_dir_all(&fuera).expect("destino externo");
+        carpeta_export_contenida(&area.to_string_lossy()).expect("primera creación");
+
+        // Swap: `.glory` pasa a ser un enlace hacia fuera del área.
+        std::fs::remove_dir_all(area.join(".glory")).expect("quitar .glory real");
+        #[cfg(windows)]
+        let enlace = std::os::windows::fs::symlink_dir(&fuera, area.join(".glory"));
+        #[cfg(not(windows))]
+        let enlace = std::os::unix::fs::symlink(&fuera, area.join(".glory"));
+        if enlace.is_err() {
+            eprintln!("sin privilegio para enlaces: se omite el caso swap");
+            let _ = std::fs::remove_dir_all(&base);
+            return;
+        }
+
+        let error = carpeta_export_contenida(&area.to_string_lossy()).expect_err("swap detectado");
+        assert!(error.contains("escapa del área"), "motivo útil: {error}");
+
+        let _ = std::fs::remove_dir_all(&base);
     }
 }

@@ -56,6 +56,119 @@ const SECRET_EXTENSIONES: &[&str] = &["pem", "p12", "pfx", "key", "keystore", "j
 
 const SECRET_PREFIJOS: &[&str] = &["*_KEY", "*.key"];
 
+/// [139A-8 F5n/S7] Política ÚNICA del filesystem. Los tres topes de lectura
+/// (agent-tools 1 MB, panel Tauri 256 KB, panel web 256 KB) y los topes de
+/// listado/búsqueda duplicados en `desktop/.../archivos/filesystem.rs` y
+/// `cli/.../web_datos/files.rs` colapsan aquí: un bug de tope se arregla en
+/// UN sitio. Tope unificado `MAX_LECTURA_BYTES = 1 MB`: el agente trunca con
+/// aviso y los paneles devuelven `archivo_demasiado_grande` por encima del
+/// tope. Se elige el valor MAYOR (1 MB, no 256 KB) para no romper lecturas
+/// del agente que ya funcionan; el visor de los paneles sigue acotado (1 MB
+/// cabe en el visor y en un mensaje del modelo). `MAX_LECTURA_LINEAS` (400
+/// líneas) sigue local a `tools_archivo.rs`: es tope de VENTANA del agente,
+/// no de bytes, y no colisiona con ningún tope de los paneles.
+pub struct FileSystemPolicy;
+
+impl FileSystemPolicy {
+    /// Tope único de lectura en bytes (justificación en el struct).
+    pub const MAX_LECTURA_BYTES: usize = 1_048_576;
+    /// Tope de entradas por listado de directorio.
+    pub const MAX_ENTRADAS: usize = 500;
+    /// Tope de resultados de búsqueda.
+    pub const MAX_RESULTADOS_BUSQUEDA: usize = 200;
+    /// Profundidad máxima de la búsqueda recursiva.
+    pub const MAX_PROFUNDIDAD_BUSQUEDA: usize = 24;
+    /// Profundidad máxima del árbol en un listado.
+    pub const MAX_PROFUNDIDAD_ARBOL: u8 = 3;
+    /// Directorios que el explorador marca como ignorados (no se desciende).
+    pub const EXCLUIDOS: [&'static str; 3] = [".git", "node_modules", "target"];
+
+    /// ¿`nombre` (solo el nombre, sin ruta) está excluido del barrido?
+    #[must_use]
+    pub fn es_excluido(nombre: &str) -> bool {
+        Self::EXCLUIDOS.contains(&nombre)
+    }
+}
+
+/// [139A-8 F5n/S7] ÚNICA validación de contención del workspace.
+/// `SandboxArchivos::resolver`/`resolver_para_escribir` delegan aquí, y los
+/// adaptadores Tauri (`archivos/filesystem.rs`) y web (`web_datos/files.rs`)
+/// también la usan: un fix de traversal se hace en UN sitio (K10: re-validar
+/// toda ruta del backend con esta función). La lista negra de secretos
+/// (`es_secreto`) NO se aplica aquí: es del AGENTE, no del explorador del
+/// usuario (el usuario sí debe ver su propio `.env`).
+///
+/// [139A-8 F5n/K8] Endurecimiento: se deniega el componente final si es
+/// symlink/junction (`rechazar_enlace`) y el llamador re-chequea tras la E/S
+/// (`revalidar_contencion`). Ventana residual documentada: un rename
+/// concurrente entre la validación y la E/S (requiere escritura en el propio
+/// workspace, actor ya local); la revalidación lo convierte en error en vez
+/// de E/S silenciosa fuera de sitio. Sin `OPENAT2` (Linux-only, no portable
+/// a Windows): std estable + denegación de enlaces + revalidación.
+pub fn contener_en_raiz(raiz_canonica: &Path, relativa: &str) -> Result<PathBuf, Error> {
+    let ruta = Path::new(relativa.trim());
+    if ruta.is_absolute() {
+        return Err(Error::Sandbox("Solo rutas relativas al workspace".into()));
+    }
+    /* Prohibir `..` explícitamente (defensa en profundidad). */
+    for componente in ruta.components() {
+        if matches!(componente, Component::ParentDir) {
+            return Err(Error::Sandbox("No se permiten rutas con '..'".into()));
+        }
+    }
+    let raiz = if raiz_canonica.exists() {
+        std::fs::canonicalize(raiz_canonica)
+            .map_err(|error| Error::Validacion(format!("Workspace no accesible: {error}")))?
+    } else {
+        raiz_canonica.to_path_buf()
+    };
+    let candidata = raiz.join(ruta);
+    /* [K8] El componente final no puede ser un enlace: `canonicalize` lo
+     * resolvería fuera y el check de prefijo llegaría tarde para quien ya
+     * abrió el path sin resolver. La raíz se confía por construcción
+     * (canonicalizada en `nuevo`/`raiz_activa`; un workspace montado en
+     * junction —p. ej. OneDrive— no debe denegarse a sí mismo). */
+    rechazar_enlace(&candidata, &raiz)?;
+    let canonica = std::fs::canonicalize(&candidata)
+        .map_err(|_| Error::NoEncontrado("La ruta no existe dentro del workspace".into()))?;
+    if !contiene(&raiz, &canonica) {
+        return Err(Error::Sandbox(
+            "La ruta escapa del workspace (junctions/symlinks/..)".into(),
+        ));
+    }
+    Ok(canonica)
+}
+
+/// [139A-8 F5n/K8] Deniega el componente final si es symlink/junction.
+/// `Ok` si no existe aún (caso escritura nueva) o si es la propia raíz.
+fn rechazar_enlace(candidata: &Path, raiz: &Path) -> Result<(), Error> {
+    if candidata == raiz {
+        return Ok(());
+    }
+    match std::fs::symlink_metadata(candidata) {
+        Ok(meta) if meta.file_type().is_symlink() => Err(Error::Sandbox(
+            "La ruta es un enlace simbólico/junction: acceso denegado".into(),
+        )),
+        _ => Ok(()),
+    }
+}
+
+/// [139A-8 F5n/K8] Re-chequeo post-E/S contra TOCTOU por rename: la ruta
+/// canónica debe seguir existiendo, ser la misma y seguir contenida. El
+/// llamador la invoca DESPUÉS de leer/escribir; un swap concurrente se
+/// convierte en error en vez de E/S silenciosa fuera de sitio.
+fn revalidar_contencion(raiz: &Path, ruta_canonica: &Path) -> Result<(), Error> {
+    let actual = std::fs::canonicalize(ruta_canonica).map_err(|_| {
+        Error::NoEncontrado("La ruta desapareció durante la E/S (posible rename)".into())
+    })?;
+    if actual != ruta_canonica || !contiene(raiz, &actual) {
+        return Err(Error::Sandbox(
+            "La ruta cambió durante la E/S (posible swap): operación anulada".into(),
+        ));
+    }
+    Ok(())
+}
+
 /// Raíz del sandbox (workspace). `new` la canonicaliza; si no existe se crea.
 pub struct SandboxArchivos {
     raiz: PathBuf,
@@ -93,42 +206,12 @@ impl SandboxArchivos {
 
     /// Resuelve una ruta relativa al workspace y valida que quede DENTRO.
     /// Devuelve la ruta canónica (resuelve junctions/symlinks y `..`).
+    /// [139A-8 F5n/S7] Delega en [`contener_en_raiz`], la única validación.
     pub fn resolver(&self, relativa: &str) -> Result<PathBuf, Error> {
         if relativa.trim().is_empty() {
             return Err(Error::Validacion("Ruta vacía".into()));
         }
-        let ruta = Path::new(relativa);
-        if ruta.is_absolute() {
-            return Err(Error::Sandbox("Solo rutas relativas al workspace".into()));
-        }
-        /* Prohibir `..` explícitamente (defensa en profundidad). */
-        for componente in ruta.components() {
-            if matches!(componente, Component::ParentDir) {
-                return Err(Error::Sandbox("No se permiten rutas con '..'".into()));
-            }
-        }
-        let candidata = self.raiz.join(ruta);
-        let canonica = std::fs::canonicalize(&candidata)
-            .map_err(|_| Error::NoEncontrado("La ruta no existe dentro del workspace".into()))?;
-        /* Verificación case-insensitive (Windows) del prefijo + separador. */
-        let raiz_lower = self
-            .raiz
-            .to_string_lossy()
-            .to_ascii_lowercase()
-            .trim_end_matches(['/', '\\'])
-            .to_string();
-        let canonica_str = canonica.to_string_lossy().to_ascii_lowercase();
-        let dentro = canonica_str == raiz_lower
-            || canonica_str
-                .strip_prefix(&raiz_lower)
-                .map(|resto| resto.starts_with(['/', '\\']))
-                .unwrap_or(false);
-        if !dentro {
-            return Err(Error::Sandbox(
-                "La ruta escapa del workspace (junctions/symlinks/..)".into(),
-            ));
-        }
-        Ok(canonica)
+        contener_en_raiz(&self.raiz, relativa)
     }
 
     /// Ruta canónica del workspace (para búsquedas y lectura de directorios).
@@ -204,6 +287,9 @@ impl SandboxArchivos {
         let ruta = self.resolver(relativa)?;
         let datos = std::fs::read(&ruta)
             .map_err(|error| Error::NoEncontrado(format!("No se pudo leer: {error}")))?;
+        /* [139A-8 F5n/K8] Re-chequeo post-lectura: un rename/swap entre
+         * `resolver` y `read` se convierte en error, no en lectura ajena. */
+        revalidar_contencion(&self.raiz, &ruta)?;
         let truncado = datos.len() > max_bytes;
         let contenido = String::from_utf8_lossy(&datos[..datos.len().min(max_bytes)]).to_string();
         Ok((contenido, truncado))
@@ -233,6 +319,9 @@ impl SandboxArchivos {
         let ruta = self.resolver(relativa)?;
         let archivo = std::fs::File::open(&ruta)
             .map_err(|error| Error::NoEncontrado(format!("No se pudo leer: {error}")))?;
+        /* [139A-8 F5n/K8] El rango se materializa del handle ya abierto; se
+         * re-chequea al terminar para no contar líneas de un archivo
+         * swapeado a mitad de lectura. */
         let lector = std::io::BufReader::new(archivo);
         let mut lineas = lector.lines();
         // Avanzamos hasta la primera línea del rango (guardando su texto).
@@ -271,6 +360,7 @@ impl SandboxArchivos {
         }
         let fin_rango = offset + recogidas.len() - 1;
         let hay_mas = fin_rango < total;
+        revalidar_contencion(&self.raiz, &ruta)?;
         Ok((recogidas.join("\n"), total, hay_mas))
     }
 
@@ -326,12 +416,21 @@ impl SandboxArchivos {
         }
         std::fs::write(&ruta, contenido)
             .map_err(|error| Error::Validacion(format!("No se pudo escribir: {error}")))?;
+        /* [139A-8 F5n/K8] Re-chequeo post-escritura sobre el padre: si un
+         * rename movió el directorio entre la validación y el `write`, la
+         * operación se reporta como anulada en vez de silenciosa. */
+        if let Some(padre) = ruta.parent() {
+            revalidar_contencion(&self.raiz, padre)?;
+        }
         Ok(ruta)
     }
 
     /// Resolución para escritura: la ruta puede no existir aún, así que se
     /// valida lexicográficamente (sin canonicalizar el archivo final; sí el
     /// padre si existe, para no escapar por junction del directorio).
+    /// [139A-8 F5n/S7] Los checks de `..`/absoluta/contención usan la misma
+    /// lógica que [`contener_en_raiz`]; [F5n/K8] si el destino YA existe y es
+    /// un enlace, se deniega (escribir seguiría el enlace fuera del root).
     fn resolver_para_escribir(&self, relativa: &str) -> Result<PathBuf, Error> {
         let ruta = Path::new(relativa);
         if ruta.is_absolute() {
@@ -360,10 +459,14 @@ impl SandboxArchivos {
                 "La ruta de escritura escapa del workspace".into(),
             ));
         }
-        Ok(padre_canonico.join(
+        let destino = padre_canonico.join(
             ruta.file_name()
                 .ok_or_else(|| Error::Validacion("La ruta no tiene nombre de archivo".into()))?,
-        ))
+        );
+        /* [K8] Sobrescribir un enlace existente escribiría FUERA siguiendo el
+         * enlace: se deniega aunque el padre sea válido. */
+        rechazar_enlace(&destino, &self.raiz)?;
+        Ok(destino)
     }
 }
 
@@ -403,6 +506,81 @@ mod tests {
     fn rechaza_rutas_absolutas() {
         let sb = sandbox_tmp("abs");
         assert!(sb.resolver("C:\\Windows\\system32\\config").is_err());
+    }
+
+    /* ===== [139A-8 F5n/K8] Traversal TOCTOU: enlaces, rename, swap ===== */
+
+    /// Crea un symlink al archivo `origen` en `enlace`. En Windows exige
+    /// modo desarrollador/admin: el llamador omite el test si falla.
+    #[cfg(unix)]
+    fn enlazar(origen: &std::path::Path, enlace: &std::path::Path) -> std::io::Result<()> {
+        std::os::unix::fs::symlink(origen, enlace)
+    }
+
+    #[cfg(windows)]
+    fn enlazar(origen: &std::path::Path, enlace: &std::path::Path) -> std::io::Result<()> {
+        std::os::windows::fs::symlink_file(origen, enlace)
+    }
+
+    #[test]
+    fn deniega_enlace_final_a_destino_externo() {
+        let sb = sandbox_tmp("enlace");
+        let fuera = std::env::temp_dir().join(format!(
+            "agente-sandbox-fuera-{}.txt",
+            std::process::id()
+        ));
+        fs::write(&fuera, "externo").expect("semilla externa");
+        let enlace = sb.raiz.join("atajo.txt");
+        if enlazar(&fuera, &enlace).is_err() {
+            eprintln!("sin privilegio para symlinks: test omitido");
+            let _ = fs::remove_file(&fuera);
+            return;
+        }
+        let err = sb.resolver("atajo.txt").unwrap_err();
+        assert!(err.to_string().contains("enlace"), "inesperado: {err}");
+        let err = sb.leer("atajo.txt", 1024).unwrap_err();
+        assert!(err.to_string().contains("enlace"), "inesperado: {err}");
+        let _ = fs::remove_file(&enlace);
+        let _ = fs::remove_file(&fuera);
+    }
+
+    #[test]
+    fn rename_tras_resolver_falla_cerrado() {
+        let sb = sandbox_tmp("rename");
+        sb.escribir("nota.txt", "hola").expect("escribir");
+        let canonica = sb.resolver("nota.txt").expect("resolver");
+        /* El archivo se mueve entre la validación y la lectura: fail-closed
+         * (determinista; el rename concurrente real lo cubre la
+         * revalidación post-E/S con el mismo código). */
+        fs::rename(&canonica, sb.raiz.join("movida.txt")).expect("rename");
+        assert!(sb.leer("nota.txt", 1024).is_err());
+        let err = super::revalidar_contencion(sb.raiz(), &canonica).unwrap_err();
+        assert!(err.to_string().contains("desapareció"), "inesperado: {err}");
+    }
+
+    #[test]
+    fn revalidacion_detecta_swap_a_fuera() {
+        let sb = sandbox_tmp("swap");
+        sb.escribir("dato.txt", "dentro").expect("escribir");
+        let canonica = sb.resolver("dato.txt").expect("resolver");
+        assert!(super::revalidar_contencion(sb.raiz(), &canonica).is_ok());
+        /* Swap: el path pasa a ser un enlace a un archivo externo; la ruta
+         * canónica ya no coincide con la validada. */
+        let fuera = std::env::temp_dir().join(format!(
+            "agente-sandbox-swap-{}.txt",
+            std::process::id()
+        ));
+        fs::write(&fuera, "externo").expect("semilla externa");
+        fs::remove_file(&canonica).expect("quitar original");
+        if enlazar(&fuera, &canonica).is_err() {
+            eprintln!("sin privilegio para symlinks: swap omitido");
+            let _ = fs::remove_file(&fuera);
+            return;
+        }
+        let err = super::revalidar_contencion(sb.raiz(), &canonica).unwrap_err();
+        assert!(err.to_string().contains("cambió"), "inesperado: {err}");
+        let _ = fs::remove_file(&canonica);
+        let _ = fs::remove_file(&fuera);
     }
 
     #[test]

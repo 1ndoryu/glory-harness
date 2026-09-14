@@ -210,9 +210,20 @@ Auditoría §S7/S8 (DRY), §K8/G4 (TOCTOU), §R4 (índices). Paso 3 (+R4 del pas
    existencia/contenido tras leer (hash o re-apertura) antes de indexar + doc
    del invariante; `sandbox.rs` ya canonicaliza: solo doc + test del check
    (`..`, symlink, rename). Sin `OPENAT2` (Linux-only).
-4. **R4:** los 6 índices de la auditoría §R4; evidencia `EXPLAIN QUERY PLAN`
-   antes/después en las 4 consultas citadas.
-   DoD: tests de escape + índices verificados + gate PASS.
+4. **R4 [HECHO 2026-09-14]:** 6 índices en `MIGRACIONES`
+    (`persistencia_sqlite.rs:247-257`): `idx_conversaciones_user_act`,
+    `idx_turnos_conv`, `idx_acciones_turno`, `idx_tareas_user`,
+    `idx_tarea_logs_tarea`, `idx_workspaces_user_fij`; regresión
+    `persistencia_sqlite.rs:pruebas::listados_calientes_usan_indice` (9
+    consultas: las 4 de §R4 + logs/sidebar + controles con índice previo).
+    Antes: `SCAN a` (JOIN acciones), `SCAN turnos`, `SCAN tareas`,
+    `SCAN tarea_logs`. Después: 0 SCAN. `cargo check --workspace
+    --all-targets` 0 err; `cargo test --workspace` 515 passed (162+2+1+336+14).
+    Residual: `tareas_pendientes` (`puerto.rs:388`,
+    `WHERE estado ORDER BY creado_en`, scheduler) sin índice — fuera de §R4,
+    deuda; listado por área usa `idx_conversaciones_ws` (prefijo) para el
+    filtro y ordena en memoria (filas ya acotadas).
+    DoD: tests de escape + índices verificados + gate PASS.
 
 ## F6n — Streaming/DOM restante (R5, R6, R8, R7-condicional)
 

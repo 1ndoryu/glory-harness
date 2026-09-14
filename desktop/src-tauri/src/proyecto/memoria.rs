@@ -176,7 +176,8 @@ pub(crate) async fn memoria_curar(estado: State<'_, Estado>) -> Result<String, S
 
 /// Exporta a `.glory/memorias` del área activa (destino versionable del
 /// repo). El destino NO lo elige el front: así el comando no puede escribir
-/// en una ruta arbitraria del disco.
+/// en una ruta arbitraria del disco. La carpeta pasa por la validación
+/// contenida compartida con el CLI ([139A-8 F5n/K8]).
 #[tauri::command]
 pub(crate) async fn memoria_exportar(
     estado: State<'_, Estado>,
@@ -190,7 +191,7 @@ pub(crate) async fn memoria_exportar(
         .memoria_listar(sesion.user_id, ambito)
         .await
         .map_err(|e| e.to_string())?;
-    let carpeta = PathBuf::from(&area.ruta).join(CARPETA_PROYECTO);
+    let carpeta = memoria_io::carpeta_export_contenida(&area.ruta)?;
     let recuerdos = memoria_io::exportar_carpeta(&carpeta, &entradas)?;
     Ok(ResultadoCarpetaMemoria {
         carpeta: carpeta.display().to_string(),
@@ -212,13 +213,9 @@ pub(crate) async fn memoria_importar(
         "el import del proyecto necesita un área de trabajo activa (abre o crea un proyecto)"
             .to_string()
     })?;
-    let carpeta = PathBuf::from(&area.ruta).join(CARPETA_PROYECTO);
-    if !carpeta.is_dir() {
-        return Err(format!(
-            "no hay carpeta de memorias que importar: {}",
-            carpeta.display()
-        ));
-    }
+    // [139A-8 F5n/K8] Validación contenida también al leer: no se importa a
+    // través de un enlace plantado tras la resolución.
+    let carpeta = memoria_io::carpeta_import_contenida(&area.ruta)?;
     let resumen = memoria_io::importar_carpeta(&carpeta, &puerto(&sesion), sesion.user_id, ambito)
         .await?;
     Ok(ResultadoCarpetaMemoria {

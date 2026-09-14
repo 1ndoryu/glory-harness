@@ -244,6 +244,18 @@ const MIGRACIONES: &[&str] = &[
     "ALTER TABLE tarea_logs ADD COLUMN resultado TEXT",
     /* [119A-2 F3] Fijado de proyectos (BDs anteriores a F3: 0 = no fijado). */
     "ALTER TABLE workspaces ADD COLUMN fijado INTEGER NOT NULL DEFAULT 0",
+    /* [139A-8 F5n/R4] Índices de los listados calientes de la auditoría §R4:
+     * evitan el barrido completo en el historial, el último turno, la cola
+     * de tareas, sus logs y la barra lateral de áreas. La forma (columna de
+     * igualdad + columna de orden) deja el ORDER BY resuelto por el propio
+     * índice, sin `TEMP B-TREE`. `IF NOT EXISTS` los hace idempotentes en
+     * BD ya creadas. */
+    "CREATE INDEX IF NOT EXISTS idx_conversaciones_user_act ON conversaciones (user_id, actualizada_en DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_turnos_conv ON turnos (conversacion_id, creado_en)",
+    "CREATE INDEX IF NOT EXISTS idx_acciones_turno ON acciones (turno_id, id)",
+    "CREATE INDEX IF NOT EXISTS idx_tareas_user ON tareas (user_id, creado_en)",
+    "CREATE INDEX IF NOT EXISTS idx_tarea_logs_tarea ON tarea_logs (tarea_id, ejecutada_en DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_workspaces_user_fij ON workspaces (user_id, fijado DESC, creada_en DESC)",
 ];
 
 /// [109A-4 F3] Punto de compactación manual de una conversación.
@@ -505,5 +517,50 @@ impl PersistenciaSqlite {
             .execute("DELETE FROM config WHERE clave = ?1", params![clave])
             .map_err(|e| Error::Persistencia(e.to_string()))?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod pruebas {
+    //! [139A-8 F5n/R4] Red de regresión: los listados calientes usan índice
+    //! (nada de `SCAN` en `EXPLAIN QUERY PLAN`). Si una consulta nueva barre
+    //! tabla, este test la señala y el fix es un índice en `MIGRACIONES`.
+    use super::*;
+
+    fn plan_de(conn: &Connection, sql: &str) -> Vec<String> {
+        conn.prepare(&format!("EXPLAIN QUERY PLAN {sql}"))
+            .expect("EXPLAIN preparable")
+            .query_map([], |f| f.get::<_, String>(3))
+            .expect("EXPLAIN ejecutable")
+            .map(|r| r.expect("fila del plan"))
+            .collect()
+    }
+
+    #[test]
+    fn listados_calientes_usan_indice() {
+        let bd = PersistenciaSqlite::en_memoria().expect("BD en memoria");
+        let conn = bloquear(&bd.conn);
+        // Las 4 consultas de la auditoría §R4 + las que cubren los otros dos
+        // índices nuevos (logs de tarea, sidebar de áreas) + controles con
+        // índice preexistente (eventos, mensajes).
+        let mut malas = Vec::new();
+        for sql in [
+            "SELECT id FROM conversaciones WHERE user_id = 'u' ORDER BY actualizada_en DESC",
+            "SELECT c.id FROM conversaciones c LEFT JOIN workspaces w ON w.id = c.workspace_id AND w.user_id = c.user_id WHERE c.user_id = 'u' ORDER BY c.actualizada_en DESC",
+            "SELECT a.tool FROM acciones a JOIN turnos t ON t.id = a.turno_id WHERE t.conversacion_id = 'c' ORDER BY t.creado_en, a.id",
+            "SELECT provider FROM turnos WHERE conversacion_id = 'c' ORDER BY creado_en DESC LIMIT 1",
+            "SELECT id FROM tareas WHERE user_id = 'u' ORDER BY creado_en ASC",
+            "SELECT id FROM tarea_logs WHERE tarea_id = 't' ORDER BY ejecutada_en DESC LIMIT 10",
+            "SELECT id FROM workspaces WHERE user_id = 'u' ORDER BY fijado DESC, creada_en DESC",
+            "SELECT id FROM eventos_turno WHERE turno_id = 't' ORDER BY id",
+            "SELECT id FROM mensajes WHERE conversacion_id = 'c' ORDER BY creado_en ASC",
+        ] {
+            for linea in plan_de(&conn, sql) {
+                if linea.contains("SCAN") {
+                    malas.push(format!("{sql} -> {linea}"));
+                }
+            }
+        }
+        assert!(malas.is_empty(), "barridos de tabla:\n{}", malas.join("\n"));
     }
 }

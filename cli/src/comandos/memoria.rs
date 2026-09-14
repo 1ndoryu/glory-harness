@@ -404,6 +404,12 @@ async fn accion_memoria_exportar(args: &[String]) -> Result<(), String> {
 }
 
 /// Carpeta destino del export ([109A-2]).
+///
+/// `--destino` es intención explícita del operador (como `--proyecto <ruta>`
+/// al registrar): escribe donde se le dice, sin contención. `--project`, en
+/// cambio, deriva la ruta de la cadena registrada en BD: pasa por
+/// [`memoria_io::carpeta_export_contenida`] (canonicaliza la raíz, crea y
+/// REVALIDA que el destino sigue dentro; [139A-8 F5n/K8]).
 fn destino_export(
     args: &[String],
     tiendas: &PersistenciaSqlite,
@@ -422,7 +428,7 @@ fn destino_export(
             .workspace_por_id(user_id, id)
             .map_err(|e| e.to_string())?
             .ok_or_else(|| format!("--project: el área {id} ya no existe"))?;
-        return Ok(Path::new(&area.ruta).join(memoria_io::CARPETA_PROYECTO));
+        return memoria_io::carpeta_export_contenida(&area.ruta);
     }
     let base = PersistenciaSqlite::ruta_bd_app()
         .and_then(|p| p.parent().map(Path::to_path_buf))
@@ -652,21 +658,44 @@ mod pruebas {
         assert_eq!(destino, PathBuf::from("C:\\tmp\\memorias-verif"));
     }
 
-    /// `--project` escribe en el área de trabajo (carpeta versionable).
+    /// `--project` escribe en el área de trabajo (carpeta versionable),
+    /// contenida y canónica ([139A-8 F5n/K8]).
     #[test]
     fn destino_export_project_usa_la_carpeta_del_area() {
+        let base = std::env::temp_dir().join(format!("glory-mem-dest-{}", Uuid::new_v4()));
+        let area_fs = base.join("area");
+        std::fs::create_dir_all(&area_fs).expect("área temporal");
         let tiendas = PersistenciaSqlite::en_memoria().expect("BD en memoria");
         let user = Uuid::new_v4();
         let area = tiendas
-            .workspace_crear(user, "Área", "C:\\tmp\\area-memoria")
+            .workspace_crear(user, "Área", &area_fs.to_string_lossy())
             .expect("crear área");
         let args = vec!["exportar".to_string(), "--project".to_string()];
         let destino = destino_export(&args, &tiendas, user, AmbitoMemoria::Proyecto(area.id))
             .expect("destino del área");
-        assert_eq!(
-            destino,
-            Path::new("C:\\tmp\\area-memoria").join(memoria_io::CARPETA_PROYECTO)
-        );
+        let raiz = area_fs.canonicalize().expect("raíz canónica");
+        assert_eq!(destino, raiz.join(memoria_io::CARPETA_PROYECTO));
+        assert!(destino.starts_with(&raiz), "contenido en el área");
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    /// `--project` con un área renombrada tras registrarse falla cerrado.
+    #[test]
+    fn destino_export_project_falla_si_el_area_se_movio() {
+        let base = std::env::temp_dir().join(format!("glory-mem-destmv-{}", Uuid::new_v4()));
+        let area_fs = base.join("area");
+        std::fs::create_dir_all(&area_fs).expect("área temporal");
+        let tiendas = PersistenciaSqlite::en_memoria().expect("BD en memoria");
+        let user = Uuid::new_v4();
+        let area = tiendas
+            .workspace_crear(user, "Área", &area_fs.to_string_lossy())
+            .expect("crear área");
+        std::fs::rename(&area_fs, base.join("movida")).expect("renombrar");
+        let args = vec!["exportar".to_string(), "--project".to_string()];
+        let error = destino_export(&args, &tiendas, user, AmbitoMemoria::Proyecto(area.id))
+            .expect_err("fail-closed");
+        assert!(error.contains("ya no es accesible"), "motivo útil: {error}");
+        let _ = std::fs::remove_dir_all(&base);
     }
 
     /// El ámbito global no tiene carpeta de trabajo: `--project` falla en vez

@@ -9,7 +9,7 @@ use chrono::{DateTime, Utc};
 use serde::Serialize;
 use std::cmp::Ordering;
 use std::fs;
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf};
 use tauri::State;
 use windows::core::PCWSTR;
 use windows::Win32::UI::Shell::{SHOpenWithDialog, OAIF_EXEC, OPENASINFO};
@@ -17,12 +17,11 @@ use windows::Win32::UI::Shell::{SHOpenWithDialog, OAIF_EXEC, OPENASINFO};
 // [109A-6] El módulo vive en `archivos/`: `super` ya no es la raíz del crate.
 use crate::{area_activa, sesion_actual, Estado, Sesion};
 
-const MAX_FILE_BYTES: u64 = 256 * 1024;
-const MAX_ENTRIES: usize = 500;
-const MAX_SEARCH_RESULTS: usize = 200;
-const MAX_SEARCH_DEPTH: usize = 24;
-const MAX_TREE_DEPTH: u8 = 3;
-const EXCLUDED_DIRECTORIES: [&str; 3] = [".git", "node_modules", "target"];
+/* [139A-8 F5n/S7] Topes y validación únicos: `FileSystemPolicy` +
+ * `contener_en_raiz` del core. Este módulo solo mapea errores a sus códigos
+ * Tauri y conserva sus DTOs/comandos (transporte, no duplicación). */
+use glory_harness_core::error::Error as ErrorNucleo;
+use glory_harness_core::sandbox::{contener_en_raiz, FileSystemPolicy};
 
 #[derive(Debug, Serialize, Clone)]
 pub(crate) struct ErrorFilesystem {
@@ -91,13 +90,13 @@ pub(crate) fn workspace_listar_entrada(
     let sesion = sesion_actual(&estado).map_err(|e| ErrorFilesystem::new("sesion", e, None))?;
     let raiz = raiz_activa(&sesion)?;
     let dir = resolver_existente(&raiz, &ruta_relativa, true)?;
-    let profundidad = profundidad.unwrap_or(0).min(MAX_TREE_DEPTH);
+    let profundidad = profundidad.unwrap_or(0).min(FileSystemPolicy::MAX_PROFUNDIDAD_ARBOL);
     let (entradas, truncado) = listar_directorio(&raiz, &dir, profundidad)?;
     Ok(ListadoWorkspace {
         ruta: relativa(&raiz, &dir),
         entradas,
         truncado,
-        excluidas: EXCLUDED_DIRECTORIES
+        excluidas: FileSystemPolicy::EXCLUIDOS
             .iter()
             .map(|s| (*s).to_string())
             .collect(),
@@ -113,7 +112,7 @@ pub(crate) fn workspace_leer_archivo(
     let sesion = sesion_actual(&estado).map_err(|e| ErrorFilesystem::new("sesion", e, None))?;
     let raiz = raiz_activa(&sesion)?;
     let archivo = resolver_existente(&raiz, &ruta_relativa, false)?;
-    leer_archivo_limitado(&raiz, &archivo, limite_bytes.unwrap_or(MAX_FILE_BYTES))
+    leer_archivo_limitado(&raiz, &archivo, limite_bytes.unwrap_or(FileSystemPolicy::MAX_LECTURA_BYTES as u64))
 }
 
 #[tauri::command]
@@ -156,7 +155,7 @@ pub(crate) fn workspace_buscar(
     let sesion = sesion_actual(&estado).map_err(|e| ErrorFilesystem::new("sesion", e, None))?;
     let raiz = raiz_activa(&sesion)?;
     let inicio = resolver_existente(&raiz, ruta_relativa.as_deref().unwrap_or(""), true)?;
-    let limite = limite_resultados.unwrap_or(50).clamp(1, MAX_SEARCH_RESULTS);
+    let limite = limite_resultados.unwrap_or(50).clamp(1, FileSystemPolicy::MAX_RESULTADOS_BUSQUEDA);
     let consulta_lower = consulta.to_lowercase();
     let mut pendientes = vec![(inicio, 0usize)];
     let mut entradas = Vec::new();
@@ -179,7 +178,7 @@ pub(crate) fn workspace_buscar(
                     break;
                 }
             }
-            if entrada.tipo == "directorio" && !entrada.ignorado && profundidad < MAX_SEARCH_DEPTH {
+            if entrada.tipo == "directorio" && !entrada.ignorado && profundidad < FileSystemPolicy::MAX_PROFUNDIDAD_BUSQUEDA {
                 pendientes.push((path, profundidad + 1));
             }
         }
@@ -193,7 +192,7 @@ pub(crate) fn workspace_buscar(
         consulta,
         entradas,
         truncado,
-        excluidas: EXCLUDED_DIRECTORIES
+        excluidas: FileSystemPolicy::EXCLUIDOS
             .iter()
             .map(|s| (*s).to_string())
             .collect(),
@@ -241,52 +240,42 @@ fn resolver_existente(
     ruta: &str,
     debe_ser_directorio: bool,
 ) -> Result<PathBuf, ErrorFilesystem> {
-    let ruta = ruta.trim();
-    let path = Path::new(ruta);
-    if path.is_absolute() || path.components().any(|c| matches!(c, Component::ParentDir)) {
-        return Err(ErrorFilesystem::new(
-            "ruta_fuera_workspace",
-            "la ruta debe ser relativa y no puede contener '..'",
-            Some(path),
-        ));
-    }
-    let raiz = raiz
-        .canonicalize()
-        .map_err(|e| error_io("workspace_invalido", e, Some(raiz)))?;
-    let objetivo = if ruta.is_empty() {
-        raiz.clone()
-    } else {
-        raiz.join(path)
-    };
-    let canon = objetivo.canonicalize().map_err(|e| {
-        if e.kind() == std::io::ErrorKind::NotFound {
-            ErrorFilesystem::new("ruta_no_encontrada", "la ruta no existe", Some(path))
-        } else {
-            error_io("ruta_no_disponible", e, Some(path))
-        }
-    })?;
-    if !canon.starts_with(raiz) {
-        return Err(ErrorFilesystem::new(
-            "ruta_fuera_workspace",
-            "la ruta queda fuera del workspace activo",
-            Some(path),
-        ));
-    }
+    /* [139A-8 F5n/S7] Contención delegada al core (única validación); aquí
+     * solo el check de clase (dir/archivo) y el mapeo a códigos Tauri. La
+     * raíz vacía es el propio workspace (el core la acepta). */
+    let canon = contener_en_raiz(raiz, ruta).map_err(|e| error_nucleo(e, Some(Path::new(ruta))))?;
     if debe_ser_directorio && !canon.is_dir() {
         return Err(ErrorFilesystem::new(
             "no_es_directorio",
             "la ruta no es una carpeta",
-            Some(path),
+            Some(Path::new(ruta)),
         ));
     }
     if !debe_ser_directorio && canon.is_dir() {
         return Err(ErrorFilesystem::new(
             "no_es_archivo",
             "la ruta es una carpeta",
-            Some(path),
+            Some(Path::new(ruta)),
         ));
     }
     Ok(canon)
+}
+
+/// Mapea el error del core a los códigos estables del IPC Tauri (el front
+/// distingue `ruta_fuera_workspace` / `ruta_no_encontrada`).
+fn error_nucleo(error: ErrorNucleo, ruta: Option<&Path>) -> ErrorFilesystem {
+    match error {
+        ErrorNucleo::Sandbox(mensaje) => {
+            ErrorFilesystem::new("ruta_fuera_workspace", mensaje, ruta)
+        }
+        ErrorNucleo::NoEncontrado(_) => {
+            ErrorFilesystem::new("ruta_no_encontrada", "la ruta no existe", ruta)
+        }
+        ErrorNucleo::Validacion(mensaje) => {
+            ErrorFilesystem::new("workspace_invalido", mensaje, ruta)
+        }
+        otro => ErrorFilesystem::new("ruta_no_disponible", otro.to_string(), ruta),
+    }
 }
 
 fn listar_directorio(
@@ -299,9 +288,9 @@ fn listar_directorio(
         .collect::<Result<Vec<_>, _>>()
         .map_err(|e| error_io("listar_no_disponible", e, Some(directorio)))?;
     hijos.sort_by(|a, b| comparar_entradas(&a.path(), &b.path()));
-    let truncado = hijos.len() > MAX_ENTRIES;
-    let mut entradas = Vec::with_capacity(hijos.len().min(MAX_ENTRIES));
-    for hijo in hijos.into_iter().take(MAX_ENTRIES) {
+    let truncado = hijos.len() > FileSystemPolicy::MAX_ENTRADAS;
+    let mut entradas = Vec::with_capacity(hijos.len().min(FileSystemPolicy::MAX_ENTRADAS));
+    for hijo in hijos.into_iter().take(FileSystemPolicy::MAX_ENTRADAS) {
         let path = hijo.path();
         let mut entrada = entrada_workspace(raiz, &path)?;
         if profundidad > 0 && entrada.tipo == "directorio" && !entrada.ignorado {
@@ -349,7 +338,7 @@ fn leer_archivo_limitado(
     archivo: &Path,
     limite_bytes: u64,
 ) -> Result<super::archivo::ArchivoLeido, ErrorFilesystem> {
-    let limite = limite_bytes.clamp(1, MAX_FILE_BYTES);
+    let limite = limite_bytes.clamp(1, FileSystemPolicy::MAX_LECTURA_BYTES as u64);
     let tamano = fs::metadata(archivo)
         .map_err(|e| error_io("lectura_no_disponible", e, Some(archivo)))?
         .len();
@@ -392,9 +381,9 @@ fn nombre_de(path: &Path) -> String {
 }
 
 fn es_excluida(path: &Path) -> bool {
-    EXCLUDED_DIRECTORIES
-        .iter()
-        .any(|nombre| nombre_de(path) == *nombre)
+    path.file_name()
+        .and_then(|n| n.to_str())
+        .is_some_and(FileSystemPolicy::es_excluido)
 }
 
 fn comparar_entradas(a: &Path, b: &Path) -> Ordering {
@@ -455,7 +444,7 @@ mod tests {
         let (entradas, truncado) = listar_directorio(&raiz, &raiz, 0).unwrap();
         assert!(!truncado);
         assert_eq!(entradas[0].tipo, "directorio");
-        let leido = leer_archivo_limitado(&raiz, &archivo, MAX_FILE_BYTES).unwrap();
+        let leido = leer_archivo_limitado(&raiz, &archivo, FileSystemPolicy::MAX_LECTURA_BYTES as u64).unwrap();
         assert!(leido.contenido.contains("fn main"));
         fs::remove_dir_all(raiz).unwrap();
     }
@@ -465,20 +454,20 @@ mod tests {
         let (raiz, _) = fixture();
         fs::write(
             raiz.join("grande.txt"),
-            vec![b'x'; (MAX_FILE_BYTES + 1) as usize],
+            vec![b'x'; (FileSystemPolicy::MAX_LECTURA_BYTES as u64 + 1) as usize],
         )
         .unwrap();
         fs::write(raiz.join("dato.bin"), [0, 159, 146, 150]).unwrap();
         let grande = resolver_existente(&raiz, "grande.txt", false).unwrap();
         let binario = resolver_existente(&raiz, "dato.bin", false).unwrap();
         assert_eq!(
-            leer_archivo_limitado(&raiz, &grande, MAX_FILE_BYTES)
+            leer_archivo_limitado(&raiz, &grande, FileSystemPolicy::MAX_LECTURA_BYTES as u64)
                 .unwrap_err()
                 .codigo,
             "archivo_demasiado_grande"
         );
         assert_eq!(
-            leer_archivo_limitado(&raiz, &binario, MAX_FILE_BYTES)
+            leer_archivo_limitado(&raiz, &binario, FileSystemPolicy::MAX_LECTURA_BYTES as u64)
                 .unwrap_err()
                 .codigo,
             "archivo_binario"
