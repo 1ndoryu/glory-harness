@@ -94,6 +94,14 @@ Siguiente en la serie de 6 pedidos: 129A-11 → 129A-9.
       Evidencia: `tsc` EXIT 0; fixture headless 16/16 + 24/24 139A-6.
       LISTA sin gate: no se fuerza (refactorización 139A-8 en curso rompe 4
       tests `cli/infra`; mis ficheros son solo front y no tocan Rust).
+- [ ] **149A-1 — 15 reglas del gate en repos dueño + subir pin**
+      (cierra el loop F7n/139A-8: auditoría §4.4, 0/15 existen upstream):
+      F1 sentinel seguridad/red (5) → v0.7.11 → F2 sentinel async/estructural
+      (5) → v0.7.12 → F3 varsense (5) → v2.2.2 → F4 pin en este repo (§6).
+      Sin medidor ni reglas aquí. Mitigaciones: WIP ajeno 119A-4 (hunk mínimo
+      en `staticAnalyzer.ts`), tests ➕/➖ por regla, decisiones 318A-7V8 y
+      089A-3 intactas, push verificado en F1 o STOP.
+      Plan: `Agente/planes/plan-149A-1-reglas-gate-duenos-2026-09-14.md`.
 - [ ] **129A-3 — Aprobación: el turno pausa y continúa (sin reenvío) + tarjeta fija + toast Windows**
       (rediseño 12-09 tras verificación real fallida: la tarjeta se duplicaba,
       el `mkdir` no se creaba y volvía a preguntar tras aceptar):

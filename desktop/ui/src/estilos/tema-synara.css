@@ -14,18 +14,11 @@
 
 html[data-tema='synara'] {
     color-scheme: dark;
-    /* Texto UI un poco más grande que en el resto de temas (13px → 15px):
-       escala los tamaños en rem sin tocar la geometría en px. */
-    font-size: 15px; /* varsense-disable-line -- raíz synara 13px→15px: escala rem sin tocar geometría px */
     /* Base del seed */
     --fondo: #0e0e0e;
     --texto: #f5f5f5;
     --invertido: #0e0e0e;
-    --borde: rgba(245, 245, 245, 0.08);
-    /* Radio solo-synara: la base es angulosa por diseño; aquí todas las
-       cajas van redondeadas (caja 12px, controles 8px). */
-    --radio-caja: 10px;
-    --radio-control: 6px;
+    --borde: #2b2b2b;
     --superficie-hover: #1c1c1c;
     --superficie-active: #2a2a2a;
     /* Selección = acento; el texto que va encima es `--invertido` */
@@ -43,31 +36,6 @@ html[data-tema='synara'] {
     /* Scrollbar: la base de `scrollbar.css` es de tema claro */
     --scrollbar-thumb: rgba(255, 255, 255, 0.09);
     --scrollbar-thumb-hover: rgba(255, 255, 255, 0.16);
-    /* Fuentes del seed Synara (`synara/apps/web/src/index.css:389-411`):
-       UI = pila del sistema (Segoe UI en Windows), código = mono.
-       Sin CDN: la pila UI es del sistema y el mono sigue siendo Departure
-       Mono local (`variables.css`). El body cambia a UI; las superficies de
-       código se re-fijan a `--font` en la regla de abajo. */
-    --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
-}
-
-/* Texto UI (mensajes, botones, paneles, composer) en la fuente UI de Synara.
-   Todo usa `font-family: inherit`, así que basta con el body. El peso vuelve
-   a normal (400): el 300 global está afinado para Departure Mono y deja la
-   pila del sistema enclenque a estos tamaños. */
-html[data-tema='synara'] body {
-    font-family: var(--font-ui);
-    font-weight: 400;
-}
-
-/* Superficies de código: en Synara son mono (`--font-chat-code-family`);
-   aquí se quedan con Departure Mono local en lugar de seguir al body. */
-html[data-tema='synara'] .git-diff,
-html[data-tema='synara'] .git-diff-cabecera .git-diff-ruta,
-html[data-tema='synara'] .visor-plano,
-html[data-tema='synara'] .herramienta .resultado,
-html[data-tema='synara'] .aprobacion .args {
-    font-family: var(--font);
 }
 
 /* Algunos componentes conservan bordes monocromos explícitos en claro;
@@ -133,6 +101,7 @@ html[data-tema='synara'] .campo .selector-modelo.selector-modal {
 
 /* Estados invertidos (hover/primario): claro sobre oscuro, como el tema
    oscuro pero partiendo del ink del seed. */
+html[data-tema='synara'] .barra,
 html[data-tema='synara'] .ajustes-item:hover,
 html[data-tema='synara'] .ajustes-item.sel,
 html[data-tema='synara'] .ajustes-volver:hover,
@@ -173,7 +142,7 @@ html[data-tema='synara'] .pm-play {
 }
 
 html[data-tema='synara'] .modal-fondo {
-    background: rgba(0, 0, 0, 0.65) !important; /* varsense-disable-line -- scrim: debe seguir oscuro en ambos temas */
+    background: rgba(0, 0, 0, 0.65) !important;
 }
 
 /* El mensaje conserva solo su contorno también en synara; no es una tarjeta. */
@@ -183,61 +152,13 @@ html[data-tema='synara'] .msg-asis {
     color: var(--texto) !important;
 }
 
-/* ---------- Radio synara: todas las cajas redondeadas ---------- */
-
-html[data-tema='synara'] .msg-user,
-html[data-tema='synara'] .msg-asis,
-html[data-tema='synara'] .modal,
-html[data-tema='synara'] .panel-meta,
-html[data-tema='synara'] .entrada .caja,
-html[data-tema='synara'] .herramienta .resultado,
-html[data-tema='synara'] .razonamiento .resultado,
-html[data-tema='synara'] .aviso-sistema .resultado,
-html[data-tema='synara'] .aprobacion,
-html[data-tema='synara'] .aprobacion .args,
-html[data-tema='synara'] .menu-ctx,
-html[data-tema='synara'] .menu-ctx .menu-sub,
-html[data-tema='synara'] .ctx-detalle,
-html[data-tema='synara'] .ajustes-nav,
-html[data-tema='synara'] .ajustes-paneles,
-html[data-tema='synara'] .ajustes-item,
-html[data-tema='synara'] .conv,
-html[data-tema='synara'] .tarea,
-html[data-tema='synara'] .memoria-fila,
-html[data-tema='synara'] .memorias-detalle,
-html[data-tema='synara'] .resumen-turno,
-html[data-tema='synara'] .toast-item,
-html[data-tema='synara'] .git-diff-caja {
-    border-radius: var(--radio-caja);
-}
-
-/* Las filas del diff (fondos de adición/eliminación) se recortan al radio. */
-html[data-tema='synara'] .git-diff-caja {
-    overflow: hidden;
-}
-
-html[data-tema='synara'] .btn,
-html[data-tema='synara'] .input-texto,
-html[data-tema='synara'] .select,
-html[data-tema='synara'] .entrada textarea,
-html[data-tema='synara'] .pm-campo textarea,
-html[data-tema='synara'] .toggle,
-html[data-tema='synara'] .check-box,
-html[data-tema='synara'] .memorias-chip,
-html[data-tema='synara'] .pm-play,
-html[data-tema='synara'] .aviso-sistema .aviso-accion,
-html[data-tema='synara'] .entrada .editando-msg,
-html[data-tema='synara'] .entrada .selector-workspace-boton,
-html[data-tema='synara'] .campo .selector-modelo.selector-modal {
-    border-radius: var(--radio-control);
-}
-
 /* ---------- Acentos y diffs en color (solo este tema) ---------- */
 
 /* El acento marca la selección real cuando su regla NO invierte el color
    (p. ej. la conversación activa de la lista). */
 html[data-tema='synara'] .conv.sel,
-html[data-tema='synara'] .tarea.sel {
+html[data-tema='synara'] .tarea.sel,
+html[data-tema='synara'] .memoria.sel {
     background-color: var(--superficie-seleccionada) !important;
     color: var(--invertido) !important;
 }

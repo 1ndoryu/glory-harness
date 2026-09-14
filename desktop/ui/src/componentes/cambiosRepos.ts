@@ -129,9 +129,16 @@ export function crearGestorRepos(ctx: {
       if (est.aplicable) cubiertos.push(repo.prefijo);
     }
     cubiertosAnteriores = cubiertos;
+    const visibles = [...paneles.values()].filter((e) => !e.seccion.seccion.hidden);
+    // [Un solo repo] Minimizar el único visible no ahorra nada: queda fijo
+    // (expandido y sin gesto); con varios, todos colapsables.
+    const unico = visibles.length === 1 ? visibles[0] : null;
+    for (const entrada of paneles.values()) {
+      entrada.seccion.fijarFijo(entrada === unico);
+    }
     return {
       cubiertos,
-      oculto: [...paneles.values()].every((e) => e.seccion.seccion.hidden),
+      oculto: visibles.length === 0,
     };
   }
 

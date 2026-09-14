@@ -72,6 +72,15 @@
   outline-offset: -1px;
 }
 
+/* [Un solo repo] Sección fija: cabecera normal sin gesto (sin cursor ni
+ * hover de botón; el marcador lo oculta el propio helper). */
+.git-seccion-fija > .git-seccion-boton {
+  cursor: default;
+}
+.git-seccion-fija > .git-seccion-boton:hover {
+  background: transparent;
+}
+
 .git-seccion-marcador {
   min-width: 2ch;
   color: var(--texto-tenue);

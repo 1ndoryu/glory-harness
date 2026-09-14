@@ -146,11 +146,6 @@ const hooksAdaptador: HooksAdaptador = crearGanchos({
   getNavegador: () => todoNavegador.navegador,
   avisar: avisoGlobal,
   registrarCambioArchivo: (cambio) => files.registrarCambio(cambio),
-  registrarCambioVivo: (ruta, diff) => cambios.registrarCambioVivo(ruta, diff),
-  // [129A-10 F1] Cierre perezoso (todoNavegador se crea más abajo; runtime).
-  abrirNavegadorPorAgente: () => todoNavegador.abrirPorAgente(),
-  // [129A-10 F2] Cierre perezoso (todoPanelDerecho se crea más abajo).
-  mostrarArchivoEnFiles: (ruta) => todoPanelDerecho.abrirFilesEn(ruta),
 });
 // Tauri → IPC in-process; web (`?api=`/`gh_api`/mismo origen) → HTTP/SSE.
 // `adaptador` se usa en cierres de runtime; en modo ni-ni nunca se monta.
@@ -269,16 +264,6 @@ const depsCrearPanel = crearDepsCrearPanel({
   alternarSidebar,
   alternarPanelDerecho: () => todoPanelDerecho.alternarPanelDerecho(),
   abrirAcciones: (panel, rect) => abrirAccionesPanel(depsLaterales, panel, rect),
-  // [129A-8] Cierre perezoso como `alternarPanelDerecho` (fuera de la TDZ).
-  verEnCambios: (ruta) => todoPanelDerecho.abrirCambiosEn(ruta),
-  // [139A-2] Cambios se revalida al cerrar turnos y al cambiar de
-  // conversación (cierres perezosos; `cambios` se crea más abajo).
-  // [139A-7] El cambio de conversación solo repinta el vault (cero git: el
-  // estado git no depende de la conversación).
-  alTerminarTurno: () => cambios.recargar(),
-  alCambiarConversacion: () => cambios.recargarVault(),
-  // [129A-10 F1] Levanta la supresión del auto-abrir al iniciar cada turno.
-  alIniciarTurno: () => todoNavegador.notificarTurnoInicio(),
 });
 
 // ---------- Panel principal ----------
@@ -300,8 +285,6 @@ const todoNavegador = montarNavegadorVista({
   cerrarTabNavegador: () => {
     todoPanelDerecho.panelDerecho.cerrarTab('navegador');
   },
-  // [129A-10 F1] El cierre manual a mitad de turno suprime el auto-abrir.
-  turnoEnCurso: () => vistaMeta.hayTurnoGlobal(),
 });
 /* El panel derecho vive en `orquestador/panelDerecho` (Files, Git, tabs,
  * grip de ancho, visibilidad). `abrirNavegador`/`abrirChatLateral` son
@@ -326,7 +309,6 @@ const todoPanelDerecho = montarPanelDerechoTodo({
 });
 const panelDerecho = todoPanelDerecho.panelDerecho;
 const files = todoPanelDerecho.files;
-const cambios = todoPanelDerecho.cambios;
 const toastGlobal = todoPanelDerecho.toastGlobal;
 const asegurarPanelDerecho = todoPanelDerecho.asegurarPanelDerecho;
 const cerrarPanelDerechoSiVacio = todoPanelDerecho.cerrarPanelDerechoSiVacio;
