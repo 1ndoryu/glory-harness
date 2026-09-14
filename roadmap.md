@@ -94,14 +94,22 @@ Siguiente en la serie de 6 pedidos: 129A-11 → 129A-9.
       Evidencia: `tsc` EXIT 0; fixture headless 16/16 + 24/24 139A-6.
       LISTA sin gate: no se fuerza (refactorización 139A-8 en curso rompe 4
       tests `cli/infra`; mis ficheros son solo front y no tocan Rust).
-- [ ] **149A-1 — 15 reglas del gate en repos dueño + subir pin**
-      (cierra el loop F7n/139A-8: auditoría §4.4, 0/15 existen upstream):
-      F1 sentinel seguridad/red (5) → v0.7.11 → F2 sentinel async/estructural
-      (5) → v0.7.12 → F3 varsense (5) → v2.2.2 → F4 pin en este repo (§6).
-      Sin medidor ni reglas aquí. Mitigaciones: WIP ajeno 119A-4 (hunk mínimo
-      en `staticAnalyzer.ts`), tests ➕/➖ por regla, decisiones 318A-7V8 y
-      089A-3 intactas, push verificado en F1 o STOP.
+- [x] **149A-1 — 14 reglas del gate en repos dueño + 1 opción + subir pin**
+      (HECHO 14-09, cierra el loop F7n/139A-8): sentinel `v0.7.11` (9 reglas
+      Rust + `html-sin-origen-declarado`, batch149A1 36 tests, mocha 667) +
+      `v0.7.12` (split mecánico modal por `check-core` rojo heredado in-base)
+      + varsense `v2.2.2` (F3.11/F3.13/F3.15 + opción F3.12, coreContracts 55).
+      F4: pin `0.7.12/66a2113` + `2.2.2/7dac28e`, doctor listo (gate true,
+      issues []), analyze 30 findings (10E/15W/5H) triados: 11 FP + 2 TP-bajo
+      (solo-lectura, sin fix en F4) + 1 productor legítimo a allowlist.
+      Evidencia en plan §F4 y `Agente/completados/tareas-2026-09-14.md`.
       Plan: `Agente/planes/plan-149A-1-reglas-gate-duenos-2026-09-14.md`.
+- [ ] **149A-2 — Precisión reglas 149A-1 (11 FP workspace + allowlist)**
+      (derivado del gap H11-(b) registrado en plan §F4): path-join sin
+      proveniencia (6 FP: literales/UUID/slug/hash/`.git`), sqlite sin análisis
+      de dependencias (5 FP, `join!` imposible); cablear
+      `htmlProductoresPermitidos` con `mensajesUtil.ts`; evaluar 2 TP-bajo
+      (`content_search.rs:399`, `skill.rs:183`). Propiedad: repos dueño.
 - [ ] **129A-3 — Aprobación: el turno pausa y continúa (sin reenvío) + tarjeta fija + toast Windows**
       (rediseño 12-09 tras verificación real fallida: la tarjeta se duplicaba,
       el `mkdir` no se creaba y volvía a preguntar tras aceptar):
