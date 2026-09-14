@@ -252,6 +252,23 @@ el proyecto dueño + cierre 139A-8 con la evidencia. Sin medidor ni reglas en
 este repo. DoD: pin subido o tarea externa creada + último gate PASS +
 roadmap limpio + completada + plan a `completados/`.
 
+## Ejecución F7n (14-09, veredicto: SIN bump + tarea externa especificada)
+
+- **sentinel** (`1ndoryu/glory-sentinel`): pin local `1587c59` (v0.7.8) vs
+  remoto `main = 9f475d2`; delta solo 3 commits FP (039A-1, mocha 60s, S1/S2/S4).
+  `git grep` sobre el árbol `9f475d2`: 0/10 reglas §4.4 (solo existen las
+  preexistentes `funcion-larga-rs`/`limite-lineas-rs`). Bajar el pin sin reglas
+  = churn de lock/setup sin beneficio + invalida la cadena de gates F6n → NO bump.
+- **varsense** (`1ndoryu/varsense`): remoto `main = 88f281f` == pin local;
+  `src/rules/` trae `naming/placeholders/hardcoded-detection` + suites
+  framework-sync/state-sync, 0/5 reglas §4.4 (solo `hardcodedDetection`
+  genérico severity warning). Nada que subir.
+- **Tarea externa**: sin `gh` CLI ni checkout dueño en `area-trabajo`; creada
+  como spec lista-para-pegar en `Agente/completados/tareas-2026-09-14.md`
+  (15 reglas, repos destino, evidencia de verificación, instrucción de file).
+- Cierre: último gate PASS sobre el pin vigente, roadmap sin 139A-8, plan a
+  `Agente/planes/completados/`.
+
 ## Orden y dependencias
 
 F0 → F1 → F2 → F3n → F4 → F5n → F6n → F7n. F4 (puertos) y F5n (unificación)
