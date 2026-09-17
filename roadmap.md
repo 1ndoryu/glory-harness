@@ -110,6 +110,15 @@ Siguiente en la serie de 6 pedidos: 129A-11 → 129A-9.
       de dependencias (5 FP, `join!` imposible); cablear
       `htmlProductoresPermitidos` con `mensajesUtil.ts`; evaluar 2 TP-bajo
       (`content_search.rs:399`, `skill.rs:183`). Propiedad: repos dueño.
+- [x] **179A-1 — Gate en dos niveles: rápido ≤60 s + completo de cierre**
+      (HECHO 17-09): `stages-fast.json` + modo `--fast` en `sentinel-rust.mjs`
+      (check --tests + tests filtrados, sin clippy, `mode: fast` no válido
+      para cierre; `rust-pide-completo` fail-closed en 5 casos). Rápido
+      directo 6,2 s; piloto orquestador 14,1 s; completo 373,8 s con etapa
+      `rust` pass (clippy 0, 505 tests). Global FAIL solo por 30 findings
+      preexistentes (dueño 149A-2). Sin backdoor en el guard.
+      Plan: `Agente/planes/completados/plan-179A-1-gate-rapido-lento-2026-09-17.md`.
+      Evidencia: `Agente/completados/tareas-2026-09-17.md`.
 - [ ] **129A-3 — Aprobación: el turno pausa y continúa (sin reenvío) + tarjeta fija + toast Windows**
       (rediseño 12-09 tras verificación real fallida: la tarjeta se duplicaba,
       el `mkdir` no se creaba y volvía a preguntar tras aceptar):

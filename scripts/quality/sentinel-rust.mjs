@@ -33,6 +33,14 @@ if (!reportPath) {
   process.exit(2);
 }
 
+/* Modo rapido (179A-1, stages-fast.json): `cargo check --tests` + `cargo
+   test --lib` filtrado por los modulos del alcance, sin clippy. Solo
+   iteracion: el reporte sale con `mode: fast` y un veredicto explicito de
+   "no valido para cierre". Se activa con `--fast` en argv (el manifiesto
+   rapido lo pasa como argumento literal, que sobrevive al entorno saneado
+   del gate; por env no llegaria). */
+const MODO_FAST = process.argv.slice(2).includes('--fast');
+
 const workspace = process.cwd();
 const reportDir = path.dirname(path.resolve(reportPath));
 const inicio = Date.now();
@@ -45,7 +53,8 @@ const fail = (mensaje) => {
 if (!process.env.GLORY_QUALITY_GATE_TOKEN && !process.env.GLORY_QUALITY_GATE_LEASE) {
   fail(
     'rust: la etapa solo se ejecuta dentro del gate (falta GLORY_QUALITY_GATE_TOKEN). ' +
-      'Usa `sentinel check <TareaId> --stages scripts/quality/stages.json`.',
+      'Usa `sentinel check <TareaId> --stages scripts/quality/stages.json` ' +
+      '(o `scripts/quality/stages-fast.json` para el rapido).',
   );
 }
 
@@ -78,6 +87,63 @@ const PAQUETES = ['glory-harness-core', 'glory-harness'];
 if (tocaDesktop || tocaManifiesto) PAQUETES.push('glory-harness-desktop');
 
 const banderasPaquetes = PAQUETES.flatMap((paquete) => ['-p', paquete]);
+
+/* Fallo cerrado del modo rapido (179A-1 F3): el rapido solo vale para un
+   cambio sencillo. Todo lo demas pide el completo con un error explicito
+   (el gate rapido sale FAIL con el motivo, nunca verde por omision). */
+const FAST_MAX_ARCHIVOS = 10;
+const FAST_MAX_FILTROS = 5;
+const esContrato = (archivo) =>
+  archivo.startsWith('core/src/contrato/') || archivo.startsWith('cli/src/contrato/');
+let motivoNoAplicaFast = null;
+if (MODO_FAST) {
+  if (alcance.length === 0) {
+    motivoNoAplicaFast = 'sin alcance declarado (ni scope-manifest.json ni changed-files.txt)';
+  } else if (tocaDesktop || tocaManifiesto) {
+    motivoNoAplicaFast = 'el alcance toca desktop/src-tauri o manifiestos Cargo';
+  } else if (alcance.some(esContrato)) {
+    motivoNoAplicaFast = 'el alcance toca el contrato publico (core/src/contrato/ o cli/src/contrato/)';
+  } else if (alcance.length > FAST_MAX_ARCHIVOS) {
+    motivoNoAplicaFast = `el alcance tiene ${alcance.length} archivos (maximo ${FAST_MAX_ARCHIVOS} para el rapido)`;
+  }
+}
+
+/* Heuristica alcance -> filtros de libtest (179A-1 F2): el nombre del modulo
+   (directorio padre si el fichero es mod/lib/main.rs, si no el stem) como
+   subcadena del filtro de cargo test. Medido en F1: `turno` corre 8 tests y
+   filtra 328 en ~1,3 s en caliente. Solo .rs bajo core/src o cli/src; el
+   resto (p. ej. .ts del front) no aporta filtros. */
+const filtroPara = (archivo) => {
+  const coincidencia = /^(?:core|cli)\/src\/(.+)\.rs$/.exec(archivo);
+  if (!coincidencia) return null;
+  const partes = coincidencia[1].split('/');
+  let base = partes[partes.length - 1];
+  if ((base === 'mod' || base === 'lib' || base === 'main') && partes.length > 1) {
+    base = partes[partes.length - 2];
+  }
+  if (!/^[a-z0-9_]+$/.test(base)) return null;
+  return base;
+};
+const paquetePara = (archivo) =>
+  archivo.startsWith('core/src/') ? 'glory-harness-core' : archivo.startsWith('cli/src/') ? 'glory-harness' : null;
+const filtrosPorPaquete = new Map();
+if (MODO_FAST && motivoNoAplicaFast === null) {
+  for (const archivo of alcance) {
+    const filtro = filtroPara(archivo);
+    const paquete = paquetePara(archivo);
+    if (!filtro || !paquete) continue;
+    if (!filtrosPorPaquete.has(paquete)) filtrosPorPaquete.set(paquete, new Set());
+    filtrosPorPaquete.get(paquete).add(filtro);
+  }
+  const totalFiltros = [...filtrosPorPaquete.values()].reduce((n, set) => n + set.size, 0);
+  if (totalFiltros > FAST_MAX_FILTROS) {
+    motivoNoAplicaFast = `el alcance deriva ${totalFiltros} filtros de test (maximo ${FAST_MAX_FILTROS} para el rapido)`;
+    filtrosPorPaquete.clear();
+  } else if (totalFiltros === 0) {
+    motivoNoAplicaFast =
+      'el alcance no incluye archivos `.rs` bajo core/src o cli/src (sin filtros de test)';
+  }
+}
 
 const baseTarget = process.env.CARGO_TARGET_DIR_BASE || 'C:\\tmp\\glory-target';
 const targetDir =
@@ -173,6 +239,45 @@ const leerStatsSccache = () => {
   }
 };
 
+/* Resume las lineas `test result:` de la salida de cargo test en el
+   acumulador compartido. Devuelve el resumen de fallos (si hubo suites FAILED)
+   y si el proceso fallo sin resumen parseable. */
+const resumirSuites = (salida, resumenTests) => {
+  const lineas = salida.split('\n');
+  let enFallos = false;
+  let nombresFallos = [];
+  let resumenFallos = null;
+  for (const linea of lineas) {
+    const limpia = linea.replace(/\r$/, '');
+    if (/^failures:$/.test(limpia.trim())) {
+      enFallos = true;
+      nombresFallos = [];
+      continue;
+    }
+    if (enFallos && /^\s{4}\S/.test(limpia)) {
+      nombresFallos.push(limpia.trim());
+      continue;
+    }
+    const suite = /^test result: (ok|FAILED)\. (\d+) passed; (\d+) failed; (\d+) ignored/.exec(limpia);
+    if (suite) {
+      resumenTests.suites += 1;
+      resumenTests.pasados += Number(suite[2]);
+      resumenTests.fallidos += Number(suite[3]);
+      resumenTests.ignorados += Number(suite[4]);
+      const nombres = nombresFallos.slice(0, 20);
+      enFallos = false;
+      nombresFallos = [];
+      if (suite[1] === 'FAILED') {
+        resumenFallos = `${suite[2]} ok, ${suite[3]} fallidos, ${suite[4]} ignorados. Casos: ${
+          nombres.length > 0 ? nombres.join(', ') : '(ver el log de la etapa)'
+        }`;
+      }
+    }
+  }
+  const falloSinResumen = !lineas.some((l) => /^test result: FAILED\./.test(l.replace(/\r$/, '')));
+  return { resumenFallos, falloSinResumen };
+};
+
 const statsSccache = leerStatsSccache();
 const acumular = (ruta, finding) => {
   if (cola.length >= MAX_HALLAZGOS) return false;
@@ -238,32 +343,38 @@ const colaUtil = (salida) =>
     .filter((linea) => linea.trim() && !linea.startsWith('{'))
     .slice(-12);
 
-/* [1/2] clippy: compila todo el alcance (incluidos tests y ejemplos) y trata
-   cualquier warning como fallo, igual que el resto de la casa. */
-const argsClippy = [
-  'clippy',
-  ...banderasPaquetes,
-  '--all-targets',
-  '--locked',
-  '--message-format=json',
-  '--',
-  '-D',
-  'warnings',
-];
-const clippy = correr(argsClippy);
-if (clippy.error) fail(`rust: no se pudo ejecutar cargo: ${clippy.error.message}`);
+/* [1/2] compilacion: en modo completo, clippy compila todo el alcance
+   (incluidos tests y ejemplos) y trata cualquier warning como fallo, igual
+   que el resto de la casa. En modo rapido, `check --tests` compila el mismo
+   alcance sin lint (medido 179A-1 F1: ~1,5 s en caliente). Si el rapido no
+   aplica (motivoNoAplicaFast), no se compila nada: se pide el completo. */
+const argsCompilacion = MODO_FAST
+  ? ['check', ...banderasPaquetes, '--tests', '--locked', '--message-format=json']
+  : [
+      'clippy',
+      ...banderasPaquetes,
+      '--all-targets',
+      '--locked',
+      '--message-format=json',
+      '--',
+      '-D',
+      'warnings',
+    ];
+const etiquetaCompilacion = MODO_FAST ? 'cargo check' : 'cargo clippy';
+const clippy = MODO_FAST && motivoNoAplicaFast !== null ? null : correr(argsCompilacion);
+if (clippy?.error) fail(`rust: no se pudo ejecutar cargo: ${clippy.error.message}`);
 
 let diagnosticos = 0;
-for (const { ruta, finding } of diagnosticosDe(clippy.salida)) {
+for (const { ruta, finding } of diagnosticosDe(clippy?.salida ?? '')) {
   diagnosticos += 1;
   acumular(ruta, finding);
 }
 
-if (clippy.codigo !== 0 && diagnosticos === 0) {
+if (clippy !== null && clippy.codigo !== 0 && diagnosticos === 0) {
   const colaSalida = colaUtil(clippy.salida);
   acumular(workspace, {
     ruleId: 'rust-cargo-fallo',
-    message: `cargo clippy termino con codigo ${clippy.codigo} sin diagnostico parseable:\n${colaSalida.join('\n')}`,
+    message: `${etiquetaCompilacion} termino con codigo ${clippy.codigo} sin diagnostico parseable:\n${colaSalida.join('\n')}`,
     severity: 'error',
     range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
     source: 'rust',
@@ -276,78 +387,126 @@ if (clippy.codigo !== 0 && diagnosticos === 0) {
 let testsCorridos = false;
 let diagnosticosTests = 0;
 let resumenTests = { suites: 0, pasados: 0, fallidos: 0, ignorados: 0 };
-if (clippy.codigo === 0) {
-  const argsTests = ['test', ...banderasPaquetes, '--locked', '--no-fail-fast', '--message-format=json'];
-  const tests = correr(argsTests);
-  if (tests.error) fail(`rust: no se pudo ejecutar cargo test: ${tests.error.message}`);
-  testsCorridos = true;
+if (clippy !== null && clippy.codigo === 0) {
+  /* En modo completo, una sola pasada con todos los paquetes. En modo rapido,
+     una pasada `--lib` con filtros por paquete (solo paquetes con .rs en el
+     alcance; sin filtros no hay nada que ejecutar y check ya valido). */
+  const pasadasTests = MODO_FAST
+    ? [...filtrosPorPaquete.entries()].map(([paquete, filtros]) => ({
+        args: [
+          'test',
+          '-p',
+          paquete,
+          '--lib',
+          '--locked',
+          '--no-fail-fast',
+          '--message-format=json',
+          '--',
+          ...filtros,
+        ],
+      }))
+    : [
+        {
+          args: [
+            'test',
+            ...banderasPaquetes,
+            '--locked',
+            '--no-fail-fast',
+            '--message-format=json',
+          ],
+        },
+      ];
+  for (const pasada of pasadasTests) {
+    const tests = correr(pasada.args);
+    if (tests.error) fail(`rust: no se pudo ejecutar cargo test: ${tests.error.message}`);
+    testsCorridos = true;
 
-  /* El mismo formato deja los errores de compilacion del arbol de tests como
-     findings con archivo y linea, en vez de un volcado de texto. */
-  for (const { ruta, finding } of diagnosticosDe(tests.salida)) {
-    diagnosticosTests += 1;
-    acumular(ruta, finding);
-  }
+    /* El mismo formato deja los errores de compilacion del arbol de tests como
+       findings con archivo y linea, en vez de un volcado de texto. */
+    for (const { ruta, finding } of diagnosticosDe(tests.salida)) {
+      diagnosticosTests += 1;
+      acumular(ruta, finding);
+    }
 
-  const lineas = tests.salida.split('\n');
-  let enFallos = false;
-  let nombresFallos = [];
-  let resumenFallos = null;
-  for (const linea of lineas) {
-    const limpia = linea.replace(/\r$/, '');
-    if (/^failures:$/.test(limpia.trim())) {
-      enFallos = true;
-      nombresFallos = [];
-      continue;
+    const { resumenFallos, falloSinResumen } = resumirSuites(tests.salida, resumenTests);
+    if (resumenFallos !== null) {
+      acumular(workspace, {
+        ruleId: 'rust-test-fallido',
+        message: resumenFallos,
+        severity: 'error',
+        range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
+        source: 'rust',
+        confidence: 1,
+      });
     }
-    if (enFallos && /^\s{4}\S/.test(limpia)) {
-      nombresFallos.push(limpia.trim());
-      continue;
-    }
-    const suite = /^test result: (ok|FAILED)\. (\d+) passed; (\d+) failed; (\d+) ignored/.exec(limpia);
-    if (suite) {
-      resumenTests.suites += 1;
-      resumenTests.pasados += Number(suite[2]);
-      resumenTests.fallidos += Number(suite[3]);
-      resumenTests.ignorados += Number(suite[4]);
-      const nombres = nombresFallos.slice(0, 20);
-      enFallos = false;
-      nombresFallos = [];
-      if (suite[1] === 'FAILED') {
-        resumenFallos = `${suite[2]} ok, ${suite[3]} fallidos, ${suite[4]} ignorados. Casos: ${
-          nombres.length > 0 ? nombres.join(', ') : '(ver el log de la etapa)'
-        }`;
-      }
+    if (tests.codigo !== 0 && falloSinResumen) {
+      const colaSalida = colaUtil(tests.salida);
+      acumular(workspace, {
+        ruleId: 'rust-tests-fallo',
+        message: `cargo test termino con codigo ${tests.codigo} sin resumen de fallos:\n${colaSalida.join('\n')}`,
+        severity: 'error',
+        range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
+        source: 'rust',
+        confidence: 1,
+      });
     }
   }
-  if (resumenFallos !== null) {
+  if (MODO_FAST && pasadasTests.length === 0) {
     acumular(workspace, {
-      ruleId: 'rust-test-fallido',
-      message: resumenFallos,
-      severity: 'error',
+      ruleId: 'rust-tests-filtrados-vacios',
+      message:
+        'Sin tests filtrados: el alcance no toca .rs de core/cli ' +
+        '(p. ej. solo front). `cargo check --tests` ya valido la compilacion.',
+      severity: 'information',
       range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
       source: 'rust',
       confidence: 1,
     });
   }
-  if (tests.codigo !== 0 && !lineas.some((l) => /^test result: FAILED\./.test(l))) {
-    const colaSalida = colaUtil(tests.salida);
-    acumular(workspace, {
-      ruleId: 'rust-tests-fallo',
-      message: `cargo test termino con codigo ${tests.codigo} sin resumen de fallos:\n${colaSalida.join('\n')}`,
-      severity: 'error',
-      range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
-      source: 'rust',
-      confidence: 1,
-    });
-  }
-} else {
+} else if (clippy !== null) {
   acumular(workspace, {
     ruleId: 'rust-tests-no-ejecutados',
     message:
-      'Tests no ejecutados: clippy fallo primero. La cobertura funcional de esta ' +
-      'ejecucion queda pendiente hasta que clippy pase.',
+      `Tests no ejecutados: ${etiquetaCompilacion} fallo primero. La cobertura funcional de esta ` +
+      'ejecucion queda pendiente hasta que la compilacion pase.',
     severity: 'warning',
+    range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
+    source: 'rust',
+    confidence: 1,
+  });
+}
+
+/* Fallo cerrado (179A-1 F3): si el rapido no aplica, el reporte sale con un
+   error que nombra el motivo y pide el completo. El gate rapido queda FAIL;
+   nunca verde por omision. */
+if (MODO_FAST && motivoNoAplicaFast !== null) {
+  acumular(workspace, {
+    ruleId: 'rust-pide-completo',
+    message:
+      `Modo rapido no aplica (${motivoNoAplicaFast}). ` +
+      'Ejecuta el gate completo: sentinel check <TareaId> --stages scripts/quality/stages.json.',
+    severity: 'error',
+    range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
+    source: 'rust',
+    confidence: 1,
+  });
+}
+
+/* Veredicto del rapido (179A-1): constancia de que este reporte NO autoriza
+   cierre. Va como information para que quede en el reporte aunque todo salga
+   verde. */
+if (MODO_FAST && motivoNoAplicaFast === null) {
+  const filtrosTexto = [...filtrosPorPaquete.entries()]
+    .map(([paquete, filtros]) => `${paquete} [${[...filtros].join(', ')}]`)
+    .join('; ');
+  acumular(workspace, {
+    ruleId: 'rust-modo-rapido',
+    message:
+      'Modo rapido (stages-fast.json): `cargo check --tests` + `cargo test --lib` filtrado' +
+      `${filtrosTexto ? ` (${filtrosTexto})` : ' (sin filtros: solo check)'}, sin clippy. ` +
+      'NO valido para commit, integrate ni cierre de tarea: ' +
+      'el ultimo gate antes de integrar es el completo (stages.json).',
+    severity: 'information',
     range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
     source: 'rust',
     confidence: 1,
@@ -398,7 +557,8 @@ const contar = (severidad) =>
 
 const reporte = {
   schemaVersion: '1',
-  tool: { name: 'sentinel-rust', version: '1.0.0' },
+  tool: { name: 'sentinel-rust', version: '1.1.0' },
+  mode: MODO_FAST ? 'fast' : 'full',
   scope: 'workspace',
   durationMs: Date.now() - inicio,
   severityCounts: {
@@ -425,8 +585,16 @@ fs.writeFileSync(
       libreAntesGB,
       minimoLibreGB: MINIMO_LIBRE_GB,
       rustcWrapper: entorno.RUSTC_WRAPPER,
-      clippy: { codigo: clippy.codigo, diagnosticos },
+      clippy: { codigo: clippy?.codigo ?? null, diagnosticos },
       tests: { ejecutados: testsCorridos, diagnosticos: diagnosticosTests, ...resumenTests },
+      modo: MODO_FAST ? 'fast' : 'full',
+      motivoNoAplicaFast,
+      filtrosFast: MODO_FAST
+        ? [...filtrosPorPaquete.entries()].map(([paquete, filtros]) => ({
+            paquete,
+            filtros: [...filtros],
+          }))
+        : undefined,
       sccache: {
         antes: statsSccache,
         despues: statsDespues,
@@ -440,7 +608,7 @@ fs.writeFileSync(
 );
 
 process.stdout.write(
-  `rust: ${PAQUETES.join(', ')} · clippy codigo ${clippy.codigo} (${diagnosticos} diagnosticos) · ` +
+  `rust${MODO_FAST ? ' (rapido)' : ''}: ${PAQUETES.join(', ')} · ${etiquetaCompilacion} codigo ${clippy?.codigo ?? 'no-ejecutado'} (${diagnosticos} diagnosticos) · ` +
     `tests ${
       testsCorridos
         ? `ejecutados (${resumenTests.pasados} ok, ${resumenTests.fallidos} fallidos)`
