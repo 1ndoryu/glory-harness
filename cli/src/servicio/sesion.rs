@@ -22,8 +22,13 @@ use super::meta::{
 };
 use super::sesion_config::{leer_gancho_pre_compact, leer_max_ventana, resolver_opciones};
 /* La compactación por demanda ([109A-4 F3]) vive en `sesion/compactacion.rs`:
- * crece con su flujo (punto de compactación persistido) y no con la sesión. */
+ * crece con su flujo (punto de compactación persistido) y no con la sesión.
+ * Los helpers libres (identidad estable, conteos, título automático) viven
+ * en `sesion/apoyo.rs` por el mismo motivo (techo de 500 líneas). */
+mod apoyo;
 mod compactacion;
+
+use apoyo::{conteos, titulo_auto_desde_mensaje, usuario_estable};
 
 /// Error de una operación del servicio común.
 #[derive(Debug)]
@@ -596,82 +601,6 @@ impl SesionComun {
             .finalizar_turno(turno_id, "cancelado", Some("abortado por el usuario"))
             .await
             .map_err(|e| Error::Persistencia(e.to_string()))
-    }
-}
-
-fn usuario_estable(persistencia: &PersistenciaSqlite) -> Result<Uuid, Error> {
-    match persistencia
-        .config_leer("user_id")
-        .map_err(|e| Error::Persistencia(e.to_string()))?
-    {
-        Some(guardado) => Uuid::parse_str(guardado.trim())
-            .map_err(|_| Error::Configuracion("user_id guardado corrupto".into())),
-        None => {
-            let nuevo = Uuid::new_v4();
-            persistencia
-                .config_guardar("user_id", &nuevo.to_string())
-                .map_err(|e| Error::Persistencia(e.to_string()))?;
-            Ok(nuevo)
-        }
-    }
-}
-
-fn conteos(llaves: &LlavesProveedor) -> Vec<ProveedorConteo> {
-    vec![
-        ProveedorConteo {
-            nombre: "cerebras".into(),
-            claves: llaves.cerebras.len(),
-        },
-        ProveedorConteo {
-            nombre: "groq".into(),
-            claves: llaves.groq.len(),
-        },
-        ProveedorConteo {
-            nombre: "deepseek".into(),
-            claves: llaves.deepseek.len(),
-        },
-        ProveedorConteo {
-            nombre: "glory".into(),
-            claves: llaves.glory.len(),
-        },
-        ProveedorConteo {
-            nombre: "commandcode".into(),
-            claves: llaves.commandcode.len(),
-        },
-    ]
-}
-
-/// [039A-1 04-09 H5] Nombre breve de conversación desde el primer mensaje del
-/// usuario: primeras ~4 palabras (o ~42 caracteres), una sola línea, sin
-/// prefijos de modo (`[META: …]`). Si no hay palabras, "Conversación".
-fn titulo_auto_desde_mensaje(mensaje: &str) -> String {
-    let limpio = mensaje.trim().lines().next().unwrap_or("").trim();
-    let sin_meta = limpio
-        .strip_prefix("[META:")
-        .and_then(|resto| resto.find(']').map(|i| &resto[i + 1..]))
-        .unwrap_or(limpio)
-        .trim();
-    if sin_meta.is_empty() {
-        return "Conversación".into();
-    }
-    let palabras: Vec<&str> = sin_meta.split_whitespace().collect();
-    let mut out = String::new();
-    for (i, p) in palabras.iter().enumerate() {
-        if i == 4 {
-            break;
-        }
-        if !out.is_empty() {
-            out.push(' ');
-        }
-        out.push_str(p);
-        if out.chars().count() >= 42 {
-            break;
-        }
-    }
-    if out.is_empty() {
-        "Conversación".into()
-    } else {
-        out
     }
 }
 

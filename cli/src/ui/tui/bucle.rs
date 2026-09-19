@@ -356,6 +356,7 @@ async fn ejecutar_turno_tui(ctx: CtxTurnoTui<'_>) {
         Ok(respuesta) => {
             anotar_asistente(transcripcion, &respuesta);
             /* [069A-4] Sync post-turno (mejor esfuerzo con aviso). */
+            // sentinel-disable-next-line sqlite-carga-N-consultas — sync post-turno: corre tras el run del que depende; fases secuenciales, no fan-out N+1.
             crate::memoria::sincronizar_memoria_tras_turno(
                 persistencia,
                 user_id,

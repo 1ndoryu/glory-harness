@@ -271,6 +271,7 @@ pub async fn ejecutar_lista(
         let plan = planificar(tarea, Utc::now());
         let proxima = match plan {
             Plan::Rota(motivo) => {
+                // sentinel-disable-next-line sqlite-carga-N-consultas — cadena claim→run→finalize dependiente por tarea; el orden fail-fast es semántica, no N+1.
                 persistencia
                     .tarea_finalizar(tarea.id, false, Some(&motivo))
                     .await?;
@@ -300,6 +301,7 @@ pub async fn ejecutar_lista(
             },
         };
         let (ok, entrega) = empaquetar_entrega(&salida);
+        // sentinel-disable-next-line sqlite-carga-N-consultas — cadena claim→run→finalize dependiente por tarea; el orden fail-fast es semántica, no N+1.
         persistencia
             .tarea_finalizar(tarea.id, ok, Some(&entrega))
             .await?;

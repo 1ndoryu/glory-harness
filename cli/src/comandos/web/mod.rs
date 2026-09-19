@@ -26,7 +26,7 @@
 use std::collections::{HashMap, VecDeque};
 use std::convert::Infallible;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 
 use axum::{
     extract::{Path, State},
@@ -76,6 +76,15 @@ pub(crate) const BODY_MAX_BYTES: usize = 256 * 1024;
 pub(crate) const MAX_SESIONES: usize = 16;
 /// TTL de sesión en segundos (24 h, igual que `Max-Age` de la cookie).
 pub(crate) const SESION_TTL_SECS: u64 = 86_400;
+
+/// Antigüedad de una sesión en segundos. `SystemTime` (no `Instant`): el TTL
+/// es tiempo de pared y debe funcionar aunque el uptime < TTL (el test de
+/// expiración restaba `TTL+60s` a `Instant::now()` y desbordaba en máquinas
+/// con menos de un día encendidas). Reloj hacia atrás = fresca (fail-closed:
+/// nunca se purga por skew).
+pub(crate) fn antiguedad_sesion(creada: SystemTime) -> u64 {
+    creada.elapsed().unwrap_or(Duration::ZERO).as_secs()
+}
 /// Turno en curso: id + tarea para abortar al cancelar/cerrar.
 pub(crate) struct TurnoActivo {
     pub(crate) id: Uuid,
@@ -98,7 +107,7 @@ pub(crate) struct SesionWeb {
     pub(crate) turno: Mutex<Option<TurnoActivo>>,
     /// [069A-2 F6] Creación para TTL (las sesiones no son eternas aunque el
     /// proceso viva días; el cierre explícito sigue siendo `DELETE`).
-    pub(crate) creada: Instant,
+    pub(crate) creada: SystemTime,
 }
 
 impl SesionWeb {
@@ -117,7 +126,9 @@ pub(crate) struct AppState {
     /// [139A-8 K9] Secreto de firma de la cookie `gh_sesion` (aleatorio por
     /// arranque salvo `--secreto-sesion` / env para fijarlo).
     pub(crate) secreto: SecretoSesion,
-    /// [139A-8 K12] Ventana deslizante de inicios de turno (rate-limit).
+    /// [139A-8 K12] rate_limit por ventana deslizante de inicios de turno
+    /// (más tope de sesiones y `RequestBodyLimitLayer` en el router; el
+    /// servidor solo bindea loopback). Responde 429 ante exceso.
     pub(crate) inicios_turno: Mutex<VecDeque<Instant>>,
 }
 
@@ -289,7 +300,7 @@ pub(crate) async fn autorizar_sesion(
     // [069A-2 F6] TTL: la sesión expira aunque el proceso siga vivo (el
     // cliente debe crear otra; el turno activo se aborta para no dejar un
     // turno eternamente "ejecutando" sin dueño).
-    if sesion.creada.elapsed().as_secs() > SESION_TTL_SECS {
+    if antiguedad_sesion(sesion.creada) > SESION_TTL_SECS {
         sesiones.remove(&sid);
         drop(sesiones);
         self::turnos::abortar_turno_activo(&sesion, "sesión expirada").await;
@@ -355,13 +366,13 @@ async fn crear_sesion(
         sse: Mutex::new(DifusionSse::nueva()),
         meta: Mutex::new(None),
         turno: Mutex::new(None),
-        creada: Instant::now(),
+        creada: SystemTime::now(),
     });
     {
         let mut sesiones = state.sesiones.lock().await;
         // [069A-2 F6] Purga perezosa de expiradas + tope de vivas: el modo
         // web es single-user loopback, no un multitenant.
-        sesiones.retain(|_, s| s.creada.elapsed().as_secs() <= SESION_TTL_SECS);
+        sesiones.retain(|_, s| antiguedad_sesion(s.creada) <= SESION_TTL_SECS);
         if sesiones.len() >= MAX_SESIONES {
             return Err(error(
                 "demasiadas_sesiones",
@@ -672,7 +683,7 @@ pub(crate) mod tests {
             sse: Mutex::new(DifusionSse::nueva()),
             meta: Mutex::new(None),
             turno: Mutex::new(None),
-            creada: Instant::now(),
+            creada: SystemTime::now(),
         });
         state
             .sesiones
@@ -1083,7 +1094,7 @@ pub(crate) mod tests {
         )
         .expect("abrir sesión memoria");
         let sid = Uuid::new_v4().to_string();
-        let vieja = Instant::now() - Duration::from_secs(SESION_TTL_SECS + 60);
+        let vieja = SystemTime::now() - Duration::from_secs(SESION_TTL_SECS + 60);
         state.sesiones.lock().await.insert(
             sid.clone(),
             Arc::new(SesionWeb {

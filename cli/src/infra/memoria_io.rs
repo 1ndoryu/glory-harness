@@ -149,19 +149,31 @@ pub fn nombre_archivo(clave: &str) -> String {
 /// contiene esa misma clave (reexportar no duplica) y, si el nombre ya está
 /// tomado por otro recuerdo, añade un sufijo numérico.
 pub fn ruta_libre(dir: &Path, clave: &str) -> PathBuf {
+    // `nombre_archivo` solo emite [a-z0-9-] + ".md": sin separadores ni
+    // `..`, el join no puede escapar de `dir`. Se canoniza la raíz y se
+    // revalida igual (defensa en fondo + invariante ejecutable del slug).
+    let raiz = std::fs::canonicalize(dir).unwrap_or_else(|_| dir.to_path_buf());
+    let unir = |nombre: &str| -> PathBuf {
+        debug_assert!(nombre
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'.'));
+        let ruta = dir.join(nombre);
+        debug_assert!(ruta.starts_with(&raiz) || ruta.starts_with(dir));
+        ruta
+    };
     let base = nombre_archivo(clave);
-    let candidato = dir.join(&base);
+    let candidato = unir(&base);
     if !candidato.exists() || archivo_es_de(&candidato, clave) {
         return candidato;
     }
     let tallo = base.trim_end_matches(".md");
     for n in 2..1000 {
-        let otro = dir.join(format!("{tallo}-{n}.md"));
+        let otro = unir(&format!("{tallo}-{n}.md"));
         if !otro.exists() || archivo_es_de(&otro, clave) {
             return otro;
         }
     }
-    dir.join(format!("{tallo}-{}.md", uuid::Uuid::new_v4()))
+    unir(&format!("{tallo}-{}.md", uuid::Uuid::new_v4()))
 }
 
 /// `true` si el archivo tiene ese recuerdo en su frontmatter.

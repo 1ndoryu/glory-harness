@@ -239,10 +239,16 @@ fn dir_indice_para(base: &Path) -> PathBuf {
     use std::hash::{Hash, Hasher};
     let mut suma = DefaultHasher::new();
     base.to_string_lossy().hash(&mut suma);
-    std::env::temp_dir()
+    // El nombre es hash hex sin separadores: el join no puede escapar de
+    // la raíz temporal. Se canoniza y revalida igual (defensa en fondo).
+    let raiz_tmp =
+        std::fs::canonicalize(std::env::temp_dir()).unwrap_or_else(|_| std::env::temp_dir());
+    let dir = raiz_tmp
         .join("glory-harness")
         .join("tgrep-idx")
-        .join(format!("{:016x}", suma.finish()))
+        .join(format!("{:016x}", suma.finish()));
+    debug_assert!(dir.starts_with(&raiz_tmp));
+    dir
 }
 
 /// Cerrojo por directorio de índice (serializa foto → build → consulta).
@@ -384,6 +390,9 @@ fn verificar(
 ) -> (Vec<Coincidencia>, bool) {
     let mut halladas = Vec::new();
     let mut verificados = 0usize;
+    // Base canónica para revalidar cada join (`rel_segura` ya vetó
+    // absolutas y `..`; esto cierra symlinks y carreras).
+    let base_canon = std::fs::canonicalize(base).unwrap_or_else(|_| base.to_path_buf());
     for rel in candidatas {
         let Some(rel_s) = rel_segura(rel) else {
             continue;
@@ -397,6 +406,15 @@ fn verificar(
         /* Prefiltro barato por tamaño antes de leer (TOCTOU aceptado: si el
          * fichero crece entre el stat y la lectura, `leer` lo trunca). */
         let absoluta = base.join(rel_s.replace('/', std::path::MAIN_SEPARATOR_STR));
+        /* Contención real: se canoniza el candidato y se exige dentro de la
+         * base. Si el fichero desaparece entre el join y aquí (TOCTOU), se
+         * omite como en `leer`, sin romper la búsqueda. */
+        let contenida = std::fs::canonicalize(&absoluta)
+            .ok()
+            .filter(|c| c.starts_with(&base_canon));
+        if contenida.is_none() {
+            continue;
+        }
         if std::fs::metadata(&absoluta).is_ok_and(|m| m.len() > CONTENT_MAX_BYTES_FICHERO) {
             continue;
         }

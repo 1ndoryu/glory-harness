@@ -5,17 +5,14 @@
 //! [069A-5 F4] `scheduler` vive en el dominio propio `tareas_programadas`.
 
 pub mod archivo;
-pub mod comando;
 pub mod contexto;
 pub mod mcp;
 pub mod navegador;
+pub mod planificacion;
 pub mod registro;
-pub mod repo_map;
 pub mod resultado;
 pub mod skill;
-pub mod tareas;
-pub mod todo;
 pub mod tool;
-pub mod tools_web;
 
 pub use archivo::{content_search, tools_archivo};
+pub use planificacion::{comando, repo_map, tareas, todo, tools_web};

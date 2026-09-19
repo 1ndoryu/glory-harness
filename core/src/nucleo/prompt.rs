@@ -197,6 +197,9 @@ pub(crate) fn info_git(raiz: &str) -> Option<String> {
     } else if entrada_git.is_file() {
         let contenido = std::fs::read_to_string(&entrada_git).ok()?;
         let gitdir = contenido.strip_prefix("gitdir:")?.trim();
+        // sentinel-disable-next-line path-join-sin-canonicalize — semántica
+        // git deliberada: `gitdir:` puede ser absoluto (worktree fuera de la
+        // raíz) y contenerlo rompería worktrees legítimos. Solo se lee HEAD.
         std::fs::read_to_string(std::path::Path::new(raiz).join(gitdir).join("HEAD")).ok()
     } else {
         None

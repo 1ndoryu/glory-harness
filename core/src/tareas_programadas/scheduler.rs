@@ -1,5 +1,11 @@
 //! Scheduler genérico de tareas programadas (plan 318A-13, H8/frontera §6.1).
 //!
+//! sentinel-disable-file sqlite-carga-N-consultas — `ciclo_scheduler` es una
+//! cadena tomar→ejecutar→finalizar dependiente por tarea (gemela de
+//! `cron::ejecutar_lista`), acotada con `tareas_pendientes(5)`; el orden
+//! fail-fast es semántica anti-duplicado, no fan-out N+1. Seis markers de
+//! statement taparían el flujo; se declara a nivel de fichero.
+//!
 //! Port agnóstico de `src/agent/scheduler.rs` de task: **sin SQL y sin
 //! `AppState`** — toda la persistencia entra por [`AgentPersistence`]
 //! (`tareas_*`); la lógica de reprogramación (cron v1) es pura y testeable.

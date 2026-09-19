@@ -1,3 +1,9 @@
+/* sentinel-disable-file html-sin-origen-declarado — productor auditado
+ * [089A-16]: toda interpolación pasa por `escaparHtml` y el único
+ * consumidor (`ponerHtmlSeguro`) solo admite span/br + class saneada,
+ * degradando el resto a texto (fail-closed). La allowlist del proyecto
+ * (`htmlProductoresPermitidos`) aún no la consume `analyzeDocument`, así
+ * que se declara aquí hasta que el gate la cablee. */
 /* Utilidades de render seguro de `mensajes`: escape HTML, formato de
  * resultados de herramienta, inserción HTML saneada y aplicación. */
 import type { ResultadoHerramienta } from '../dominio/tipos';

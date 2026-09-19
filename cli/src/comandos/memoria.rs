@@ -433,7 +433,13 @@ fn destino_export(
     let base = PersistenciaSqlite::ruta_bd_app()
         .and_then(|p| p.parent().map(Path::to_path_buf))
         .ok_or_else(|| "sin carpeta de datos de la app para exportar en local".to_string())?;
-    Ok(base.join("memorias").join(etiqueta_carpeta(ambito)))
+    // `etiqueta_carpeta` solo emite uuid con guiones o el literal "global":
+    // sin separadores ni `..`, el join no puede escapar de `base`. Se
+    // canoniza y revalida igual (defensa en fondo).
+    let base_canon = std::fs::canonicalize(&base).unwrap_or_else(|_| base.clone());
+    let destino = base_canon.join("memorias").join(etiqueta_carpeta(ambito));
+    debug_assert!(destino.starts_with(&base_canon));
+    Ok(destino)
 }
 
 /// Nombre de carpeta por ámbito (`global` o el uuid del proyecto).

@@ -135,6 +135,7 @@ pub async fn ejecutar_curador(
     let mut resumen = ResumenCurador::default();
     let mut vivas: HashMap<String, MemoriaEntrada> = HashMap::new();
 
+    // sentinel-disable-next-line sqlite-carga-N-consultas — fase secuencial con dependencia de datos (`vivas`/`resumen` fluyen entre fases); join! rompería el orden.
     consolidar_duplicadas(
         persistencia,
         user_id,
@@ -144,6 +145,7 @@ pub async fn ejecutar_curador(
         &mut vivas,
     )
     .await?;
+    // sentinel-disable-next-line sqlite-carga-N-consultas — fase secuencial con dependencia de datos (`vivas`/`resumen` fluyen entre fases); join! rompería el orden.
     archivar_obsoletas(
         persistencia,
         user_id,

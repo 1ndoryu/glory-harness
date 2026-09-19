@@ -18,7 +18,7 @@
 
 use async_trait::async_trait;
 use serde_json::{json, Value};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use crate::error::{Error, Result};
@@ -160,9 +160,33 @@ pub fn indice(skills: &[Skill]) -> String {
     lineas.join("\n")
 }
 
+/// Resuelve `@ruta` contra `workspace` o `None` si escapa de él.
+///
+/// Sin esto, `ws.join(referencia)` con una referencia absoluta DESCARTA el
+/// workspace (`Path::join` con absoluto reemplaza) y una skill maliciosa
+/// podría exfiltrar cualquier fichero legible en `@C:/secreto`. Se veta
+/// absoluto y `..`, se canoniza y se exige el prefijo: fuera → `None` y la
+/// referencia queda literal en el prompt, sin leer nada.
+fn ruta_referencia_contenida(workspace: &Path, referencia: &str) -> Option<PathBuf> {
+    let normal = referencia.replace('\\', "/");
+    if normal.is_empty()
+        || std::path::Path::new(&normal).is_absolute()
+        || normal.split('/').any(|p| p == "..")
+    {
+        return None;
+    }
+    let raiz = std::fs::canonicalize(workspace).unwrap_or_else(|_| workspace.to_path_buf());
+    let ruta = raiz.join(normal.replace('/', std::path::MAIN_SEPARATOR_STR));
+    std::fs::canonicalize(&ruta)
+        .ok()
+        .filter(|c| c.starts_with(&raiz))
+}
+
 /// Resuelve referencias `@archivo` (contenido embebido, acotado a 4 000
 /// caracteres) y `$ARGUMENTOS` en una plantilla de comando. `@archivo` se
-/// interpreta relativo a `workspace`. Puro salvo la lectura de archivos.
+/// interpreta relativo a `workspace` y contenido por
+/// [`ruta_referencia_contenida`]: fuera del workspace queda literal, sin
+/// leer nada. Puro salvo la lectura de archivos.
 fn expandir_plantilla(plantilla: &str, argumentos: &str, workspace: Option<&Path>) -> String {
     let resultado = plantilla.replace("$ARGUMENTOS", argumentos);
     // Reemplaza cada `@ruta` por el contenido del archivo (una sola pasada).
@@ -180,8 +204,7 @@ fn expandir_plantilla(plantilla: &str, argumentos: &str, workspace: Option<&Path
             continue;
         }
         let contenido = workspace
-            .map(|ws| ws.join(referencia))
-            .filter(|p| p.is_file())
+            .and_then(|ws| ruta_referencia_contenida(ws, referencia))
             .and_then(|p| std::fs::read_to_string(p).ok())
             .map(|t| t.chars().take(4_000).collect::<String>());
         match contenido {
