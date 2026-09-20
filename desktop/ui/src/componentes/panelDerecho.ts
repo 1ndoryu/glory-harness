@@ -1,5 +1,5 @@
 // Panel derecho con tabs (089A-2, referencia Synara): chats laterales,
-// Files, Git local y Navegador conviven como pestañas. Files incluye su
+// Files, Git local, Navegador y Consola conviven como pestañas. Files incluye su
 // propio visor dividido, así que no existe una tab de visor independiente.
 // Los ids son dinámicos: 'navegador' y 'chat:<id>'. Cada tab con cierre
 // propio cierra solo su pestaña. Sin tabs muestra el inicio: pantalla de
@@ -12,7 +12,7 @@ import { icono } from './iconos';
 import { el } from '../util/dom';
 import type { IconoNombre } from '../dominio/tipos';
 
-/** Id de tab: 'files' | 'git' | 'navegador' | 'chat:<conversaId>'. */
+/** Id de tab: 'files' | 'git' | 'navegador' | 'consola' | 'chat:<conversaId>'. */
 export type TabDerechaId = string;
 
 /** Estado declarativo restaurable; no contiene nodos ni callbacks del DOM.
@@ -49,7 +49,7 @@ export interface PanelDerecho {
 }
 
 /** Opción del inicio (pantalla sin tabs): abre su tab correspondiente. */
-export type OpcionInicio = 'files' | 'git' | 'navegador' | 'chat';
+export type OpcionInicio = 'files' | 'git' | 'navegador' | 'consola' | 'chat';
 
 export function montarPanelDerecho(opts: {
   onCambioTab(id: TabDerechaId | null): void;
@@ -103,6 +103,8 @@ export function montarPanelDerecho(opts: {
   opcionInicio('files', 'carpeta', 'Files');
   opcionInicio('git', 'flujo', 'Cambios');
   opcionInicio('navegador', 'navegador', 'Navegador');
+  // [209A-1 F3] La consola del agente: visor de ejecuciones `comando` en vivo.
+  opcionInicio('consola', 'terminal', 'Consola');
   // Gating como Synara: el chat lateral solo si hay conversación activa
   // (el orquestador lo habilita con `fijarInicioChatDisponible`).
   const btnChatInicio = opcionInicio('chat', 'mensaje', 'Chat lateral');
@@ -117,6 +119,7 @@ export function montarPanelDerecho(opts: {
           ['files', 'Files'],
           ['git', 'Cambios'],
           ['navegador', 'Navegador'],
+          ['consola', 'Consola'],
           ...(chatLateralDisponible ? [['chat', 'Chat lateral']] : []),
         ] as Array<[OpcionInicio, string]>) {
           menu.appendChild(

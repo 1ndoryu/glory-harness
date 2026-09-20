@@ -566,6 +566,8 @@ mod tests {
             todo: None,
             plan: None,
             navegador: None,
+            conversacion_id: uuid::Uuid::nil(),
+            tx_eventos: None,
         }
     }
 

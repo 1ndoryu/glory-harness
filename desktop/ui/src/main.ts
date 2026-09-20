@@ -146,6 +146,9 @@ const hooksAdaptador: HooksAdaptador = crearGanchos({
   getNavegador: () => todoNavegador.navegador,
   avisar: avisoGlobal,
   registrarCambioArchivo: (cambio) => files.registrarCambio(cambio),
+  // [209A-1 F3] Streaming de consola hacia la tab Consola (cierre perezoso).
+  reflejarConsola: (ev) => todoPanelDerecho.onConsolaEvento(ev),
+  verConsolaEn: (id) => todoPanelDerecho.abrirConsolaEn(id),
 });
 // Tauri → IPC in-process; web (`?api=`/`gh_api`/mismo origen) → HTTP/SSE.
 // `adaptador` se usa en cierres de runtime; en modo ni-ni nunca se monta.
@@ -264,6 +267,10 @@ const depsCrearPanel = crearDepsCrearPanel({
   alternarSidebar,
   alternarPanelDerecho: () => todoPanelDerecho.alternarPanelDerecho(),
   abrirAcciones: (panel, rect) => abrirAccionesPanel(depsLaterales, panel, rect),
+  alIniciarTurno: () => {
+    // [209A-1 F3] La supresión de la Consola se reinicia con cada turno.
+    todoPanelDerecho.notificarTurnoInicioConsola();
+  },
 });
 
 // ---------- Panel principal ----------
@@ -306,6 +313,8 @@ const todoPanelDerecho = montarPanelDerechoTodo({
   abrirNavegador: todoNavegador.abrirNavegador,
   abrirChatLateral: () => abrirChatLateralVacio(depsLaterales),
   abrirChatLateralPorId: (id) => abrirEnLateral(depsLaterales, id),
+  // [209A-1 F3] La supresión de auto-apertura rige mientras haya turno.
+  turnoEnCurso: () => vistaMeta.hayTurnoGlobal(),
 });
 const panelDerecho = todoPanelDerecho.panelDerecho;
 const files = todoPanelDerecho.files;

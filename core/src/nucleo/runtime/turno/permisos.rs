@@ -56,7 +56,9 @@ impl AgentRuntime {
             /* [129A-3] Aprobada en espera: cae a la ejecución de abajo, en
              * este mismo turno y sin reenvío. */
         }
-        self.ejecutar_tool_aprobada(estado, user_id, turno_id, call, tx)
+        /* [209A-1 F1] `sesion_llm` ES el `conversacion_id` (ver
+         * `EstadoTurno`): la tool `comando` lo adjunta a `ConsolaInicio`. */
+        self.ejecutar_tool_aprobada(estado, user_id, turno_id, estado.sesion_llm, call, tx)
             .await
     }
 
@@ -189,6 +191,7 @@ impl AgentRuntime {
                 ok: false,
                 resumen,
                 diff: None,
+                consola_id: None,
             })
             .await;
         self.empujar_mensaje_tool_denegado(estado, call, &mensaje_tool);
@@ -198,7 +201,7 @@ impl AgentRuntime {
     /// [129A-3] Pausa de espera en turno (solo desktop): si el veredicto es
     /// `Preguntar` y hay espera armada, aguarda la decisión del usuario.
     /// Devuelve `false` si fue aprobada (el llamante ejecuta la tool
-    /// pendiente en este mismo turno, sin empujar nada aquí); si fue
+    /// en espera en este mismo turno, sin empujar nada aquí); si fue
     /// rechazada deja `verdicto` en `Denegar` (el brazo `Denegar` ya la
     /// informa como `denegada_por_usuario`) y devuelve `true`. `true`
     /// también en modo entre-turnos o espera degradada (el llamante sigue
@@ -347,6 +350,7 @@ impl AgentRuntime {
         estado: &mut EstadoTurno,
         user_id: Uuid,
         turno_id: Uuid,
+        conversacion_id: Uuid,
         call: &AiToolCall,
         tx: &Sender<AgenteEvento>,
     ) -> Result<PasoTool> {
@@ -370,7 +374,7 @@ impl AgentRuntime {
         } else {
             tokio::time::timeout(
                 self.turno_config.timeout_tool,
-                self.ejecutar_tool(user_id, turno_id, call, tx),
+                self.ejecutar_tool(user_id, turno_id, conversacion_id, call, tx),
             )
             .await
             .unwrap_or_else(|_| {
@@ -383,18 +387,20 @@ impl AgentRuntime {
         };
         self.tool_en_curso
             .store(false, std::sync::atomic::Ordering::Relaxed);
-        let (ok, contenido, resumen, diff, evento_extra) = match resultado {
+        let (ok, contenido, resumen, diff, evento_extra, consola_id) = match resultado {
             Ok(r) => (
                 r.ok,
                 r.contenido.clone(),
                 r.resumen.clone(),
                 r.diff.clone(),
                 r.evento_extra.clone(),
+                r.consola_id.clone(),
             ),
             Err(error) => (
                 false,
                 format!("Error: {error}"),
                 "error".to_string(),
+                None,
                 None,
                 None,
             ),
@@ -414,6 +420,7 @@ impl AgentRuntime {
                 ok,
                 resumen: resumen.clone(),
                 diff: diff.clone(),
+                consola_id,
             })
             .await;
         /* [109A-5 F2] Plan visible: además del resultado textual, la lista

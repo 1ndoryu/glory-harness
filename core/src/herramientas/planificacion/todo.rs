@@ -476,6 +476,8 @@ mod tests {
             todo: Some(store),
             plan: None,
             navegador: None,
+            conversacion_id: uuid::Uuid::nil(),
+            tx_eventos: None,
         }
     }
 

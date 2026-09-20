@@ -409,12 +409,16 @@ pub trait AgentPersistence:
 #[async_trait]
 pub trait ProgramadorTareas: Send + Sync {
     /// Crea una tarea; devuelve su id.
+    // sentinel-disable-next-line funcion-larga-rs: declaración de trait sin cuerpo (0 líneas); el medidor cuenta hasta el cierre del trait por el `;` (FP verificado: las 5 reportan el mismo bloque de 106).
     async fn tarea_crear(&self, nueva: &NuevaTareaProgramada) -> Result<Uuid>;
     /// Lista las tareas del usuario (orden de creación).
+    // sentinel-disable-next-line funcion-larga-rs: declaración de trait sin cuerpo (FP, mismo bloque que `tarea_crear`).
     async fn tareas_listar(&self, user_id: Uuid) -> Result<Vec<TareaProgramada>>;
     /// Cancela una tarea del usuario; `false` si no existe o no es suya.
+    // sentinel-disable-next-line funcion-larga-rs: declaración de trait sin cuerpo (FP, mismo bloque que `tarea_crear`).
     async fn tarea_cancelar(&self, id: Uuid, user_id: Uuid) -> Result<bool>;
     /// Últimos `limite` registros de ejecución de una tarea del usuario.
+    // sentinel-disable-next-line funcion-larga-rs: declaración de trait sin cuerpo (FP, mismo bloque que `tarea_crear`).
     async fn tarea_logs(
         &self,
         id: Uuid,
@@ -425,6 +429,7 @@ pub trait ProgramadorTareas: Send + Sync {
     /// el ejecutor del cron la llama tras `tarea_finalizar` con el resumen
     /// del turno. Sin esta escritura no hay "cron que entrega resumen": el
     /// consumidor la persiste en su tienda (`tarea_logs` la lee).
+    // sentinel-disable-next-line funcion-larga-rs: declaración de trait sin cuerpo (FP, mismo bloque que `tarea_crear`).
     async fn tarea_registrar_log(
         &self,
         id: Uuid,
@@ -543,6 +548,36 @@ pub struct ResultadoEjecucionComando {
     pub fondo: bool,
     /// Id de la tarea de fondo (para `comando_status`/`comando_matar`).
     pub id_fondo: Option<String>,
+    /// [209A-1 F1] Comando VERBATIM ejecutado (sin recorte): la UI lo
+    /// muestra en la consola y lo ofrece para "abrir terminal".
+    pub comando: String,
+    /// [209A-1 F1] Id de la ejecución (generado por la tool, el runner lo
+    /// usa como clave de registro en fondo y lo devuelve tal cual).
+    pub id_ejecucion: String,
+}
+
+/// [209A-1 F1] Línea de salida en vivo de una ejecución `comando`: canal
+/// en-proceso runner → tool (la tool la envuelve en
+/// `AgenteEvento::ConsolaChunk` hacia el turno). Sin serializar: nunca cruza
+/// la red.
+#[derive(Debug, Clone)]
+pub struct ChunkConsola {
+    pub flujo: crate::evento::FlujoConsola,
+    pub linea: String,
+}
+
+/// [209A-1 F2] Vista de una consola para `comando_lista`: vivas (aún en
+/// `vivas` del runner) + recientes archivadas. Sin serializar: la tool la
+/// formatea a texto para el modelo; la UI usa los eventos, no este tipo.
+#[derive(Debug, Clone)]
+pub struct InfoConsola {
+    pub id_ejecucion: String,
+    pub comando: String,
+    pub conversacion_id: Uuid,
+    pub viva: bool,
+    pub codigo_salida: Option<i32>,
+    /// Bytes retenidos en el ring (viva) o en el transcript (archivada).
+    pub bytes: usize,
 }
 
 /// Puerto de ejecución de comandos. El núcleo define el contrato; el
@@ -554,10 +589,43 @@ pub struct ResultadoEjecucionComando {
 pub trait EjecutorComando: Send + Sync {
     /// Ejecuta un comando. `fondo=true` devuelve de inmediato con `id_fondo`.
     async fn ejecutar(&self, comando: &str, fondo: bool) -> Result<ResultadoEjecucionComando>;
+    /// [209A-1 F1] Igual que `ejecutar` pero bombea cada línea de
+    /// stdout/stderr a `chunks` en vivo. `id` lo genera la tool ANTES de
+    /// arrancar (para emitir `ConsolaInicio` primero): el runner lo usa como
+    /// clave de registro en fondo y lo devuelve en `id_ejecucion` tal cual.
+    /// [209A-1 F2] `conversacion_id` fija el ámbito de la consola (reap al
+    /// cerrar la conversación). Implementación por defecto: ejecuta sin
+    /// streaming (compat con runners que aún no bombean; el mock la hereda).
+    async fn ejecutar_en_vivo(
+        &self,
+        id: &str,
+        comando: &str,
+        conversacion_id: Uuid,
+        fondo: bool,
+        chunks: tokio::sync::mpsc::UnboundedSender<ChunkConsola>,
+    ) -> Result<ResultadoEjecucionComando> {
+        let _ = (id, conversacion_id, chunks);
+        self.ejecutar(comando, fondo).await
+    }
     /// Estado/salida de una tarea de fondo (aún corriendo o final).
     async fn estado(&self, id_fondo: &str) -> Result<ResultadoEjecucionComando>;
     /// Mata una tarea de fondo.
     async fn matar(&self, id_fondo: &str) -> Result<()>;
+    /// [209A-1 F2] Desacopla una consola viva del turno que la sigue: el
+    /// proceso sigue corriendo y visible en `lista()` (con su anillo), pero
+    /// el runner deja de intentar el envío de chunks a ese turno (ya cerrado
+    /// o que cambia de foco). `NoEncontrado` si el id no es una viva.
+    /// Por defecto: no soportado.
+    async fn desacoplar(&self, id: &str) -> Result<()> {
+        Err(crate::error::Error::NoEncontrado(format!(
+            "desacoplar no soportado por este runner (id {id})"
+        )))
+    }
+    /// [209A-1 F2] Consolas vivas primero + recientes archivadas (acotadas
+    /// por el runner). Por defecto: sin registro.
+    async fn lista(&self) -> Result<Vec<InfoConsola>> {
+        Ok(Vec::new())
+    }
 }
 
 // ---------------------------------------------------------------------------

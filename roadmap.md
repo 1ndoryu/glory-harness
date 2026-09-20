@@ -211,6 +211,32 @@ Siguiente en la serie de 6 pedidos: 129A-11 → 129A-9.
       ejecuta tools, `chat` con stdin guionizado sí; autorizado ciclo
       local; SSH prohibido).
       Plan: `Agente/planes/plan-119A-7-agente-solido-bench-2026-09-11.md`.
+- [ ] **209A-1 — Consola lateral: visor de ejecuciones en vivo con tope anti-fuga**
+      (planificado 20-09; reapertura acotada de 089A-9, vía eficiente sin PTY por
+      decisión del usuario): tab "Consola" en el panel derecho con panel interno
+      (lista de consolas + visor + matar/cerrar/limpiar); streaming de `comando`
+      por eventos; topes innegociables (`MAX_CONSOLAS_VIVAS=4`, ring 128 KB,
+      transcript 32 KB, `stdin(null)`, reap global, cero polling UI).
+      Plan: `Agente/planes/plan-209A-1-consola-lateral-2026-09-20.md` (+revisión
+      20-09: comando literal verbatim, botón abrir-terminal por fila, botón
+      segundo-plano = desacoplar sin matar, `comando_lista` para el agente,
+      reap al cerrar conversación o app).
+      Estado 20-09 noche: F1 streaming backend cerrado (`ConsolaInicio/Chunk/Fin`,
+      `id_ejecucion`+`comando` en resultado, `conversacion_id`+`tx_eventos` hasta
+      la tool) + F2 topes + fondo operable cerrado (`MAX_CONSOLAS_VIVAS=4` con
+      rechazo `Limite`, ring 128 KB, `stdin(null)`, `desacoplar`, `comando_lista`,
+      reap del pump, `ok:false` accionable al tope) + F3.1 exploración UI + F3.2
+      tab Consola cerrada (store por `id_ejecucion` + lista/visor push-only,
+      auto-apertura con supresión F1, hook `onConsolaEvento`, persistencia;
+      `type-check` + `build` en verde) + F3.3 enlace fila→Consola cerrado
+      ("ver en Consola" en vivo por `consola_id`, solo en la fila, no en el
+      resumen de fin de turno) + F4-backend cerrado (`matar_por_conversacion`,
+      `matar_todas` idempotente, `kill_on_drop` en ambos spawns, fix de la
+      carrera `matar`-tras-`take` vía `Notify` en el pump; `cargo test
+      --workspace --lib` 521 passed + `clippy -D warnings` en verde).
+      PENDIENTE: cablear cierres (conversación/app/tab → primitivas F4; no hay
+      canal UI→backend) + E2E real en `:8799` con turno vivo + gate. Detalle y
+      correcciones al diseño en el plan §Estado/§Correcciones.
 - [x] **F3 — PersistenciaSqlite** (`cli/src/persistencia_sqlite.rs`, 04-09): `AgentPersistence` +
       `ProgramadorTareas` sobre rusqlite bundled (WAL, `%APPDATA%/glory-harness/glory-harness.db`).
       CRUD de conversaciones, mensaje de usuario persistido por el consumidor en `enviar_turno`,
@@ -719,6 +745,9 @@ Siguiente en la serie de 6 pedidos: 129A-11 → 129A-9.
 
 ## Planes activos
 
+- `Agente/planes/plan-209A-1-consola-lateral-2026-09-20.md` (209A-1) —
+  **activo**: consola lateral con visor de ejecuciones en vivo + topes
+  anti-fuga; próximo paso F1 (streaming backend).
 - `Agente/planes/plan-119A-2-menu-contextual-proyecto-2026-09-11.md` (119A-2) —
   **activo**: menú contextual de proyecto; F1 listo, F5 pendiente de decisión.
 - `Agente/planes/plan-119A-3-orden-proyectos-2026-09-11.md` (119A-3) —

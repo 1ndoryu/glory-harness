@@ -8,8 +8,10 @@
 use std::any::Any;
 use std::sync::Arc;
 
+use tokio::sync::mpsc::Sender;
 use uuid::Uuid;
 
+use crate::evento::AgenteEvento;
 use crate::ports::{
     AgentPersistence, NavegadorPort, ProviderPort, WebFetchProvider, WebSearchProvider,
 };
@@ -55,4 +57,14 @@ pub struct AgentToolContext<'a> {
     /// [069A-1 F5] Puerto del navegador interno (webview child). `None` →
     /// la tool `navegador_reflejo` falla con error claro.
     pub navegador: Option<&'a dyn NavegadorPort>,
+    /// [209A-1 F1] Conversación dueña del turno (`Uuid::nil()` en el hijo
+    /// subagente, que no tiene conversación propia): las tools que emiten
+    /// eventos en vivo (p. ej. `comando` → consola) la adjuntan para el reap
+    /// por conversación de F2.
+    pub conversacion_id: Uuid,
+    /// [209A-1 F1] Canal de eventos del turno para streaming en vivo
+    /// (`comando` emite `ConsolaInicio`/`ConsolaChunk` aquí; el reenvío al
+    /// SSE ya existe). `None` en tests: la tool sigue devolviendo el
+    /// resultado final sin emitir nada.
+    pub tx_eventos: Option<Sender<AgenteEvento>>,
 }

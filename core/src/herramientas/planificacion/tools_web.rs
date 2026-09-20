@@ -170,6 +170,8 @@ mod tests {
             todo: None,
             plan: None,
             navegador: None,
+            conversacion_id: uuid::Uuid::nil(),
+            tx_eventos: None,
         }
     }
 
@@ -226,6 +228,8 @@ mod tests {
             todo: None,
             plan: None,
             navegador: None,
+            conversacion_id: uuid::Uuid::nil(),
+            tx_eventos: None,
         };
         let err = ToolWebFetch
             .ejecutar(&cxt, json!({"url": "https://ejemplo.test"}))

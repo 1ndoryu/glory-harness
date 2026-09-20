@@ -72,6 +72,11 @@ pub enum AgenteEvento {
         resumen: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         diff: Option<String>,
+        /// [209A-1 F1] Id de ejecución de consola (tool `comando`): la UI lo
+        /// usa para el botón "abrir terminal" y para parear el resultado con
+        /// los eventos `consola_*`. `None` en el resto de tools. Aditivo.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        consola_id: Option<String>,
     },
     /// La tool requiere aprobación del usuario (política de permisos: modo
     /// predeterminado / override `ask`).
@@ -245,6 +250,41 @@ pub enum AgenteEvento {
         motivo: String,
         turnos: u32,
     },
+    /// [209A-1 F1] Arranque de una ejecución `comando`: lleva el comando
+    /// VERBATIM completo (sin recorte de 60) y la conversación dueña (reap
+    /// por conversación en F2). Se emite ANTES del primer chunk para que la
+    /// UI cree la entrada de consola con su id.
+    ConsolaInicio {
+        id_ejecucion: String,
+        comando: String,
+        conversacion_id: Uuid,
+    },
+    /// [209A-1 F1] Línea de salida en vivo (stdout/stderr, sin `\n` final).
+    /// Orden FIFO por ejecución; el transporte las reenvía sin coalescar
+    /// (caen en la rama `control` del coalescedor web).
+    ConsolaChunk {
+        id_ejecucion: String,
+        flujo: FlujoConsola,
+        linea: String,
+    },
+    /// [209A-1 F1] Fin de la ejecución: la UI congela la entrada (o la marca
+    /// truncada). Viaja como `evento_extra` del resultado de la tool, DESPUÉS
+    /// de `ToolResult`. `codigo` = `None` si fue matada o sigue en fondo.
+    ConsolaFin {
+        id_ejecucion: String,
+        codigo: Option<i32>,
+        truncada: bool,
+        duracion_ms: u64,
+    },
+}
+
+/// [209A-1 F1] Tubería de origen de una línea de consola. Serializa
+/// `stdout`/`stderr` (contrato con la UI: literales para el color/prefijo).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FlujoConsola {
+    Stdout,
+    Stderr,
 }
 
 #[cfg(test)]
@@ -313,6 +353,67 @@ mod tests {
             }
             otro => panic!("variante inesperada: {otro:?}"),
         }
+    }
+
+    /* [209A-1 F1] La consola lateral distingue `consola_inicio` (crea la
+     * entrada con el comando verbatim), `consola_chunk` (anexa líneas) y
+     * `consola_fin` (congela); `tool_result` lleva `consola_id` para el botón
+     * "abrir terminal". Estos literales y campos son contrato con la UI. */
+    #[test]
+    fn consola_serializa_con_el_contrato_que_espera_la_ui() {
+        let conversacion = Uuid::new_v4();
+        let inicio = AgenteEvento::ConsolaInicio {
+            id_ejecucion: "e-1".into(),
+            comando: "cargo test --lib".into(),
+            conversacion_id: conversacion,
+        };
+        let json = serde_json::to_value(&inicio).expect("serializa");
+        assert_eq!(json["tipo"], "consola_inicio");
+        assert_eq!(json["id_ejecucion"], "e-1");
+        assert_eq!(json["comando"], "cargo test --lib");
+        assert_eq!(json["conversacion_id"], conversacion.to_string());
+
+        let chunk = AgenteEvento::ConsolaChunk {
+            id_ejecucion: "e-1".into(),
+            flujo: FlujoConsola::Stderr,
+            linea: "warning: algo".into(),
+        };
+        let json = serde_json::to_value(&chunk).expect("serializa");
+        assert_eq!(json["tipo"], "consola_chunk");
+        assert_eq!(json["flujo"], "stderr");
+
+        let fin = AgenteEvento::ConsolaFin {
+            id_ejecucion: "e-1".into(),
+            codigo: Some(0),
+            truncada: false,
+            duracion_ms: 120,
+        };
+        let json = serde_json::to_value(&fin).expect("serializa");
+        assert_eq!(json["tipo"], "consola_fin");
+        assert_eq!(json["codigo"], 0);
+
+        let resultado = AgenteEvento::ToolResult {
+            tool: "comando".into(),
+            ok: true,
+            resumen: "comando [bajo] cargo test".into(),
+            diff: None,
+            consola_id: Some("e-1".into()),
+        };
+        let json = serde_json::to_value(&resultado).expect("serializa");
+        assert_eq!(json["consola_id"], "e-1");
+        // Sin consola el campo se omite (contrato previo intacto).
+        let sin_consola = AgenteEvento::ToolResult {
+            tool: "todo".into(),
+            ok: true,
+            resumen: "x".into(),
+            diff: None,
+            consola_id: None,
+        };
+        let json = serde_json::to_value(&sin_consola).expect("serializa");
+        assert!(json.get("consola_id").is_none());
+
+        let vuelta: AgenteEvento = serde_json::from_value(json).expect("deserializa");
+        assert!(matches!(vuelta, AgenteEvento::ToolResult { .. }));
     }
 
     /* [109A-5 F3] Mismo motivo que el test anterior: la UI localiza el pie del

@@ -122,6 +122,14 @@ export function aplicarEvento(ev: AgenteEvento, st: EstadoTurno, d: EventosDeps)
         const detalle = formatearResultadoHerramienta(ev.resumen, dif);
         if (ev.ok) st.herramienta.completada('ok', { tipo: 'html', html: detalle });
         else st.herramienta.errored('falló', { tipo: 'html', html: detalle });
+        // [209A-1 F3] La fila del `comando` enlaza a su consola en vivo (el
+        // id viaja en `tool_result.consola_id`; el resto de tools no lo trae).
+        if (ev.tool === 'comando' && ev.consola_id) {
+          const id = ev.consola_id;
+          st.herramienta.agregarAccion('ver en Consola', 'terminal', () => {
+            d.hooks.onVerConsola?.(id);
+          });
+        }
         st.herramienta = null;
       } else {
         // Sin bloque de herramienta: aviso en texto plano (crearAvisoSistema usa textContent).
@@ -300,6 +308,14 @@ export function aplicarEvento(ev: AgenteEvento, st: EstadoTurno, d: EventosDeps)
       break;
     case 'mostrar_archivo':
       d.hooks.onMostrarArchivo?.(ev);
+      break;
+    // [209A-1 F3] Streaming de consola: el render del chat no pinta nada
+    // (la salida vive en la tab Consola); el hook la refleja en su store.
+    // `tool_result.consola_id` enlazará la fila del resumen (F3.3).
+    case 'consola_inicio':
+    case 'consola_chunk':
+    case 'consola_fin':
+      d.hooks.onConsolaEvento?.(ev);
       break;
   }
 }

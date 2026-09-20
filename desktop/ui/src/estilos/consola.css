@@ -1,0 +1,163 @@
+/* Tab Consola (plan 209A-1 F3): visor de ejecuciones `comando` en vivo.
+   Monocromo estricto (variables.css): sin radius, sin sombras; estados por
+   patrones y bordes. stderr se distingue por fondo + borde lateral. */
+
+.panel-consola {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+    background: var(--fondo);
+    color: var(--texto);
+    font-family: var(--font);
+}
+
+.consola-cabecera {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-sm);
+    height: var(--alto-cabecera);
+    padding: 0 var(--sp-sm);
+    border-bottom: 1px solid var(--borde);
+    flex: 0 0 auto;
+}
+
+.consola-titulo {
+    font-size: var(--md);
+}
+
+.consola-contador {
+    font-size: var(--xs);
+    color: var(--texto-tenue);
+    margin-right: auto;
+}
+
+.consola-accion {
+    background: none;
+    border: 1px solid transparent;
+    color: var(--texto);
+    cursor: pointer;
+    padding: 2px 4px;
+    display: inline-flex;
+}
+
+.consola-accion:hover {
+    background: var(--superficie-hover);
+    border-color: var(--borde);
+}
+
+.consola-lista {
+    flex: 0 1 auto;
+    max-height: 32%;
+    overflow-y: auto;
+    border-bottom: 1px solid var(--borde);
+}
+
+.consola-fila {
+    display: flex;
+    align-items: baseline;
+    gap: var(--sp-sm);
+    width: 100%;
+    background: none;
+    border: none;
+    border-bottom: 1px dotted var(--borde);
+    color: var(--texto);
+    cursor: pointer;
+    padding: var(--sp-xs) var(--sp-sm);
+    font-family: var(--font);
+    font-size: var(--sm);
+    text-align: left;
+}
+
+.consola-fila:hover {
+    background: var(--superficie-hover);
+}
+
+.consola-fila.activa {
+    background: var(--superficie-seleccionada);
+    color: var(--invertido);
+}
+
+.consola-fila.activa .consola-fila-meta {
+    color: var(--invertido);
+}
+
+.consola-marca {
+    flex: 0 0 auto;
+}
+
+.consola-fila-comando {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.consola-fila-meta {
+    flex: 0 0 auto;
+    font-size: var(--xs);
+    color: var(--texto-tenue);
+}
+
+.consola-visor {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+.consola-comando {
+    padding: var(--sp-xs) var(--sp-sm);
+    border-bottom: 1px solid var(--borde);
+    font-size: var(--sm);
+    overflow-x: auto;
+    white-space: nowrap;
+    flex: 0 0 auto;
+}
+
+.consola-prompt {
+    color: var(--texto-tenue);
+}
+
+.consola-salida {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    padding: var(--sp-xs) var(--sp-sm);
+    font-size: var(--sm);
+    line-height: 1.5;
+}
+
+.consola-linea {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+.consola-linea.error {
+    background: var(--superficie-diff-eliminacion);
+    border-left: 2px solid var(--borde);
+    padding-left: var(--sp-xs);
+}
+
+.consola-pie {
+    flex: 0 0 auto;
+    padding: var(--sp-xs) var(--sp-sm);
+    border-top: 1px solid var(--borde);
+    font-size: var(--xs);
+    color: var(--texto-tenue);
+}
+
+.consola-vacio {
+    padding: var(--sp-md) var(--sp-sm);
+    font-size: var(--sm);
+    color: var(--texto-tenue);
+}
+
+.consola-nota {
+    flex: 0 0 auto;
+    padding: var(--sp-xs) var(--sp-sm);
+    border-top: 1px dotted var(--borde);
+    font-size: var(--xs);
+    color: var(--texto-tenue);
+}

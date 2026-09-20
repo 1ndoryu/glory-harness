@@ -143,6 +143,7 @@ pub async fn procesar_pregunta(
         resumen: "pregunta_enviada".into(),
         diff: None,
         evento_extra: None,
+        consola_id: None,
     })
 }
 
@@ -180,6 +181,8 @@ mod tests {
                 todo: None,
                 plan: None,
                 navegador: None,
+                conversacion_id: uuid::Uuid::nil(),
+                tx_eventos: None,
             };
             ToolAskUser
                 .ejecutar(&ctx, json!({"texto": "¿sí o no?"}))

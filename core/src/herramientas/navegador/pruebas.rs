@@ -101,6 +101,8 @@ fn ctx_con_navegador() -> AgentToolContext<'static> {
         plan: None,
 
         navegador: Some(stub),
+        conversacion_id: uuid::Uuid::nil(),
+        tx_eventos: None,
     }
 }
 
@@ -129,6 +131,8 @@ fn ctx_sin_navegador() -> AgentToolContext<'static> {
         plan: None,
 
         navegador: None,
+        conversacion_id: uuid::Uuid::nil(),
+        tx_eventos: None,
     }
 }
 

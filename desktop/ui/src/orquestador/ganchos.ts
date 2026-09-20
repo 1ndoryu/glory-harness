@@ -6,27 +6,42 @@
 import type { PanelNavegador } from '../componentes/panelNavegador';
 import type { PanelChat } from '../componentes/panelChat';
 import type { CambioArchivoFiles } from '../componentes/panelFiles';
+import type { EventoConsola } from '../componentes/panelConsola';
 import type { HooksAdaptador, InfoSesion } from '../tauri/real';
 
-export interface GanchosDeps {
+/** Ganchos de sesión y workspace (modelo + proyectos + paneles). */
+export interface GanchosSesion {
   usaReal: boolean;
   sincronizarModeloDesdeSesion: (info: InfoSesion) => void;
   asignarWorkspace: (ws: string) => void;
   refrescarProyectos: () => Promise<void>;
   resincronizarSidebar: () => Promise<void>;
   paneles: () => PanelChat[];
+}
+
+/** Ganchos de navegador y cambios de archivo (cierres perezosos). */
+export interface GanchosNavegadorCambios {
   getNavegador: () => PanelNavegador;
   avisar: (texto: string, meta: string, detalle: string) => void;
   registrarCambioArchivo: (cambio: CambioArchivoFiles) => void;
   /** [129A-7 F3] Refresco en vivo del panel Cambios (ruta + diff vivo). */
   registrarCambioVivo: (ruta: string, diff: string | null) => void;
   /** [129A-10 F1] Auto-apertura de la tab por el agente (cierre perezoso de
-   * runtime, como `verEnCambios`): 'suprimida' = el usuario la cerró a mitad
+   * runtime, como `mostrarArchivoEnFiles`): 'suprimida' = el usuario la cerró a mitad
    * de turno y solo se avisa por toast. */
   abrirNavegadorPorAgente: () => 'abierta' | 'ya' | 'suprimida';
   /** [129A-10 F2] Muestra un archivo en Files (cierre perezoso, runtime). */
   mostrarArchivoEnFiles: (ruta: string) => void;
+  /** [209A-1 F3] Refleja el streaming de consola en la tab Consola
+   * (cierre perezoso, runtime). Devuelve lo que decidió la auto-apertura
+   * para el aviso visible. */
+  reflejarConsola: (ev: EventoConsola) => 'abierta' | 'ya' | 'suprimida';
+  /** [209A-1 F3] "ver en Consola" pulsado en la fila de un `comando`:
+   * abre la tab y revela esa ejecución (gesto del usuario, sin toast). */
+  verConsolaEn: (id: string) => void;
 }
+
+export interface GanchosDeps extends GanchosSesion, GanchosNavegadorCambios {}
 
 export function crearGanchos(deps: GanchosDeps): HooksAdaptador {
   return {
@@ -90,10 +105,32 @@ export function crearGanchos(deps: GanchosDeps): HooksAdaptador {
     },
     // [129A-10 F2] El agente muestra un archivo: se abre Files y se
     // previsualiza la ruta (vista, sin editar), con aviso visible.
-    // Seguro: corre en runtime (cierre perezoso, como `verEnCambios`).
+    // Seguro: corre en runtime (cierre perezoso, como `verEnFiles`).
     onMostrarArchivo(ev) {
       deps.mostrarArchivoEnFiles(ev.ruta);
       deps.avisar(`el agente muestra ${ev.ruta}`, '', '');
+    },
+    // [209A-1 F3] Streaming de consola: el store se alimenta siempre; el
+    // inicio auto-abre la tab (igual que F1: 'suprimida' solo avisa por
+    // toast hasta el próximo turno). Chunks/fin no avisan: la tab ya
+    // muestra su estado vivo.
+    // Seguro: corre en runtime (cierre perezoso).
+    onConsolaEvento(ev) {
+      const r = deps.reflejarConsola(ev);
+      if (ev.tipo === 'consola_inicio' && r === 'abierta') {
+        deps.avisar('el agente abrió una consola', '', ev.comando);
+      } else if (ev.tipo === 'consola_inicio' && r === 'suprimida') {
+        deps.avisar(
+          'el agente ejecuta en consola (cerraste la tab: se reabre en el próximo turno)',
+          '',
+          ev.comando,
+        );
+      }
+    },
+    // [209A-1 F3] Gesto del usuario: abrir la tab y revelar la ejecución.
+    // Seguro: corre en runtime (cierre perezoso).
+    onVerConsola(id) {
+      deps.verConsolaEn(id);
     },
   };
 }

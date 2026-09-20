@@ -27,7 +27,17 @@ export type AgenteEvento =
    * abierto (con spinner + contador) hasta que llega `razonamiento`. */
   | { tipo: 'razonamiento_delta'; texto: string }
   | { tipo: 'tool_start'; tool: string; argumentos: unknown }
-  | { tipo: 'tool_result'; tool: string; ok: boolean; resumen: string; diff?: string | null }
+  | {
+      tipo: 'tool_result';
+      tool: string;
+      ok: boolean;
+      resumen: string;
+      diff?: string | null;
+      /** [209A-1 F3] Id de ejecución de consola (tool `comando`): la fila
+       * del resumen enlaza a su consola. `undefined` en el resto de tools.
+       * Fiel a `core/src/contrato/evento.rs` (`ToolResult.consola_id`). */
+      consola_id?: string | null;
+    }
   | { tipo: 'peticion_aprobacion'; id: string; tool: string; argumentos: unknown; clasificacion: string }
   | { tipo: 'requiere_aprobacion'; tool: string; clasificacion: string }
   | { tipo: 'permiso_denegado'; tool: string; motivo: string }
@@ -74,7 +84,24 @@ export type AgenteEvento =
   | { tipo: 'tool_navegador'; accion: string; url?: string; selector?: string; captura_base64?: string; ok: boolean; descripcion: string }
   /** [129A-10 F2] El agente quiere mostrar un archivo en Files (vista, no
    * edición): el orquestador abre la tab y lo previsualiza. */
-  | { tipo: 'mostrar_archivo'; ruta: string; descripcion: string };
+  | { tipo: 'mostrar_archivo'; ruta: string; descripcion: string }
+  /** [209A-1 F3] Arranque de una ejecución `comando`: comando VERBATIM +
+   * conversación dueña. Fiel a `core/src/contrato/evento.rs`
+   * (`ConsolaInicio`): la UI crea la entrada con su id ANTES del primer
+   * chunk. */
+  | { tipo: 'consola_inicio'; id_ejecucion: string; comando: string; conversacion_id: string }
+  /** [209A-1 F3] Línea de salida en vivo (sin `\n` final). `flujo` es
+   * `stdout`|`stderr` (literales del contrato, para el prefijo/color). */
+  | { tipo: 'consola_chunk'; id_ejecucion: string; flujo: 'stdout' | 'stderr'; linea: string }
+  /** [209A-1 F3] Fin de la ejecución: la UI congela la entrada. `codigo`
+   * `null` = matada o sigue en fondo (desacoplada). */
+  | {
+      tipo: 'consola_fin';
+      id_ejecucion: string;
+      codigo: number | null;
+      truncada: boolean;
+      duracion_ms: number;
+    };
 
 export interface OpcionesTurno {
   proveedor: string;
@@ -285,6 +312,16 @@ export interface HooksAdaptador {
   /** [129A-10 F2] El agente mostró un archivo: el orquestador lo enseña en
    * Files (vista, sin editar). */
   onMostrarArchivo?: (ev: AgenteEvento & { tipo: 'mostrar_archivo' }) => void;
+  /** [209A-1 F3] El usuario pulsó "ver en Consola" en la fila de un `comando`:
+   * el orquestador abre la tab y revela esa ejecución. Solo en vivo (el
+   * historial estático no conserva `consola_id`; la tab sí es durable). */
+  onVerConsola?: (id: string) => void;
+  /** [209A-1 F3] Streaming de consola (`consola_inicio/chunk/fin`): el
+   * orquestador lo refleja en la tab Consola (store + auto-apertura). Un
+   * solo `TurnoReal` por adaptador, así que cada evento llega una vez. */
+  onConsolaEvento?: (
+    ev: AgenteEvento & { tipo: 'consola_inicio' | 'consola_chunk' | 'consola_fin' },
+  ) => void;
   /** [069A-2 F4] Estado de la conexión del transporte (solo el HTTP/SSE la
    * reporta; Tauri in-process no la usa). */
   onConexion?: (estado: 'conectando' | 'en-linea' | 'reconectando' | 'error', detalle?: string) => void;

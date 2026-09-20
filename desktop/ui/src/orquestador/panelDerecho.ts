@@ -1,5 +1,5 @@
-/* Panel derecho con tabs + Files/Git + grip de ancho (extraído de main.ts [089A-16 F1b]).
- * Monta toastGlobal, files, git y el panel derecho; gestiona visibilidad,
+/* Panel derecho con tabs + Files/Git/Consola + grip de ancho (extraído de main.ts [089A-16 F1b]).
+ * Monta toastGlobal, files, git, consola y el panel derecho; gestiona visibilidad,
  * grip de redimensionado y apertura de tabs. Todo el estado compartido llega
  * por `deps`; sin importes del orquestador. `abrirNavegador` y
  * `abrirChatLateral` cierran sobre piezas declaradas después en el arranque
@@ -10,6 +10,12 @@ import { porId } from '../util/dom';
 import { montarPanelDerecho, type PanelDerecho } from '../componentes/panelDerecho';
 import { montarPanelFiles, type PanelFiles } from '../componentes/panelFiles';
 import { montarPanelCambios, type PanelCambios } from '../componentes/panelCambios';
+import {
+  montarPanelConsola,
+  type EventoConsola,
+  type PanelConsola,
+} from '../componentes/panelConsola';
+import { crearSupresionNavegador as crearSupresionAutoapertura } from './navegadorAuto';
 import { montarToastGlobal, type ToastGlobal } from '../componentes/toastGlobal';
 import type { PanelChat } from '../componentes/panelChat';
 import type { BarraSuperior } from '../componentes/barraSuperior';
@@ -34,6 +40,8 @@ export interface PanelDerechoNucleo {
   paneles: PanelChat[];
   panelActivo: () => PanelChat | null;
   getConversaciones: () => Array<{ id: string }>;
+  /** Turno en curso (para la supresión de auto-apertura: igual que F1). */
+  turnoEnCurso: () => boolean;
 }
 
 /** Navegador embebido y aperturas delegadas. */
@@ -57,6 +65,8 @@ export interface PanelDerechoPiezas {
   /** [129A-7] La tab "Git local" ahora es "Cambios" (filesystem por turno +
    * estado git debajo). El id de tab 'git' se conserva. */
   cambios: PanelCambios;
+  /** [209A-1 F3] La tab Consola: visor de ejecuciones `comando` en vivo. */
+  consola: PanelConsola;
   toastGlobal: ToastGlobal;
 }
 
@@ -78,6 +88,19 @@ export interface PanelDerechoAperturas {
   abrirCambiosEn: (ruta: string) => void;
   /** [129A-10 F2] Abre Files y previsualiza la ruta (vista del agente). */
   abrirFilesEn: (ruta: string) => void;
+  /** [209A-1 F3] Abre la Consola (tab manual: inicio, menú +, persistencia). */
+  abrirConsola: () => void;
+  /** [209A-1 F3] Abre la Consola y revela la ejecución (enlace del resumen). */
+  abrirConsolaEn: (id: string) => void;
+  /** [209A-1 F3] Auto-apertura por `consola_inicio` del agente (misma
+   * máquina de supresión que F1: 'suprimida' = el usuario la cerró a mitad
+   * de turno y solo se acumula hasta el próximo turno). */
+  abrirConsolaPorAgente: (id: string) => 'abierta' | 'ya' | 'suprimida';
+  /** [209A-1 F3] Streaming de consola hacia el store (hook del adaptador).
+   * Devuelve lo que decidió la auto-apertura (para el aviso visible). */
+  onConsolaEvento: (ev: EventoConsola) => 'abierta' | 'ya' | 'suprimida';
+  /** [209A-1 F3] Reinicia la supresión al empezar un turno (igual que F1). */
+  notificarTurnoInicioConsola: () => void;
   reposicionarWebview: () => void;
 }
 
@@ -124,6 +147,17 @@ export function montarPanelDerechoTodo(deps: PanelDerechoDeps): PanelDerechoTodo
       toastGlobal.mostrar(texto, detalle);
     },
   });
+  // [209A-1 F3] La tab Consola: store por `id_ejecucion` + lista y visor.
+  // Los errores del panel (portapapeles) van al toast global, como Files.
+  const consola = montarPanelConsola({
+    onError(texto, detalle) {
+      toastGlobal.mostrar(texto, detalle);
+    },
+  });
+  // [209A-1 F3] Supresión de auto-apertura: la misma máquina pura que F1
+  // (`crearSupresionNavegador` no sabe de navegadores: abrir/suprimir por
+  // turno; aquí gobierna la tab Consola).
+  const supresionConsola = crearSupresionAutoapertura();
   const panelDerecho = montarPanelDerecho({
     onCambioTab(id) {
       // La webview hija es nativa: no respeta `hidden`. Al salir de su tab
@@ -143,6 +177,7 @@ export function montarPanelDerechoTodo(deps: PanelDerechoDeps): PanelDerechoTodo
       if (opcion === 'files') abrirFiles();
       else if (opcion === 'git') abrirGit();
       else if (opcion === 'navegador') deps.abrirNavegador();
+      else if (opcion === 'consola') abrirConsola();
       else deps.abrirChatLateral();
     },
   });
@@ -274,6 +309,59 @@ export function montarPanelDerechoTodo(deps: PanelDerechoDeps): PanelDerechoTodo
     files.mostrarArchivo(ruta);
   }
 
+  // [209A-1 F3] La Consola manual: abre la tab (el visor sigue el último
+  // inicio; el usuario elige la entrada en la lista). Apertura manual: se
+  // olvida la supresión (igual que F1).
+  function abrirConsola(): void {
+    supresionConsola.alAbrirManual();
+    asegurarPanelDerecho();
+    panelDerecho.abrirTab('consola', 'Consola', consola.raiz, () => {
+      // El único llamador es el × de la tab: cierre manual (igual que F1).
+      supresionConsola.alCerrarManual(deps.turnoEnCurso());
+      panelDerecho.cerrarTab('consola');
+      guardarEstadoPanel();
+      cerrarPanelDerechoSiVacio();
+    });
+    guardarEstadoPanel();
+  }
+
+  // [209A-1 F3] El resumen enlaza a la ejecución: abre la tab y revela su
+  // entrada (con su salida viva si sigue corriendo).
+  function abrirConsolaEn(id: string): void {
+    abrirConsola();
+    consola.revelar(id);
+  }
+
+  // [209A-1 F3] `consola_inicio` abre la tab SIN robar el foco (`abrirTab`
+  // solo conmuta la tab visible). El cierre intencional a mitad de turno se
+  // respeta (solo se acumula) hasta el próximo turno o reapertura manual,
+  // igual que F1.
+  function abrirConsolaPorAgente(id: string): 'abierta' | 'ya' | 'suprimida' {
+    if (supresionConsola.suprimido()) {
+      consola.revelar(id);
+      return 'suprimida';
+    }
+    if (panelDerecho.tiene('consola')) {
+      consola.revelar(id);
+      return 'ya';
+    }
+    abrirConsola();
+    consola.revelar(id);
+    return 'abierta';
+  }
+
+  // [209A-1 F3] Cada evento alimenta el store; el inicio además auto-abre.
+  // Devuelve la decisión para el aviso visible del hook.
+  function onConsolaEvento(ev: EventoConsola): 'abierta' | 'ya' | 'suprimida' {
+    consola.manejarEvento(ev);
+    if (ev.tipo === 'consola_inicio') return abrirConsolaPorAgente(ev.id_ejecucion);
+    return 'ya';
+  }
+
+  function notificarTurnoInicioConsola(): void {
+    supresionConsola.alIniciarTurno();
+  }
+
   async function restaurarEstado(): Promise<void> {
     try {
       const anchoPreferido = await leerPreferencia(deps.persistencia, CLAVE_LATERAL_ANCHO);
@@ -293,7 +381,10 @@ export function montarPanelDerechoTodo(deps: PanelDerechoDeps): PanelDerechoTodo
       const tabs = Array.isArray(candidato.tabs)
         ? candidato.tabs.filter(
             (id): id is string =>
-              (id === 'files' || id === 'git' || id === 'navegador') ||
+              (id === 'files' ||
+                id === 'git' ||
+                id === 'navegador' ||
+                id === 'consola') ||
               (typeof id === 'string' && /^chat:[^:]+$/.test(id) && !id.startsWith('chat:nuevo-')),
           )
         : [];
@@ -313,6 +404,7 @@ export function montarPanelDerechoTodo(deps: PanelDerechoDeps): PanelDerechoTodo
         if (id === 'files') abrirFiles();
         else if (id === 'git') abrirGit();
         else if (id === 'navegador') deps.abrirNavegador();
+        else if (id === 'consola') abrirConsola();
         else if (deps.getConversaciones().some((c) => c.id === id.slice('chat:'.length))) {
           await deps.abrirChatLateralPorId(id.slice('chat:'.length));
         } else {
@@ -345,6 +437,7 @@ export function montarPanelDerechoTodo(deps: PanelDerechoDeps): PanelDerechoTodo
     panelDerecho,
     files,
     cambios: git,
+    consola,
     toastGlobal,
     asegurarPanelDerecho,
     ocultarPanelDerecho,
@@ -356,6 +449,11 @@ export function montarPanelDerechoTodo(deps: PanelDerechoDeps): PanelDerechoTodo
     abrirGit,
     abrirCambiosEn,
     abrirFilesEn,
+    abrirConsola,
+    abrirConsolaEn,
+    abrirConsolaPorAgente,
+    onConsolaEvento,
+    notificarTurnoInicioConsola,
     reposicionarWebview,
   };
 }

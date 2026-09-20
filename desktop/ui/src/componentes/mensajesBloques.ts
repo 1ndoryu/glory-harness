@@ -89,6 +89,9 @@ export interface HerramientaViva {
   ejecutando(): void;
   completada(meta: string, resultado: ResultadoHerramienta): void;
   errored(meta: string, resultado: ResultadoHerramienta): void;
+  /** [209A-1 F3] Botón en la fila (p. ej. "ver en Consola" con `consola_id`):
+   * receta `aviso-accion`, visible sin desplegar; no abre el <details>. */
+  agregarAccion(etiqueta: string, iconoNombre: IconoNombre, onClick: () => void): void;
 }
 
 function baseHerramienta(iconoNombre: IconoNombre, titulo: string): HerramientaViva {
@@ -126,6 +129,21 @@ function baseHerramienta(iconoNombre: IconoNombre, titulo: string): HerramientaV
       // el error se distingue por su icono de fallo en el meta
       ponerIcono(nodoMeta, 'x-circulo', true);
       aplicarResultado(nodoResultado, resultado);
+    },
+    agregarAccion(etiqueta: string, iconoNombre: IconoNombre, onClick: () => void) {
+      const b = el('button', 'herramienta-accion') as HTMLButtonElement;
+      b.type = 'button';
+      b.appendChild(icono(iconoNombre, true));
+      const t = el('span');
+      t.textContent = etiqueta;
+      b.appendChild(t);
+      b.setAttribute('aria-label', etiqueta);
+      b.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        onClick();
+      });
+      sum.appendChild(b);
     },
   };
 }

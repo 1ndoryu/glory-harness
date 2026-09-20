@@ -265,6 +265,9 @@ fn tipo_de_evento(ev: &AgenteEvento) -> &'static str {
         AgenteEvento::TareasActualizadas { .. } => "tareas_actualizadas",
         AgenteEvento::MetaLograda { .. } => "meta_lograda",
         AgenteEvento::MetaPausadaPorBloqueo { .. } => "meta_pausada_por_bloqueo",
+        AgenteEvento::ConsolaInicio { .. } => "consola_inicio",
+        AgenteEvento::ConsolaChunk { .. } => "consola_chunk",
+        AgenteEvento::ConsolaFin { .. } => "consola_fin",
     }
 }
 

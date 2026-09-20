@@ -39,7 +39,8 @@ pub use error::{Error as HarnessError, Result as HarnessResult};
 /// implementa. Ver [`ports`].
 pub use ports::{
     AgentPersistence, AmbitoMemoria, Automatizable, Capturable, ColaTareas, ContenidoWeb,
-    EjecutorComando, MemoriaEntrada, NavegadorBase, NavegadorPort, PersistenciaAuditoria,
+    EjecutorComando, InfoConsola, MemoriaEntrada, NavegadorBase, NavegadorPort,
+    PersistenciaAuditoria,
     PersistenciaMemoria, PersistenciaSkills, PersistenciaTurnos, ProgramadorTareas,
     ProveedorMemoria, ProviderPort, Scriptable, SkillEntrada, SoportaAmbitos, SoportaSkills,
     WebFetchProvider, WebSearchProvider,

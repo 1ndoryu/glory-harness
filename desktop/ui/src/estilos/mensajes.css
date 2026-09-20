@@ -99,8 +99,11 @@
 
 /* [039A-3 P3] Botón de acción de un aviso (p. ej. "restaurar archivos"):
    fila compacta que invierte a blanco/negro al pasar el ratón, igual que el
-   resto de botones del sistema; nunca abre el <details> (preventDefault). */
-.aviso-sistema .aviso-accion {
+   resto de botones del sistema; nunca abre el <details> (preventDefault).
+   [209A-1 F3] La misma receta vale en la fila de herramienta
+   (`.herramienta-accion`, p. ej. "ver en Consola"). */
+.aviso-sistema .aviso-accion,
+.herramienta .herramienta-accion {
     margin-left: var(--sp-sm);
     font: inherit;
     font-size: var(--xs);
@@ -112,7 +115,8 @@
     cursor: pointer;
     white-space: nowrap;
 }
-.aviso-sistema .aviso-accion:hover {
+.aviso-sistema .aviso-accion:hover,
+.herramienta .herramienta-accion:hover {
     background: var(--fondo);
     color: var(--texto);
 }

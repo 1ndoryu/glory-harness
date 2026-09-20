@@ -551,6 +551,8 @@ mod tests {
             todo: None,
             plan: None,
             navegador: None,
+            conversacion_id: uuid::Uuid::nil(),
+            tx_eventos: None,
         }
     }
 
@@ -571,6 +573,8 @@ mod tests {
             todo: None,
             plan: Some(plan),
             navegador: None,
+            conversacion_id: uuid::Uuid::nil(),
+            tx_eventos: None,
         }
     }
 
@@ -718,6 +722,8 @@ mod tests {
             todo: registry.todo(),
             plan: None,
             navegador: None,
+            conversacion_id: uuid::Uuid::nil(),
+            tx_eventos: None,
         };
 
         let plan = registry

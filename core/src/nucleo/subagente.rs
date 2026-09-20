@@ -114,6 +114,7 @@ pub(crate) fn enmarcar_resultado_para_padre(resultado: ResultadoSubagente) -> Ag
         resumen: resultado.resumen,
         diff: None,
         evento_extra: None,
+        consola_id: None,
     }
 }
 
@@ -362,6 +363,7 @@ mod tests {
                 resumen: "ok".into(),
                 diff: None,
                 evento_extra: None,
+                consola_id: None,
             })
         }
     }
