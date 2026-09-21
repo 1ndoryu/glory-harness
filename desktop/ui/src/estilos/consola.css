@@ -192,9 +192,10 @@
     outline: none;
 }
 
+/* Sin borde al escribir: la caja de stdin nunca marca foco (petición del
+ * operador; el prompt `> ` ya indica dónde se escribe). */
 .consola-stdin-entrada:focus-visible {
-    outline: 2px solid var(--foco);
-    outline-offset: 2px;
+    outline: none;
 }
 
 .consola-stdin-entrada::placeholder {
