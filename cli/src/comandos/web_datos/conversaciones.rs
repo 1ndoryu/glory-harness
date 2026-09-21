@@ -15,6 +15,9 @@ use super::{
     area_activa, error, sesion_y_comun, turno_en_curso, ApiError, AppState, MAX_TITULO_CHARS,
 };
 use crate::servicio::SesionComun;
+use glory_harness_core::error::Error as ErrorNucleo;
+use glory_harness_core::evento::FlujoConsola;
+use glory_harness_core::ports::EjecutorComando;
 
 #[derive(Debug, Deserialize)]
 pub(crate) struct CrearConversacion {
@@ -143,6 +146,23 @@ pub(crate) async fn cargar_conversacion(
                 "tokens_complecion": tokens_complecion,
             })
         });
+    // [20-09-2026] Usos de TODOS los turnos (cada pie de turno al recargar,
+    // no solo el último). Ordenados por `creado_en` desde la query.
+    let usos_turno = comun
+        .persistencia
+        .usos_turno_por_conversacion(conv.id)
+        .map_err(|e| error("sesion", e.to_string()))?
+        .into_iter()
+        .map(|u| {
+            serde_json::json!({
+                "turno_en": u.turno_en,
+                "provider": u.provider,
+                "modelo": u.modelo,
+                "tokens_prompt": u.tokens_prompt,
+                "tokens_complecion": u.tokens_complecion,
+            })
+        })
+        .collect::<Vec<_>>();
     *sesion.conversacion_id.lock().await = Some(conv.id);
     Ok(Json(serde_json::json!({
         "ok": true,
@@ -151,6 +171,7 @@ pub(crate) async fn cargar_conversacion(
         "mensajes": mensajes,
         "acciones": acciones,
         "ultimo_uso": ultimo_uso,
+        "usos_turno": usos_turno,
     })))
 }
 
@@ -203,6 +224,15 @@ pub(crate) async fn eliminar_conversacion(
         .persistencia
         .conversacion_eliminar(conv.id, comun.user_id)
         .map_err(|e| error("sesion", e.to_string()))?;
+    /* [209A-1 F4-resto] Reap: las consolas vivas de la conversación
+     * borrada se matan (cada pump retira su viva y archiva el transcript
+     * acotado). Sin vivas devuelve 0, sin error. */
+    if let Some(ejecutor) = comun.ejecutor.as_ref() {
+        let matadas = ejecutor.matar_por_conversacion(conv.id).await;
+        if matadas > 0 {
+            tracing::info!(conversacion = %conv.id, matadas, "reap de consolas al eliminar conversación");
+        }
+    }
     /* [069A-7] Si borramos la conversación que la sesión tenía como actual:
      * anclar la más reciente no-archivada restante (ORDER BY actualizada_en
      * DESC) o dejar `None` (borrador) si ya no queda ninguna. Nunca se crea
@@ -235,4 +265,152 @@ pub(crate) async fn eliminar_conversacion(
     Ok(Json(
         serde_json::json!({ "ok": true, "actual": actual_conv }),
     ))
+}
+
+/// [209A-1 F4-resto] `POST /api/v1/session/:id/consolas/:eid/matar` — mata
+/// UNA consola viva por su `id_ejecucion` (la × de la tab Consola sobre una
+/// entrada viva). `matada: false` = no existe o ya terminó (idempotente,
+/// sin error: la vista ya la marca como terminada al llegar `consola_fin`).
+/// No toca turnos: una consola viva no implica turno en curso.
+pub(crate) async fn matar_consola(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path((id, eid)): Path<(String, String)>,
+) -> Result<Json<Value>, ApiError> {
+    let (_sesion, comun) = sesion_y_comun(&headers, &Method::POST, &state, &id).await?;
+    let eid = eid.trim();
+    if eid.is_empty() {
+        return Err(error("peticion_invalida", "id de ejecución vacío"));
+    }
+    let ejecutor = comun
+        .ejecutor
+        .as_ref()
+        .ok_or_else(|| error("sesion", "sesión sin ejecutor"))?;
+    let viva = ejecutor
+        .lista()
+        .await
+        .map_err(|e| error("sesion", e.to_string()))?
+        .into_iter()
+        .any(|c| c.id_ejecucion == eid && c.viva);
+    if !viva {
+        return Ok(Json(serde_json::json!({ "ok": true, "matada": false })));
+    }
+    ejecutor
+        .matar(eid)
+        .await
+        .map_err(|e| error("sesion", e.to_string()))?;
+    Ok(Json(serde_json::json!({ "ok": true, "matada": true })))
+}
+
+/// [219A-3] `GET /api/v1/session/:id/consolas` — vivas primero + recientes
+/// archivadas (el runner ordena por inicio; las archivadas van al final).
+/// Backfill de la sub-barra al abrir la tab a mitad de turno.
+pub(crate) async fn listar_consolas(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<Json<Value>, ApiError> {
+    let (_sesion, comun) = sesion_y_comun(&headers, &Method::GET, &state, &id).await?;
+    let ejecutor = comun
+        .ejecutor
+        .as_ref()
+        .ok_or_else(|| error("sesion", "sesión sin ejecutor"))?;
+    let lista = ejecutor
+        .lista()
+        .await
+        .map_err(|e| error("sesion", e.to_string()))?;
+    Ok(Json(serde_json::json!({
+        "ok": true,
+        "consolas": lista
+            .into_iter()
+            .map(|c| serde_json::json!({
+                "id_ejecucion": c.id_ejecucion,
+                "comando": c.comando,
+                "viva": c.viva,
+                "codigo_salida": c.codigo_salida,
+            }))
+            .collect::<Vec<_>>(),
+    })))
+}
+
+/// [219A-3] `GET /api/v1/session/:id/consolas/:eid/salida` — transcript
+/// retenido para backfill (viva = anillo con flujo; archivada = resultado
+/// guardado como stdout). `no_encontrado` si el runner ya no retiene ese id.
+pub(crate) async fn salida_consola(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path((id, eid)): Path<(String, String)>,
+) -> Result<Json<Value>, ApiError> {
+    let (_sesion, comun) = sesion_y_comun(&headers, &Method::GET, &state, &id).await?;
+    let eid = eid.trim();
+    if eid.is_empty() {
+        return Err(error("peticion_invalida", "id de ejecución vacío"));
+    }
+    let ejecutor = comun
+        .ejecutor
+        .as_ref()
+        .ok_or_else(|| error("sesion", "sesión sin ejecutor"))?;
+    let t = ejecutor.salida(eid).await.map_err(|e| match e {
+        ErrorNucleo::NoEncontrado(m) => error("no_encontrado", m),
+        otro => error("sesion", otro.to_string()),
+    })?;
+    Ok(Json(serde_json::json!({
+        "ok": true,
+        "id_ejecucion": t.id_ejecucion,
+        "comando": t.comando,
+        "viva": t.viva,
+        "codigo_salida": t.codigo_salida,
+        "lineas": t
+            .lineas
+            .into_iter()
+            .map(|l| serde_json::json!({
+                "flujo": match l.flujo {
+                    FlujoConsola::Stdout => "stdout",
+                    FlujoConsola::Stderr => "stderr",
+                },
+                "linea": l.linea,
+            }))
+            .collect::<Vec<_>>(),
+    })))
+}
+
+#[derive(Debug, Deserialize)]
+pub(crate) struct EscribirConsola {
+    pub(crate) texto: Option<String>,
+}
+
+/// [219A-3] `POST /api/v1/session/:id/consolas/:eid/escribir` — bytes crudos
+/// al stdin de una viva (`{ok, escritos}`). Vacío o >64 KB →
+// `peticion_invalida` (el runner aplica el mismo tope); terminada o
+/// desconocida → `no_encontrado`. La UI envía lo tecleado + `\n` al Enter.
+pub(crate) async fn escribir_consola(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path((id, eid)): Path<(String, String)>,
+    Json(cuerpo): Json<EscribirConsola>,
+) -> Result<Json<Value>, ApiError> {
+    let (_sesion, comun) = sesion_y_comun(&headers, &Method::POST, &state, &id).await?;
+    let eid = eid.trim();
+    if eid.is_empty() {
+        return Err(error("peticion_invalida", "id de ejecución vacío"));
+    }
+    let texto = cuerpo.texto.unwrap_or_default();
+    if texto.is_empty() {
+        return Err(error("peticion_invalida", "texto vacío: nada que escribir"));
+    }
+    if texto.len() > 64 * 1024 {
+        return Err(error(
+            "peticion_invalida",
+            "texto mayor de 64 KB: trocéalo en varias escrituras",
+        ));
+    }
+    let ejecutor = comun
+        .ejecutor
+        .as_ref()
+        .ok_or_else(|| error("sesion", "sesión sin ejecutor"))?;
+    let escritos = ejecutor.escribir(eid, texto.as_bytes()).await.map_err(|e| match e {
+        ErrorNucleo::NoEncontrado(m) => error("no_encontrado", m),
+        otro => error("sesion", otro.to_string()),
+    })?;
+    Ok(Json(serde_json::json!({ "ok": true, "escritos": escritos })))
 }

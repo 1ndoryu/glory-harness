@@ -11,10 +11,12 @@ import {
   type AdaptadorReal,
   type CargaConversacion,
   type HooksAdaptador,
+  type InfoConsolaLista,
   type InfoConversacion,
   type InfoSesion,
   type OpcionesTurno,
   type ProveedorInfo,
+  type TranscriptConsola,
   type Transporte,
 } from '../tauri/real';
 import type { EstadoGit, RepoGit } from '../componentes/panelGit';
@@ -52,7 +54,16 @@ export function crearTransporteApi(base: string, hooks: HooksAdaptador = {}): Tr
 
   return {
     abrirSesion: async (_opts: OpcionesTurno) => {
-      const creada = await http<SesionCreada>('POST', '/api/v1/session');
+      // Reanuda la sesión viva de la cookie antes de crear una: cada recarga
+      // creaba una sesión nueva y agotaba el tope del servidor (16/24 h).
+      let creada: SesionCreada | null = null;
+      try {
+        const actual = await http<SesionCreada>('GET', '/api/v1/session/actual');
+        if (actual && actual.session_id) creada = actual;
+      } catch {
+        creada = null;
+      }
+      if (!creada) creada = await http<SesionCreada>('POST', '/api/v1/session');
       cliente.setSid(creada.session_id);
       return recordar({
         modelo: creada.modelo,
@@ -152,8 +163,42 @@ export function crearTransporteApi(base: string, hooks: HooksAdaptador = {}): Tr
       );
       return r.actual;
     },
+    // [209A-1 F4-resto] × de la tab Consola sobre una entrada viva.
+    consolaMatar: async (idEjecucion) => {
+      const r = await http<{ ok: boolean; matada: boolean }>(
+        'POST',
+        `/api/v1/session/${cliente.getSid()}/consolas/${encodeURIComponent(idEjecucion)}/matar`,
+      );
+      return r.matada;
+    },
+    // [219A-3] Sub-barra de la tab Consola: lista + backfill + stdin.
+    consolasListar: async () => {
+      const r = await http<{ ok: boolean; consolas: InfoConsolaLista[] }>(
+        'GET',
+        `/api/v1/session/${cliente.getSid()}/consolas`,
+      );
+      return r.consolas;
+    },
+    consolaSalida: async (idEjecucion) => {
+      const r = await http<TranscriptConsola>(
+        'GET',
+        `/api/v1/session/${cliente.getSid()}/consolas/${encodeURIComponent(idEjecucion)}/salida`,
+      );
+      return r;
+    },
+    consolaEscribir: async (idEjecucion, texto) => {
+      const r = await http<{ ok: boolean; escritos: number }>(
+        'POST',
+        `/api/v1/session/${cliente.getSid()}/consolas/${encodeURIComponent(idEjecucion)}/escribir`,
+        { texto },
+      );
+      return r.escritos;
+    },
     convRewind: () =>
       Promise.reject(new Error('volver a un punto no disponible en modo web (fase 069A-2)')),
+    /* El modo web no tiene vault de cambios por turno: lista vacía y
+     * silenciosa (sin el aviso "no se pudieron listar" en cada cierre). */
+    cambiosListar: () => Promise.resolve([]),
     tramoRestaurar: () =>
       Promise.reject(new Error('restaurar archivos no disponible en modo web (fase 069A-2)')),
     leerProveedores: async () => {

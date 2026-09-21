@@ -62,15 +62,19 @@ struct Sesion {
     runtime: Arc<AgentRuntime>,
     user_id: Uuid,
     conversacion_id: Uuid,
+    /// [209A-1 F4-resto] Ejecutor propio (el mismo `Arc` de sus tools
+    /// `comando`): el cierre de sesión y el Ctrl+C hacen reap sobre él.
+    ejecutor: Arc<crate::ejecutor::EjecutorCliente>,
     _lock: Mutex<()>,
 }
 
 impl Sesion {
-    fn nueva(runtime: AgentRuntime) -> Self {
+    fn nueva(runtime: AgentRuntime, ejecutor: Arc<crate::ejecutor::EjecutorCliente>) -> Self {
         Self {
             runtime: Arc::new(runtime),
             user_id: Uuid::new_v4(),
             conversacion_id: Uuid::new_v4(),
+            ejecutor,
             _lock: Mutex::new(()),
         }
     }
@@ -128,19 +132,24 @@ impl Daemon {
 
         let llm = Arc::new(LlmProviderService::new(LlavesProveedor::from_env()));
         let persistencia_port: Arc<dyn AgentPersistence> = persistencia.clone();
+        /* [209A-1 F4-resto] El ejecutor se crea una vez por sesión y se
+         * conserva en ella para el reap (cierre de sesión / Ctrl+C). */
+        let ejecutor = Arc::new(crate::ejecutor::EjecutorCliente::nuevo());
         let puertos = PuertosHarness {
             persistencia: persistencia_port,
             llm,
             web_search: None,
             web_fetch: None,
             dominio: None,
-            ejecutor_comando: Some(Arc::new(crate::ejecutor::EjecutorCliente::nuevo())),
+            ejecutor_comando: Some(
+                Arc::clone(&ejecutor) as Arc<dyn glory_harness_core::EjecutorComando>
+            ),
             programador_tareas: Some(Arc::new(crate::persistencia::ProgramadorMemoria::nuevo())),
             navegador: None,
         };
         let runtime =
             AgentRuntime::nuevo(AgentToolRegistry::new(), puertos, TurnoConfig::default());
-        let sesion = Arc::new(Sesion::nueva(runtime));
+        let sesion = Arc::new(Sesion::nueva(runtime, ejecutor));
 
         let session_id = Uuid::new_v4();
         let mut sesiones = self.sesiones.lock().await;
@@ -149,8 +158,22 @@ impl Daemon {
     }
 
     async fn cerrar_sesion(&self, session_id: &str) -> bool {
-        let mut sesiones = self.sesiones.lock().await;
-        sesiones.remove(session_id).is_some()
+        let sesion = {
+            let mut sesiones = self.sesiones.lock().await;
+            sesiones.remove(session_id)
+        };
+        match sesion {
+            Some(s) => {
+                /* [209A-1 F4-resto] Reap global de la sesión que se cierra:
+                 * ninguna consola viva la sobrevive. */
+                let matadas = s.ejecutor.matar_todas().await;
+                if matadas > 0 {
+                    tracing::info!(matadas, "reap de consolas al cerrar sesión del daemon");
+                }
+                true
+            }
+            None => false,
+        }
     }
 
     /// Ejecuta un turno de la sesión, emitiendo cada `AgenteEvento` por `w`.
@@ -345,6 +368,15 @@ pub async fn run(puerto: u16, mostrar_token: bool) -> std::process::ExitCode {
                 tokio::spawn(async move { atender(daemon, stream).await });
             }
             _ = tokio::signal::ctrl_c() => {
+                /* [209A-1 F4-resto] Reap global antes de salir: se matan las
+                 * consolas vivas de todas las sesiones; ningún hijo
+                 * sobrevive al daemon. */
+                for s in daemon.sesiones.lock().await.values() {
+                    let matadas = s.ejecutor.matar_todas().await;
+                    if matadas > 0 {
+                        eprintln!("[glory-harness] reap del daemon: {matadas} consola(s) matada(s)");
+                    }
+                }
                 eprintln!("\n[glory-harness] daemon detenido");
                 return std::process::ExitCode::SUCCESS;
             }

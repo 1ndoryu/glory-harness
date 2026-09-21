@@ -14,6 +14,7 @@ import {
   type RazonamientoVivo,
 } from '../componentes/mensajes';
 import type { CambioArchivoPanel } from '../componentes/panelChatTipos';
+import { tituloCambioHtml } from '../componentes/mensajesUtil';
 import { crearTareasViva, type TareasViva } from '../componentes/tareasMeta';
 import { notificarAprobacion } from '../componentes/notificacionSistema';
 import type { DecisionAprobacion } from '../dominio/tipos';
@@ -63,9 +64,15 @@ export interface EventosDeps {
   bajarScroll(): void;
   asistenteVivo(): AsistenteVivo;
   olvidarAsistente(): void;
+  /** Retira el "pensando…" si sigue visible (no-op si ya se quitó). */
+  quitarPendiente(): void;
 }
 
 export function aplicarEvento(ev: AgenteEvento, st: EstadoTurno, d: EventosDeps): void {
+  // El primer evento con contenido releva al "pensando…"; llamarlo aquí
+  // (una línea, todos los tipos) evita que quede colgado si el turno
+  // empieza por razonamiento/herramienta en vez de por token.
+  d.quitarPendiente();
   switch (ev.tipo) {
     case 'token': {
       const a = d.asistenteVivo();
@@ -122,6 +129,13 @@ export function aplicarEvento(ev: AgenteEvento, st: EstadoTurno, d: EventosDeps)
         const detalle = formatearResultadoHerramienta(ev.resumen, dif);
         if (ev.ok) st.herramienta.completada('ok', { tipo: 'html', html: detalle });
         else st.herramienta.errored('falló', { tipo: 'html', html: detalle });
+        // [20-09-2026] El título lleva el cambio real (`-N +M`) en vez del
+        // sufijo genérico ("archivo completo"): el conteo solo existe ahora,
+        // al cerrar, cuando ya llegó el diff.
+        const tituloHtml = st.rutaHerramienta
+          ? tituloCambioHtml(ev.tool, st.rutaHerramienta, dif)
+          : null;
+        if (tituloHtml) st.herramienta.ponerTitulo(tituloHtml);
         // [209A-1 F3] La fila del `comando` enlaza a su consola en vivo (el
         // id viaja en `tool_result.consola_id`; el resto de tools no lo trae).
         if (ev.tool === 'comando' && ev.consola_id) {

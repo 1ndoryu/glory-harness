@@ -580,6 +580,20 @@ pub struct InfoConsola {
     pub bytes: usize,
 }
 
+/// [219A-3] Transcript retenido de una consola para backfill de la UI (abrir
+/// la tab a mitad de turno): viva = volcado del anillo; archivada = líneas
+/// del resultado guardado (flujo stdout: el archivo mezcla ambos).
+/// Acotado por el runner (tope de líneas). Sin serializar en el núcleo: el
+/// consumidor lo mapea a su API (web/Tauri).
+#[derive(Debug, Clone)]
+pub struct TranscriptConsola {
+    pub id_ejecucion: String,
+    pub comando: String,
+    pub viva: bool,
+    pub codigo_salida: Option<i32>,
+    pub lineas: Vec<ChunkConsola>,
+}
+
 /// Puerto de ejecución de comandos. El núcleo define el contrato; el
 /// consumidor aporta el runner real (CLI: timeout, truncado a 8 KB,
 /// background con log propio). El runtime SOLO registra la tool `comando`
@@ -625,6 +639,23 @@ pub trait EjecutorComando: Send + Sync {
     /// por el runner). Por defecto: sin registro.
     async fn lista(&self) -> Result<Vec<InfoConsola>> {
         Ok(Vec::new())
+    }
+    /// [219A-3] Escribe bytes al stdin de una consola viva (interactuar desde
+    /// la UI con lo que el agente abrió). `NoEncontrado` si no es una viva
+    /// (terminó o es transitoria síncrona: sin stdin retenido). Devuelve los
+    /// bytes aceptados. Por defecto: no soportado.
+    async fn escribir(&self, id: &str, _datos: &[u8]) -> Result<usize> {
+        Err(crate::error::Error::NoEncontrado(format!(
+            "escribir no soportado por este runner (id {id})"
+        )))
+    }
+    /// [219A-3] Transcript retenido para backfill (ver F2/lista para el
+    /// ámbito). `NoEncontrado` si el runner ya no retiene ese id.
+    /// Por defecto: no soportado.
+    async fn salida(&self, id: &str) -> Result<TranscriptConsola> {
+        Err(crate::error::Error::NoEncontrado(format!(
+            "salida no soportada por este runner (id {id})"
+        )))
     }
 }
 

@@ -163,8 +163,8 @@ export function montarPanelChat(opts: PanelChatOpciones): PanelChat {
         }
       })();
     },
-    // [129A-8] "Ver en Cambios" del resumen: abre la tab en el archivo.
-    verEnCambios: (ruta) => d.verEnCambios(ruta),
+    // [129A-8] Botón Files del resumen: abre el archivo en la tab Files.
+    verEnFiles: (ruta) => d.verEnFiles(ruta),
   });
   const acciones = crearAcciones({
     mensajes,
@@ -184,7 +184,7 @@ export function montarPanelChat(opts: PanelChatOpciones): PanelChat {
       conversaId = id;
     },
     limpiarChat: () => acciones.limpiarChat(),
-    pintarHistorial: (h, a, u) => historial.pintarHistorial(h, a, u),
+    pintarHistorial: (h, a, u, ut) => historial.pintarHistorial(h, a, u, ut),
     aviso: (texto, meta, detalle) => acciones.avisoChat(texto, meta, detalle),
   });
   // [109A-4 F2] Comandos `/`: catálogo del área activa (vivo y recargable) y

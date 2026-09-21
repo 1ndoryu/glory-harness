@@ -117,7 +117,7 @@ export function abrirMenuProyecto(opts: {
       }
       m.appendChild(
         crearItemMenu({
-          texto: 'Copy Path',
+          texto: 'Copiar ruta',
           onClick() {
             cerrarMenuActual();
             void copiarAlPortapapeles(proyecto.ruta);
@@ -128,7 +128,7 @@ export function abrirMenuProyecto(opts: {
       // orquestador (en web el transporte rechaza con aviso visible).
       m.appendChild(
         crearItemMenu({
-          texto: 'Open in Finder',
+          texto: 'Abrir en el explorador',
           onClick() {
             cerrarMenuActual();
             deps.onRevelar(proyecto.id);
@@ -139,7 +139,7 @@ export function abrirMenuProyecto(opts: {
       // texto ofrece la acción contraria; el orquestador resincroniza.
       m.appendChild(
         crearItemMenu({
-          texto: proyecto.fijado ? 'Unpin project' : 'Pin project',
+          texto: proyecto.fijado ? 'Soltar proyecto' : 'Fijar proyecto',
           marcado: proyecto.fijado,
           onClick() {
             cerrarMenuActual();
@@ -149,7 +149,7 @@ export function abrirMenuProyecto(opts: {
       );
       m.appendChild(
         crearItemMenu({
-          texto: 'Edit name',
+          texto: 'Cambiar nombre',
           onClick() {
             empezarRenombrarProyecto(proyecto, boton, nombreEl, deps.onRenombrar);
           },
@@ -160,7 +160,7 @@ export function abrirMenuProyecto(opts: {
       // borrar es destructivo (segundo paso con confirmación).
       m.appendChild(
         crearItemMenu({
-          texto: 'Archive threads',
+          texto: 'Archivar hilos',
           onClick() {
             cerrarMenuActual();
             deps.onArchivarHilos(proyecto.id);
@@ -169,7 +169,7 @@ export function abrirMenuProyecto(opts: {
       );
       m.appendChild(
         crearItemMenu({
-          texto: 'Delete threads',
+          texto: 'Borrar hilos',
           onClick() {
             cerrarMenuActual();
             abrirMenuProyecto({ proyecto, evento, boton, nombreEl, deps, confirmarHilos: true });
@@ -179,7 +179,7 @@ export function abrirMenuProyecto(opts: {
       m.appendChild(crearSeparadorMenu());
       m.appendChild(
         crearItemMenu({
-          texto: 'Remove',
+          texto: 'Quitar',
           onClick() {
             // Segundo paso: reabre el menú en modo confirmación (las
             // conversaciones huérfanas pasan a "Sin proyecto").

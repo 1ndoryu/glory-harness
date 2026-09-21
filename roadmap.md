@@ -272,6 +272,16 @@ Siguiente en la serie de 6 pedidos: 129A-11 → 129A-9.
       tabs siguen con `stretch`). Verificado en DOM en vivo (harness con tab
       alta: barra 41px, botón top 6px = centrado; con `flex-start` forzado top
       0 = bug reproducido).
+- [x] **219A-3 — Tab Consola como visor interactivo (CERRADO 21-09 con
+      commit)**: implementada F1-F7 + gate PASS (541 tests) + funcional en
+      vivo. El commit incluye además trabajo olvidado sin commitear del
+      árbol (resume de sesión por cookie, frente Cambios 129A-7/129A-8,
+      turnos, navegador por agente, resto F4 `matar`, refactors
+      daemon/run/llm/runtime/mensajes/sidebar, scripts desktop,
+      `.gitignore`: `dist/` + `node_modules/`). Se borraron `prueba.txt` /
+      `prueba-2.txt` (basura) y se excluyó `.glory-harness/backups/`
+      (datos runtime). Plan cerrado en
+      `Agente/planes/completados/plan-219A-3-consola-interactiva-2026-09-21.md`.
 - [x] **F3 — PersistenciaSqlite** (`cli/src/persistencia_sqlite.rs`, 04-09): `AgentPersistence` +
       `ProgramadorTareas` sobre rusqlite bundled (WAL, `%APPDATA%/glory-harness/glory-harness.db`).
       CRUD de conversaciones, mensaje de usuario persistido por el consumidor en `enviar_turno`,

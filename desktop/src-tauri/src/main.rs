@@ -506,6 +506,12 @@ fn main() {
             conversaciones::renombrar_conversacion,
             conversaciones::archivar_conversacion,
             conversaciones::eliminar_conversacion,
+            // [209A-1 F4-resto] × de la tab Consola sobre una entrada viva.
+            conversaciones::consola_matar,
+            // [219A-3] Sub-barra de la tab Consola: lista + backfill + stdin.
+            conversaciones::consolas_listar,
+            conversaciones::consola_salida,
+            conversaciones::consola_escribir,
             conversaciones::archivar_conversaciones_proyecto,
             conversaciones::eliminar_conversaciones_proyecto,
             sesion::proveedores_disponibles,
@@ -560,6 +566,32 @@ fn main() {
             navegador::comandos::navegador_rellenar,
             navegador::comandos::navegador_snapshot,
         ])
+        /* [209A-1 F4-resto] Reap global al cerrar la app: se matan las
+         * consolas vivas de la sesión; ningún hijo sobrevive al proceso.
+         * `block_on` corre en el hilo principal (no en un worker del
+         * runtime), y `matar_todas` solo señaliza + espera la salida. */
+        .on_window_event(|ventana, evento| {
+            if matches!(evento, tauri::WindowEvent::CloseRequested { .. }) {
+                /* Se clona el `Arc` de sesión dentro del guard (`try_state`
+                 * no vive más allá del closure): el ejecutor sale owned. */
+                let sesion = ventana
+                    .app_handle()
+                    .try_state::<Estado>()
+                    .and_then(|estado| estado.sesion.lock().ok().and_then(|g| g.clone()));
+                let ejecutor = sesion
+                    .as_ref()
+                    .and_then(|s| s.comun.lock().ok())
+                    .and_then(|c| c.ejecutor.clone());
+                if let Some(ejecutor) = ejecutor {
+                    let matadas = tauri::async_runtime::block_on(ejecutor.matar_todas());
+                    if matadas > 0 {
+                        eprintln!(
+                            "[glory-harness-desktop] reap al cerrar la app: {matadas} matada(s)"
+                        );
+                    }
+                }
+            }
+        })
         .run(tauri::generate_context!())
         .unwrap_or_else(|e| {
             eprintln!("[glory-harness-desktop] error fatal: {e}");

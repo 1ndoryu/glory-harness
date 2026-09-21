@@ -27,11 +27,11 @@
     align-items: center;
     gap: var(--sp-md);
     padding: var(--sp-md) var(--sp-lg);
-    border-bottom: 1px solid #000;
+    border-bottom: 1px solid var(--borde);
     flex-shrink: 0;
 }
 .ajustes-volver {
-    border: 1px solid #000;
+    border: 1px solid var(--borde);
     background: transparent;
     color: inherit;
     font-family: inherit;
@@ -65,7 +65,7 @@
 .ajustes-nav {
     width: 200px;
     flex-shrink: 0;
-    border-right: 1px solid #000;
+    border-right: 1px solid var(--borde);
     padding: var(--sp-sm) 0;
     overflow-y: auto;
     background: var(--fondo);
@@ -98,7 +98,7 @@
 .grupo { display: flex; flex-direction: column; gap: var(--sp-md); }
 .grupo-titulo {
     font-size: calc(var(--xs) + 1px);
-    border-bottom: 1px solid #000;
+    border-bottom: 1px solid var(--borde);
     padding-bottom: 2px;
 }
 
@@ -107,21 +107,21 @@
 .campo .nota { font-size: var(--xs); opacity: 0.6; }
 
 /* control segmentado */
-.toggle { display: inline-flex; border: 1px solid #000; align-self: flex-start; }
+.toggle { display: inline-flex; border: 1px solid var(--borde); align-self: flex-start; }
 .toggle .opt {
     font-size: var(--xs);
     padding: 3px 10px;
     cursor: pointer;
     background: var(--fondo);
     color: var(--texto);
-    border-right: 1px solid #000;
+    border-right: 1px solid var(--borde);
 }
 .toggle .opt:last-child { border-right: none; }
 .toggle .opt.sel { background: var(--texto); color: var(--invertido); }
 
 /* entrada de texto (guardado al perder foco / Enter) */
 .input-texto {
-    border: 1px solid #000;
+    border: 1px solid var(--borde);
     background: var(--fondo);
     color: var(--texto);
     font-family: inherit;
@@ -133,7 +133,7 @@
 
 /* selector desplegable */
 .select {
-    border: 1px solid #000;
+    border: 1px solid var(--borde);
     background: var(--fondo);
     color: var(--texto);
     font-family: inherit;
@@ -162,7 +162,7 @@
 
 /* casilla booleana (check / vacía) — guardado automático al hacer click */
 .check-box {
-    border: 1px solid #000;
+    border: 1px solid var(--borde);
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -174,7 +174,7 @@
 
 /* valor de solo lectura en caja con borde (modelo / claves) */
 .campo .valor {
-    border: 1px solid #000;
+    border: 1px solid var(--borde);
     padding: var(--sp-xs) var(--sp-sm);
     font-size: var(--sm);
     display: flex;
@@ -194,7 +194,7 @@
    La clase de la variante es 'selector-modal' (NO 'modal', que es la clase
    del diálogo de "Nuevo proyecto" y estiraría el botón). */
 .campo .selector-modelo.selector-modal {
-    border: 1px solid #000;
+    border: 1px solid var(--borde);
     background: var(--fondo);
     color: var(--texto);
     font-family: inherit;

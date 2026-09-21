@@ -278,7 +278,8 @@
     /* [139A-3] `var(--borde)` en vez de `#000` literal: en oscuro/synara el
        negro sobre negro era invisible (en claro es idéntico: #000000). */
     border: 1px solid var(--borde);
-    min-width: 230px;
+    /* [179A-2] Menús más compactos: -2px de fuente (token --xs) y menos ancho. */
+    min-width: 200px;
     padding: 4px 0;
     /* Nace oculto y `.visible` lo destapa al final de abrirMenuContextual(),
        ya posicionado. Con `visibility` (no `display:none`) el menú se puede
@@ -300,7 +301,7 @@
     border: none;
     color: var(--texto);
     font-family: inherit;
-    font-size: var(--sm);
+    font-size: var(--xs);
     text-align: left;
     padding: 6px var(--sp-sm);
     cursor: pointer;
@@ -324,7 +325,7 @@
     margin-left: -1px;
     background: var(--fondo);
     border: 1px solid var(--borde);
-    min-width: 250px;
+    min-width: 220px;
     padding: 4px 0;
     z-index: 101;
 }

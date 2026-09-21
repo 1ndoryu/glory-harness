@@ -50,8 +50,8 @@ export interface DepsPanel {
   resincronizarSidebar(): Promise<void>;
   /** El panel cambió de conversación → la sidebar marca el panel enfocado. */
   onConversacionCambio(id: string | null): void;
-  /** [129A-8] Abre la tab Cambios en el archivo (enlace del resumen). */
-  verEnCambios(ruta: string): void;
+  /** [129A-8] Abre el archivo en la tab Files (botón de cada fila del resumen). */
+  verEnFiles(ruta: string): void;
 }
 
 /** Un chat duplicable montado por `montarPanelChat`. */

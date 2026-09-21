@@ -18,7 +18,7 @@
 .modal-fondo[hidden] { display: none; }
 .modal {
     background: var(--fondo);
-    border: 1px solid #000;
+    border: 1px solid var(--borde);
     width: 580px;
     height: auto;
     max-width: calc(100vw - 48px);

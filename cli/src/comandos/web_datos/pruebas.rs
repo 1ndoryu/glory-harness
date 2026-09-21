@@ -244,7 +244,7 @@ async fn providers_sin_credenciales() {
         .collect();
     assert_eq!(
         nombres,
-        vec!["cerebras", "groq", "deepseek", "glory", "commandcode"]
+        vec!["cerebras", "groq", "deepseek", "glory", "commandcode", "opencode-go"]
     );
     assert!(body.to_string().find("sk-").is_none());
 }

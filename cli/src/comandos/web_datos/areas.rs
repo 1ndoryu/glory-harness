@@ -298,6 +298,17 @@ pub(crate) async fn eliminar_conversaciones_proyecto(
         .persistencia
         .conversaciones_eliminar_por_workspace(comun.user_id, wid)
         .map_err(|e| error("sesion", e.to_string()))?;
+    /* [209A-1 F4-resto] Reap por conversación borrada (espejo del DELETE
+     * single): las vivas de cada hilo se matan; el resto sigue. */
+    if let Some(ejecutor) = comun.ejecutor.as_ref() {
+        let mut matadas = 0;
+        for b in &borradas {
+            matadas += ejecutor.matar_por_conversacion(*b).await;
+        }
+        if matadas > 0 {
+            tracing::info!(area = %wid, matadas, "reap de consolas al eliminar proyecto");
+        }
+    }
     let n = borradas.len();
     let actual = *sesion.conversacion_id.lock().await;
     if actual.is_some_and(|a| borradas.contains(&a)) {

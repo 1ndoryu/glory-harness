@@ -45,7 +45,7 @@ export function crearCarga(deps: CargaDeps): CargaChat {
     deps.fijarConversaId(carga.id);
     entrada.setConversaId(carga.id);
     deps.limpiarChat();
-    deps.pintarHistorial(carga.mensajes, carga.acciones, carga.ultimo_uso);
+    deps.pintarHistorial(carga.mensajes, carga.acciones, carga.ultimo_uso, carga.usos_turno);
     cabecera.ponerTitulo(carga.titulo);
     d.onConversacionCambio(carga.id);
   }
@@ -155,7 +155,7 @@ export function crearCarga(deps: CargaDeps): CargaChat {
       deps.fijarConversaId(carga.id);
       entrada.setConversaId(carga.id);
       deps.limpiarChat();
-      deps.pintarHistorial(carga.mensajes, carga.acciones, carga.ultimo_uso);
+      deps.pintarHistorial(carga.mensajes, carga.acciones, carga.ultimo_uso, carga.usos_turno);
       cabecera.ponerTitulo(carga.titulo);
       d.onConversacionCambio(carga.id);
     } catch (e: unknown) {

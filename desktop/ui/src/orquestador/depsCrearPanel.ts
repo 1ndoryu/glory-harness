@@ -16,34 +16,50 @@ import type { VistaMeta } from './vistaMeta';
 import type { VistaModal } from './vistaModal';
 import { type CrearPanelDeps } from './crearPanel';
 
-export interface DepsCrearPanelCtx {
-  paneles: PanelChat[];
+/** Infra de la fábrica de paneles: adaptador + simulación + catálogo. */
+export interface DepsPanelInfra {
   adaptador: AdaptadorReal;
   simulacion: ReturnType<typeof crearSimulacion>;
   usaReal: boolean;
   usaMock: boolean;
+  proveedores: ProveedorModelo[];
+}
+
+/** Vistas que la fábrica cablea en cada panel. */
+export interface DepsPanelVistas {
+  paneles: PanelChat[];
   panelMeta: PanelMeta;
   sidebar: Sidebar;
   vistaModal: VistaModal;
-  proveedores: ProveedorModelo[];
   sesionVista: SesionVista;
   vistaMeta: VistaMeta;
+}
+
+/** Navegación entre paneles y apertura de acciones/Cambios. */
+export interface DepsPanelNavegacion {
   getPrincipal: () => PanelChat;
   panelActivo: () => PanelChat | null;
   activarPanel: (panel: PanelChat | null) => void;
-  avisar: (texto: string, meta: string, detalle: string) => void;
   alternarSidebar: () => void;
   alternarPanelDerecho: () => void;
   abrirAcciones: (panel: PanelChat, rect: DOMRect) => void;
-  verEnCambios: (ruta: string) => void;
+  verEnFiles: (ruta: string) => void;
+}
+
+/** Avisos y ciclo de turno (cierres perezosos de runtime). */
+export interface DepsPanelCiclo {
+  avisar: (texto: string, meta: string, detalle: string) => void;
   /** [139A-2] Cambios se revalida al cerrar cada turno y al cambiar la
-   * conversación enfocada (cierres perezosos de runtime, como `verEnCambios`). */
+   * conversación enfocada (cierres perezosos de runtime, como `verEnFiles`). */
   alTerminarTurno: () => void;
   alCambiarConversacion: () => void;
   /** [129A-10 F1] El orquestador levanta vetos de UI al iniciar cada turno
-   * (cierre perezoso de runtime, como `verEnCambios`). */
+   * (cierre perezoso de runtime, como `verEnFiles`). */
   alIniciarTurno: () => void;
 }
+
+export interface DepsCrearPanelCtx
+  extends DepsPanelInfra, DepsPanelVistas, DepsPanelNavegacion, DepsPanelCiclo {}
 
 export function crearDepsCrearPanel(c: DepsCrearPanelCtx): CrearPanelDeps {
   return {
@@ -92,7 +108,7 @@ export function crearDepsCrearPanel(c: DepsCrearPanelCtx): CrearPanelDeps {
     alternarSidebar: c.alternarSidebar,
     alternarPanelDerecho: c.alternarPanelDerecho,
     abrirAcciones: c.abrirAcciones,
-    verEnCambios: c.verEnCambios,
+    verEnFiles: c.verEnFiles,
     alTerminarTurno: c.alTerminarTurno,
     alCambiarConversacion: c.alCambiarConversacion,
   };

@@ -12,7 +12,7 @@ use glory_harness_core::HarnessResult;
 
 use super::{
     a_fecha, a_uuid, ahora_rfc3339, bloquear, AccionRecuperada, InfoConversacion,
-    MetaConversacionPersistida, PersistenciaSqlite,
+    MetaConversacionPersistida, PersistenciaSqlite, UsoTurnoRecuperado,
 };
 
 mod lote;
@@ -466,6 +466,38 @@ impl PersistenciaSqlite {
             )
         }))
     }
+    /// [20-09-2026] Uso/modelo real de TODOS los turnos de una conversación,
+    /// ordenados por `creado_en`, para repintar cada pie de turno al cargar.
+    /// Sin el ancla por turno el front solo pintaba el último (`ultimo_uso`).
+    pub fn usos_turno_por_conversacion(
+        &self,
+        conversacion_id: Uuid,
+    ) -> HarnessResult<Vec<UsoTurnoRecuperado>> {
+        let conn = bloquear(&self.conn);
+        let mut stmt = conn
+            .prepare(
+                "SELECT creado_en, provider, modelo, tokens_prompt, tokens_complecion
+                 FROM turnos WHERE conversacion_id = ?1
+                 ORDER BY creado_en",
+            )
+            .map_err(|e| Error::Persistencia(e.to_string()))?;
+        let filas = stmt
+            .query_map(params![conversacion_id.as_hyphenated().to_string()], |f| {
+                Ok(UsoTurnoRecuperado {
+                    turno_en: f.get::<_, String>(0)?,
+                    provider: f.get::<_, Option<String>>(1)?.unwrap_or_default(),
+                    modelo: f.get::<_, Option<String>>(2)?.unwrap_or_default(),
+                    tokens_prompt: f.get::<_, i64>(3)?.max(0) as u32,
+                    tokens_complecion: f.get::<_, i64>(4)?.max(0) as u32,
+                })
+            })
+            .map_err(|e| Error::Persistencia(e.to_string()))?;
+        let mut out = Vec::new();
+        for fila in filas {
+            out.push(fila.map_err(|e| Error::Persistencia(e.to_string()))?);
+        }
+        Ok(out)
+    }
     /// [039A-3 P1] Persiste el uso/modelo REAL de un turno terminado.
     ///
     /// El runtime guarda el turno con `tokens_prompt/complecion = 0` y el
@@ -721,6 +753,56 @@ mod tests {
         assert_eq!(tokens_c, 640);
         assert_eq!(provider.as_deref(), Some("glory"));
         assert_eq!(modelo.as_deref(), Some("gpt-4.1"));
+    }
+
+    #[tokio::test]
+    async fn usos_turno_por_conversacion_devuelve_todos_en_orden() {
+        // [20-09-2026] Cada pie de turno al recargar necesita su propio uso:
+        // la query devuelve TODOS los turnos ordenados por `creado_en`.
+        let p = PersistenciaSqlite::en_memoria().expect("BD en memoria");
+        let user = Uuid::new_v4();
+        let conv = p.conversacion_crear(user, "usos").expect("crear");
+        let base = Utc::now();
+        let t = |s: i64| base + chrono::Duration::seconds(s);
+        for (i, (tp, tc, prov, mod_)) in [
+            (100u32, 50u32, Some("glory"), Some("gpt-4.1")),
+            (0u32, 0u32, None, None),
+            (200u32, 100u32, Some("opencode-go"), Some("muse-spark")),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            p.guardar_turno(&TurnoPersistido {
+                id: Uuid::new_v4(),
+                conversacion_id: conv,
+                user_id: user,
+                estado: "ok".into(),
+                resumen: None,
+                creado_en: t(i as i64 * 10),
+                provider: prov.map(str::to_string),
+                modelo: mod_.map(str::to_string),
+                tokens_prompt: tp,
+                tokens_complecion: tc,
+                tools_ejecutadas: 0,
+                duracion_ms: 10,
+                error: None,
+            })
+            .await
+            .expect("guardar turno");
+        }
+        let usos = p.usos_turno_por_conversacion(conv).expect("usos");
+        assert_eq!(usos.len(), 3);
+        assert_eq!((usos[0].tokens_prompt, usos[0].tokens_complecion), (100, 50));
+        assert_eq!(usos[0].provider, "glory");
+        assert_eq!(usos[0].modelo, "gpt-4.1");
+        // Sin uso registrado: cadenas vacías y ceros (el front pinta hora).
+        assert_eq!((usos[1].tokens_prompt, usos[1].tokens_complecion), (0, 0));
+        assert!(usos[1].provider.is_empty());
+        assert_eq!((usos[2].tokens_prompt, usos[2].tokens_complecion), (200, 100));
+        assert_eq!(usos[2].modelo, "muse-spark");
+        // Orden temporal: el ancla del front (`turno_en <= creado_en`).
+        assert!(usos[0].turno_en < usos[1].turno_en);
+        assert!(usos[1].turno_en < usos[2].turno_en);
     }
 
     #[tokio::test]

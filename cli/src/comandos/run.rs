@@ -26,6 +26,7 @@ use glory_harness_core::runtime::{AgentRuntime, PuertosHarness, TurnoConfig};
 use glory_harness_core::tool::AgentToolRegistry;
 use glory_harness_core::{AgentPersistence, ProgramadorTareas};
 
+use crate::ejecutor::EjecutorCliente;
 use crate::persistencia::PersistenciaMemoria;
 use crate::persistencia_sqlite::PersistenciaSqlite;
 use crate::servicio::sesion_config::leer_gancho_pre_compact;
@@ -114,6 +115,11 @@ pub struct HarnessCli {
     pub user_id: Uuid,
     pub workspace: Option<PathBuf>,
     pub config: TurnoConfig,
+    /// [209A-1 F4-resto] Ejecutor de comandos del harness (el mismo `Arc`
+    /// que reciben las tools `comando` en `PuertosHarness`): se conserva
+    /// aquí para que los cierres (conversación/sesión/app) hagan reap
+    /// (`matar_por_conversacion`/`matar_todas`) sin perderlo en los puertos.
+    pub ejecutor_comando: Option<Arc<EjecutorCliente>>,
 }
 
 /// Construye el harness con los servidores MCP declarados en la config
@@ -354,6 +360,13 @@ pub fn construir_harness_con_impl(
         )));
     }
 
+    /* [209A-1 F4-resto] El ejecutor se crea UNA vez: el mismo `Arc` va a
+     * los puertos (tools `comando`) y al `HarnessCli` (reap en cierres). */
+    let ejecutor_comando = Arc::new(match workspace.clone() {
+        Some(raiz) => EjecutorCliente::en_raiz(raiz),
+        None => EjecutorCliente::nuevo(),
+    });
+
     let runtime = Arc::new(AgentRuntime::nuevo(
         registry,
         PuertosHarness {
@@ -366,10 +379,9 @@ pub fn construir_harness_con_impl(
             /* [119A-7 F0] Jaula: los comandos del run arrancan con cwd =
              * el workspace (`--dir` o cwd de invocación); sin workspace
              * se hereda el proceso (solo diagnóstico). */
-            ejecutor_comando: Some(Arc::new(match workspace.clone() {
-                Some(raiz) => crate::ejecutor::EjecutorCliente::en_raiz(raiz),
-                None => crate::ejecutor::EjecutorCliente::nuevo(),
-            })),
+            ejecutor_comando: Some(
+                Arc::clone(&ejecutor_comando) as Arc<dyn glory_harness_core::EjecutorComando>
+            ),
             programador_tareas: Some(programador),
             /* [069A-1 F5] Navegador interno: solo el desktop inyecta un
              * puerto real; el CLI y schedule lo dejan en None, la tool no
@@ -406,6 +418,7 @@ pub fn construir_harness_con_impl(
         user_id,
         workspace,
         config,
+        ejecutor_comando: Some(ejecutor_comando),
     }
 }
 

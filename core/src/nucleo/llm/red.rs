@@ -1,7 +1,9 @@
 //! [059A-N S2] Split mecánico de `llm.rs`: red/HTTP: reintentos con backoff, streaming, hojear_stream y parseo de tool_calls. Movimiento puro — sin
 //! cambios de lógica; el contenido se cortó por rangos del archivo original.
 //!
-use super::modelo::{es_error_transitorio, parsear_tool_calls};
+use super::modelo::{
+    es_dialecto_responses, es_error_transitorio, parsear_tool_calls, url_solicitud,
+};
 use super::*;
 
 const REINTENTOS_TRANSITORIOS: u32 = 2;
@@ -45,17 +47,166 @@ fn construir_cuerpo_stream(
     /* [318A-10 02-09-2026] Mismo criterio que ejecutar_request: solo se
      * envía `reasoning_effort` a proveedores que lo aceptan.
      * [318A-11 02-09-2026] Incluye `glory` (gloryapi local lo acepta,
-     * verificado 02-09). */
+     * verificado 02-09).
+     * [20-09-2026] Incluye `opencode-go` (acepta effort minimal/low/medium/
+     * high/xhigh según models.dev). */
     if let Some(esfuerzo) = &opciones.reasoning_effort {
         if proveedor == "deepseek"
             || proveedor == "groq"
             || proveedor == "cerebras"
             || proveedor == "glory"
+            || proveedor == "opencode-go"
         {
             body["reasoning_effort"] = serde_json::json!(esfuerzo);
         }
     }
     body
+}
+
+/// [20-09-2026] Cuerpo JSON del dialecto Responses API (`/v1/responses` de
+/// OpenCode Go, modelos muse-spark): `input` con items tipados en vez de
+/// `messages`, `reasoning: {effort, summary}` en vez de `reasoning_effort`
+/// suelto, y `max_output_tokens` en vez de `max_tokens`. Sin `temperature`:
+/// los modelos de razonamiento fijan la suya (enviar 0.2 da 400).
+/// `stream` lo decide el llamador (streaming del agente vs batch).
+pub(crate) fn construir_cuerpo_responses(
+    modelo: &str,
+    mensajes: &[AiMessage],
+    opciones: &AiChatOptions,
+    tools: &[serde_json::Value],
+    stream: bool,
+) -> serde_json::Value {
+    let mut body = serde_json::json!({
+        "model": modelo,
+        "input": mensajes_a_items_responses(mensajes),
+        "max_output_tokens": opciones.max_tokens,
+        "stream": stream,
+    });
+    if !tools.is_empty() {
+        body["tools"] = serde_json::Value::Array(tools.iter().map(convertir_tool_responses).collect());
+    }
+    /* `summary: "auto"` = pensamiento visible en vivo
+     * (`response.reasoning_summary_text.delta`); sin él el reasoning viaja
+     * cifrado (`encrypted_content`, opaco) y la UI no mostraría nada. */
+    if let Some(esfuerzo) = &opciones.reasoning_effort {
+        body["reasoning"] =
+            serde_json::json!({ "effort": esfuerzo, "summary": "auto" });
+    }
+    body
+}
+
+/// Convierte el historial OpenAI (`messages`) a items `input` de Responses:
+/// texto directo; assistant con tool_calls → items `function_call`; tool →
+/// `function_call_output`. El contenido multimodal (array) se aplana a texto
+/// + imágenes (`input_text`/`input_image`).
+fn mensajes_a_items_responses(mensajes: &[AiMessage]) -> Vec<serde_json::Value> {
+    let mut items = Vec::new();
+    for mensaje in mensajes {
+        let rol = mensaje.role.as_str();
+        if rol == "tool" {
+            items.push(serde_json::json!({
+                "type": "function_call_output",
+                "call_id": mensaje.tool_call_id.as_deref().unwrap_or(""),
+                "output": contenido_a_texto(&mensaje.content),
+            }));
+            continue;
+        }
+        if rol == "assistant" {
+            if let Some(llamadas) = mensaje.tool_calls.as_deref() {
+                for llamada in llamadas {
+                    items.push(serde_json::json!({
+                        "type": "function_call",
+                        "call_id": llamada.id,
+                        "name": llamada.nombre,
+                        "arguments": llamada.argumentos.to_string(),
+                    }));
+                }
+            }
+            let texto = contenido_a_texto(&mensaje.content);
+            if !texto.trim().is_empty() {
+                items.push(serde_json::json!({
+                    "type": "message", "role": "assistant", "content": texto,
+                }));
+            }
+            continue;
+        }
+        /* system/developer/user/human: rol directo; `developer` no existe en
+         * chat pero Responses lo acepta (system se deja tal cual). */
+        let contenido = contenido_a_item_responses(&mensaje.content);
+        items.push(serde_json::json!({
+            "type": "message", "role": rol, "content": contenido,
+        }));
+    }
+    items
+}
+
+/// Contenido de mensaje a texto plano (string directo o partes `text`).
+fn contenido_a_texto(contenido: &serde_json::Value) -> String {
+    match contenido {
+        serde_json::Value::String(texto) => texto.clone(),
+        serde_json::Value::Array(partes) => partes
+            .iter()
+            .filter_map(|parte| {
+                parte
+                    .get("text")
+                    .and_then(serde_json::Value::as_str)
+                    .or_else(|| {
+                        parte
+                            .get("input_text")
+                            .and_then(|t| t.get("text"))
+                            .and_then(serde_json::Value::as_str)
+                    })
+            })
+            .collect::<Vec<_>>()
+            .join(""),
+        _ => String::new(),
+    }
+}
+
+/// Contenido a partes `input_*` de Responses (texto + imagen).
+fn contenido_a_item_responses(contenido: &serde_json::Value) -> serde_json::Value {
+    match contenido {
+        serde_json::Value::String(_) => contenido.clone(),
+        serde_json::Value::Array(partes) => serde_json::Value::Array(
+            partes
+                .iter()
+                .filter_map(|parte| {
+                    let tipo = parte.get("type").and_then(serde_json::Value::as_str)?;
+                    match tipo {
+                        "text" | "input_text" => parte.get("text").map(|texto| {
+                            serde_json::json!({ "type": "input_text", "text": texto })
+                        }),
+                        "image_url" | "input_image" => {
+                            let url = parte
+                                .get("image_url")
+                                .and_then(|u| u.get("url").and_then(serde_json::Value::as_str))
+                                .or_else(|| {
+                                    parte.get("image_url").and_then(serde_json::Value::as_str)
+                                })?;
+                            Some(serde_json::json!({ "type": "input_image", "image_url": url }))
+                        }
+                        _ => None,
+                    }
+                })
+                .collect(),
+        ),
+        _ => serde_json::Value::String(String::new()),
+    }
+}
+
+/// Tool chat `{"type":"function","function":{...}}` → Responses
+/// `{"type":"function","name","description","parameters"}` (plana).
+fn convertir_tool_responses(tool: &serde_json::Value) -> serde_json::Value {
+    if let Some(funcion) = tool.get("function") {
+        let mut plana = serde_json::json!({ "type": "function" });
+        for campo in ["name", "description", "parameters", "strict"] {
+            if let Some(valor) = funcion.get(campo) {
+                plana[campo] = valor.clone();
+            }
+        }
+        return plana;
+    }
+    tool.clone()
 }
 
 /// ¿La respuesta del proveedor es un stream SSE real? Guía el fallback
@@ -72,16 +223,30 @@ fn respuesta_es_stream(respuesta: &reqwest::Response) -> bool {
 /// Envía la petición JSON y valida el status HTTP. Devuelve la respuesta solo
 /// si fue exitosa; los errores del proveedor (4xx/5xx) se propagan con su
 /// mensaje como `Error::Proveedor`.
+/// [20-09-2026] Dialecto Responses (muse-spark): exige `x-opencode-session`
+/// estable por conversación (sin él, 400 `MissingSessionID`) y User-Agent
+/// propio (el gateway lo pide para clasificar el tráfico).
 async fn enviar_solicitud(
     cliente: &reqwest::Client,
     proveedor: &str,
+    modelo: &str,
     api_key: &str,
     url: &str,
     body: &serde_json::Value,
+    sesion: Option<&str>,
 ) -> Result<reqwest::Response, Error> {
     let mut request = cliente.post(url);
     if !api_key.is_empty() {
         request = request.bearer_auth(api_key);
+    }
+    if es_dialecto_responses(proveedor, modelo) {
+        let sesion_id = match sesion {
+            Some(s) if !s.trim().is_empty() => s.trim().to_string(),
+            _ => uuid::Uuid::new_v4().to_string(),
+        };
+        request = request
+            .header("x-opencode-session", sesion_id)
+            .header("User-Agent", "glory-harness/1.0");
     }
     let respuesta = request
         .json(body)
@@ -137,16 +302,29 @@ async fn resultado_no_stream(
         causa: None,
     })?;
 
+    /* [20-09-2026] Dialecto Responses: la respuesta no-stream es el objeto
+     * `response` completo (`output` con items, `usage` con input/output).
+     * Se aplana al mismo AiStreamResult: texto + summaries + function_calls. */
+    if es_dialecto_responses(proveedor, modelo) {
+        return resultado_responses_no_stream(datos, proveedor, modelo, on_token);
+    }
+
     let contenido = datos
         .pointer("/choices/0/message/content")
         .and_then(serde_json::Value::as_str)
         .unwrap_or("")
         .to_string();
     /* [129A-1] Mismo punto de pérdida en no-stream: el pensamiento viaja en
-     * `message.reasoning_content` y se ignoraba. */
+     * `message.reasoning_content` y se ignoraba.
+     * [20-09-2026] Fallback `message.reasoning`: mismo criterio que el stream. */
     let razonamiento = datos
         .pointer("/choices/0/message/reasoning_content")
         .and_then(serde_json::Value::as_str)
+        .or_else(|| {
+            datos
+                .pointer("/choices/0/message/reasoning")
+                .and_then(serde_json::Value::as_str)
+        })
         .unwrap_or("")
         .to_string();
     if !on_token(&contenido) {
@@ -180,6 +358,116 @@ async fn resultado_no_stream(
             .to_string(),
         provider: provider_final,
         modelo: modelo_final,
+    })
+}
+
+/// [20-09-2026] Aplana un objeto `response` no-stream de Responses API al
+/// `AiStreamResult` común: concatena `output_text` (+ `refusal`), summaries
+/// de reasoning y `function_call` en formato chat para `parsear_tool_calls`.
+/// `usage {input_tokens, output_tokens}` y `model` directos del objeto.
+fn resultado_responses_no_stream(
+    datos: serde_json::Value,
+    proveedor: &str,
+    modelo: &str,
+    on_token: &mut (dyn FnMut(&str) -> bool + Send),
+) -> Result<AiStreamResult, Error> {
+    let mut contenido = String::new();
+    let mut razonamiento = String::new();
+    let mut tool_calls = Vec::new();
+    if let Some(items) = datos.get("output").and_then(serde_json::Value::as_array) {
+        for item in items {
+            match item.get("type").and_then(serde_json::Value::as_str) {
+                Some("message") => {
+                    if let Some(partes) =
+                        item.get("content").and_then(serde_json::Value::as_array)
+                    {
+                        for parte in partes {
+                            let tipo = parte
+                                .get("type")
+                                .and_then(serde_json::Value::as_str)
+                                .unwrap_or("");
+                            if tipo == "output_text" {
+                                if let Some(texto) = parte
+                                    .get("text")
+                                    .and_then(serde_json::Value::as_str)
+                                {
+                                    contenido.push_str(texto);
+                                }
+                            } else if tipo == "refusal" {
+                                if let Some(texto) = parte
+                                    .get("refusal")
+                                    .and_then(serde_json::Value::as_str)
+                                {
+                                    contenido.push_str(texto);
+                                }
+                            }
+                        }
+                    }
+                }
+                Some("reasoning") => {
+                    if let Some(summaries) =
+                        item.get("summary").and_then(serde_json::Value::as_array)
+                    {
+                        for resumen in summaries {
+                            if let Some(texto) = resumen
+                                .get("text")
+                                .and_then(serde_json::Value::as_str)
+                            {
+                                razonamiento.push_str(texto);
+                            }
+                        }
+                    }
+                }
+                Some("function_call") => {
+                    tool_calls.push(serde_json::json!({
+                        "id": item.get("call_id"),
+                        "type": "function",
+                        "function": {
+                            "name": item.get("name"),
+                            "arguments": item.get("arguments"),
+                        },
+                    }));
+                }
+                _ => {}
+            }
+        }
+    }
+    let estado = datos
+        .get("status")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("completed");
+    if estado == "failed" {
+        return Err(Error::Proveedor {
+            detalle: format!("{proveedor} response fallida"),
+            causa: None,
+        });
+    }
+    if !on_token(&contenido) {
+        return Err(Error::Cancelado);
+    }
+    let modelo_real = datos
+        .get("model")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or(modelo);
+    Ok(AiStreamResult {
+        contenido,
+        razonamiento,
+        tool_calls: parsear_tool_calls(tool_calls),
+        tokens_prompt: datos
+            .pointer("/usage/input_tokens")
+            .and_then(serde_json::Value::as_u64)
+            .unwrap_or(0) as u32,
+        tokens_complecion: datos
+            .pointer("/usage/output_tokens")
+            .and_then(serde_json::Value::as_u64)
+            .unwrap_or(0) as u32,
+        finish_reason: match estado {
+            "completed" => "stop".to_string(),
+            "incomplete" => "length".to_string(),
+            other => other.to_string(),
+        },
+        provider: proveedor.to_string(),
+        modelo: modelo_real.to_string(),
     })
 }
 
@@ -288,11 +576,27 @@ impl LlmProviderService {
             opciones,
             tools,
         } = solicitud;
-        let url = url_proveedor(proveedor);
+        let url = url_solicitud(proveedor, modelo);
         let modelo = modelo_proveedor(proveedor, modelo);
-        let body = construir_cuerpo_stream(proveedor, &modelo, mensajes, opciones, tools);
-
-        let respuesta = enviar_solicitud(&self.client, proveedor, api_key, &url, &body).await?;
+        /* [20-09-2026] Dialecto Responses (muse-spark en OpenCode Go): otro
+         * endpoint, otro cuerpo y otro parseo SSE. El resto del flujo
+         * (reintentos, fallback, cancelación) no cambia. */
+        let dialecto_responses = es_dialecto_responses(proveedor, &modelo);
+        let body = if dialecto_responses {
+            construir_cuerpo_responses(&modelo, mensajes, opciones, tools, true)
+        } else {
+            construir_cuerpo_stream(proveedor, &modelo, mensajes, opciones, tools)
+        };
+        let respuesta = enviar_solicitud(
+            &self.client,
+            proveedor,
+            &modelo,
+            api_key,
+            &url,
+            &body,
+            opciones.sesion_externa.as_deref(),
+        )
+        .await?;
 
         /* Fallback no-stream: si el proveedor no devuelve text/event-stream
          * (p. ej. un proxy que responde JSON directo), se hace la llamada
@@ -313,7 +617,11 @@ impl LlmProviderService {
             .map(|(p, m)| (p.to_string(), m.to_string()));
 
         let (contenido, razonamiento, tool_calls, tokens_prompt, tokens_complecion, finish_reason, modelo_real) =
-            super::stream::hojear_stream(respuesta, salidas).await?;
+            if dialecto_responses {
+                super::stream::hojear_responses_stream(respuesta, salidas).await?
+            } else {
+                super::stream::hojear_stream(respuesta, salidas).await?
+            };
         let tool_calls = parsear_tool_calls(tool_calls);
 
         /* [069A-9 07-09-2026] Prioridad: routed_via (gloryapi exacto) >
@@ -434,15 +742,22 @@ impl LlmProviderService {
         mensajes: &[AiMessage],
         opciones: &AiChatOptions,
     ) -> Result<AiChatResult, Error> {
-        let url = url_proveedor(proveedor);
+        let url = url_solicitud(proveedor, modelo);
         let modelo = modelo_proveedor(proveedor, modelo);
+        /* [20-09-2026] Dialecto Responses (muse-spark): sin temperature ni
+         * messages; `reasoning.effort+summary` en vez de `reasoning_effort`. */
+        let dialecto_responses = es_dialecto_responses(proveedor, &modelo);
 
         /* Groq usa max_completion_tokens; el resto max_tokens (paridad PHP). */
-        let mut body = serde_json::json!({
-            "model": modelo,
-            "messages": mensajes,
-            "temperature": opciones.temperature,
-        });
+        let mut body = if dialecto_responses {
+            construir_cuerpo_responses(&modelo, mensajes, opciones, &[], false)
+        } else {
+            serde_json::json!({
+                "model": modelo,
+                "messages": mensajes,
+                "temperature": opciones.temperature,
+            })
+        };
         if proveedor == "groq" {
             body["max_completion_tokens"] = serde_json::json!(opciones.max_tokens);
         } else {
@@ -474,6 +789,17 @@ impl LlmProviderService {
         if !api_key.is_empty() {
             request = request.bearer_auth(api_key);
         }
+        /* [20-09-2026] Dialecto Responses: `x-opencode-session` obligatorio;
+         * la sesión estable la pone el llamador vía `sesion_externa`. */
+        if dialecto_responses {
+            let sesion_id = match opciones.sesion_externa.as_deref() {
+                Some(s) if !s.trim().is_empty() => s.trim().to_string(),
+                _ => uuid::Uuid::new_v4().to_string(),
+            };
+            request = request
+                .header("x-opencode-session", sesion_id)
+                .header("User-Agent", "glory-harness/1.0");
+        }
         let respuesta = request
             .json(&body)
             .send()
@@ -504,32 +830,101 @@ impl LlmProviderService {
             });
         }
 
-        let contenido = datos
-            .pointer("/choices/0/message/content")
-            .and_then(serde_json::Value::as_str)
-            .map(str::trim)
-            .filter(|contenido| !contenido.is_empty())
-            .ok_or_else(|| Error::Proveedor {
-                detalle: "Respuesta vacía del modelo".into(),
-                causa: None,
-            })?
-            .to_string();
+        /* [20-09-2026] Dialecto Responses: el objeto `response` se aplana
+         * (texto + summaries); el estado no-`completed` cuenta como vacío. */
+        let contenido = if dialecto_responses {
+            let mut texto = String::new();
+            if let Some(items) = datos.get("output").and_then(serde_json::Value::as_array)
+            {
+                for item in items {
+                    if item.get("type").and_then(serde_json::Value::as_str)
+                        != Some("message")
+                    {
+                        continue;
+                    }
+                    if let Some(partes) =
+                        item.get("content").and_then(serde_json::Value::as_array)
+                    {
+                        for parte in partes {
+                            let tipo = parte
+                                .get("type")
+                                .and_then(serde_json::Value::as_str)
+                                .unwrap_or("");
+                            let fragmento = if tipo == "output_text" {
+                                parte.get("text")
+                            } else if tipo == "refusal" {
+                                parte.get("refusal")
+                            } else {
+                                None
+                            };
+                            if let Some(fragmento) =
+                                fragmento.and_then(serde_json::Value::as_str)
+                            {
+                                texto.push_str(fragmento);
+                            }
+                        }
+                    }
+                }
+            }
+            let texto = texto.trim();
+            if texto.is_empty() {
+                return Err(Error::Proveedor {
+                    detalle: "Respuesta vacía del modelo".into(),
+                    causa: None,
+                });
+            }
+            texto.to_string()
+        } else {
+            datos
+                .pointer("/choices/0/message/content")
+                .and_then(serde_json::Value::as_str)
+                .map(str::trim)
+                .filter(|contenido| !contenido.is_empty())
+                .ok_or_else(|| Error::Proveedor {
+                    detalle: "Respuesta vacía del modelo".into(),
+                    causa: None,
+                })?
+                .to_string()
+        };
 
         Ok(AiChatResult {
             contenido,
-            tokens_prompt: datos
-                .pointer("/usage/prompt_tokens")
-                .and_then(serde_json::Value::as_u64)
-                .unwrap_or(0) as u32,
-            tokens_complecion: datos
-                .pointer("/usage/completion_tokens")
-                .and_then(serde_json::Value::as_u64)
-                .unwrap_or(0) as u32,
-            finish_reason: datos
-                .pointer("/choices/0/finish_reason")
-                .and_then(serde_json::Value::as_str)
-                .unwrap_or("")
-                .to_string(),
+            tokens_prompt: if dialecto_responses {
+                datos
+                    .pointer("/usage/input_tokens")
+                    .and_then(serde_json::Value::as_u64)
+                    .unwrap_or(0) as u32
+            } else {
+                datos
+                    .pointer("/usage/prompt_tokens")
+                    .and_then(serde_json::Value::as_u64)
+                    .unwrap_or(0) as u32
+            },
+            tokens_complecion: if dialecto_responses {
+                datos
+                    .pointer("/usage/output_tokens")
+                    .and_then(serde_json::Value::as_u64)
+                    .unwrap_or(0) as u32
+            } else {
+                datos
+                    .pointer("/usage/completion_tokens")
+                    .and_then(serde_json::Value::as_u64)
+                    .unwrap_or(0) as u32
+            },
+            finish_reason: if dialecto_responses {
+                match datos.get("status").and_then(serde_json::Value::as_str) {
+                    Some("completed") => "stop".to_string(),
+                    Some("incomplete") => "length".to_string(),
+                    Some(otro) => otro.to_string(),
+                    None => String::new(),
+                }
+            } else {
+                datos
+                    .pointer("/choices/0/finish_reason")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("")
+                    .to_string()
+            },
             provider: proveedor.to_string(),
             modelo: modelo.to_string(),
         })

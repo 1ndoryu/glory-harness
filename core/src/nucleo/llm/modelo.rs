@@ -61,6 +61,18 @@ const PROVIDERS: &[(&str, &str, &[&str])] = &[
         "https://api.commandcode.ai/provider/v1/chat/completions",
         &["poolside/laguna-s-2.1-free"],
     ),
+    /* [20-09-2026] OpenCode Go DIRECTO (sin gloryapi): gateway OpenAI-compatible
+     * de opencode.ai para sus modelos Zen/Go. Endpoint verificado el 20-09
+     * (GET /zen/go/v1/models → 200 con `muse-spark-1.3-contributor` y
+     * `muse-spark-1.2-contributor` en el catálogo público). El ID del modelo se
+     * pasa tal cual (sin prefijo `meta/`). Acepta `reasoning_effort` (valores
+     * minimal/low/medium/high/xhigh según models.dev) y emite pensamiento en
+     * el stream. Auth: Bearer con OPENCODE_GO_API_KEY. */
+    (
+        "opencode-go",
+        "https://opencode.ai/zen/go/v1/chat/completions",
+        &["muse-spark-1.3-contributor"],
+    ),
     (
         "cerebras",
         "https://api.cerebras.ai/v1/chat/completions",
@@ -130,6 +142,28 @@ pub(crate) fn url_proveedor(proveedor: &str) -> String {
         .unwrap_or_default()
 }
 
+/* [20-09-2026] Dialecto Responses API de OpenCode Go: los modelos
+ * `muse-spark-*` NO se sirven por `/zen/go/v1/chat/completions` (el gateway
+ * responde 400 `MissingSessionID` sin header y `Endpoint is unavailable` con
+ * él). Su endpoint validado es `/zen/go/v1/responses` (formato `input` +
+ * eventos `response.*`, package `@ai-sdk/openai`). El resto de modelos Go
+ * sigue en chat/completions. */
+pub(crate) const RESPONSES_API_URL: &str = "https://opencode.ai/zen/go/v1/responses";
+
+/// ¿Este (proveedor, modelo) usa el dialecto Responses en vez de chat?
+pub(crate) fn es_dialecto_responses(proveedor: &str, modelo: &str) -> bool {
+    proveedor == "opencode-go" && modelo.starts_with("muse-spark")
+}
+
+/// URL de solicitud según dialecto (Responses para muse-spark, chat para el resto).
+pub(crate) fn url_solicitud(proveedor: &str, modelo: &str) -> String {
+    if es_dialecto_responses(proveedor, modelo) {
+        RESPONSES_API_URL.to_string()
+    } else {
+        url_proveedor(proveedor)
+    }
+}
+
 /* [02-09-2026] Glory API local mapea el alias interno `commandcode` (y
  * `glm-5.3-flash`) al ID real del catálogo de gloryapi. El alias que el
  * usuario ve en la UI es `commandcode`; el request real usa el ID del
@@ -143,8 +177,7 @@ pub(crate) fn url_proveedor(proveedor: &str) -> String {
  * stealth/ox-alpha) se pasan tal cual a gloryapi: ya son IDs del catálogo.
  * [069A-7 06-09-2026] `auto` ya NO se mapea aquí: pasa literal como "auto"
  * a glory API para que su router decida el modelo real. */
-pub(crate) fn modelo_proveedor(proveedor: &str, modelo: &str) -> String {
-    if proveedor == "glory" {
+pub(crate) fn modelo_proveedor(proveedor: &str, modelo: &str) -> String {    if proveedor == "glory" {
         match modelo {
             "commandcode" | "glm-5.3-flash" => "deepseek/deepseek-v4-flash".to_string(),
             otro => otro.to_string(),
@@ -266,6 +299,12 @@ pub struct AiChatOptions {
     /// agente; solo se envía a proveedores que lo aceptan (deepseek, groq,
     /// cerebras con modelos de razonamiento).
     pub reasoning_effort: Option<String>,
+    /// [20-09-2026] Sesión externa estable por conversación (header
+    /// `x-opencode-session` que exige OpenCode Go para enrutar + cachear;
+    /// el runtime la fija con el id de la conversación). `None` = el
+    /// transporte genera un UUID por llamada (válido, sin caché entre
+    /// rondas). Solo la usa el dialecto Responses.
+    pub sesion_externa: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -302,13 +341,16 @@ pub struct LlavesProveedor {
     /// [02-09-2026] Command Code Provider API directa (api.commandcode.ai).
     /// Env: COMMAND_CODE_API_KEY (la misma key del Studio/CLI).
     pub commandcode: Vec<String>,
+    /// [20-09-2026] OpenCode Go directo (opencode.ai/zen/go/v1).
+    /// Env: OPENCODE_GO_API_KEY.
+    pub opencode_go: Vec<String>,
 }
 
 impl LlavesProveedor {
     /// Carga las keys desde variables de entorno (mismos nombres que task:
     /// GROQ_API/GROQ_API_1..3, DEEPSEEK_API/DEEPSEEK-API/DEEPSEEK_API_KEY,
     /// GLORY_API_KEY/GLORY_API/EMPERO_API_KEY, COMMAND_CODE_API_KEY,
-    /// CEREBRAS_API_KEY).
+    /// OPENCODE_GO_API_KEY, CEREBRAS_API_KEY).
     #[must_use]
     pub fn from_env() -> Self {
         fn env_list(names: &[&str]) -> Vec<String> {
@@ -325,6 +367,7 @@ impl LlavesProveedor {
             deepseek: env_list(&["DEEPSEEK_API", "DEEPSEEK-API", "DEEPSEEK_API_KEY"]),
             glory: env_list(&["GLORY_API_KEY", "GLORY_API", "EMPERO_API_KEY"]),
             commandcode: env_list(&["COMMAND_CODE_API_KEY"]),
+            opencode_go: env_list(&["OPENCODE_GO_API_KEY"]),
         }
     }
 }

@@ -56,6 +56,9 @@ pub use telemetria::CompactarManual;
  * ayudas vía `super::*`: se re-exportan para no tocar esos archivos en este
  * split (movimiento puro). */
 pub(crate) use ciclo::{mensajes_usuario_resumen, wrap_up_instruccion};
+/* [20-09-2026] `LlamadaLlm` (parámetros de `llm_llamada`): los hermanos
+ * `subagente` y `turno/` la nombran vía `super::*` sin conocer `tools`. */
+pub(crate) use tools::LlamadaLlm;
 
 /// [109A-5 F2] Reparto del plan visible entre conversaciones.
 ///

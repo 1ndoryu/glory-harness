@@ -11,6 +11,7 @@ import {
   crearResumenTurno,
   formatearResultadoHerramienta,
 } from './mensajes';
+import { tituloCambioHtml } from './mensajesUtil';
 import type { CambioArchivoPanel } from './panelChatTipos';
 import {
   descripcionDeTool,
@@ -18,6 +19,7 @@ import {
   type AccionRecuperada,
   type MensajeGuardado,
   type UsoTurno,
+  type UsoTurnoRecuperado,
 } from '../tauri/real';
 
 export interface HistorialDeps {
@@ -30,12 +32,15 @@ export interface HistorialDeps {
   aviso(texto: string, meta: string, detalle: string): void;
   /** [129A-4 F4] Abre el visor del log de un turno. */
   verLogTurno(turnoId: string): void;
-  /** [129A-8] Abre la tab Cambios en el archivo (enlace del resumen). */
-  verEnCambios(ruta: string): void;
+  /** [129A-8] Abre el archivo en la tab Files (botón de cada fila del resumen). */
+  verEnFiles(ruta: string): void;
 }
 
 export interface HistorialChat {
-  /** Pinta historial persistido intercalando las herramientas del turno. */
+  /** Pinta historial persistido intercalando las herramientas del turno.
+   * [20-09-2026] `usos_turno` (todos los turnos, ordenados por `creado_en`)
+   * repinta CADA pie con sus tokens/modelo reales; `undefined` = backend
+   * antiguo: solo `ultimo_uso` en la última respuesta (compatibilidad). */
   pintarHistorial(
     historial: MensajeGuardado[],
     acciones?: AccionRecuperada[],
@@ -45,6 +50,7 @@ export interface HistorialChat {
       tokens_prompt: number;
       tokens_complecion: number;
     } | null,
+    usos_turno?: UsoTurnoRecuperado[] | null,
   ): void;
   /** Añade el pie de turno (tokens/modelo reales) como último bloque.
    * [109A-5 F3] `turnoId` queda en el DOM (`data-turno`) para que el evento
@@ -84,10 +90,14 @@ export function crearHistorial(deps: HistorialDeps): HistorialChat {
       ? { estado: 'completada', meta, resultado }
       : { estado: 'error', meta, resultado };
     // [089A-12] Conserva cambios para sincronizar el pane Files al abrirlo.
-    registrarCambioHistorial(accion.tool, argumentosPersistidos(accion.argumentos_json), accion.resumen, accion.diff);
+    const args = argumentosPersistidos(accion.argumentos_json);
+    registrarCambioHistorial(accion.tool, args, accion.resumen, accion.diff);
+    // [20-09-2026] El título lleva el cambio real (`-N +M`) en vez del
+    // sufijo genérico, igual que las tarjetas en vivo al cerrar.
     return crearHerramienta({
       icono: iconoDeTool(accion.tool),
-      titulo: descripcionDeTool(accion.tool, argumentosPersistidos(accion.argumentos_json)),
+      titulo: descripcionDeTool(accion.tool, args),
+      tituloHtml: tituloCambioHtml(accion.tool, rutaDeArgs(args), accion.diff) ?? undefined,
       estado,
     });
   }
@@ -137,6 +147,7 @@ export function crearHistorial(deps: HistorialDeps): HistorialChat {
     historial: MensajeGuardado[],
     acciones: AccionRecuperada[] = [],
     ultimo_uso?: { provider: string; modelo: string; tokens_prompt: number; tokens_complecion: number } | null,
+    usos_turno?: UsoTurnoRecuperado[] | null,
   ): void {
     // [139A-8 F6n R7] Sin colisión: el repintado parte de cero aunque el
     // llamador no haya limpiado (mismo reset que `limpiarHistorial`, sin
@@ -179,10 +190,37 @@ export function crearHistorial(deps: HistorialDeps): HistorialChat {
     // (`ultimo_uso`): cada respuesta del asistente conserva su propio pie;
     // las anteriores muestran su hora (`creado_en`) y la última además los
     // tokens reales. Sin esto la recarga dejaba un único pie al final.
+    // [20-09-2026] Con `usos_turno` (todos los turnos) cada pie conserva sus
+    // tokens/modelo reales: el turno de un mensaje es el último con
+    // `turno_en <= creado_en` (el turno nace con el envío y la respuesta
+    // llega después). Si un turno trae varias respuestas, el uso va en la
+    // ÚLTIMA (un turno = un pie con tokens, como en vivo). `undefined` =
+    // backend antiguo: camino `ultimo_uso` de arriba (compatibilidad).
     let ultimoIdxAsistente = -1;
     historial.forEach((mm, ii) => {
       if (mm.rol === 'assistant') ultimoIdxAsistente = ii;
     });
+    const usoDeAsistente = new Map<number, UsoTurnoRecuperado>();
+    if (usos_turno !== undefined && usos_turno !== null) {
+      let t = -1;
+      historial.forEach((mm, ii) => {
+        if (mm.rol !== 'assistant') return;
+        const ms = en(mm.creado_en);
+        while (t + 1 < usos_turno.length && en(usos_turno[t + 1].turno_en) <= ms) t++;
+        // La última respuesta del turno gana (sobrescribe a las anteriores).
+        if (t >= 0) usoDeAsistente.set(ii, usos_turno[t]);
+      });
+      // Solo la última respuesta de cada turno conserva el uso: las
+      // anteriores del mismo turno muestran su hora (como en vivo).
+      const visto = new Set<number>();
+      for (let ii = historial.length - 1; ii >= 0; ii--) {
+        const u = usoDeAsistente.get(ii);
+        if (!u) continue;
+        const turno = usos_turno.indexOf(u);
+        if (visto.has(turno)) usoDeAsistente.delete(ii);
+        else visto.add(turno);
+      }
+    }
     // [129A-8 F2] El resumen va tras el pie del turno que hizo los cambios:
     // cada respuesta pertenece al último usuario previo; si un turno trae
     // varias respuestas, el resumen cierra la ÚLTIMA (tras su pie).
@@ -211,7 +249,7 @@ export function crearHistorial(deps: HistorialDeps): HistorialChat {
       return entradas;
     }
     function pintarResumen(entradas: CambioArchivoPanel[]): void {
-      const bloque = crearResumenTurno(entradas, (ruta) => deps.verEnCambios(ruta));
+      const bloque = crearResumenTurno(entradas, (ruta) => deps.verEnFiles(ruta));
       if (bloque) mensajes.appendChild(bloque);
     }
     historial.forEach((m, ii) => {
@@ -224,14 +262,19 @@ export function crearHistorial(deps: HistorialDeps): HistorialChat {
         mensajes.appendChild(crearMensajeAsistente(m.contenido));
         const ms = Date.parse(m.creado_en);
         const hora = Number.isFinite(ms) ? ms : null;
-        if (ii === ultimoIdxAsistente && ultimo_uso) {
+        // [20-09-2026] Con `usos_turno` el uso viene anclado por turno;
+        // sin él (`undefined`, backend antiguo) vale el camino `ultimo_uso`.
+        const uso = usos_turno === undefined
+          ? (ii === ultimoIdxAsistente ? (ultimo_uso ?? null) : null)
+          : (usoDeAsistente.get(ii) ?? null);
+        if (uso) {
           mensajes.appendChild(
             crearPieTurno({
-              tokensPrompt: ultimo_uso.tokens_prompt,
-              tokensComplecion: ultimo_uso.tokens_complecion,
-              modelo: ultimo_uso.provider
-                ? `${ultimo_uso.provider}/${ultimo_uso.modelo}`
-                : ultimo_uso.modelo || null,
+              tokensPrompt: uso.tokens_prompt,
+              tokensComplecion: uso.tokens_complecion,
+              modelo: uso.provider
+                ? `${uso.provider}/${uso.modelo}`
+                : uso.modelo || null,
               ocupacionPct: null,
               maxVentana: null,
               reservaSalida: null,
@@ -310,7 +353,7 @@ export function crearHistorial(deps: HistorialDeps): HistorialChat {
 
   /** [129A-8 F1] Resumen en vivo tras el pie (sin cambios: sin bloque). */
   function anadirResumenTurno(cambiosTurno: CambioArchivoPanel[]): void {
-    const bloque = crearResumenTurno(cambiosTurno, (ruta) => deps.verEnCambios(ruta));
+    const bloque = crearResumenTurno(cambiosTurno, (ruta) => deps.verEnFiles(ruta));
     if (!bloque) return;
     mensajes.appendChild(bloque);
     mensajes.scrollTop = mensajes.scrollHeight;

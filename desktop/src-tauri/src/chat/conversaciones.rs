@@ -123,7 +123,11 @@ pub(crate) struct CargaConversacion {
     acciones: Vec<glory_harness::AccionRecuperada>,
     /// [039A-3 P1] Uso/modelo real del último turno (para repintar el pie de
     /// turno al recargar). `None` si no hay turno con uso registrado.
+    /// Se conserva por compatibilidad; el front prefiere `usos_turno`.
     ultimo_uso: Option<UsoTurnoPersistido>,
+    /// [20-09-2026] Uso/modelo real de TODOS los turnos (para repintar CADA
+    /// pie de turno al recargar, no solo el último).
+    usos_turno: Vec<UsoTurnoPorTurno>,
     /// [039A-3 P3] Archivos que tocó el último tramo rebobinado ("volver a
     /// punto"), listos para la acción EXPLÍCITA "restaurar archivos de este
     /// tramo". Vacío cuando la carga no viene de un rewind (no hay nada que
@@ -139,6 +143,38 @@ struct UsoTurnoPersistido {
     modelo: String,
     tokens_prompt: u32,
     tokens_complecion: u32,
+}
+
+/// [20-09-2026] Uso real de un turno con su ancla temporal (para que el front
+/// lo ancle a los mensajes de ESE turno en vez de pintar solo el último pie).
+#[derive(serde::Serialize)]
+struct UsoTurnoPorTurno {
+    turno_en: String,
+    provider: String,
+    modelo: String,
+    tokens_prompt: u32,
+    tokens_complecion: u32,
+}
+
+/// [20-09-2026] Usos de todos los turnos de una conversación (ordenados por
+/// `creado_en` desde la query). Auxiliar común de `cargar_conversacion` y del
+/// rewind: la carga reconstruida tras "volver a punto" también repinta pies.
+fn usos_turno(sesion: &Sesion, conv_id: Uuid) -> Result<Vec<UsoTurnoPorTurno>, String> {
+    sesion
+        .persistencia
+        .usos_turno_por_conversacion(conv_id)
+        .map_err(|e| e.to_string())
+        .map(|usos| {
+            usos.into_iter()
+                .map(|u| UsoTurnoPorTurno {
+                    turno_en: u.turno_en,
+                    provider: u.provider,
+                    modelo: u.modelo,
+                    tokens_prompt: u.tokens_prompt,
+                    tokens_complecion: u.tokens_complecion,
+                })
+                .collect()
+        })
 }
 
 /// Carga una conversación como actual del panel con su historial (falla con
@@ -195,6 +231,7 @@ pub(crate) async fn cargar_conversacion(
         mensajes,
         acciones,
         ultimo_uso,
+        usos_turno: usos_turno(&sesion, id)?,
         archivos_tramo: Vec::new(),
     })
 }
@@ -238,7 +275,7 @@ pub(crate) fn archivar_conversacion(
 /// queda ninguna. [069A-7] Create-on-write: NO se crea una vacía de reemplazo.
 /// [039A-3 P5] `panel_id` opcional (default `principal`).
 #[tauri::command]
-pub(crate) fn eliminar_conversacion(
+pub(crate) async fn eliminar_conversacion(
     estado: State<'_, Estado>,
     id: String,
     panel_id: Option<String>,
@@ -256,6 +293,21 @@ pub(crate) fn eliminar_conversacion(
     /* [039A-3 P3] Al eliminar la conversación se limpia su índice del vault y
      * se hace GC de los hashes que quedaron huérfanos. */
     sesion.vault.eliminar_conversacion(id);
+    /* [209A-1 F4-resto] Reap: las consolas vivas de la conversación
+     * borrada se matan (su pump archiva el transcript acotado). */
+    if let Some(ejecutor) = sesion
+        .comun
+        .lock()
+        .ok()
+        .and_then(|g| g.ejecutor.clone())
+    {
+        let matadas = ejecutor.matar_por_conversacion(id).await;
+        if matadas > 0 {
+            eprintln!(
+                "[glory-harness-desktop] reap al eliminar conversación {id}: {matadas} matada(s)"
+            );
+        }
+    }
     /* [039A-3 P5] "Era la actual" se decide POR PANEL: si este panel tenía esa
      * conversación cargada, hay que re-anclar el panel. */
     let actual = conv_id_de_panel(&sesion, &panel_id)?;
@@ -302,7 +354,7 @@ pub(crate) fn archivar_conversaciones_proyecto(
 /// mostraba una de las borradas (la más reciente no-archivada restante o
 /// borrador si no queda ninguna, espejo de `eliminar_conversacion`).
 #[tauri::command]
-pub(crate) fn eliminar_conversaciones_proyecto(
+pub(crate) async fn eliminar_conversaciones_proyecto(
     estado: State<'_, Estado>,
     id: String,
     panel_id: Option<String>,
@@ -319,6 +371,24 @@ pub(crate) fn eliminar_conversaciones_proyecto(
         .map_err(|e| e.to_string())?;
     for b in &borradas {
         sesion.vault.eliminar_conversacion(*b);
+    }
+    /* [209A-1 F4-resto] Reap por conversación borrada (espejo del single):
+     * las vivas de cada hilo se matan; el resto sigue. */
+    if let Some(ejecutor) = sesion
+        .comun
+        .lock()
+        .ok()
+        .and_then(|g| g.ejecutor.clone())
+    {
+        let mut matadas = 0;
+        for b in &borradas {
+            matadas += ejecutor.matar_por_conversacion(*b).await;
+        }
+        if matadas > 0 {
+            eprintln!(
+                "[glory-harness-desktop] reap al eliminar proyecto {ws}: {matadas} matada(s)"
+            );
+        }
     }
     let actual = conv_id_de_panel(&sesion, &panel_id)?;
     if actual.is_some_and(|a| borradas.contains(&a)) {
@@ -337,6 +407,164 @@ pub(crate) fn eliminar_conversaciones_proyecto(
         return Ok(restante);
     }
     info_de_panel(&sesion, &panel_id).map(|i| i.conversacion)
+}
+
+/// [209A-1 F4-resto] Mata UNA consola viva por su `id_ejecucion` (la × de
+/// la tab Consola sobre una entrada viva). Devuelve `true` si estaba viva
+/// y se mató; `false` si no existe o ya terminó (idempotente, sin error:
+/// la vista ya la marca como terminada al llegar `consola_fin`).
+#[tauri::command]
+pub(crate) async fn consola_matar(
+    estado: State<'_, Estado>,
+    id_ejecucion: String,
+) -> Result<bool, String> {
+    use glory_harness_core::ports::EjecutorComando;
+    let sesion = sesion_actual(&estado)?;
+    let id = id_ejecucion.trim();
+    if id.is_empty() {
+        return Err("id de ejecución vacío".into());
+    }
+    let ejecutor = sesion
+        .comun
+        .lock()
+        .ok()
+        .and_then(|g| g.ejecutor.clone())
+        .ok_or_else(|| "sesión sin ejecutor".to_string())?;
+    let viva = ejecutor
+        .lista()
+        .await
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .any(|c| c.id_ejecucion == id && c.viva);
+    if !viva {
+        return Ok(false);
+    }
+    ejecutor.matar(id).await.map_err(|e| e.to_string())?;
+    Ok(true)
+}
+
+/// [219A-3] Vista de consola para la sub-barra de la tab Consola (vivas +
+/// recientes). Se serializa con los mismos nombres que el endpoint web
+/// (`id_ejecucion`, `comando`, `viva`, `codigo_salida`).
+#[derive(serde::Serialize)]
+pub(crate) struct InfoConsolaTauri {
+    id_ejecucion: String,
+    comando: String,
+    viva: bool,
+    codigo_salida: Option<i32>,
+}
+
+/// [219A-3] Transcript retenido para el backfill de la tab (mismos nombres
+/// que el endpoint web; `flujo` serializa `stdout`/`stderr` por el contrato
+/// de `FlujoConsola`).
+#[derive(serde::Serialize)]
+pub(crate) struct LineaConsolaTauri {
+    flujo: glory_harness_core::evento::FlujoConsola,
+    linea: String,
+}
+
+#[derive(serde::Serialize)]
+pub(crate) struct TranscriptConsolaTauri {
+    id_ejecucion: String,
+    comando: String,
+    viva: bool,
+    codigo_salida: Option<i32>,
+    lineas: Vec<LineaConsolaTauri>,
+}
+
+/// [219A-3] `consolas_listar` — vivas primero + recientes archivadas (el
+/// runner ordena por inicio). Backfill de la sub-barra al abrir la tab.
+#[tauri::command]
+pub(crate) async fn consolas_listar(
+    estado: State<'_, Estado>,
+) -> Result<Vec<InfoConsolaTauri>, String> {
+    use glory_harness_core::ports::EjecutorComando;
+    let sesion = sesion_actual(&estado)?;
+    let ejecutor = sesion
+        .comun
+        .lock()
+        .ok()
+        .and_then(|g| g.ejecutor.clone())
+        .ok_or_else(|| "sesión sin ejecutor".to_string())?;
+    let lista = ejecutor.lista().await.map_err(|e| e.to_string())?;
+    Ok(lista
+        .into_iter()
+        .map(|c| InfoConsolaTauri {
+            id_ejecucion: c.id_ejecucion,
+            comando: c.comando,
+            viva: c.viva,
+            codigo_salida: c.codigo_salida,
+        })
+        .collect())
+}
+
+/// [219A-3] `consola_salida` — transcript retenido por `id_ejecucion`.
+/// Error claro si el runner ya no retiene ese id.
+#[tauri::command]
+pub(crate) async fn consola_salida(
+    estado: State<'_, Estado>,
+    id_ejecucion: String,
+) -> Result<TranscriptConsolaTauri, String> {
+    use glory_harness_core::ports::EjecutorComando;
+    let sesion = sesion_actual(&estado)?;
+    let id = id_ejecucion.trim();
+    if id.is_empty() {
+        return Err("id de ejecución vacío".into());
+    }
+    let ejecutor = sesion
+        .comun
+        .lock()
+        .ok()
+        .and_then(|g| g.ejecutor.clone())
+        .ok_or_else(|| "sesión sin ejecutor".to_string())?;
+    let t = ejecutor.salida(id).await.map_err(|e| e.to_string())?;
+    Ok(TranscriptConsolaTauri {
+        id_ejecucion: t.id_ejecucion,
+        comando: t.comando,
+        viva: t.viva,
+        codigo_salida: t.codigo_salida,
+        lineas: t
+            .lineas
+            .into_iter()
+            .map(|l| LineaConsolaTauri {
+                flujo: l.flujo,
+                linea: l.linea,
+            })
+            .collect(),
+    })
+}
+
+/// [219A-3] `consola_escribir` — bytes crudos al stdin de una viva.
+/// Devuelve los bytes aceptados. Vacío o >64 KB se rechaza aquí (mismo tope
+/// que el runner); terminada o desconocida → error claro del runner.
+#[tauri::command]
+pub(crate) async fn consola_escribir(
+    estado: State<'_, Estado>,
+    id_ejecucion: String,
+    texto: String,
+) -> Result<usize, String> {
+    use glory_harness_core::ports::EjecutorComando;
+    let sesion = sesion_actual(&estado)?;
+    let id = id_ejecucion.trim();
+    if id.is_empty() {
+        return Err("id de ejecución vacío".into());
+    }
+    if texto.is_empty() {
+        return Err("texto vacío: nada que escribir".into());
+    }
+    if texto.len() > 64 * 1024 {
+        return Err("texto mayor de 64 KB: trocéalo en varias escrituras".into());
+    }
+    let ejecutor = sesion
+        .comun
+        .lock()
+        .ok()
+        .and_then(|g| g.ejecutor.clone())
+        .ok_or_else(|| "sesión sin ejecutor".to_string())?;
+    ejecutor
+        .escribir(id, texto.as_bytes())
+        .await
+        .map_err(|e| e.to_string())
 }
 
 /// [039A-3 P2] Rebobina la conversación hasta un mensaje de usuario.
@@ -435,6 +663,7 @@ pub(crate) async fn rewind_conversacion(
         mensajes,
         acciones,
         ultimo_uso,
+        usos_turno: usos_turno(&sesion, conv_id)?,
         archivos_tramo,
     })
 }

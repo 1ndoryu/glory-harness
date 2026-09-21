@@ -55,23 +55,30 @@ export interface CrearPanelTurno {
   registrarUltimoEnvio: (panel: PanelChat) => void;
 }
 
-/** Vista y sincronización delegadas al orquestador. */
-export interface CrearPanelVista {
+/** Vista delegada al orquestador: foco y paneles laterales. */
+export interface CrearPanelVistaPanel {
   panelActivo: () => PanelChat | null;
   activarPanel: (panel: PanelChat | null) => void;
-  resincronizarSidebar: () => Promise<void>;
-  sincronizarPanelMeta: () => void;
-  avisar: (texto: string, meta: string, detalle: string) => void;
   alternarSidebar: () => void;
   alternarPanelDerecho: () => void;
   abrirAcciones: (panel: PanelChat, rect: DOMRect) => void;
-  /** [129A-8] Abre la tab Cambios en el archivo (enlace del resumen). */
-  verEnCambios: (ruta: string) => void;
+}
+
+/** Sincronización delegada al orquestador: avisos y vista Cambios. */
+export interface CrearPanelVistaSync {
+  resincronizarSidebar: () => Promise<void>;
+  sincronizarPanelMeta: () => void;
+  avisar: (texto: string, meta: string, detalle: string) => void;
+  /** [129A-8] Abre el archivo en la tab Files (botón de cada fila del resumen). */
+  verEnFiles: (ruta: string) => void;
   /** [139A-2] Cambios se refresca al cerrar cada turno (cierre perezoso). */
   alTerminarTurno: () => void;
   /** [139A-2] …y al cambiar la conversación del panel enfocado. */
   alCambiarConversacion: () => void;
 }
+
+/** Vista y sincronización delegadas al orquestador. */
+export interface CrearPanelVista extends CrearPanelVistaPanel, CrearPanelVistaSync {}
 
 export interface CrearPanelDeps
   extends CrearPanelNucleo, CrearPanelEstado, CrearPanelTurno, CrearPanelVista {}
@@ -126,7 +133,7 @@ export function crearPanel(
       notificarTurnoFin: deps.notificarTurnoFin,
       registrarUltimoEnvio: deps.registrarUltimoEnvio,
       resincronizarSidebar: deps.resincronizarSidebar,
-      verEnCambios: deps.verEnCambios,
+      verEnFiles: deps.verEnFiles,
       onConversacionCambio(id) {
         // Al cambiar la conversación del panel ENFOCADO, la sidebar lo marca.
         // [069A-7] `null` (borrador) → deselecciona la lista.

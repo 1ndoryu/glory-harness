@@ -13,6 +13,37 @@ function escaparHtml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
+/** [20-09-2026] Cuenta añadidas/eliminadas de un diff unificado (misma regla
+ * que el cuerpo del formateo: se salta `@@`, cuenta `+`/`-` iniciales).
+ * El resumen del turno la reutiliza para las stats por archivo sin duplicar. */
+export function contarDiff(diff: string | null): { añadidas: number; eliminadas: number } {
+  let añadidas = 0;
+  let eliminadas = 0;
+  if (!diff?.trim()) return { añadidas, eliminadas };
+  for (const linea of diff.split('\n')) {
+    if (linea.startsWith('@@')) continue; // cabecera de hunk: sin valor para la UI
+    if (linea.startsWith('+')) añadidas += 1;
+    else if (linea.startsWith('-')) eliminadas += 1;
+  }
+  return { añadidas, eliminadas };
+}
+
+/** [20-09-2026] Título de tarjeta de escritura con el cambio real
+ * (`Modificando ruta · -N +M`): sustituye el sufijo genérico de
+ * `descripcionDeTool` ("archivo completo", "líneas modificadas"). `null` =
+ * no es escritura con diff contable (el llamador conserva el título plano). */
+export function tituloCambioHtml(tool: string, ruta: string | null, diff: string | null): string | null {
+  if (tool !== 'file_write' && tool !== 'file_patch') return null;
+  const { añadidas, eliminadas } = contarDiff(diff);
+  if (añadidas + eliminadas === 0) return null;
+  const base = ruta ? `Modificando ${escaparHtml(ruta)}` : 'Modificando archivo';
+  const conteo = [
+    eliminadas > 0 ? `<span class="rotulo-del">-${eliminadas}</span>` : '',
+    añadidas > 0 ? `<span class="rotulo-add">+${añadidas}</span>` : '',
+  ].filter(Boolean).join(' ');
+  return `${base} · ${conteo}`;
+}
+
 /** Convierte el resumen y el diff en HTML legible: resumen capitalizado,
  * rótulo con el conteo real y una línea por clase (add/del/ctx) para que el
  * CSS atenúe el contexto y resalte los cambios. */
@@ -23,8 +54,7 @@ export function formatearResultadoHerramienta(resumen: string, diff?: string | n
     return `<span class="resumen">${escaparHtml(encabezado)}</span>`;
   }
 
-  let añadidas = 0;
-  let eliminadas = 0;
+  const { añadidas, eliminadas } = contarDiff(diff);
   const cuerpo: string[] = [];
   for (const linea of diff.split('\n')) {
     if (linea.startsWith('@@')) continue; // cabecera de hunk: sin valor para la UI
@@ -33,11 +63,9 @@ export function formatearResultadoHerramienta(resumen: string, diff?: string | n
     if (linea.startsWith('+')) {
       clase = 'add';
       contenido = linea.slice(1);
-      añadidas += 1;
     } else if (linea.startsWith('-')) {
       clase = 'del';
       contenido = linea.slice(1);
-      eliminadas += 1;
     } else if (linea.startsWith(' ')) {
       contenido = linea.slice(1);
     } else if (linea.trimStart().startsWith('…')) {
@@ -49,9 +77,11 @@ export function formatearResultadoHerramienta(resumen: string, diff?: string | n
   if (añadidas + eliminadas === 0) {
     return `<span class="resumen">${escaparHtml(encabezado)}</span>`;
   }
+  /* [20-09-2026] Contador por tramos (`-N` rojo / `+M` verde en los temas
+   * oscuros): un solo span no permite teñir cada lado por separado. */
   const conteo = [
-    eliminadas > 0 ? `-${eliminadas}` : '',
-    añadidas > 0 ? `+${añadidas}` : '',
+    eliminadas > 0 ? `<span class="rotulo-del">-${eliminadas}</span>` : '',
+    añadidas > 0 ? `<span class="rotulo-add">+${añadidas}</span>` : '',
   ].filter(Boolean).join(' ');
   return [
     `<span class="resumen">${escaparHtml(encabezado)}</span>`,

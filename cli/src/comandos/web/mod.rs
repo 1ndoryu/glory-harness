@@ -11,6 +11,7 @@
 //! |-------------------------------------------------|------------------------
 //! | `GET /healthz`                                  | Liveness               |
 //! | `POST /api/v1/session` (Bearer master)          | Crear sesión + cookie  |
+//! | `GET /api/v1/session/actual` (cookie)            | Reanudar sesión viva   |
 //! | `DELETE /api/v1/session/:id`                    | Cerrar sesión          |
 //! | `GET /api/v1/session/:id/events`                | SSE (cookie o Bearer)  |
 //! | `PATCH /api/v1/session/:id/meta`                | Fijar/limpiar meta     |
@@ -45,6 +46,7 @@ use tower_http::limit::RequestBodyLimitLayer;
 use uuid::Uuid;
 
 use crate::servicio::{OpcionesSesion, SesionComun};
+use glory_harness_core::llm::LlavesProveedor;
 
 // Dominios del servidor web, en subdirectorio para no abarrotar `comandos/`.
 pub mod meta;
@@ -400,6 +402,54 @@ async fn crear_sesion(
     Ok((StatusCode::OK, [(header::SET_COOKIE, cookie)], cuerpo).into_response())
 }
 
+/// `GET /api/v1/session/actual` — reanuda la sesión viva de la cookie
+/// `gh_sesion` sin crear una nueva (misma forma que `POST /api/v1/session`;
+/// `conversacion` es `null` si la sesión está en borrador). Sin cookie de
+/// sesión válida → 401 y el cliente crea una con `POST`. Cada recarga de
+/// página creaba una sesión y agotaba el tope (16 con TTL 24 h); reanudar
+/// evita la fuga. Solo cookie: el token maestro no reanuda (crea).
+async fn sesion_actual(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+) -> Result<Response, ApiError> {
+    let sid = match credencial(&headers, &state).await {
+        Some(Credencial::SesionCookie(s)) => s,
+        _ => return Err(error("no_autorizado", "sin sesión activa en la cookie")),
+    };
+    // Reutiliza la validación completa (UUID, coincidencia, origen GET y
+    // expiración/TTL con purga).
+    let (sesion, _) = autorizar_sesion(&headers, &Method::GET, &state, &sid).await?;
+    let comun = sesion.comun.lock().await.clone();
+    let llaves = LlavesProveedor::from_env();
+    let proveedores = serde_json::json!([
+        { "nombre": "cerebras", "claves": llaves.cerebras.len() },
+        { "nombre": "groq", "claves": llaves.groq.len() },
+        { "nombre": "deepseek", "claves": llaves.deepseek.len() },
+        { "nombre": "glory", "claves": llaves.glory.len() },
+        { "nombre": "commandcode", "claves": llaves.commandcode.len() },
+        { "nombre": "opencode-go", "claves": llaves.opencode_go.len() },
+    ]);
+    let actual = *sesion.conversacion_id.lock().await;
+    let conversacion = match actual {
+        Some(cid) => comun
+            .persistencia
+            .conversaciones_listar(comun.user_id)
+            .map_err(|e| error("sesion", e.to_string()))?
+            .into_iter()
+            .find(|c| c.id == cid),
+        None => None,
+    };
+    Ok(Json(serde_json::json!({
+        "ok": true,
+        "session_id": sid,
+        "modelo": comun.modelo,
+        "workspace": comun.workspace,
+        "proveedores": proveedores,
+        "conversacion": conversacion,
+    }))
+    .into_response())
+}
+
 /* [109A-5 F3] El ciclo de vida de la meta por HTTP (PATCH/GET `/meta`) vive
  * en `meta.rs`: este archivo roza el límite de 500 líneas y ese par de
  * handlers, con su carga y su emisión de `agent.event`, es autocontenido. */
@@ -412,6 +462,17 @@ async fn cerrar_sesion(
 ) -> Result<Json<Value>, ApiError> {
     let (sesion, _) = autorizar_sesion(&headers, &Method::DELETE, &state, &id).await?;
     self::turnos::abortar_turno_activo(&sesion, "sesión cerrada").await;
+    /* [209A-1 F4-resto] Reap global de la sesión que se cierra: ninguna
+     * consola viva debe sobrevivir a su sesión. */
+    {
+        let comun = sesion.comun.lock().await;
+        if let Some(ejecutor) = comun.ejecutor.as_ref() {
+            let matadas = ejecutor.matar_todas().await;
+            if matadas > 0 {
+                tracing::info!(sesion = %id, matadas, "reap de consolas al cerrar sesión");
+            }
+        }
+    }
     state.sesiones.lock().await.remove(&id);
     Ok(Json(serde_json::json!({ "ok": true, "session_id": id })))
 }
@@ -484,6 +545,7 @@ pub(crate) fn router(state: Arc<AppState>) -> Router {
     Router::new()
         .route("/healthz", get(healthz))
         .route("/api/v1/session", post(crear_sesion))
+        .route("/api/v1/session/actual", get(sesion_actual))
         .route("/api/v1/session/{id}", delete(cerrar_sesion))
         .route("/api/v1/session/{id}/events", get(eventos_sse))
         .route("/api/v1/session/{id}/meta", patch(actualizar_meta).get(leer_meta))
@@ -511,6 +573,24 @@ pub(crate) fn router(state: Arc<AppState>) -> Router {
             "/api/v1/session/{id}/conversations/{cid}",
             patch(super::web_datos::parchear_conversacion)
                 .delete(super::web_datos::eliminar_conversacion),
+        )
+        /* [209A-1 F4-resto] × de la tab Consola sobre una entrada viva. */
+        .route(
+            "/api/v1/session/{id}/consolas/{eid}/matar",
+            post(super::web_datos::matar_consola),
+        )
+        /* [219A-3] Sub-barra de la tab Consola: lista + backfill + stdin. */
+        .route(
+            "/api/v1/session/{id}/consolas",
+            get(super::web_datos::listar_consolas),
+        )
+        .route(
+            "/api/v1/session/{id}/consolas/{eid}/salida",
+            get(super::web_datos::salida_consola),
+        )
+        .route(
+            "/api/v1/session/{id}/consolas/{eid}/escribir",
+            post(super::web_datos::escribir_consola),
         )
         .route(
             "/api/v1/session/{id}/providers",
@@ -630,11 +710,34 @@ pub async fn run(
         }
     };
 
-    match axum::serve(listener, app).await {
+    match axum::serve(listener, app)
+        .with_graceful_shutdown(apagado_ordenado(Arc::clone(&state)))
+        .await
+    {
         Ok(()) => std::process::ExitCode::SUCCESS,
         Err(e) => {
             eprintln!("[glory-harness web] error del servidor: {e}");
             std::process::ExitCode::from(1)
+        }
+    }
+}
+
+/// [209A-1 F4-resto] Apagado ordenado: ante Ctrl+C se matan las consolas
+/// vivas de TODAS las sesiones antes de soltar el listener (ningún hijo
+/// debe sobrevivir al proceso).
+async fn apagado_ordenado(state: Arc<AppState>) {
+    if tokio::signal::ctrl_c().await.is_err() {
+        return;
+    }
+    eprintln!("[glory-harness web] cerrando: reap de consolas…");
+    let sesiones = state.sesiones.lock().await;
+    for (id, sesion) in sesiones.iter() {
+        let comun = sesion.comun.lock().await;
+        if let Some(ejecutor) = comun.ejecutor.as_ref() {
+            let matadas = ejecutor.matar_todas().await;
+            if matadas > 0 {
+                eprintln!("[glory-harness web] sesión {id}: {matadas} consola(s) matada(s)");
+            }
         }
     }
 }
@@ -1122,6 +1225,47 @@ pub(crate) mod tests {
         assert!(!state.sesiones.lock().await.contains_key(&sid));
     }
 
+    /// Reanudar por cookie devuelve la misma sesión (sin crear otra).
+    #[tokio::test]
+    async fn sesion_actual_reanuda_por_cookie() {
+        let state = state_test();
+        let (sid, _) = sesion_memoria(&state).await;
+        let app = router(Arc::clone(&state));
+        let res = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/session/actual")
+                    .header(header::COOKIE, format!("{COOKIE_SESION}={}", state.secreto.empaquetar(&sid)))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let cuerpo: Value =
+            serde_json::from_slice(&axum::body::to_bytes(res.into_body(), 4096).await.unwrap())
+                .unwrap();
+        assert_eq!(cuerpo["session_id"], serde_json::json!(sid));
+        assert_eq!(state.sesiones.lock().await.len(), 1);
+    }
+
+    /// Sin cookie de sesión, reanudar → 401 (el cliente creará con POST).
+    #[tokio::test]
+    async fn sesion_actual_sin_cookie_devuelve_401() {
+        let app = router(state_test());
+        let res = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/session/actual")
+                    .header(header::AUTHORIZATION, bearer_master())
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
+    }
+
     /// [069A-2 F6] Con el tope de sesiones vivas, crear otra → 429.
     #[tokio::test]
     async fn crear_sesion_con_tope_devuelve_429() {
@@ -1143,5 +1287,83 @@ pub(crate) mod tests {
             .await
             .unwrap();
         assert_eq!(res.status(), StatusCode::TOO_MANY_REQUESTS);
+    }
+
+    /// [209A-1 F4-resto] Matar una consola inexistente es idempotente:
+    /// 200 con `matada: false` (sin error: la vista ya la marca como
+    /// terminada al llegar `consola_fin`).
+    #[tokio::test]
+    async fn matar_consola_desconocida_devuelve_matada_false() {
+        let state = state_test();
+        let (sid, sesion) = sesion_memoria(&state).await;
+        sesion.comun.lock().await.ejecutor =
+            Some(Arc::new(crate::ejecutor::EjecutorCliente::nuevo()));
+        let app = router(Arc::clone(&state));
+        let res = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri(format!("/api/v1/session/{sid}/consolas/no-existe/matar"))
+                    .header(header::AUTHORIZATION, format!("Bearer {sid}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let cuerpo: Value =
+            serde_json::from_slice(&axum::body::to_bytes(res.into_body(), 1024).await.unwrap())
+                .unwrap();
+        assert_eq!(cuerpo, serde_json::json!({ "ok": true, "matada": false }));
+    }
+
+    /// [209A-1 F4-resto] La × de la tab sobre una viva la mata de verdad:
+    /// 200 con `matada: true` y el proceso deja de estar vivo (el pump lo
+    /// reapea al salir).
+    #[tokio::test]
+    async fn matar_consola_viva_la_mata() {
+        use glory_harness_core::EjecutorComando;
+        let state = state_test();
+        let (sid, sesion) = sesion_memoria(&state).await;
+        let ejecutor = Arc::new(crate::ejecutor::EjecutorCliente::nuevo());
+        let id = format!("test-matar-{}", Uuid::new_v4());
+        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+        let comando = if cfg!(windows) {
+            "ping -n 61 127.0.0.1".to_string()
+        } else {
+            "sleep 60".to_string()
+        };
+        ejecutor
+            .ejecutar_en_vivo(&id, &comando, Uuid::nil(), true, tx)
+            .await
+            .expect("arranca la viva");
+        sesion.comun.lock().await.ejecutor = Some(Arc::clone(&ejecutor));
+        let app = router(Arc::clone(&state));
+        let res = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri(format!("/api/v1/session/{sid}/consolas/{id}/matar"))
+                    .header(header::AUTHORIZATION, format!("Bearer {sid}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let cuerpo: Value =
+            serde_json::from_slice(&axum::body::to_bytes(res.into_body(), 1024).await.unwrap())
+                .unwrap();
+        assert_eq!(cuerpo, serde_json::json!({ "ok": true, "matada": true }));
+        let mut viva = true;
+        for _ in 0..20 {
+            let infos = ejecutor.lista().await.expect("lista");
+            if infos.iter().all(|i| i.id_ejecucion != id || !i.viva) {
+                viva = false;
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(500)).await;
+        }
+        assert!(!viva, "la consola debió morir tras matarla");
     }
 }

@@ -6,13 +6,14 @@
 // app» o con Escape. La interfaz ModalConfiguracion no cambia: el
 // cableado (vistaModal, crearPanel, main) sigue intacto.
 
+import { invoke } from '@tauri-apps/api/core';
 import { FORMULARIO_CONFIGURACION, OPCIONES_MODELO } from '../dominio/opciones';
 import type { ModeloSeleccionado, ProveedorModelo } from '../dominio/tipos';
 import type { ModoEjecucion } from './entrada';
 import { montarFormulario } from './formulario';
 import { montarMemorias, type MemoriasDeps, type MemoriasPanel } from './memorias';
 import { montarSelectorModelo, type SelectorModeloApi } from './selectorModelo';
-import { el } from '../util/dom';
+import { el, porId } from '../util/dom';
 
 export interface ModalConfiguracion {
   raiz: HTMLElement;
@@ -242,7 +243,34 @@ export function montarModalConfiguracion(opts: ModalOpciones): ModalConfiguracio
   pagina.appendChild(cuerpo);
 
   // ---------- comportamiento ----------
+  /* [179A-3] La webview hija del navegador es una ventana nativa (HWND) y
+     queda por encima de cualquier DOM, incluido `.ajustes-pagina` (z-10).
+     Al abrir ajustes se oculta (1x1 fuera de pantalla) y al cerrar se
+     muestra + reposiciona sobre su contenedor. En web no hay IPC: se ignora. */
+  function ocultarWebview(): void {
+    void invoke('navegador_mostrar', { visible: false }).catch(() => {});
+  }
+  function mostrarWebview(): void {
+    void (async () => {
+      try {
+        await invoke('navegador_mostrar', { visible: true });
+        const cont = porId('navegador-webview-contenedor');
+        if (!cont) return;
+        const r = cont.getBoundingClientRect();
+        if (r.width < 2 || r.height < 2) return;
+        await invoke('navegador_posicionar', {
+          x: Math.round(r.left),
+          y: Math.round(r.top),
+          ancho: Math.round(r.width),
+          alto: Math.round(r.height),
+        });
+      } catch {
+        /* modo web o navegador cerrado: nada que reposicionar */
+      }
+    })();
+  }
   function abrir(): void {
+    ocultarWebview();
     pagina.hidden = false;
     // Cada apertura parte de la vista limpia (sin búsqueda residual).
     buscar.value = '';
@@ -253,6 +281,7 @@ export function montarModalConfiguracion(opts: ModalOpciones): ModalConfiguracio
   }
   function cerrar(): void {
     pagina.hidden = true;
+    mostrarWebview();
     buscar.blur();
   }
 

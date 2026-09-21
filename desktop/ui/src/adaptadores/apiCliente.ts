@@ -132,7 +132,9 @@ export function crearClienteApi(
     onEvento: (ev: AgenteEvento) => void,
     onFin: (ok: boolean, error?: string) => void,
   ): void {
-    if (fuente) return;
+    // Sin sid no hay URL válida (`/session//events` → 404): no fijar la
+    // fuente; el próximo `escucharTurno` (ya con sesión) reintenta.
+    if (!sid || fuente) return;
     avisarConexion?.('conectando');
     const es = new EventSource(`${base}/api/v1/session/${sid}/events`);
     fuente = es;

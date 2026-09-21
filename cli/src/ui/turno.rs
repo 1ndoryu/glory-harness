@@ -82,6 +82,7 @@ pub async fn procesar_turno(
                 ok,
                 resumen,
                 diff,
+                ..
             } => herramientas.push(HerramientaEjecutada {
                 tool: tool.clone(),
                 ok: *ok,

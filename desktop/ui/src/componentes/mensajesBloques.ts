@@ -89,6 +89,9 @@ export interface HerramientaViva {
   ejecutando(): void;
   completada(meta: string, resultado: ResultadoHerramienta): void;
   errored(meta: string, resultado: ResultadoHerramienta): void;
+  /** [20-09-2026] Reescribe el título al cerrar (p. ej. `Modificando ruta ·
+   * -N +M` con el conteo real del diff, que en `tool_start` aún no existe). */
+  ponerTitulo(html: string): void;
   /** [209A-1 F3] Botón en la fila (p. ej. "ver en Consola" con `consola_id`):
    * receta `aviso-accion`, visible sin desplegar; no abre el <details>. */
   agregarAccion(etiqueta: string, iconoNombre: IconoNombre, onClick: () => void): void;
@@ -130,6 +133,9 @@ function baseHerramienta(iconoNombre: IconoNombre, titulo: string): HerramientaV
       ponerIcono(nodoMeta, 'x-circulo', true);
       aplicarResultado(nodoResultado, resultado);
     },
+    ponerTitulo(html: string) {
+      ponerHtmlSeguro(texto, html);
+    },
     agregarAccion(etiqueta: string, iconoNombre: IconoNombre, onClick: () => void) {
       const b = el('button', 'herramienta-accion') as HTMLButtonElement;
       b.type = 'button';
@@ -152,9 +158,13 @@ function baseHerramienta(iconoNombre: IconoNombre, titulo: string): HerramientaV
 export function crearHerramienta(opts: {
   icono: IconoNombre;
   titulo: string;
+  /** [20-09-2026] Título rico opcional (p. ej. con `-N +M` en color): si
+   * viene, sustituye al `titulo` plano con inserción saneada. */
+  tituloHtml?: string;
   estado: EstadoHerramienta;
 }): HTMLElement {
   const h = baseHerramienta(opts.icono, opts.titulo);
+  if (opts.tituloHtml) h.ponerTitulo(opts.tituloHtml);
   const e = opts.estado;
   if (e.estado === 'ejecutando') h.ejecutando();
   else if (e.estado === 'completada') h.completada(e.meta, e.resultado);

@@ -19,8 +19,8 @@ pub(crate) use areas::{
 };
 pub(crate) use configuracion::{guardar_config, leer_config, leer_proveedores};
 pub(crate) use conversaciones::{
-    cargar_conversacion, crear_conversacion, eliminar_conversacion, listar_conversaciones,
-    parchear_conversacion,
+    cargar_conversacion, crear_conversacion, eliminar_conversacion, escribir_consola,
+    listar_consolas, listar_conversaciones, matar_consola, parchear_conversacion, salida_consola,
 };
 pub(crate) use files::{files_buscar, files_info, files_leer, files_listar};
 pub(crate) use git::git_estado;

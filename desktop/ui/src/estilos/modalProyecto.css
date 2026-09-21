@@ -32,7 +32,7 @@
 .proyecto-modal-label[hidden] { display: none; }
 
 .proyecto-modal-input {
-    border: 1px solid #000;
+    border: 1px solid var(--borde);
     background: var(--fondo);
     color: var(--texto);
     font-family: inherit;
@@ -60,7 +60,7 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    border: 1px solid #000;
+    border: 1px solid var(--borde);
     background: var(--fondo);
     color: var(--texto);
     font-family: inherit;
@@ -81,7 +81,7 @@
 }
 
 .proyecto-modal-btn {
-    border: 1px solid #000;
+    border: 1px solid var(--borde);
     background: var(--fondo);
     color: var(--texto);
     font-family: inherit;

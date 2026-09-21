@@ -103,6 +103,33 @@ export type AgenteEvento =
       duracion_ms: number;
     };
 
+/** [219A-3] Entrada de la sub-barra de la tab Consola: fiel al endpoint
+ * `GET /consolas` y al comando Tauri `consolas_listar` (vivas + recientes).
+ * `codigo_salida` `null` = viva (aún sin código). */
+export interface InfoConsolaLista {
+  id_ejecucion: string;
+  comando: string;
+  viva: boolean;
+  codigo_salida: number | null;
+}
+
+/** [219A-3] Línea del transcript retenido (`salida`): mismos literales de
+ * `flujo` que `consola_chunk`. */
+export interface LineaConsola {
+  flujo: 'stdout' | 'stderr';
+  linea: string;
+}
+
+/** [219A-3] Transcript retenido por consola: fiel al endpoint
+ * `GET /consolas/:eid/salida` y al comando Tauri `consola_salida`. */
+export interface TranscriptConsola {
+  id_ejecucion: string;
+  comando: string;
+  viva: boolean;
+  codigo_salida: number | null;
+  lineas: LineaConsola[];
+}
+
 export interface OpcionesTurno {
   proveedor: string;
   modelo: string;
@@ -161,18 +188,34 @@ export interface AccionRecuperada {
   turno_id: string;
 }
 
+/** [20-09-2026] Uso/modelo real de un turno con su ancla temporal (para
+ * repintar CADA pie de turno al recargar, no solo el último). */
+export interface UsoTurnoRecuperado {
+  /** `creado_en` del turno (ancla: el turno de un mensaje es el último con
+   * `turno_en <= creado_en` del mensaje). */
+  turno_en: string;
+  provider: string;
+  modelo: string;
+  tokens_prompt: number;
+  tokens_complecion: number;
+}
+
 export interface CargaConversacion {
   id: string;
   titulo: string;
   mensajes: MensajeGuardado[];
   acciones: AccionRecuperada[];
-  /** [039A-3 P1] Uso/modelo real del último turno (para repintar el pie). */
+  /** [039A-3 P1] Uso/modelo real del último turno (para repintar el pie).
+   * Se conserva por compatibilidad; el front prefiere `usos_turno`. */
   ultimo_uso: {
     provider: string;
     modelo: string;
     tokens_prompt: number;
     tokens_complecion: number;
   } | null;
+  /** [20-09-2026] Uso/modelo real de TODOS los turnos (cada pie de turno al
+   * recargar, no solo el último). */
+  usos_turno: UsoTurnoRecuperado[];
   /** [039A-3 P3] Archivos que tocó el último tramo rebobinado ("volver a
    * punto"), listos para la acción EXPLÍCITA "restaurar archivos de este
    * tramo". Vacío cuando la carga no viene de un rewind. */
@@ -371,6 +414,18 @@ export interface Transporte {
   // eliminar devuelve la conversación a anclar (`null` = borrador).
   convArchivarProyecto(id: string, archivada: boolean): Promise<number>;
   convEliminarProyecto(id: string, panelId: string | null): Promise<InfoConversacion | null>;
+  /** [209A-1 F4-resto] Mata UNA consola viva (la × de la tab Consola sobre
+   * una entrada viva). `false` = no existe o ya terminó (idempotente). */
+  consolaMatar(idEjecucion: string): Promise<boolean>;
+  /** [219A-3] Sub-barra de la tab Consola: vivas primero + recientes
+   * archivadas (backfill al abrir la tab a mitad de turno). */
+  consolasListar(): Promise<InfoConsolaLista[]>;
+  /** [219A-3] Transcript retenido por `id_ejecucion` (backfill del visor).
+   * Falla si el runner ya no retiene ese id. */
+  consolaSalida(idEjecucion: string): Promise<TranscriptConsola>;
+  /** [219A-3] Bytes crudos al stdin de una viva. Devuelve los bytes
+   * aceptados; falla si terminó o no existe. */
+  consolaEscribir(idEjecucion: string, texto: string): Promise<number>;
   convRewind(hastaMensajeId: string, editar: boolean, panelId: string | null): Promise<CargaConversacion>;
   tramoRestaurar(panelId: string | null): Promise<ResultadoRestauracionTramo>;
   leerProveedores(): Promise<ProveedorInfo[]>;

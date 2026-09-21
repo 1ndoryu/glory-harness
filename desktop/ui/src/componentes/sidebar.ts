@@ -69,8 +69,8 @@ export interface SidebarConversacion {
   onEliminar: (id: string) => void;
 }
 
-/** Acciones de proyectos, panel lateral y nav superior. */
-export interface SidebarProyectoNav {
+/** Acciones de proyectos del panel lateral. */
+export interface SidebarProyecto {
   /** [069A-Proyectos] Se invoca al pulsar el botón + de proyectos. */
   onCrearProyecto?: () => void;
   /** [069A-Proyectos] Se invoca al elegir un proyecto del menú (ruta). */
@@ -87,6 +87,10 @@ export interface SidebarProyectoNav {
   onArchivarHilosProyecto?: (id: string) => void;
   /** [119A-2 F4] Se invoca al eliminar todos los hilos de un proyecto (tras confirmar). */
   onEliminarHilosProyecto?: (id: string) => void;
+}
+
+/** Acciones del panel lateral y nav superior. */
+export interface SidebarNavLateral {
   /** [039A-3 P5] Consulta si se puede ofrecer "Abrir en panel lateral"
    * (el orquestador decide: <2 chats abiertos y ancho suficiente). */
   puedeAbrirLateral?: () => boolean;
@@ -96,6 +100,9 @@ export interface SidebarProyectoNav {
   onAccionNav?: (accion: AccionNav) => void;
   abrirConfig: () => void;
 }
+
+/** Acciones de proyectos, panel lateral y nav superior. */
+export interface SidebarProyectoNav extends SidebarProyecto, SidebarNavLateral {}
 
 export interface SidebarOpciones
   extends SidebarDatos, SidebarConversacion, SidebarProyectoNav {}

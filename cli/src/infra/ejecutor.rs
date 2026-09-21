@@ -27,8 +27,8 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
-use tokio::io::{AsyncBufReadExt, AsyncRead, BufReader};
-use tokio::process::{Child, Command};
+use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWriteExt, BufReader};
+use tokio::process::{Child, ChildStdin, Command};
 use tokio::sync::{Mutex, Notify};
 use tokio::sync::mpsc::UnboundedSender;
 use uuid::Uuid;
@@ -37,7 +37,7 @@ use glory_harness_core::aplicar_entorno_minimo;
 use glory_harness_core::error::{Error, Result};
 use glory_harness_core::evento::FlujoConsola;
 use glory_harness_core::ports::{
-    ChunkConsola, EjecutorComando, InfoConsola, ResultadoEjecucionComando,
+    ChunkConsola, EjecutorComando, InfoConsola, ResultadoEjecucionComando, TranscriptConsola,
 };
 
 use super::jaula::construir_directo;
@@ -67,6 +67,12 @@ const LIMITE_RING_BYTES: usize = 128 * 1024;
 /// no crece sin cota (una sesión larga con cientos de ejecuciones no hincha
 /// la memoria del proceso CLI/web).
 const MAX_CONSOLAS_RECIENTES: usize = 64;
+/// [219A-3] Tope por escritura al stdin de una consola viva (64 KB): una
+/// pegada accidental no hincha la tubería; el llamador trocea si necesita más.
+const MAX_ESCRITURA_STDIN: usize = 64 * 1024;
+/// [219A-3] Tope de líneas del transcript de `salida` (backfill de la UI al
+/// abrir la tab): la UI pide el vivo + este volcado acotado, no el ring entero.
+const MAX_LINEAS_TRANSCRIPT: usize = 2000;
 
 /// [209A-1 F2] Consola viva: metadatos + anillo de una ejecución desacoplada
 /// en curso. El hijo lo posee la tarea pump (`tareas`, como en F1: quien lo
@@ -86,9 +92,15 @@ struct ConsolaViva {
     /// (es el único que posee el `Child` en ese momento).
     matar: Notify,
     /// Anillo de líneas recientes (capado a `LIMITE_RING_BYTES`).
-    anillo: Mutex<VecDeque<String>>,
+    /// [219A-3] Guarda el chunk con su flujo: el transcript de `salida` lo
+    /// necesita para el backfill de la UI (stdout vs stderr).
+    anillo: Mutex<VecDeque<ChunkConsola>>,
     bytes_anillo: AtomicUsize,
     bytes_descartados: AtomicUsize,
+    /// [219A-3] Stdin del hijo para `escribir` (interactuar desde la UI).
+    /// El pump nunca lo toca; `None` cuando el hijo ya salió (el `Child` lo
+    /// posee la tarea pump y al salir no hay a quién escribir).
+    stdin: Mutex<Option<ChildStdin>>,
 }
 
 /// Handle compartido de una tarea de fondo: el spawner y `matar` compiten por
@@ -196,7 +208,7 @@ impl EjecutorCliente {
                         }
                     }
                     if let Some(v) = &anillo {
-                        Self::empujar_anillo(v, &linea).await;
+                        Self::empujar_anillo(v, flujo, &linea).await;
                     }
                 }
                 Err(_) => break,
@@ -207,15 +219,19 @@ impl EjecutorCliente {
 
     /// [209A-1 F2] Empuja una línea al anillo, descartando las más antiguas
     /// al superar `LIMITE_RING_BYTES` (contador para el fin).
-    async fn empujar_anillo(viva: &Arc<ConsolaViva>, linea: &str) {
+    async fn empujar_anillo(viva: &Arc<ConsolaViva>, flujo: FlujoConsola, linea: &str) {
         let mut anillo = viva.anillo.lock().await;
         let mut bytes = viva.bytes_anillo.load(Ordering::Relaxed);
         bytes += linea.len();
-        anillo.push_back(linea.to_string());
+        anillo.push_back(ChunkConsola {
+            flujo,
+            linea: linea.to_string(),
+        });
         while bytes > LIMITE_RING_BYTES {
             if let Some(vieja) = anillo.pop_front() {
-                bytes = bytes.saturating_sub(vieja.len());
-                viva.bytes_descartados.fetch_add(vieja.len(), Ordering::Relaxed);
+                bytes = bytes.saturating_sub(vieja.linea.len());
+                viva.bytes_descartados
+                    .fetch_add(vieja.linea.len(), Ordering::Relaxed);
             } else {
                 break;
             }
@@ -252,8 +268,9 @@ impl EjecutorCliente {
     /// [209A-1 F2] Registra la viva (comando, conversación, anillo) con tope
     /// `MAX_CONSOLAS_VIVAS`: la 5ª se RECHAZA (`Error::Ocupado`, hijo matado
     /// nada más nacer para no dejar zombis). El pump retira la viva al salir
-    /// el hijo y archiva en `resultados` (reap automático). `stdin(null)`:
-    /// un fondo nunca debe leer el stdin del operador.
+    /// el hijo y archiva en `resultados` (reap automático). `stdin` con
+    /// tubería retenida [219A-3]: la UI puede escribir a un fondo vivo; un
+    /// fondo nunca lee el stdin del OPERADOR (no se hereda).
     async fn ejecutar_fondo_con_id(
         &self,
         id: &str,
@@ -263,13 +280,14 @@ impl EjecutorCliente {
     ) -> Result<ResultadoEjecucionComando> {
         let mut hijo_inicial = self
             .construir_comando(comando)?
-            .stdin(std::process::Stdio::null())
+            .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
             // [209A-1 F4] Si el turno se cancela y la tarea pump se aborta,
             // el hijo no queda zombi: al soltar el `Child` se mata solo.
             .kill_on_drop(true)
             .spawn()?;
+        let stdin_hijo = hijo_inicial.stdin.take();
         // Tope de vivas BAJO EL MISMO LOCK que el registro (sin carrera:
         // dos fondos concurrentes no pueden colar la 5ª).
         let viva = {
@@ -290,6 +308,7 @@ impl EjecutorCliente {
                 anillo: Mutex::new(VecDeque::new()),
                 bytes_anillo: AtomicUsize::new(0),
                 bytes_descartados: AtomicUsize::new(0),
+                stdin: Mutex::new(stdin_hijo),
             });
             vivas.insert(id.to_string(), Arc::clone(&viva));
             viva
@@ -678,6 +697,78 @@ impl EjecutorComando for EjecutorCliente {
         self.matar_handle(id_fondo).await;
         Ok(())
     }
+
+    async fn escribir(&self, id: &str, datos: &[u8]) -> Result<usize> {
+        // [219A-3] Solo vivas de fondo: las transitorias síncronas no
+        // retienen stdin y una terminada ya no tiene tubería (ambas →
+        // `NoEncontrado`, la UI muestra el error honesto).
+        if datos.len() > MAX_ESCRITURA_STDIN {
+            return Err(Error::Limite(format!(
+                "escritura a consola limitada a {MAX_ESCRITURA_STDIN} bytes por llamada"
+            )));
+        }
+        let viva = self
+            .vivas
+            .lock()
+            .await
+            .get(id)
+            .cloned()
+            .ok_or_else(|| {
+                Error::NoEncontrado(format!("consola desconocida o terminada: {id}"))
+            })?;
+        let mut guardia = viva.stdin.lock().await;
+        let stdin = guardia.as_mut().ok_or_else(|| {
+            Error::NoEncontrado(format!("consola sin stdin (ya terminó): {id}"))
+        })?;
+        stdin.write_all(datos).await.map_err(|_| {
+            Error::NoEncontrado(format!("la consola ya terminó (tubería rota): {id}"))
+        })?;
+        stdin.flush().await.map_err(|_| {
+            Error::NoEncontrado(format!("la consola ya terminó (tubería rota): {id}"))
+        })?;
+        Ok(datos.len())
+    }
+
+    async fn salida(&self, id: &str) -> Result<TranscriptConsola> {
+        // [219A-3] Backfill de la UI: viva = volcado del anillo (con flujo);
+        // archivada = líneas del resultado guardado (flujo stdout: el archivo
+        // mezcla ambos). Acotado a `MAX_LINEAS_TRANSCRIPT`.
+        if let Some(viva) = self.vivas.lock().await.get(id) {
+            let anillo = viva.anillo.lock().await;
+            let total = anillo.len();
+            let desde = total.saturating_sub(MAX_LINEAS_TRANSCRIPT);
+            return Ok(TranscriptConsola {
+                id_ejecucion: id.to_string(),
+                comando: viva.comando.clone(),
+                viva: true,
+                codigo_salida: None,
+                lineas: anillo.iter().skip(desde).cloned().collect(),
+            });
+        }
+        if let Some(r) = self.resultados.lock().await.get(id) {
+            let mut lineas: Vec<ChunkConsola> = r
+                .salida
+                .lines()
+                .rev()
+                .take(MAX_LINEAS_TRANSCRIPT)
+                .map(|l| ChunkConsola {
+                    flujo: FlujoConsola::Stdout,
+                    linea: l.to_string(),
+                })
+                .collect();
+            lineas.reverse();
+            return Ok(TranscriptConsola {
+                id_ejecucion: id.to_string(),
+                comando: r.comando.clone(),
+                viva: false,
+                codigo_salida: r.codigo_salida,
+                lineas,
+            });
+        }
+        Err(Error::NoEncontrado(format!(
+            "consola desconocida (el runner ya no la retiene): {id}"
+        )))
+    }
 }
 
 #[cfg(test)]
@@ -815,6 +906,45 @@ mod tests {
         let archivada = archivada.expect("la viva debió reapearse al terminar");
         assert!(!archivada.viva);
         assert_eq!(archivada.codigo_salida, Some(0));
+    }
+
+    /// [219A-3] `escribir` acepta bytes en una viva; `salida` vuelca el anillo
+    /// (viva) o el resultado archivado; tras `matar`, stdin deja de existir.
+    #[tokio::test]
+    async fn escribir_acepta_en_viva_y_falla_tras_matar() {
+        let e = EjecutorCliente::nuevo();
+        let conv = Uuid::new_v4();
+        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+        let id = format!("test-stdin-{}", Uuid::new_v4());
+        let r = e
+            .ejecutar_en_vivo(&id, &comando_lento(25), conv, true, tx)
+            .await
+            .unwrap();
+        assert!(r.fondo);
+        let escritos = e.escribir(&id, b"hola\n").await.unwrap();
+        assert_eq!(escritos, 5);
+        let viva = e.salida(&id).await.unwrap();
+        assert!(viva.viva);
+        assert_eq!(viva.id_ejecucion, id);
+        assert!(
+            matches!(e.escribir("test-stdin-inexistente", b"x").await, Err(Error::NoEncontrado(_))),
+            "id desconocido debe dar NoEncontrado"
+        );
+        e.matar(&id).await.unwrap();
+        // Tras matar, el pump reapea y stdin deja de existir (≤ 5 s).
+        let mut cerro = false;
+        for _ in 0..10 {
+            if matches!(e.escribir(&id, b"x").await, Err(Error::NoEncontrado(_))) {
+                cerro = true;
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(500)).await;
+        }
+        assert!(cerro, "stdin siguió aceptando tras matar");
+        // Archivada: `salida` sigue disponible con el comando y sin viva.
+        let fin = e.salida(&id).await.unwrap();
+        assert!(!fin.viva);
+        assert_eq!(fin.id_ejecucion, id);
     }
 
     /// [209A-1 F2] `desacoplar` no mata: la viva sigue corriendo y visible.

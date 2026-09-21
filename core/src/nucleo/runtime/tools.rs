@@ -34,8 +34,7 @@ const INTERVALO_VIVO_MS: u128 = 40;
 /// Tamaño que fuerza un envío aunque no haya pasado el intervalo.
 const UMBRAL_VIVO_CHARS: usize = 240;
 
-impl EmisorVivo {
-    pub(crate) fn nuevo() -> Self {
+impl EmisorVivo {    pub(crate) fn nuevo() -> Self {
         Self {
             bufer: String::new(),
             ultimo_envio: std::time::Instant::now(),
@@ -76,16 +75,35 @@ impl EmisorVivo {
     }
 }
 
+/// [20-09-2026] Parámetros de una llamada LLM del runtime (agrupa lo que
+/// antes eran posicionales para que el threading de sesión no añada un
+/// séptimo parámetro a `llm_llamada`, techo de clippy). `sesion` = id
+/// estable que viaja como `sesion_externa` al transporte (el dialecto
+/// Responses de OpenCode Go lo exige como header `x-opencode-session` para
+/// enrutar + cachear; el resto de proveedores lo ignora): el turno pasa su
+/// `conversacion_id`, el subagente su `turno_id`. `None` = el transporte
+/// genera un UUID por llamada (válido, sin caché entre rondas).
+pub(crate) struct LlamadaLlm<'a> {
+    pub mensajes: &'a [AiMessage],
+    pub schemas: &'a [Value],
+    pub on_token: &'a mut (dyn FnMut(&str) -> bool + Send),
+    pub on_razonamiento: &'a mut (dyn FnMut(&str) + Send),
+    pub tx: &'a Sender<AgenteEvento>,
+    pub en_vivo: bool,
+    pub sesion: Option<Uuid>,
+}
+
 impl AgentRuntime {
-    pub(crate) async fn llm_llamada(
-        &self,
-        mensajes: &[AiMessage],
-        schemas: &[Value],
-        on_token: &mut (dyn FnMut(&str) -> bool + Send),
-        on_razonamiento: &mut (dyn FnMut(&str) + Send),
-        tx: &Sender<AgenteEvento>,
-        en_vivo: bool,
-    ) -> Result<(Vec<AiToolCall>, String, usize)> {
+    pub(crate) async fn llm_llamada(&self, llamada: LlamadaLlm<'_>) -> Result<(Vec<AiToolCall>, String, usize)> {
+        let LlamadaLlm {
+            mensajes,
+            schemas,
+            on_token,
+            on_razonamiento,
+            tx,
+            en_vivo,
+            sesion,
+        } = llamada;
         /* [129A-2] El turno principal (`en_vivo`) emite el texto como `Token`
          * throttled durante el stream; cierre, wrap-up e hijos van en batch
          * como siempre (`vivo` queda vacío y `enviados` es 0). El tercer
@@ -113,6 +131,10 @@ impl AgentRuntime {
                     temperature: self.turno_config.temperatura,
                     max_tokens: self.turno_config.max_tokens,
                     reasoning_effort: self.turno_config.nivel_razonamiento.clone(),
+                    /* [20-09-2026] Sesión estable por conversación para el
+                     * dialecto Responses (header `x-opencode-session`); el
+                     * resto de proveedores la ignora. */
+                    sesion_externa: sesion.map(|id| id.to_string()),
                 },
                 schemas.to_vec(),
                 salidas,
@@ -169,7 +191,15 @@ impl AgentRuntime {
         /* [129A-2] El cierre va en batch (sin vivo): un `Token` al final. */
         let mut sin_razonamiento_vivo = |_: &str| {};
         let resultado = self
-            .llm_llamada(&mensajes_cierre, &[], &mut on_token, &mut sin_razonamiento_vivo, tx, false)
+            .llm_llamada(LlamadaLlm {
+                mensajes: &mensajes_cierre,
+                schemas: &[],
+                on_token: &mut on_token,
+                on_razonamiento: &mut sin_razonamiento_vivo,
+                tx,
+                en_vivo: false,
+                sesion: Some(estado.sesion_llm),
+            })
             .await?;
         /* [129A-1] El cierre también razona: se conserva con el resto del
          * turno (el evento en vivo ya salió por `tx`). */
@@ -187,10 +217,14 @@ impl AgentRuntime {
         Ok(())
     }
 
+    /* [209A-1 F1] `conversacion_id` viaja hasta el contexto de la tool para
+     * el streaming de consola (`estado.sesion_llm` lo porta; el hijo
+     * subagente pasa `nil` porque no tiene conversación propia). */
     pub(crate) async fn ejecutar_tool(
         &self,
         user_id: Uuid,
         turno_id: Uuid,
+        conversacion_id: Uuid,
         call: &AiToolCall,
         tx: &Sender<AgenteEvento>,
     ) -> Result<crate::tool::AgentToolResult> {
@@ -218,6 +252,7 @@ impl AgentRuntime {
                 resumen: "bloqueada_por_hook".into(),
                 diff: None,
                 evento_extra: None,
+                consola_id: None,
             });
         }
         let ctx = AgentToolContext {
@@ -239,6 +274,8 @@ impl AgentRuntime {
             todo: self.registry.todo(),
             plan: self.plan_actual(),
             navegador: self.puertos.navegador.as_deref(),
+            conversacion_id,
+            tx_eventos: Some(tx.clone()),
         };
         let resultado = self
             .registry

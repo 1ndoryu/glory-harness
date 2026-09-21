@@ -103,7 +103,8 @@
 }
 
 .consola-visor[hidden],
-.consola-vacio[hidden] {
+.consola-vacio[hidden],
+.consola-stdin[hidden] {
     display: none;
 }
 
@@ -145,6 +146,42 @@
     padding: var(--sp-xs) var(--sp-sm);
     border-top: 1px solid var(--borde);
     font-size: var(--xs);
+    color: var(--texto-tenue);
+}
+
+/* [219A-3] Caja de stdin: fila mono como la salida, sin chrome propio (el
+ * borde superior la separa; el input hereda fondo y color, sin radius). */
+.consola-stdin {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: baseline;
+    gap: var(--sp-xs);
+    padding: var(--sp-xs) var(--sp-sm);
+    border-top: 1px solid var(--borde);
+    font-size: var(--sm);
+}
+
+.consola-stdin-entrada {
+    flex: 1 1 auto;
+    min-width: 0;
+    background: none;
+    border: none;
+    color: var(--texto);
+    font-family: var(--font);
+    font-size: var(--sm);
+    padding: 0;
+}
+
+.consola-stdin-entrada:focus {
+    outline: none;
+}
+
+.consola-stdin-entrada:focus-visible {
+    outline: 2px solid var(--foco);
+    outline-offset: 2px;
+}
+
+.consola-stdin-entrada::placeholder {
     color: var(--texto-tenue);
 }
 

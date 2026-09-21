@@ -69,8 +69,19 @@ export function crearMensajeAsistenteVivo(textoInicial: string): AsistenteVivo {
   return { raiz, nodo, cursor };
 }
 
-/** Datos del pie de turno (P1 039A-3): tokens + modelo + contexto + copiar. */
-export interface PieTurno {
+/** Aviso "pensando…" que se muestra al enviar, hasta que llega el primer
+ * evento con contenido (o el turno falla). El llamador lo retira con
+ * `.remove()`; sobre nodo huérfano es no-op. */
+export function crearMensajePendiente(): HTMLElement {
+  const raiz = el('div', 'msg-asis pendiente');
+  const nodo = el('div', 'texto');
+  nodo.textContent = 'pensando…';
+  raiz.appendChild(nodo);
+  return raiz;
+}
+
+/** Datos del pie de turno (P1 039A-3): tokens + modelo + contexto. */
+export interface PieTurnoDatos {
   tokensPrompt: number;
   tokensComplecion: number;
   /** Modelo que respondió de verdad (`proveedor/modelo` o `null`). */
@@ -93,12 +104,19 @@ export interface PieTurno {
    * al final del pie; el `title` lleva la fecha exacta. `null`/ausente =
    * turno antiguo sin hora (se omite la parte). */
   creadoEnMs?: number | null;
+}
+
+/** Acciones del pie de turno (copiar + ver log). */
+export interface PieTurnoAcciones {
   /** Copiar desde el último mensaje de usuario hasta el último assistant. */
   alCopiar: () => void;
   /** [129A-4 F4] Ver el log del turno (eventos persistidos). Ausente = este
    * pie no conoce su turno (recarga sin id): no se pinta el botón. */
   alVerLog?: () => void;
 }
+
+/** Datos del pie de turno (P1 039A-3): tokens + modelo + contexto + copiar. */
+export interface PieTurno extends PieTurnoDatos, PieTurnoAcciones {}
 
 /**
  * [109A-5 F3] Pinta el badge "meta lograda" en el pie de un turno.

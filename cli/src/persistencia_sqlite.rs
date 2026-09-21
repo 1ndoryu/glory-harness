@@ -310,6 +310,20 @@ pub struct AccionRecuperada {
     pub turno_id: String,
 }
 
+/// Uso/modelo real de un turno, para repintar cada pie de turno al recargar.
+/// [20-09-2026] El front solo recibía el ÚLTIMO uso (`ultimo_uso`): los pies
+/// de turnos anteriores mostraban `0 tok`/sin modelo. El orden se ancla en
+/// `turno_en` (igual que `AccionRecuperada`), no en ids aleatorios.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct UsoTurnoRecuperado {
+    /// `creado_en` del turno (para anclarlo a sus mensajes del turno).
+    pub turno_en: String,
+    pub provider: String,
+    pub modelo: String,
+    pub tokens_prompt: u32,
+    pub tokens_complecion: u32,
+}
+
 /// Implementación SQLite de [`AgentPersistence`] (+ [`ProgramadorTareas`]).
 /// `Clone` comparte la conexión, así que un solo `Arc` sirve a ambos puertos.
 #[derive(Debug, Clone)]

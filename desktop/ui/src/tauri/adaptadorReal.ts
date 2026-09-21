@@ -16,6 +16,7 @@ import type {
   ComandoArea,
   EventoTurnoLog,
   HooksAdaptador,
+  InfoConsolaLista,
   InfoConversacion,
   InfoSesion,
   ListadoMemoria,
@@ -24,6 +25,7 @@ import type {
   ResultadoCarpetaMemoria,
   ResultadoRestauracionTramo,
   ResumenCompactacion,
+  TranscriptConsola,
   Transporte,
 } from './realTipos';
 import { transporteTauri } from './transporteTauri';
@@ -89,6 +91,26 @@ export function crearAdaptadorReal(hooks: HooksAdaptador = {}, transporte: Trans
         panelId?: string,
       ): Promise<InfoConversacion | null> {
         return transporte.convEliminarProyecto(id, panelId ?? null);
+      },
+      /** [209A-1 F4-resto] Mata UNA consola viva (× de la tab Consola).
+       * `false` = no existe o ya terminó (idempotente, sin error). */
+      async matarConsola(idEjecucion: string): Promise<boolean> {
+        return transporte.consolaMatar(idEjecucion);
+      },
+      /** [219A-3] Sub-barra de la tab Consola: vivas + recientes (backfill
+       * al abrir la tab a mitad de turno). */
+      async listarConsolas(): Promise<InfoConsolaLista[]> {
+        return transporte.consolasListar();
+      },
+      /** [219A-3] Transcript retenido por consola (backfill del visor).
+       * Falla si el runner ya no retiene ese id. */
+      async leerSalidaConsola(idEjecucion: string): Promise<TranscriptConsola> {
+        return transporte.consolaSalida(idEjecucion);
+      },
+      /** [219A-3] Bytes crudos al stdin de una viva. Devuelve los bytes
+       * aceptados; falla si terminó o no existe. */
+      async escribirConsola(idEjecucion: string, texto: string): Promise<number> {
+        return transporte.consolaEscribir(idEjecucion, texto);
       },
       /** [039A-3 P2] Borra el hilo posterior a un mensaje de usuario y
        * devuelve la conversación recién recortada. `editar=false` conserva el

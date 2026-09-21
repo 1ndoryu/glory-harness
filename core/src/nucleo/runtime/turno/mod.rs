@@ -18,7 +18,7 @@ use crate::guardas::{aviso_por_repeticion, aviso_vacio, decidir_reintento_vacio,
 use crate::hooks::{EventoHook, SalidaHook};
 use crate::llm::AiMessage;
 
-use super::{mensajes_usuario_resumen, AgentRuntime, CompactarManual, DesgloseContexto};
+use super::{mensajes_usuario_resumen, AgentRuntime, CompactarManual, DesgloseContexto, LlamadaLlm};
 use crate::context::tokens_de_mensaje;
 
 mod auditoria;
@@ -56,12 +56,22 @@ pub(crate) struct EstadoTurno {
      * repintar el summary al recargar, sin contaminar el historial que viaja
      * al proveedor (se filtra en `historial_desde_persistencia`). */
     razonamientos: Vec<String>,
+    /* [20-09-2026] Sesión LLM estable del turno (= `conversacion_id`): viaja
+     * como `sesion_externa` al transporte. El dialecto Responses de OpenCode
+     * Go la exige como header `x-opencode-session` (enrutar + cachear entre
+     * rondas del mismo turno); el resto de proveedores la ignora. */
+    pub(crate) sesion_llm: Uuid,
 }
 
 impl EstadoTurno {
     /// [059A-S3] Ensambla el arranque del turno: system + historial + mensaje
     /// del usuario, y precarga la cola de respuestas previas del asistente.
-    fn nuevo(prompt_sistema: String, historial: Vec<AiMessage>, mensaje_usuario: String) -> Self {
+    fn nuevo(
+        prompt_sistema: String,
+        historial: Vec<AiMessage>,
+        mensaje_usuario: String,
+        sesion_llm: Uuid,
+    ) -> Self {
         let mut mensajes: Vec<AiMessage> = Vec::new();
         mensajes.push(AiMessage::texto("system", prompt_sistema));
         let respuestas_asistente: Vec<String> = historial
@@ -82,6 +92,7 @@ impl EstadoTurno {
             tools_ejecutadas: 0,
             respuesta_final: None,
             razonamientos: Vec::new(),
+            sesion_llm,
         }
     }
 }
@@ -171,8 +182,12 @@ impl AgentRuntime {
         } = peticion;
         let _guarda = self.guarda_modo_turno(modo_forzado);
         let inicio = std::time::Instant::now();
-        let mut estado =
-            EstadoTurno::nuevo(self.prompt_sistema(), historial, mensaje_usuario.clone());
+        let mut estado = EstadoTurno::nuevo(
+            self.prompt_sistema(),
+            historial,
+            mensaje_usuario.clone(),
+            conversacion_id,
+        );
         /* [318A-16 F5] Modo plan: propuesta fresca por turno. El turno
          * anterior dejó su propuesta legible (`plan_actual`); al empezar uno
          * nuevo en modo plan se sustituye (la UI decidió aplicar o descartar
@@ -371,14 +386,15 @@ impl AgentRuntime {
                     texto: pensado.to_string(),
                 });
             };
-            self.llm_llamada(
-                &estado.mensajes,
-                &schemas,
-                &mut on_token,
-                &mut on_razonamiento,
+            self.llm_llamada(LlamadaLlm {
+                mensajes: &estado.mensajes,
+                schemas: &schemas,
+                on_token: &mut on_token,
+                on_razonamiento: &mut on_razonamiento,
                 tx,
-                true,
-            )
+                en_vivo: true,
+                sesion: Some(estado.sesion_llm),
+            })
             .await?
         };
         /* [129A-1] El pensamiento se persiste como fila `reasoning` (el evento

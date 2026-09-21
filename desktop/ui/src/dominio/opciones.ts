@@ -187,9 +187,9 @@ export const OPCIONES_APARIENCIA: GrupoOpciones = {
       opciones: [
         { valor: 'claro', etiqueta: 'Claro' },
         { valor: 'oscuro', etiqueta: 'Oscuro' },
-        { valor: 'synara', etiqueta: 'Synara' },
+        // Synara oculto del selector (estilos y tipo `Tema` intactos por si
+        // el valor persistido es 'synara': se sigue aplicando).
       ],
-      nota: 'Synara usa el seed oscuro de la referencia, con acentos y diffs en color.',
     },
   ],
 };

@@ -25,6 +25,7 @@ export {
 export {
   crearMensajeAsistente,
   crearMensajeAsistenteVivo,
+  crearMensajePendiente,
   crearMensajeUsuario,
   crearPieTurno,
   pintarLogroEnPie,

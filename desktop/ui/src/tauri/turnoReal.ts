@@ -6,6 +6,7 @@
 import {
   crearAvisoSistema,
   crearMensajeAsistenteVivo,
+  crearMensajePendiente,
   crearMensajeUsuario,
   type AsistenteVivo,
 } from '../componentes/mensajes';
@@ -48,6 +49,8 @@ export function crearTurnoReal(hooks: HooksAdaptador, transporte: Transporte): T
   let mensajes: HTMLElement | null = null;
   let onFin: (() => void) | null = null;
   let asistente: AsistenteVivo | null = null;
+  /** "pensando…" visible desde el envío hasta el primer evento (o el fin). */
+  let pendiente: HTMLElement | null = null;
   let cerrado = false;
   let uso: UsoTurno = usoVacio();
   // [039A-3 P1] Cómo terminó el último turno (para que el pie distinga
@@ -92,9 +95,15 @@ export function crearTurnoReal(hooks: HooksAdaptador, transporte: Transporte): T
     asistente = null;
   }
 
+  function quitarPendiente(): void {
+    pendiente?.remove();
+    pendiente = null;
+  }
+
   async function cerrar(ok: boolean, error?: string): Promise<void> {
     if (cerrado) return;
     cerrado = true;
+    quitarPendiente();
     olvidarAsistente();
     ultimoResultado = ok ? 'ok' : 'error';
     if (!ok) aviso(`el turno falló: ${error ?? 'desconocido'}`, '', 'puedes reintentar');
@@ -144,6 +153,7 @@ export function crearTurnoReal(hooks: HooksAdaptador, transporte: Transporte): T
     onFin = fin;
     cerrado = false;
     asistente = null;
+    quitarPendiente();
     estado.herramienta = null;
     estado.razonamiento = null;
     estado.rutaHerramienta = null;
@@ -153,10 +163,20 @@ export function crearTurnoReal(hooks: HooksAdaptador, transporte: Transporte): T
     estado.uso = uso;
     ultimaOpcion = opts;
     mensajes?.appendChild(crearMensajeUsuario(texto));
+    // El turno puede tardar (proveedor, SSE, herramientas) antes del primer
+    // evento: "pensando…" inmediato para no dejar el hueco vacío. Lo releva
+    // el primer evento (`quitarPendiente` en `aplicarEvento`) o el cierre.
+    pendiente = crearMensajePendiente();
+    mensajes?.appendChild(pendiente);
     // [039A-1 04-09 H2] El mensaje del usuario debe verse al enviar: baja el
     // scroll al final (puede que el contenedor no estuviera al fondo).
     if (mensajes) mensajes.scrollTop = mensajes.scrollHeight;
     try {
+      // La sesión (sid/cookie) debe existir ANTES de suscribirse: en modo
+      // web el SSE cuelga de `/api/v1/session/{sid}/events` y suscribirse
+      // con el sid aún vacío fijaba una fuente muerta (sin realtime y sin
+      // fin de turno). En Tauri el orden es indiferente (solo suscribe).
+      await asegurarSesion(opts);
       if (!escuchando) {
         await transporte.escucharTurno(
           (ev) => aplicarEvento(ev, estado, {
@@ -167,12 +187,12 @@ export function crearTurnoReal(hooks: HooksAdaptador, transporte: Transporte): T
             bajarScroll,
             asistenteVivo,
             olvidarAsistente,
+            quitarPendiente,
           }),
           (ok, error) => void cerrar(ok, error),
         );
         escuchando = true;
       }
-      await asegurarSesion(opts);
       await transporte.enviarTurno(texto, opts.panelId ?? null, opts.soloLectura === true);
     } catch (e: unknown) {
       await cerrar(false, String(e));
@@ -187,6 +207,7 @@ export function crearTurnoReal(hooks: HooksAdaptador, transporte: Transporte): T
     transporte.detenerTurno(ultimaOpcion.panelId ?? null);
     if (!cerrado) {
       cerrado = true;
+      quitarPendiente();
       ultimoResultado = 'cancelado';
       // [129A-2] Sin `done` del backend no hay cierre del summary: se fija
       // con lo acumulado para no dejar el spinner colgado.

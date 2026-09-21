@@ -12,8 +12,8 @@ use serde::Serialize;
 use uuid::Uuid;
 
 use crate::{
-    cargar_env_usuario, construir_harness_con, historial_desde_persistencia, InfoConversacion,
-    OpcionesRun, PersistenciaSqlite,
+    cargar_env_usuario, construir_harness_con, historial_desde_persistencia, EjecutorCliente,
+    InfoConversacion, OpcionesRun, PersistenciaSqlite,
 };
 
 use super::meta::{
@@ -124,6 +124,11 @@ pub struct SesionComun {
     /// inyecta un valor real; se conserva aquí para que reconfigurar/cambiar
     /// workspace no pierdan la tool al reconstruir el runtime.
     pub navegador: Option<Arc<dyn NavegadorPort>>,
+    /// [209A-1 F4-resto] Ejecutor de comandos de la sesión (el mismo `Arc`
+    /// que usan las tools `comando`): los cierres lo reutilizan para el
+    /// reap (`matar_por_conversacion` al eliminar, `matar_todas` al cerrar
+    /// la sesión/app). Se adopta del harness al abrir y al reconstruir.
+    pub ejecutor: Option<Arc<EjecutorCliente>>,
 }
 
 /// Datos preparados para que el consumidor ejecute y transporte un turno.
@@ -236,6 +241,9 @@ impl SesionComun {
              * conserva para que `reconfigurar`/`cambiar_workspace` lo
              * reinyecten al reconstruir el runtime. */
             navegador: opciones_run.navegador.clone(),
+            /* [209A-1 F4-resto] El ejecutor viaja con la sesión para el
+             * reap en cierres (eliminar conversación, cerrar sesión/app). */
+            ejecutor: harness.ejecutor_comando.clone(),
         };
         /* [069A-7] `info()` reporta `conv_autocreada:false`; la apertura real
          * propaga si el servicio auto-creó la fila vacía (ver struct). */
@@ -346,6 +354,10 @@ impl SesionComun {
             self.user_id,
         );
         self.runtime = harness.runtime;
+        /* [209A-1 F4-resto] Se adopta el ejecutor fresco (sus tools son las
+         * vigentes): el anterior queda huerfano como hoy —sus pumps
+         * archivan al terminar— y el reap futuro usa el nuevo. */
+        self.ejecutor = harness.ejecutor_comando.clone();
         self.runtime
             .registry
             .fijar_espera_aprobacion_en_turno(espera);

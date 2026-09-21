@@ -177,30 +177,37 @@ demostraron 1-vs-2): `ConsolaViva` gana `matar: Notify` y el pump hace
 reap-por-conversación-solo-las-suyas + matar-todas-vacía-e-idempotente.
 `cargo test --workspace --lib` 521 passed (175 cli + 346 core) +
 `clippy --workspace --all-targets -D warnings` en verde.
-F4-RESTO PENDIENTE (canal UI→backend inexistente, ver §Correcciones):
-cerrar conversación (desktop `chat/conversaciones.rs`, web
-`comandos/web_datos/conversaciones.rs`) no llama a
-`matar_por_conversacion`; ningún cierre de app (Tauri sin hook
-`on_window_event`; web sin shutdown; daemon `ctrl_c` en
-`cli/src/comandos/daemon.rs:347` sin executor en alcance) llama a
-`matar_todas`; cerrar la tab Consola solo limpia el store UI (no mata).
-F5 parcial: type-check + build + tests + clippy en verde; E2E real en
-`:8799` PENDIENTE (requiere turno vivo con LLM + verificación de
-procesos por OS).
+F4-RESTO CERRADO 21-09: retención del executor (`HarnessCli.ejecutor_comando`
+y `SesionComun.ejecutor` en cli; `Sesion.ejecutor` en daemon; `comun.ejecutor`
+en desktop vía `construir_harness_con`): eliminar conversación (desktop +
+web) y eliminar-conversaciones-proyecto (web) llaman a
+`matar_por_conversacion`; cerrar sesión (web + daemon) y cierre de app
+(Tauri `on_window_event` + web `apagado_ordenado` con Ctrl+C + daemon
+`ctrl_c`) llaman a `matar_todas`; archivar NO reapea (reversible, sin ids).
+Canal UI→backend NUEVO: `consola_matar(id)->bool` (Tauri, idempotente) +
+`POST /api/v1/session/:id/consolas/:eid/matar` (web) → `Transporte.
+consolaMatar` (Tauri + web) → `sesion.matarConsola` → × `x-circulo` en la
+cabecera de la tab (solo habilitada con activa viva; la vista NO retira:
+el `consola_fin` la congela). VERIFICADO 21-09: `cargo check --workspace
+--all-targets` + `cargo test --workspace --lib` 523 passed (177 cli con 2
+nuevos `matar_consola_*`, 346 core) + `clippy --workspace --all-targets
+-D warnings` + `npm run type-check` + `npm run build` en verde. Tests
+nuevos: id-desconocido → `{ok:true, matada:false}`; viva real (ping 60 s)
+→ `{ok:true, matada:true}` + proceso muerto. PENDIENTE solo F5 E2E real
+en `:8799` (turno vivo con LLM + verificación de procesos por OS).
 
 ## Correcciones al diseño (lo que el código desmintió)
-- Diseño-3 "el cierre UI invoca `matar`" es FALSO hoy: no existe canal
-  UI→backend (ni comando Tauri ni endpoint web); la × de la tab solo
-  limpia el store. Las primitivas (`matar`, `matar_por_conversacion`,
-  `matar_todas`) existen y están testeadas, pero sin cablear.
+- Diseño-3 "el cierre UI invoca `matar`": FALSO hasta F4-resto (no había
+  canal UI→backend); CERRADO 21-09 con `consola_matar` (Tauri) + endpoint
+  web + × por entrada viva. Las primitivas ya estaban testeadas (F4-backend).
 - Diseño-8 "desacoplar una síncrona libera el turno" NO existe:
   `desacoplar` solo marca `suelta` en vivas (= solo `fondo=true`); las
   síncronas no son vivas (no están en `lista()`, `comando_matar` no las
   alcanza: solo timeout 120 s o cancelación con `kill_on_drop`). No hay
   tool `comando_desacoplar` ni botón "segundo plano".
-- Diseño-9 "cerrar conversación/app mata todo, verificado": el reap por
-  ámbito y el global existen como primitivas (F4-backend) pero NINGÚN
-  cierre los invoca todavía (F4-resto).
+- Diseño-9 "cerrar conversación/app mata todo": era FALSO hasta F4-resto
+  (primitivas sin cablear); CERRADO 21-09 (ver Estado). Excepción honesta:
+  archivar NO reapea (reversible hilo a hilo, sin ids).
 - Preexistente (318A, fuera de alcance): `comando_status` de id
   desconocido devuelve `ok:true` con "(tarea de fondo desconocida)",
   no error, pese a lo que dice su descripción.

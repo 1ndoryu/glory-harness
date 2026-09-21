@@ -969,7 +969,7 @@ mod tests {
      * trabajo y el resumen queda disponible para persistirlo. */
 
     /// Ventana pequeña con cola mínima: hay tramo resumible (la cola no absorbe
-    /// todo el historial) sin que la ocupación llegue al umbral automático.
+    /// el historial íntegro) sin que la ocupación llegue al umbral automático.
     fn config_con_tramo() -> ContextoConfig {
         ContextoConfig {
             max_ventana: 20_000,

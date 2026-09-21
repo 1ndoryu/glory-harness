@@ -22,7 +22,7 @@ pub use modelo::{
 pub use stream::SalidasVivo;
 
 use modelo::{
-    es_error_transitorio, mayuscula_primera, modelo_proveedor, resolver_candidatos, url_proveedor,
+    es_error_transitorio, mayuscula_primera, modelo_proveedor, resolver_candidatos,
     validar_mensajes, PROMPT_NUTRICION,
 };
 
@@ -288,6 +288,9 @@ impl LlmProviderService {
                      * devuelven content vacío o JSON truncado. 512 deja margen. */
                     max_tokens: 512,
                     reasoning_effort: None,
+                    /* [20-09-2026] Estimación puntual: sin sesión estable (el
+                     * transporte genera un UUID por llamada). */
+                    sesion_externa: None,
                 },
             )
             .await?;
@@ -366,6 +369,7 @@ impl LlmProviderService {
             "deepseek" => &self.llaves.deepseek,
             "glory" => &self.llaves.glory,
             "commandcode" => &self.llaves.commandcode,
+            "opencode-go" => &self.llaves.opencode_go,
             _ => &[],
         }
     }
@@ -424,7 +428,7 @@ mod tests {
         let catalogo = catalogo_proveedores();
         assert!(!catalogo.is_empty(), "el catálogo no está vacío");
         let ids: Vec<&str> = catalogo.iter().map(|(id, _)| *id).collect();
-        for esperado in ["groq", "deepseek", "glory", "commandcode", "cerebras"] {
+        for esperado in ["groq", "deepseek", "glory", "commandcode", "cerebras", "opencode-go"] {
             assert!(ids.contains(&esperado), "falta proveedor {esperado}");
         }
         for (id, modelos) in &catalogo {
@@ -605,5 +609,90 @@ mod tests {
     fn candidato_invalido_cae_a_la_cadena() {
         let candidatos = resolver_candidatos("groq", "modelo-inexistente");
         assert_eq!(candidatos[0], ("commandcode", "poolside/laguna-s-2.1-free"));
+    }
+
+    /* [20-09-2026] Dialecto Responses (muse-spark en OpenCode Go): otro
+     * endpoint que el chat; el resto de modelos Go sigue en chat. */
+    #[test]
+    fn dialecto_responses_solo_muse_spark_de_opencode_go() {
+        use crate::llm::modelo::{es_dialecto_responses, url_solicitud};
+        use crate::llm::modelo::RESPONSES_API_URL;
+        assert!(es_dialecto_responses(
+            "opencode-go",
+            "muse-spark-1.3-contributor"
+        ));
+        assert!(!es_dialecto_responses("opencode-go", "gpt-5-nano"));
+        assert!(!es_dialecto_responses("glory", "commandcode"));
+        assert_eq!(
+            url_solicitud("opencode-go", "muse-spark-1.3-contributor"),
+            RESPONSES_API_URL
+        );
+        assert!(url_solicitud("opencode-go", "gpt-5-nano").contains("chat/completions"));
+    }
+
+    /* [20-09-2026] Cuerpo Responses: items `input` tipados, sin temperature
+     * (los modelos de razonamiento la rechazan) y `reasoning.summary:auto`
+     * para pensamiento visible en vivo. */
+    #[test]
+    fn cuerpo_responses_sin_temperature_con_summary_auto() {
+        use crate::llm::red::construir_cuerpo_responses;
+        let mensajes = vec![
+            AiMessage::texto("system", "sé breve"),
+            AiMessage::texto("user", "di ok"),
+        ];
+        let opciones = AiChatOptions {
+            temperature: 0.2,
+            max_tokens: 512,
+            reasoning_effort: Some("medium".into()),
+            sesion_externa: None,
+        };
+        let body = construir_cuerpo_responses("muse-spark-1.3-contributor", &mensajes, &opciones, &[], true);
+        assert_eq!(body["model"], "muse-spark-1.3-contributor");
+        assert!(body.get("temperature").is_none(), "sin temperature");
+        assert!(body.get("messages").is_none(), "sin messages");
+        assert_eq!(body["reasoning"]["effort"], "medium");
+        assert_eq!(body["reasoning"]["summary"], "auto");
+        assert_eq!(body["max_output_tokens"], 512);
+        assert_eq!(body["stream"], true);
+        let input = body["input"].as_array().expect("input es array");
+        assert_eq!(input.len(), 2);
+        assert_eq!(input[0]["type"], "message");
+        assert_eq!(input[0]["role"], "system");
+    }
+
+    /* [20-09-2026] El historial con tool_calls viaja como items
+     * `function_call` + `function_call_output` (Responses no acepta el
+     * formato chat de `tool_calls` dentro del mensaje). */
+    #[test]
+    fn cuerpo_responses_mapea_tool_calls_a_items() {
+        use crate::llm::red::construir_cuerpo_responses;
+        let mut llamada = AiMessage::texto("assistant", "");
+        llamada.tool_calls = Some(vec![crate::llm::AiToolCall {
+            id: "call_1".into(),
+            nombre: "buscar".into(),
+            argumentos: serde_json::json!({"q": "x"}),
+        }]);
+        let mut resultado = AiMessage::texto("tool", "hecho");
+        resultado.tool_call_id = Some("call_1".into());
+        let opciones = AiChatOptions {
+            temperature: 0.2,
+            max_tokens: 512,
+            reasoning_effort: None,
+            sesion_externa: None,
+        };
+        let body = construir_cuerpo_responses(
+            "muse-spark-1.3-contributor",
+            &[llamada, resultado],
+            &opciones,
+            &[],
+            false,
+        );
+        let input = body["input"].as_array().expect("input es array");
+        assert_eq!(input.len(), 2);
+        assert_eq!(input[0]["type"], "function_call");
+        assert_eq!(input[0]["call_id"], "call_1");
+        assert_eq!(input[0]["name"], "buscar");
+        assert_eq!(input[1]["type"], "function_call_output");
+        assert_eq!(input[1]["output"], "hecho");
     }
 }

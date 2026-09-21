@@ -48,6 +48,10 @@ pub(super) fn conteos(llaves: &LlavesProveedor) -> Vec<ProveedorConteo> {
             nombre: "commandcode".into(),
             claves: llaves.commandcode.len(),
         },
+        ProveedorConteo {
+            nombre: "opencode-go".into(),
+            claves: llaves.opencode_go.len(),
+        },
     ]
 }
 

@@ -19,7 +19,7 @@ use crate::subagente::{
     CONCURRENTES_MAX_SUBAGENTES, SUBAGENTES_EN_CURSO,
 };
 
-use super::{decidir_permiso, wrap_up_instruccion, AgentRuntime, VerdictoPermiso};
+use super::{decidir_permiso, wrap_up_instruccion, AgentRuntime, LlamadaLlm, VerdictoPermiso};
 
 impl AgentRuntime {
     /// [318A-15 F4] Intercepta la tool `task` (paridad opencode/claurst):
@@ -78,6 +78,7 @@ impl AgentRuntime {
                 resumen: "agente_desconocido".into(),
                 diff: None,
                 evento_extra: None,
+                consola_id: None,
             });
         };
         let mut instruccion = objetivo.to_string();
@@ -193,7 +194,7 @@ impl AgentRuntime {
             parcial_final = true;
             /* [318A-15 F0] Telemetría: subagente cerrado como parcial. */
             self.telemetria().registrar_subagente_parcial();
-            texto_final = self.cierre_parcial_subagente(&mut mensajes, tx).await?;
+            texto_final = self.cierre_parcial_subagente(&mut mensajes, turno_id, tx).await?;
         }
 
         /* [Bloque 3, F4] Hook `SubagentStop` (informativo): resultado acotado
@@ -288,14 +289,17 @@ impl AgentRuntime {
         /* [129A-2] El hijo no streamea a la UI del padre: sin vivo. */
         let mut sin_razonamiento_vivo = |_: &str| {};
         let (llamadas, _, _) = self
-            .llm_llamada(
+            .llm_llamada(LlamadaLlm {
                 mensajes,
                 schemas,
-                &mut on_token,
-                &mut sin_razonamiento_vivo,
+                on_token: &mut on_token,
+                on_razonamiento: &mut sin_razonamiento_vivo,
                 tx,
-                false,
-            )
+                en_vivo: false,
+                /* [20-09-2026] El hijo no tiene conversación: su turno audita
+                 * contra el del padre, y esa misma id estabiliza su sesión. */
+                sesion: Some(turno_id),
+            })
             .await?;
         if llamadas.is_empty() {
             /* Respuesta final del hijo: es el resumen que volverá al padre. */
@@ -343,13 +347,19 @@ impl AgentRuntime {
             })
             .await;
         let t0_ejecucion = std::time::Instant::now();
-        let resultado = self.ejecutar_tool(user_id, turno_id, call, tx).await?;
+        /* [209A-1 F1] El hijo no tiene conversación propia (`nil`): sus
+         * chunks de consola fluyen al canal del hijo igual que el resto de
+         * eventos; F2 les dará la conversación del padre para el reap. */
+        let resultado = self
+            .ejecutar_tool(user_id, turno_id, Uuid::nil(), call, tx)
+            .await?;
         let _ = tx
             .send(AgenteEvento::ToolResult {
                 tool: call.nombre.clone(),
                 ok: resultado.ok,
                 resumen: resultado.resumen.clone(),
                 diff: resultado.diff.clone(),
+                consola_id: resultado.consola_id.clone(),
             })
             .await;
         /* [318A-15 F0] Telemetría del hijo: las tools del
@@ -500,6 +510,7 @@ impl AgentRuntime {
     async fn cierre_parcial_subagente(
         &self,
         mensajes: &mut Vec<AiMessage>,
+        turno_id: Uuid,
         tx: &Sender<AgenteEvento>,
     ) -> Result<String> {
         mensajes.push(AiMessage::texto("system", wrap_up_instruccion()));
@@ -511,7 +522,15 @@ impl AgentRuntime {
         /* [129A-2] Igual que el paso normal del hijo: sin vivo. */
         let mut sin_razonamiento_vivo = |_: &str| {};
         let _ = self
-            .llm_llamada(mensajes, &[], &mut on_token, &mut sin_razonamiento_vivo, tx, false)
+            .llm_llamada(LlamadaLlm {
+                mensajes,
+                schemas: &[],
+                on_token: &mut on_token,
+                on_razonamiento: &mut sin_razonamiento_vivo,
+                tx,
+                en_vivo: false,
+                sesion: Some(turno_id),
+            })
             .await?;
         Ok(parcial)
     }

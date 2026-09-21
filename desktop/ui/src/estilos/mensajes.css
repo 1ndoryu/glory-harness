@@ -169,6 +169,13 @@
 .herramienta .resultado .del::before { content: '- '; }
 .herramienta .resultado .add::before { content: '+ '; }
 
+/* "pensando…" entre el envío y el primer evento: mismo cuerpo que un
+ * mensaje de asistente, algo tenue y respirando (reutiliza `latido`).
+ * Solo opacidad: vale en claro/oscuro sin tocar el sistema de diseño. */
+.msg-asis.pendiente .texto { opacity: 0.65; animation: latido 1.2s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) {
+    .msg-asis.pendiente .texto { animation: none; }
+}
 /* ---------- Tarjeta de aprobación ---------- */
 /* Con fondo propio: la tarjeta también vive en el slot fijo
    `.aprobaciones-fijas` y no debe transparentar el chat. */
@@ -265,38 +272,62 @@
     white-space: nowrap;
 }
 
-/* [129A-8] Resumen de cambios del turno: conteo + lista con enlace al diff
- * (estilo Synara/VSCode). Bloque sobrio tras el pie; sin cambios no existe. */
+/* [129A-8] Resumen de cambios del turno: cabecera con el total + filas
+ * plegables por archivo (estilo Synara/VSCode). Bloque sobrio tras el pie;
+ * sin cambios no existe. */
 .resumen-turno {
     width: 100%;
     margin-top: var(--sp-xs);
-    padding: 6px 10px;
     border: 1px solid var(--borde);
     /* Mismo cuerpo que el mensaje que lo contiene (`.msg-asis`: --sm);
      * con --xs quedaba visiblemente más pequeño que el texto de alrededor. */
     font-size: var(--sm);
 }
-.resumen-turno-cabecera { opacity: 0.75; }
-.resumen-turno-lista { margin-top: 4px; }
-.resumen-turno-fila {
-    display: flex;
-    align-items: baseline;
-    gap: var(--sp-sm);
-    padding: 1px 0;
+/* [20-09-2026] El bloque no lleva padding: la cabecera aporta el suyo y su
+ * borde inferior separa las filas (las secciones intermedias sobraban). */
+.resumen-turno-cabecera {
+    padding: 6px 10px;
+    border-bottom: 1px solid var(--borde);
+    opacity: 0.75;
 }
-.resumen-turno-ruta {
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-.resumen-turno-clase { flex: none; opacity: 0.55; }
-/* Solo posición en la fila: la pintura la pone el botón canónico `.btn`
- * (borde, fondo y hover por tema, igual que el resto de botones). */
-.resumen-turno-ver {
+/* [20-09-2026] Filas plegables por archivo (misma fila `git-entrada` del
+ * panel Git: estado + nombre + stats + botón Files). El `summary` oculta su
+ * marcador nativo y muestra chevrón propio; el detalle reutiliza el cuadro
+ * `.herramienta .resultado` (mismo resumen que la tarjeta). */
+.resumen-turno-archivo > summary { min-width: 0; }
+.resumen-turno-archivo > summary::-webkit-details-marker { display: none; }
+.resumen-turno-archivo > summary::marker { content: ''; }
+.resumen-turno-archivo > summary::after {
+    content: '▸';
     flex: none;
-    margin-left: auto;
-    white-space: nowrap;
-    font-size: var(--xs);
+    opacity: 0.55;
+}
+.resumen-turno-archivo[open] > summary::after { content: '▾'; }
+/* Botón Files junto a las stats: compacto, sin peso visual (no abre el
+ * plegable; el preventDefault vive en el listener). */
+.resumen-turno-abrir {
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    margin-left: var(--sp-xs);
+    padding: 2px;
+    background: transparent;
+    color: var(--texto);
+    border: none;
+    line-height: 1;
+    cursor: pointer;
+    opacity: 0.65;
+}
+.resumen-turno-abrir:hover { opacity: 1; }
+.resumen-turno-abrir .ic { display: block; }
+.resumen-turno-detalle { padding: 0; }
+/* El cuadro vive dentro del bloque (que ya aporta los bordes laterales):
+ * sin margen superior ni bordes a los lados. */
+.resumen-turno-detalle .resultado {
+    margin-top: 0;
+    border-left: none;
+    border-right: none;
+    /* Sin borde inferior: quedaba pegado al borde del bloque y se veía doble (2px). */
+    border-bottom: none;
 }
 

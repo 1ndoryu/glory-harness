@@ -13,6 +13,7 @@ import type {
   CargaConversacion,
   ComandoArea,
   EventoTurnoLog,
+  InfoConsolaLista,
   InfoConversacion,
   InfoSesion,
   ListadoMemoria,
@@ -21,6 +22,7 @@ import type {
   ResultadoCarpetaMemoria,
   ResultadoRestauracionTramo,
   ResumenCompactacion,
+  TranscriptConsola,
   Transporte,
 } from './realTipos';
 
@@ -72,6 +74,15 @@ export function transporteTauri(): Transporte {
       invoke<number>('archivar_conversaciones_proyecto', { id, archivada }),
     convEliminarProyecto: (id, panelId) =>
       invoke<InfoConversacion>('eliminar_conversaciones_proyecto', { id, panelId: panelId }),
+    // [209A-1 F4-resto] × de la tab Consola sobre una entrada viva.
+    consolaMatar: (idEjecucion) =>
+      invoke<boolean>('consola_matar', { idEjecucion }),
+    // [219A-3] Sub-barra de la tab Consola: lista + backfill + stdin.
+    consolasListar: () => invoke<InfoConsolaLista[]>('consolas_listar'),
+    consolaSalida: (idEjecucion) =>
+      invoke<TranscriptConsola>('consola_salida', { idEjecucion }),
+    consolaEscribir: (idEjecucion, texto) =>
+      invoke<number>('consola_escribir', { idEjecucion, texto }),
     convRewind: (hastaMensajeId, editar, panelId) =>
       invoke<CargaConversacion>('rewind_conversacion', {
         hastaMensajeId,

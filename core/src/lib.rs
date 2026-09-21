@@ -43,7 +43,7 @@ pub use ports::{
     PersistenciaAuditoria,
     PersistenciaMemoria, PersistenciaSkills, PersistenciaTurnos, ProgramadorTareas,
     ProveedorMemoria, ProviderPort, Scriptable, SkillEntrada, SoportaAmbitos, SoportaSkills,
-    WebFetchProvider, WebSearchProvider,
+    TranscriptConsola, WebFetchProvider, WebSearchProvider,
 };
 
 /// Versión del contrato de puertos y eventos.

@@ -345,6 +345,7 @@ fn doctor() {
         ("deepseek", llaves.deepseek.len()),
         ("glory/empero", llaves.glory.len()),
         ("commandcode", llaves.commandcode.len()),
+        ("opencode-go", llaves.opencode_go.len()),
     ]
     .into_iter()
     .map(|(nombre, n)| format!("  {nombre}: {} clave(s)", n))
@@ -354,14 +355,15 @@ fn doctor() {
         + llaves.groq.len()
         + llaves.deepseek.len()
         + llaves.glory.len()
-        + llaves.commandcode.len();
+        + llaves.commandcode.len()
+        + llaves.opencode_go.len();
     println!("glory-harness doctor");
     println!("  contrato core: {}", glory_harness_core::CONTRATO_VERSION);
     println!("  proveedores LLM (claves en env):\n{con_key}");
     if proveedores == 0 {
         eprintln!(
             "  AVISO: no hay claves LLM en el entorno (CEREBRAS_API_KEY, GROQ_API, \
-             DEEPSEEK_API, GLORY_API_KEY, COMMAND_CODE_API_KEY). 'run' fallará sin una."
+             DEEPSEEK_API, GLORY_API_KEY, COMMAND_CODE_API_KEY, OPENCODE_GO_API_KEY). 'run' fallará sin una."
         );
     } else {
         println!("  total: {proveedores} clave(s) disponibles");

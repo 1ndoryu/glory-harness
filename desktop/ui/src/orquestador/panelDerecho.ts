@@ -149,9 +149,29 @@ export function montarPanelDerechoTodo(deps: PanelDerechoDeps): PanelDerechoTodo
   });
   // [209A-1 F3] La tab Consola: store por `id_ejecucion` + lista y visor.
   // Los errores del panel (portapapeles) van al toast global, como Files.
+  // [209A-1 F4-resto] La × sobre una viva mata en el backend (`false` =
+  // ya terminó: sin aviso, el `consola_fin` la congela en la vista).
   const consola = montarPanelConsola({
     onError(texto, detalle) {
       toastGlobal.mostrar(texto, detalle);
+    },
+    onMatar(idEjecucion) {
+      deps.adaptador.sesion
+        .matarConsola(idEjecucion)
+        .catch((err: unknown) => {
+          toastGlobal.mostrar('no se pudo matar la consola', String(err));
+        });
+    },
+    // [219A-3] Puentes al backend para la sub-barra + backfill + stdin. Los
+    // fallos los muestra el panel vía `onError` (aquí no se duplican).
+    onSincronizar() {
+      return deps.adaptador.sesion.listarConsolas();
+    },
+    onLeerSalida(idEjecucion) {
+      return deps.adaptador.sesion.leerSalidaConsola(idEjecucion);
+    },
+    onEscribir(idEjecucion, texto) {
+      return deps.adaptador.sesion.escribirConsola(idEjecucion, texto);
     },
   });
   // [209A-1 F3] Supresión de auto-apertura: la misma máquina pura que F1
@@ -312,6 +332,8 @@ export function montarPanelDerechoTodo(deps: PanelDerechoDeps): PanelDerechoTodo
   // [209A-1 F3] La Consola manual: abre la tab (el visor sigue el último
   // inicio; el usuario elige la entrada en la lista). Apertura manual: se
   // olvida la supresión (igual que F1).
+  // [219A-3] Cada apertura sincroniza la sub-barra con el backend (backfill
+  // al abrir a mitad de turno; sin robar la selección ni duplicar el vivo).
   function abrirConsola(): void {
     supresionConsola.alAbrirManual();
     asegurarPanelDerecho();
@@ -323,6 +345,7 @@ export function montarPanelDerechoTodo(deps: PanelDerechoDeps): PanelDerechoTodo
       cerrarPanelDerechoSiVacio();
     });
     guardarEstadoPanel();
+    void consola.sincronizar();
   }
 
   // [209A-1 F3] El resumen enlaza a la ejecución: abre la tab y revela su

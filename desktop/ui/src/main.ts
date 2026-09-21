@@ -146,6 +146,11 @@ const hooksAdaptador: HooksAdaptador = crearGanchos({
   getNavegador: () => todoNavegador.navegador,
   avisar: avisoGlobal,
   registrarCambioArchivo: (cambio) => files.registrarCambio(cambio),
+  // [179A-2] Cableado pendiente del WIP 139A-2/129A-7/129A-10: cierres de
+  // runtime (las piezas se crean más abajo), fuera de la TDZ.
+  registrarCambioVivo: (ruta, diff) => todoPanelDerecho.cambios.registrarCambioVivo(ruta, diff),
+  abrirNavegadorPorAgente: () => todoNavegador.abrirPorAgente(),
+  mostrarArchivoEnFiles: (ruta) => todoPanelDerecho.abrirFilesEn(ruta),
   // [209A-1 F3] Streaming de consola hacia la tab Consola (cierre perezoso).
   reflejarConsola: (ev) => todoPanelDerecho.onConsolaEvento(ev),
   verConsolaEn: (id) => todoPanelDerecho.abrirConsolaEn(id),
@@ -267,7 +272,12 @@ const depsCrearPanel = crearDepsCrearPanel({
   alternarSidebar,
   alternarPanelDerecho: () => todoPanelDerecho.alternarPanelDerecho(),
   abrirAcciones: (panel, rect) => abrirAccionesPanel(depsLaterales, panel, rect),
+  // [129A-8] Botón Files del resumen del turno: abre el archivo en Files.
+  verEnFiles: (ruta) => todoPanelDerecho.abrirFilesEn(ruta),
+  alTerminarTurno: () => todoPanelDerecho.cambios.recargar(),
+  alCambiarConversacion: () => todoPanelDerecho.cambios.recargarVault(),
   alIniciarTurno: () => {
+    todoNavegador.notificarTurnoInicio();
     // [209A-1 F3] La supresión de la Consola se reinicia con cada turno.
     todoPanelDerecho.notificarTurnoInicioConsola();
   },
@@ -284,6 +294,9 @@ const todoNavegador = montarNavegadorVista({
   panelActivo,
   activarPanel,
   avisar: avisoGlobal,
+  // [179A-2] Cableado pendiente del WIP: el veto del usuario rige mientras
+  // haya turno en curso (cierre de runtime, fuera de la TDZ).
+  turnoEnCurso: () => vistaMeta.hayTurnoGlobal(),
   asegurarPanelDerecho: () => todoPanelDerecho.asegurarPanelDerecho(),
   cerrarPanelDerechoSiVacio: () => todoPanelDerecho.cerrarPanelDerechoSiVacio(),
   abrirTabNavegador: (raiz, onCerrar) => {

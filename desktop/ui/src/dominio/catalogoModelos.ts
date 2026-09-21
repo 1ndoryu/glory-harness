@@ -24,6 +24,13 @@ export const PROVEEDORES: ProveedorModelo[] = [
     ],
   },
   {
+    id: 'opencode-go',
+    etiqueta: 'OpenCode Go',
+    modelos: [
+      { modelo: 'muse-spark-1.3-contributor', nombre: 'Muse Spark 1.3 Contributor' },
+    ],
+  },
+  {
     id: 'deepseek',
     etiqueta: 'DeepSeek (directo)',
     modelos: [{ modelo: 'deepseek-v4-flash', nombre: 'DeepSeek V4 Flash' }],

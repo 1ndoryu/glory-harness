@@ -17,7 +17,7 @@ use crate::servicio::SesionComun;
 use crate::VENTANA_MINIMA;
 
 /// Catálogo real de proveedores (los que `LlavesProveedor` conoce).
-const PROVEEDORES: [&str; 5] = ["cerebras", "groq", "deepseek", "glory", "commandcode"];
+const PROVEEDORES: [&str; 6] = ["cerebras", "groq", "deepseek", "glory", "commandcode", "opencode-go"];
 /// Modos de turno (`OpcionesRun::modo`).
 const MODOS: [&str; 4] = ["predeterminado", "meta", "autonomo", "plan"];
 /// Niveles de razonamiento (`TurnoConfig::nivel_razonamiento`).
@@ -52,6 +52,7 @@ pub(crate) async fn leer_proveedores(
         ("deepseek", llaves.deepseek.len()),
         ("glory", llaves.glory.len()),
         ("commandcode", llaves.commandcode.len()),
+        ("opencode-go", llaves.opencode_go.len()),
     ];
     let proveedores: Vec<Value> = conteos
         .into_iter()
