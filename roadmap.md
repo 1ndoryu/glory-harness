@@ -282,6 +282,19 @@ Siguiente en la serie de 6 pedidos: 129A-11 → 129A-9.
       `prueba-2.txt` (basura) y se excluyó `.glory-harness/backups/`
       (datos runtime). Plan cerrado en
       `Agente/planes/completados/plan-219A-3-consola-interactiva-2026-09-21.md`.
+- [x] **219A-4 — Consola propia del usuario (CERRADA 21-09)**: la tab Consola
+      ya no es solo visor del agente: `[+ Nueva]` abre shell real propia (`cmd`
+      / `sh`, sin jaula) y la barra interna mezcla mías (`mía`) + agente con
+      dueño visible (fila + pie del visor). F2 backend (`OrigenConsola`,
+      `ejecutar_propia`, `POST /consolas`, `origen` en lista/salida) + F3
+      (`consola_crear` Tauri, `consolaCrear` web/Tauri, `NuevaConsola`) + F4 UI
+      (botón `mas`, pastilla dueño, refresco propias sin polling: al
+      seleccionar/abrir/escribir) + fix `bombear` (el anillo se empuja también
+      sin `chunks`: antes las propias devolvían transcript vacío) + `RegistroFondo`
+      (clippy `too_many_arguments`). Gate PASS (541 ok, clippy limpio),
+      `type-check` + `build` UI, funcional `:8799` (crear→escribir→salida con
+      eco→matar). Sin PTY. Plan cerrado en
+      `Agente/planes/completados/plan-219A-4-consola-propia-2026-09-21.md`.
 - [x] **F3 — PersistenciaSqlite** (`cli/src/persistencia_sqlite.rs`, 04-09): `AgentPersistence` +
       `ProgramadorTareas` sobre rusqlite bundled (WAL, `%APPDATA%/glory-harness/glory-harness.db`).
       CRUD de conversaciones, mensaje de usuario persistido por el consumidor en `enviar_turno`,

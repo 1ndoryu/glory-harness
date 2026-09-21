@@ -20,6 +20,7 @@ import type {
   InfoConversacion,
   InfoSesion,
   ListadoMemoria,
+  NuevaConsola,
   ProveedorInfo,
   RestauracionArchivo,
   ResultadoCarpetaMemoria,
@@ -111,6 +112,11 @@ export function crearAdaptadorReal(hooks: HooksAdaptador = {}, transporte: Trans
        * aceptados; falla si terminó o no existe. */
       async escribirConsola(idEjecucion: string, texto: string): Promise<number> {
         return transporte.consolaEscribir(idEjecucion, texto);
+      },
+      /** [219A-4] Abre una consola PROPIA del operador ([+ Nueva] de la
+       * tab). Sin `comando` = shell por defecto del SO. */
+      async crearConsola(comando?: string): Promise<NuevaConsola> {
+        return transporte.consolaCrear(comando);
       },
       /** [039A-3 P2] Borra el hilo posterior a un mensaje de usuario y
        * devuelve la conversación recién recortada. `editar=false` conserva el

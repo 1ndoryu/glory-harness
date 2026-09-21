@@ -566,6 +566,18 @@ pub struct ChunkConsola {
     pub linea: String,
 }
 
+/// [219A-4] Dueño de una consola: quién la abrió. La jaula protege del
+/// MODELO; el operador en loopback es otro nivel de confianza y puede abrir
+/// consolas propias (shell del SO) desde la UI. Por defecto: agente.
+/// Serializa en minúsculas (`agente`/`usuario`) para web y Tauri.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum OrigenConsola {
+    #[default]
+    Agente,
+    Usuario,
+}
+
 /// [209A-1 F2] Vista de una consola para `comando_lista`: vivas (aún en
 /// `vivas` del runner) + recientes archivadas. Sin serializar: la tool la
 /// formatea a texto para el modelo; la UI usa los eventos, no este tipo.
@@ -578,6 +590,8 @@ pub struct InfoConsola {
     pub codigo_salida: Option<i32>,
     /// Bytes retenidos en el ring (viva) o en el transcript (archivada).
     pub bytes: usize,
+    /// [219A-4] Dueño (la UI etiqueta solo vivas; archivadas = Agente).
+    pub origen: OrigenConsola,
 }
 
 /// [219A-3] Transcript retenido de una consola para backfill de la UI (abrir
@@ -592,6 +606,8 @@ pub struct TranscriptConsola {
     pub viva: bool,
     pub codigo_salida: Option<i32>,
     pub lineas: Vec<ChunkConsola>,
+    /// [219A-4] Dueño (coherencia con `InfoConsola`).
+    pub origen: OrigenConsola,
 }
 
 /// Puerto de ejecución de comandos. El núcleo define el contrato; el
@@ -656,6 +672,15 @@ pub trait EjecutorComando: Send + Sync {
         Err(crate::error::Error::NoEncontrado(format!(
             "salida no soportada por este runner (id {id})"
         )))
+    }
+    /// [219A-4] Abre una consola PROPIA del operador (shell del SO, SIN
+    /// jaula: la jaula protege del modelo; el operador en loopback + sesión
+    /// es otro nivel de confianza). `comando=None` = shell por defecto del
+    /// SO. Devuelve el id de ejecución. Por defecto: no soportado.
+    async fn ejecutar_propia(&self, _comando: Option<&str>) -> Result<String> {
+        Err(crate::error::Error::NoEncontrado(
+            "consola propia no soportada por este runner".to_string(),
+        ))
     }
 }
 

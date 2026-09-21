@@ -359,7 +359,7 @@ mod tests {
     use super::*;
     use crate::contrato_tests::PersistenciaMock;
     use crate::evento::FlujoConsola;
-    use crate::ports::{ChunkConsola, InfoConsola, ResultadoEjecucionComando};
+    use crate::ports::{ChunkConsola, InfoConsola, OrigenConsola, ResultadoEjecucionComando};
     use std::sync::Mutex;
     use uuid::Uuid;
 
@@ -723,6 +723,7 @@ mod tests {
             viva: true,
             codigo_salida: None,
             bytes: 128,
+            origen: OrigenConsola::Agente,
         }
     }
 
@@ -734,6 +735,7 @@ mod tests {
             viva: false,
             codigo_salida: Some(0),
             bytes: 512,
+            origen: OrigenConsola::Agente,
         }
     }
 

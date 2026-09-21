@@ -18,6 +18,7 @@ import type {
   InfoSesion,
   ListadoMemoria,
   ProveedorInfo,
+  NuevaConsola,
   RestauracionArchivo,
   ResultadoCarpetaMemoria,
   ResultadoRestauracionTramo,
@@ -83,6 +84,9 @@ export function transporteTauri(): Transporte {
       invoke<TranscriptConsola>('consola_salida', { idEjecucion }),
     consolaEscribir: (idEjecucion, texto) =>
       invoke<number>('consola_escribir', { idEjecucion, texto }),
+    // [219A-4] [+ Nueva]: consola propia del operador (shell por defecto).
+    consolaCrear: (comando) =>
+      invoke<NuevaConsola>('consola_crear', { comando: comando ?? null }),
     convRewind: (hastaMensajeId, editar, panelId) =>
       invoke<CargaConversacion>('rewind_conversacion', {
         hastaMensajeId,

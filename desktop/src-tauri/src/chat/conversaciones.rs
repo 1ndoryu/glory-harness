@@ -445,13 +445,15 @@ pub(crate) async fn consola_matar(
 
 /// [219A-3] Vista de consola para la sub-barra de la tab Consola (vivas +
 /// recientes). Se serializa con los mismos nombres que el endpoint web
-/// (`id_ejecucion`, `comando`, `viva`, `codigo_salida`).
+/// (`id_ejecucion`, `comando`, `viva`, `codigo_salida`, `origen`).
 #[derive(serde::Serialize)]
 pub(crate) struct InfoConsolaTauri {
     id_ejecucion: String,
     comando: String,
     viva: bool,
     codigo_salida: Option<i32>,
+    /// [219A-4] Dueño (`agente`/`usuario` por el contrato de `OrigenConsola`).
+    origen: glory_harness_core::ports::OrigenConsola,
 }
 
 /// [219A-3] Transcript retenido para el backfill de la tab (mismos nombres
@@ -469,6 +471,8 @@ pub(crate) struct TranscriptConsolaTauri {
     comando: String,
     viva: bool,
     codigo_salida: Option<i32>,
+    /// [219A-4] Dueño (coherencia con la lista).
+    origen: glory_harness_core::ports::OrigenConsola,
     lineas: Vec<LineaConsolaTauri>,
 }
 
@@ -494,6 +498,7 @@ pub(crate) async fn consolas_listar(
             comando: c.comando,
             viva: c.viva,
             codigo_salida: c.codigo_salida,
+            origen: c.origen,
         })
         .collect())
 }
@@ -523,6 +528,7 @@ pub(crate) async fn consola_salida(
         comando: t.comando,
         viva: t.viva,
         codigo_salida: t.codigo_salida,
+        origen: t.origen,
         lineas: t
             .lineas
             .into_iter()
@@ -565,6 +571,48 @@ pub(crate) async fn consola_escribir(
         .escribir(id, texto.as_bytes())
         .await
         .map_err(|e| e.to_string())
+}
+
+/// [219A-4] `consola_crear` — abre una consola PROPIA del operador ([+
+/// Nueva] de la tab). Sin `comando` = shell por defecto del SO. Devuelve
+/// el id + la etiqueta + el dueño (siempre `usuario`).
+#[derive(serde::Serialize)]
+pub(crate) struct NuevaConsolaTauri {
+    id_ejecucion: String,
+    comando: String,
+    origen: glory_harness_core::ports::OrigenConsola,
+}
+
+#[tauri::command]
+pub(crate) async fn consola_crear(
+    estado: State<'_, Estado>,
+    comando: Option<String>,
+) -> Result<NuevaConsolaTauri, String> {
+    use glory_harness_core::ports::{EjecutorComando, OrigenConsola};
+    let sesion = sesion_actual(&estado)?;
+    let ejecutor = sesion
+        .comun
+        .lock()
+        .ok()
+        .and_then(|g| g.ejecutor.clone())
+        .ok_or_else(|| "sesión sin ejecutor".to_string())?;
+    let id = ejecutor
+        .ejecutar_propia(comando.as_deref())
+        .await
+        .map_err(|e| e.to_string())?;
+    let etiqueta = ejecutor
+        .lista()
+        .await
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .find(|c| c.id_ejecucion == id)
+        .map(|c| c.comando)
+        .unwrap_or_else(|| comando.unwrap_or_default());
+    Ok(NuevaConsolaTauri {
+        id_ejecucion: id,
+        comando: etiqueta,
+        origen: OrigenConsola::Usuario,
+    })
 }
 
 /// [039A-3 P2] Rebobina la conversación hasta un mensaje de usuario.

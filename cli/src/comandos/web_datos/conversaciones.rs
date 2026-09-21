@@ -17,6 +17,7 @@ use super::{
 use crate::servicio::SesionComun;
 use glory_harness_core::error::Error as ErrorNucleo;
 use glory_harness_core::evento::FlujoConsola;
+use glory_harness_core::ports::OrigenConsola;
 use glory_harness_core::ports::EjecutorComando;
 
 #[derive(Debug, Deserialize)]
@@ -328,6 +329,11 @@ pub(crate) async fn listar_consolas(
                 "comando": c.comando,
                 "viva": c.viva,
                 "codigo_salida": c.codigo_salida,
+                // [219A-4] Dueño para la barra interna (mía / agente).
+                "origen": match c.origen {
+                    OrigenConsola::Usuario => "usuario",
+                    OrigenConsola::Agente => "agente",
+                },
             }))
             .collect::<Vec<_>>(),
     })))
@@ -360,6 +366,11 @@ pub(crate) async fn salida_consola(
         "comando": t.comando,
         "viva": t.viva,
         "codigo_salida": t.codigo_salida,
+        // [219A-4] Dueño (coherencia con la lista).
+        "origen": match t.origen {
+            OrigenConsola::Usuario => "usuario",
+            OrigenConsola::Agente => "agente",
+        },
         "lineas": t
             .lineas
             .into_iter()
@@ -377,6 +388,49 @@ pub(crate) async fn salida_consola(
 #[derive(Debug, Deserialize)]
 pub(crate) struct EscribirConsola {
     pub(crate) texto: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub(crate) struct CrearConsola {
+    pub(crate) comando: Option<String>,
+}
+
+/// [219A-4] `POST /api/v1/session/:id/consolas` — abre una consola PROPIA
+/// del operador (`{comando?}` → `{ok, id_ejecucion, comando, origen}`).
+/// Sin `comando` = shell por defecto del SO. Spawn directo sin jaula (la
+/// jaula protege del modelo; el operador en loopback + sesión es otro nivel
+/// de confianza, igual que `matar`/`escribir`). Sin runner propio →
+/// `no_soportado`.
+pub(crate) async fn crear_consola(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Json(cuerpo): Json<CrearConsola>,
+) -> Result<Json<Value>, ApiError> {
+    let (_sesion, comun) = sesion_y_comun(&headers, &Method::POST, &state, &id).await?;
+    let ejecutor = comun
+        .ejecutor
+        .as_ref()
+        .ok_or_else(|| error("sesion", "sesión sin ejecutor"))?;
+    let eid = ejecutor
+        .ejecutar_propia(cuerpo.comando.as_deref())
+        .await
+        .map_err(|e| match e {
+            ErrorNucleo::NoEncontrado(m) => error("no_soportado", m),
+            otro => error("sesion", otro.to_string()),
+        })?;
+    let info = ejecutor
+        .lista()
+        .await
+        .map_err(|e| error("sesion", e.to_string()))?
+        .into_iter()
+        .find(|c| c.id_ejecucion == eid);
+    Ok(Json(serde_json::json!({
+        "ok": true,
+        "id_ejecucion": eid,
+        "comando": info.map(|c| c.comando).unwrap_or_else(|| cuerpo.comando.unwrap_or_default()),
+        "origen": "usuario",
+    })))
 }
 
 /// [219A-3] `POST /api/v1/session/:id/consolas/:eid/escribir` — bytes crudos

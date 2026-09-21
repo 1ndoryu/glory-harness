@@ -512,6 +512,8 @@ fn main() {
             conversaciones::consolas_listar,
             conversaciones::consola_salida,
             conversaciones::consola_escribir,
+            // [219A-4] [+ Nueva]: consola propia del operador.
+            conversaciones::consola_crear,
             conversaciones::archivar_conversaciones_proyecto,
             conversaciones::eliminar_conversaciones_proyecto,
             sesion::proveedores_disponibles,

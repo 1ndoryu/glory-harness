@@ -9,7 +9,7 @@
 import '../estilos/consola.css';
 import { el } from '../util/dom';
 import { crearBotonIcono, crearCabeceraPanel } from './chromePanel';
-import type { AgenteEvento, InfoConsolaLista, TranscriptConsola } from '../tauri/realTipos';
+import type { AgenteEvento, InfoConsolaLista, NuevaConsola, TranscriptConsola } from '../tauri/realTipos';
 
 /** Subconjunto del contrato que alimenta la tab (fiel a `evento.rs`). */
 export type EventoConsola = Extract<
@@ -35,6 +35,9 @@ interface EntradaConsola {
   codigo: number | null;
   truncada: boolean;
   duracionMs: number | null;
+  /** [219A-4] Dueño: `agente` = la abrió el modelo con `comando`;
+   * `usuario` = shell propia abierta con [+ Nueva] (sin jaula). */
+  origen: 'agente' | 'usuario';
   /** [219A-3] Backfill ya cargado (o innecesario: historial en vivo
    * completo). Con `cargando`, los chunks van a `pendientes` y se fusionan
    * al resolver (sin duplicar lo que ya pinta la vista). */
@@ -58,6 +61,11 @@ function estadoTexto(e: EntradaConsola): string {
   return e.codigo === 0 ? `✓ fin (${e.codigo})` : `✓ fin (${e.codigo ?? '?'})`;
 }
 
+/** [219A-4] Etiqueta de dueño para la fila y el pie del visor. */
+function duenoTexto(e: EntradaConsola): string {
+  return e.origen === 'usuario' ? 'mía' : 'agente';
+}
+
 export interface PanelConsola {
   raiz: HTMLElement;
   manejarEvento(ev: EventoConsola): void;
@@ -77,10 +85,12 @@ export function montarPanelConsola(opts: {
   onMatar?: (idEjecucion: string) => void;
   /** [219A-3] Puentes al backend (los cablea el orquestador a la sesión):
    * lista para la sub-barra, transcript por entrada, stdin de una viva.
-   * Ausentes = panel solo-en-vivo (como hasta 209A-1). */
+   * Ausentes = panel solo-en-vivo (como hasta 209A-1).
+   * [219A-4] `onCrear` abre una consola PROPIA (shell del SO, sin jaula). */
   onSincronizar?: () => Promise<InfoConsolaLista[]>;
   onLeerSalida?: (idEjecucion: string) => Promise<TranscriptConsola>;
   onEscribir?: (idEjecucion: string, texto: string) => Promise<number>;
+  onCrear?: () => Promise<NuevaConsola>;
 }): PanelConsola {
   const entradas = new Map<string, EntradaConsola>();
   const orden: string[] = [];
@@ -92,6 +102,13 @@ export function montarPanelConsola(opts: {
   // (219A-1) Cabecera y botones con los constructores únicos: título en
   // `--sm` y botones icono 28×28 sin borde.
   const contador = el('span', 'consola-contador');
+  // [219A-4] [+ Nueva]: abre una consola PROPIA (shell del SO, sin jaula).
+  // Primera acción de la cabecera (es la entrada del operador a la tab).
+  const btnNueva = crearBotonIcono({
+    icono: 'mas',
+    etiqueta: 'Abrir consola propia (shell, sin jaula)',
+  });
+  btnNueva.setAttribute('aria-label', 'Abrir consola propia');
   const btnLimpiar = crearBotonIcono({
     icono: 'x',
     etiqueta: 'Quitar las terminadas (las vivas siguen corriendo)',
@@ -115,7 +132,7 @@ export function montarPanelConsola(opts: {
     claseRaiz: 'consola-cabecera',
     titulo: 'Consola',
     medio: [contador],
-    acciones: [btnLimpiar, btnCopiar, btnMatar],
+    acciones: [btnNueva, btnLimpiar, btnCopiar, btnMatar],
   }).raiz;
 
   const lista = el('div', 'consola-lista');
@@ -139,8 +156,9 @@ export function montarPanelConsola(opts: {
   visor.append(visorComando, visorSalida, stdinFila, visorPie);
   // [219A-3] Marco listo en vez de texto de vacío: la tab siempre ofrece su
   // sub-barra (arriba) + este visor; las consolas del agente aparecen aquí.
+  // [219A-4] Con + se abre una consola propia (shell) para trabajar el operador.
   const vacio = el('div', 'consola-vacio');
-  vacio.textContent = 'Consola lista: cada comando que abra el agente aparece arriba para verlo e interactuar con él.';
+  vacio.textContent = 'Consola lista: cada comando que abra el agente aparece arriba para verlo e interactuar con él; con + abres una consola propia (shell).';
   const nota = el('div', 'consola-nota');
   // [219A-3 límites honestos] Las vivas aceptan stdin en la caja de abajo;
   // sigue sin haber PTY: los programas que detectan no-TTY cambian formato.
@@ -169,6 +187,12 @@ export function montarPanelConsola(opts: {
       if (id === activaId) fila.classList.add('activa');
       const marca = el('span', `consola-marca consola-${e.estado}`);
       marca.textContent = e.estado === 'viva' ? '●' : e.estado === 'matada' ? '✕' : '✓';
+      // [219A-4] Dueño de la entrada (la barra interna mezcla mías + agente).
+      const dueno = el('span', 'consola-dueno');
+      dueno.textContent = duenoTexto(e);
+      dueno.title = e.origen === 'usuario'
+        ? 'Consola propia: la abriste tú con + (shell, sin jaula)'
+        : 'Consola del agente: la abrió el modelo con comando (con jaula)';
       const cmd = el('span', 'consola-fila-comando');
       cmd.textContent = e.comando;
       cmd.title = e.comando;
@@ -177,15 +201,18 @@ export function montarPanelConsola(opts: {
       const bytesSalida = e.lineas.reduce((n, l) => n + l.texto.length, 0);
       const kb = Math.round(bytesSalida / 1024);
       meta.textContent = `${idCorto(id)} · ${estadoTexto(e)} · ${e.lineas.length} líneas${kb > 0 ? ` · ${kb} KB` : ''}`;
-      fila.append(marca, cmd, meta);
+      fila.append(marca, dueno, cmd, meta);
       fila.addEventListener('click', () => {
         activaId = id;
         pintarLista();
         pintarVisor();
         // La entrada con historial en vivo completo no necesita backfill
         // (`cargarTranscript` la marca y sale); la rescatada por sincronizar
-        // sí lo pide aquí (bajo demanda, una sola vez).
+        // sí lo pide aquí (bajo demanda, una sola vez). La propia viva se
+        // refresca (no emite chunks: ver `recargarSalida`).
         cargarTranscript(id);
+        const sel = entradas.get(id);
+        if (sel && sel.origen === 'usuario' && sel.estado === 'viva') recargarSalida(id);
       });
       lista.appendChild(fila);
     }
@@ -217,7 +244,8 @@ export function montarPanelConsola(opts: {
       visorSalida.appendChild(div);
     }
     if (alFondo) visorSalida.scrollTop = visorSalida.scrollHeight;
-    const partes = [estadoTexto(e)];
+    // [219A-4] El pie abre con el dueño (el visor mezcla mías + agente).
+    const partes = [duenoTexto(e), estadoTexto(e)];
     if (e.duracionMs !== null) partes.push(`${(e.duracionMs / 1000).toFixed(1)} s`);
     if (e.truncada) partes.push('salida truncada por el backend');
     if (e.descartadas > 0) partes.push(`${e.descartadas} líneas antiguas fuera de vista`);
@@ -284,6 +312,70 @@ export function montarPanelConsola(opts: {
     });
   }
 
+  /** [219A-4] Refresco de una PROPIA viva: las propias no emiten chunks
+   * (ningún turno las emite), así que el transcript se relee del backend al
+   * seleccionar, al abrir la tab y tras cada escritura (ida y vuelta sin
+   * polling ni timers). Solo propias: el vivo del agente no se toca. */
+  function recargarSalida(id: string): void {
+    const e = entradas.get(id);
+    if (!e || e.origen !== 'usuario' || e.cargando || opts.onLeerSalida === undefined) return;
+    e.cargando = true;
+    repintar();
+    void opts.onLeerSalida(id).then((t) => {
+      const viva = entradas.get(id);
+      if (!viva) return;
+      const base: LineaConsola[] = t.lineas.map((l) => ({ flujo: l.flujo, texto: l.linea }));
+      viva.lineas = [...base, ...viva.pendientes];
+      viva.pendientes = [];
+      acotar(viva, viva.lineas);
+      viva.transcript = true;
+      viva.cargando = false;
+      viva.origen = t.origen;
+      if (!t.viva && viva.estado === 'viva') {
+        viva.estado = 'fin';
+        viva.codigo = t.codigo_salida;
+      }
+      repintar();
+    }).catch((err: unknown) => {
+      const viva = entradas.get(id);
+      if (viva) viva.cargando = false;
+      opts.onError?.('no se pudo refrescar la consola', String(err));
+      repintar();
+    });
+  }
+
+  /** [219A-4] [+ Nueva]: abre la shell propia, la ancla como activa y carga
+   * su transcript (vacío al nacer). El backend responde el id + etiqueta. */
+  function crearPropia(): void {
+    if (opts.onCrear === undefined) return;
+    btnNueva.disabled = true;
+    void opts.onCrear().then((n) => {
+      if (!entradas.has(n.id_ejecucion)) orden.push(n.id_ejecucion);
+      entradas.set(n.id_ejecucion, {
+        id: n.id_ejecucion,
+        comando: n.comando,
+        conversacionId: '',
+        lineas: [],
+        descartadas: 0,
+        estado: 'viva',
+        codigo: null,
+        truncada: false,
+        duracionMs: null,
+        origen: 'usuario',
+        transcript: false,
+        cargando: false,
+        pendientes: [],
+      });
+      activaId = n.id_ejecucion;
+      repintar();
+      cargarTranscript(n.id_ejecucion);
+    }).catch((err: unknown) => {
+      opts.onError?.('no se pudo abrir la consola propia', String(err));
+    }).finally(() => {
+      btnNueva.disabled = false;
+    });
+  }
+
   /** [219A-3] Backfill de la sub-barra: crea las que faltan (vivas y
    * recientes) y congela las que el backend ya dio por terminadas. No borra:
    * una archivada que el runner ya olvidó sigue visible hasta limpiar. No
@@ -310,6 +402,8 @@ export function montarPanelConsola(opts: {
           codigo: c.codigo_salida,
           truncada: false,
           duracionMs: null,
+          // [219A-4] El backend es la fuente del dueño.
+          origen: c.origen,
           transcript: false,
           cargando: false,
           pendientes: [],
@@ -323,12 +417,19 @@ export function montarPanelConsola(opts: {
         // comando verbatim (el historial en vivo ya pintado no se toca).
         e.comando = c.comando;
       }
+      const actual = entradas.get(c.id_ejecucion);
+      if (actual) actual.origen = c.origen;
     }
     if (!activaId && orden.length > 0) {
       activaId = orden[orden.length - 1];
     }
     repintar();
     if (activaId) cargarTranscript(activaId);
+    // [219A-4] Las propias no emiten chunks (no hay turno que las emita):
+    // se refrescan aquí (al abrir la tab) en vez de con polling.
+    for (const c of remotas) {
+      if (c.viva && c.origen === 'usuario') recargarSalida(c.id_ejecucion);
+    }
   }
 
   function manejarEvento(ev: EventoConsola): void {
@@ -346,6 +447,8 @@ export function montarPanelConsola(opts: {
         codigo: null,
         truncada: false,
         duracionMs: null,
+        // Lo que nace de un evento del turno lo abrió el agente.
+        origen: 'agente',
         // Nace del vivo: el historial en vivo es el completo (sin backfill).
         transcript: true,
         cargando: false,
@@ -368,6 +471,8 @@ export function montarPanelConsola(opts: {
           codigo: null,
           truncada: false,
           duracionMs: null,
+          // Un chunk del turno solo lo emite una consola del agente.
+          origen: 'agente',
           // Nace de un chunk en vivo: lo que llegue es el historial (el
           // comando real lo trae `sincronizar` si el backend la retiene).
           transcript: true,
@@ -403,8 +508,13 @@ export function montarPanelConsola(opts: {
     repintar();
   }
 
-  btnLimpiar.addEventListener('click', () => {
-    for (const id of [...orden]) {
+  // [219A-4] [+ Nueva] en cabecera: abre la shell propia (ver
+  // `crearPropia`). Sin `onCrear` el botón no hace nada (panel en vivo).
+  btnNueva.addEventListener('click', () => {
+    crearPropia();
+  });
+
+  btnLimpiar.addEventListener('click', () => {    for (const id of [...orden]) {
       if (entradas.get(id)?.estado !== 'viva') {
         entradas.delete(id);
         orden.splice(orden.indexOf(id), 1);
@@ -438,6 +548,10 @@ export function montarPanelConsola(opts: {
     ev.preventDefault();
     void opts.onEscribir(id, `${texto}\n`).then(() => {
       if (stdinInput.value === texto) stdinInput.value = '';
+      // [219A-4] La propia no emite chunks: tras escribir se relee el
+      // transcript para ver la respuesta (ida y vuelta sin polling).
+      const e2 = entradas.get(id);
+      if (e2 && e2.origen === 'usuario' && e2.estado === 'viva') recargarSalida(id);
     }).catch((err: unknown) => {
       opts.onError?.('no se pudo escribir a la consola', String(err));
     });
@@ -464,6 +578,8 @@ export function montarPanelConsola(opts: {
       activaId = id;
       repintar();
       cargarTranscript(id);
+      const sel = entradas.get(id);
+      if (sel && sel.origen === 'usuario' && sel.estado === 'viva') recargarSalida(id);
     },
     hayVivas(): boolean {
       return vivas() > 0;

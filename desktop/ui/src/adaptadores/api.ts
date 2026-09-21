@@ -14,6 +14,7 @@ import {
   type InfoConsolaLista,
   type InfoConversacion,
   type InfoSesion,
+  type NuevaConsola,
   type OpcionesTurno,
   type ProveedorInfo,
   type TranscriptConsola,
@@ -193,6 +194,15 @@ export function crearTransporteApi(base: string, hooks: HooksAdaptador = {}): Tr
         { texto },
       );
       return r.escritos;
+    },
+    // [219A-4] [+ Nueva]: consola propia del operador (sin `comando` = shell).
+    consolaCrear: async (comando) => {
+      const r = await http<NuevaConsola>(
+        'POST',
+        `/api/v1/session/${cliente.getSid()}/consolas`,
+        comando === undefined ? {} : { comando },
+      );
+      return r;
     },
     convRewind: () =>
       Promise.reject(new Error('volver a un punto no disponible en modo web (fase 069A-2)')),

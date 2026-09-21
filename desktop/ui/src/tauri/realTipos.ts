@@ -105,12 +105,15 @@ export type AgenteEvento =
 
 /** [219A-3] Entrada de la sub-barra de la tab Consola: fiel al endpoint
  * `GET /consolas` y al comando Tauri `consolas_listar` (vivas + recientes).
- * `codigo_salida` `null` = viva (aún sin código). */
+ * `codigo_salida` `null` = viva (aún sin código).
+ * [219A-4] `origen` = dueño (`agente` = la abrió el modelo; `usuario` = la
+ * abrió el operador con [+ Nueva]). */
 export interface InfoConsolaLista {
   id_ejecucion: string;
   comando: string;
   viva: boolean;
   codigo_salida: number | null;
+  origen: 'agente' | 'usuario';
 }
 
 /** [219A-3] Línea del transcript retenido (`salida`): mismos literales de
@@ -121,13 +124,23 @@ export interface LineaConsola {
 }
 
 /** [219A-3] Transcript retenido por consola: fiel al endpoint
- * `GET /consolas/:eid/salida` y al comando Tauri `consola_salida`. */
+ * `GET /consolas/:eid/salida` y al comando Tauri `consola_salida`.
+ * [219A-4] Incluye `origen` (dueño) como la lista. */
 export interface TranscriptConsola {
   id_ejecucion: string;
   comando: string;
   viva: boolean;
   codigo_salida: number | null;
+  origen: 'agente' | 'usuario';
   lineas: LineaConsola[];
+}
+
+/** [219A-4] Nueva consola propia: fiel a `POST /consolas` y al comando
+ * Tauri `consola_crear` (`origen` siempre `usuario`). */
+export interface NuevaConsola {
+  id_ejecucion: string;
+  comando: string;
+  origen: 'agente' | 'usuario';
 }
 
 export interface OpcionesTurno {
@@ -426,6 +439,9 @@ export interface Transporte {
   /** [219A-3] Bytes crudos al stdin de una viva. Devuelve los bytes
    * aceptados; falla si terminó o no existe. */
   consolaEscribir(idEjecucion: string, texto: string): Promise<number>;
+  /** [219A-4] Abre una consola PROPIA del operador ([+ Nueva] de la tab).
+   * Sin `comando` = shell por defecto del SO. */
+  consolaCrear(comando?: string): Promise<NuevaConsola>;
   convRewind(hastaMensajeId: string, editar: boolean, panelId: string | null): Promise<CargaConversacion>;
   tramoRestaurar(panelId: string | null): Promise<ResultadoRestauracionTramo>;
   leerProveedores(): Promise<ProveedorInfo[]>;

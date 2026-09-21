@@ -580,9 +580,10 @@ pub(crate) fn router(state: Arc<AppState>) -> Router {
             post(super::web_datos::matar_consola),
         )
         /* [219A-3] Sub-barra de la tab Consola: lista + backfill + stdin. */
+        /* [219A-4] POST crea consola propia del operador ([+ Nueva]). */
         .route(
             "/api/v1/session/{id}/consolas",
-            get(super::web_datos::listar_consolas),
+            get(super::web_datos::listar_consolas).post(super::web_datos::crear_consola),
         )
         .route(
             "/api/v1/session/{id}/consolas/{eid}/salida",

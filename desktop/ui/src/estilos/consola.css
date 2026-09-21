@@ -81,6 +81,22 @@
     flex: 0 0 auto;
 }
 
+/* [219A-4] Dueño de la entrada (`mía`/`agente`): pastilla monocroma, mismo
+ * idioma que el resto del chrome (sin color literal). */
+.consola-dueno {
+    flex: 0 0 auto;
+    font-size: var(--xs);
+    border: 1px solid var(--borde);
+    padding: 0 var(--sp-xs);
+    color: var(--texto-tenue);
+    white-space: nowrap;
+}
+
+.consola-fila.activa .consola-dueno {
+    color: var(--invertido);
+    border-color: var(--invertido);
+}
+
 .consola-fila-comando {
     flex: 1 1 auto;
     min-width: 0;

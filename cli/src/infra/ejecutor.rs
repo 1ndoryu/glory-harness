@@ -37,10 +37,11 @@ use glory_harness_core::aplicar_entorno_minimo;
 use glory_harness_core::error::{Error, Result};
 use glory_harness_core::evento::FlujoConsola;
 use glory_harness_core::ports::{
-    ChunkConsola, EjecutorComando, InfoConsola, ResultadoEjecucionComando, TranscriptConsola,
+    ChunkConsola, EjecutorComando, InfoConsola, OrigenConsola, ResultadoEjecucionComando,
+    TranscriptConsola,
 };
 
-use super::jaula::construir_directo;
+use super::jaula::{construir_directo, dividir_argv};
 
 /// Límite de salida capturada por comando (8 KB, contrato del plan 318A-16).
 const LIMITE_SALIDA: usize = 8 * 1024;
@@ -85,6 +86,8 @@ struct ConsolaViva {
     comando: String,
     conversacion_id: Uuid,
     inicio: Instant,
+    /// [219A-4] Dueño (agente por defecto; `Usuario` en consolas propias).
+    origen: OrigenConsola,
     /// Señal de `desacoplar`: el pump suelta el envío al turno.
     suelta: AtomicBool,
     /// [209A-1 F4] Señal de kill tardío: si `matar` llega cuando el pump ya
@@ -101,6 +104,19 @@ struct ConsolaViva {
     /// El pump nunca lo toca; `None` cuando el hijo ya salió (el `Child` lo
     /// posee la tarea pump y al salir no hay a quién escribir).
     stdin: Mutex<Option<ChildStdin>>,
+}
+
+/// [219A-4] Parámetros del registro común `registrar_fondo` (un solo
+/// registro + pump para el modelo y el operador; el struct evita el
+/// `too_many_arguments` de clippy). El hijo ya viene spawneado.
+struct RegistroFondo {
+    id: String,
+    comando: String,
+    conversacion_id: Uuid,
+    chunks: Option<UnboundedSender<ChunkConsola>>,
+    origen: OrigenConsola,
+    hijo_inicial: Child,
+    stdin_hijo: Option<ChildStdin>,
 }
 
 /// Handle compartido de una tarea de fondo: el spawner y `matar` compiten por
@@ -185,7 +201,6 @@ impl EjecutorCliente {
                 Ok(0) => break,
                 Ok(_) => {
                     crudo.extend_from_slice(&segmento);
-                    let Some(tx) = &chunks else { continue };
                     let texto = String::from_utf8_lossy(&segmento);
                     let linea = texto.trim_end_matches(['\r', '\n']);
                     let recorte: String =
@@ -195,16 +210,21 @@ impl EjecutorCliente {
                     if recortada {
                         linea.push_str("…(línea recortada)");
                     }
-                    // Turno cerrado o consola desacoplada: no se envía, pero
-                    // la viva sigue visible en `comando_lista` vía su anillo.
-                    let suelta = anillo
-                        .as_ref()
-                        .is_some_and(|v| v.suelta.load(Ordering::Relaxed));
-                    if !tx.is_closed() && !suelta {
-                        let reservado =
-                            presupuesto.fetch_add(linea.len(), Ordering::Relaxed);
-                        if reservado < LIMITE_STREAM_BYTES {
-                            let _ = tx.send(ChunkConsola { flujo, linea: linea.clone() });
+                    // [219A-4] Sin `chunks` (consola propia: ningún turno la
+                    // emite) no hay a quién enviar, pero el anillo SÍ se
+                    // empuja: `salida` y la UI lo leen de ahí.
+                    if let Some(tx) = &chunks {
+                        // Turno cerrado o consola desacoplada: no se envía, pero
+                        // la viva sigue visible en `comando_lista` vía su anillo.
+                        let suelta = anillo
+                            .as_ref()
+                            .is_some_and(|v| v.suelta.load(Ordering::Relaxed));
+                        if !tx.is_closed() && !suelta {
+                            let reservado =
+                                presupuesto.fetch_add(linea.len(), Ordering::Relaxed);
+                            if reservado < LIMITE_STREAM_BYTES {
+                                let _ = tx.send(ChunkConsola { flujo, linea: linea.clone() });
+                            }
                         }
                     }
                     if let Some(v) = &anillo {
@@ -277,6 +297,7 @@ impl EjecutorCliente {
         comando: &str,
         conversacion_id: Uuid,
         chunks: Option<UnboundedSender<ChunkConsola>>,
+        origen: OrigenConsola,
     ) -> Result<ResultadoEjecucionComando> {
         let mut hijo_inicial = self
             .construir_comando(comando)?
@@ -288,6 +309,81 @@ impl EjecutorCliente {
             .kill_on_drop(true)
             .spawn()?;
         let stdin_hijo = hijo_inicial.stdin.take();
+        self.registrar_fondo(RegistroFondo {
+            id: id.to_string(),
+            comando: comando.to_string(),
+            conversacion_id,
+            chunks,
+            origen,
+            hijo_inicial,
+            stdin_hijo,
+        })
+        .await
+    }
+
+    /// [219A-4] Spawn directo del shell del operador, SIN jaula (la jaula
+    /// protege del modelo y deniega shells; el operador en loopback + sesión
+    /// es otro nivel de confianza). `comando=None` = shell por defecto del
+    /// SO; `Some(c)` = argv directo (troceo sin shell, sin reglas de jaula).
+    /// El hijo hereda el cwd del ejecutor (`raiz` si hay).
+    async fn ejecutar_fondo_propio(
+        &self,
+        id: &str,
+        comando: Option<&str>,
+    ) -> Result<ResultadoEjecucionComando> {
+        let (programa, argumentos, etiqueta) = match comando {
+            Some(c) if !c.trim().is_empty() => {
+                let argv =
+                    dividir_argv(c).map_err(|motivo| Error::Sandbox(format!("argv: {motivo}")))?;
+                let (primero, resto) = argv
+                    .split_first()
+                    .ok_or_else(|| Error::Sandbox("comando vacío".to_string()))?;
+                (primero.clone(), resto.to_vec(), c.to_string())
+            }
+            _ => {
+                let shell = if cfg!(windows) { "cmd" } else { "sh" };
+                (shell.to_string(), Vec::new(), shell.to_string())
+            }
+        };
+        let mut construido = Command::new(&programa);
+        construido.args(&argumentos);
+        construido
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .kill_on_drop(true);
+        if let Some(raiz) = self.raiz.as_ref() {
+            construido.current_dir(raiz);
+        }
+        aplicar_entorno_minimo(&mut construido);
+        let mut hijo_inicial = construido.spawn().map_err(|e| {
+            Error::Sandbox(format!("no se pudo abrir la consola ({programa}): {e}"))
+        })?;
+        let stdin_hijo = hijo_inicial.stdin.take();
+        self.registrar_fondo(RegistroFondo {
+            id: id.to_string(),
+            comando: etiqueta,
+            conversacion_id: Uuid::nil(),
+            chunks: None,
+            origen: OrigenConsola::Usuario,
+            hijo_inicial,
+            stdin_hijo,
+        })
+        .await
+    }
+
+    /// Registro + pump de un hijo ya spawneado (común al modelo y al
+    /// operador): tope de vivas bajo lock, anillo, reap al salir.
+    async fn registrar_fondo(&self, reg: RegistroFondo) -> Result<ResultadoEjecucionComando> {
+        let RegistroFondo {
+            id,
+            comando,
+            conversacion_id,
+            chunks,
+            origen,
+            mut hijo_inicial,
+            stdin_hijo,
+        } = reg;
         // Tope de vivas BAJO EL MISMO LOCK que el registro (sin carrera:
         // dos fondos concurrentes no pueden colar la 5ª).
         let viva = {
@@ -302,6 +398,7 @@ impl EjecutorCliente {
             let viva = Arc::new(ConsolaViva {
                 comando: comando.to_string(),
                 conversacion_id,
+                origen,
                 inicio: Instant::now(),
                 suelta: AtomicBool::new(false),
                 matar: Notify::new(),
@@ -581,7 +678,7 @@ impl EjecutorComando for EjecutorCliente {
         // Sin conversación conocida: `nil` (diagnósticos sin run).
         let id = uuid::Uuid::new_v4().to_string();
         if fondo {
-            self.ejecutar_fondo_con_id(&id, comando, Uuid::nil(), None)
+            self.ejecutar_fondo_con_id(&id, comando, Uuid::nil(), None, OrigenConsola::Agente)
                 .await
         } else {
             self.ejecutar_sincrono_en_vivo(&id, comando, None).await
@@ -597,8 +694,14 @@ impl EjecutorComando for EjecutorCliente {
         chunks: UnboundedSender<ChunkConsola>,
     ) -> Result<ResultadoEjecucionComando> {
         if fondo {
-            self.ejecutar_fondo_con_id(id, comando, conversacion_id, Some(chunks))
-                .await
+            self.ejecutar_fondo_con_id(
+                id,
+                comando,
+                conversacion_id,
+                Some(chunks),
+                OrigenConsola::Agente,
+            )
+            .await
         } else {
             self.ejecutar_sincrono_en_vivo(id, comando, Some(chunks))
                 .await
@@ -612,6 +715,13 @@ impl EjecutorComando for EjecutorCliente {
             .ok_or_else(|| Error::NoEncontrado(format!("consola desconocida: {id}")))?;
         viva.suelta.store(true, Ordering::Relaxed);
         Ok(())
+    }
+
+    /// [219A-4] Consola propia del operador (ver `ejecutar_fondo_propio`).
+    async fn ejecutar_propia(&self, comando: Option<&str>) -> Result<String> {
+        let id = uuid::Uuid::new_v4().to_string();
+        self.ejecutar_fondo_propio(&id, comando).await?;
+        Ok(id)
     }
 
     async fn lista(&self) -> Result<Vec<InfoConsola>> {
@@ -628,6 +738,7 @@ impl EjecutorComando for EjecutorCliente {
                         viva: true,
                         codigo_salida: None,
                         bytes: viva.bytes_anillo.load(Ordering::Relaxed),
+                        origen: viva.origen,
                     },
                 ));
             }
@@ -645,6 +756,8 @@ impl EjecutorComando for EjecutorCliente {
                         viva: false,
                         codigo_salida: r.codigo_salida,
                         bytes: r.salida.len(),
+                        // [219A-4] Archivadas sin dueño retenido: Agente.
+                        origen: OrigenConsola::Agente,
                     },
                 ));
             }
@@ -743,6 +856,7 @@ impl EjecutorComando for EjecutorCliente {
                 viva: true,
                 codigo_salida: None,
                 lineas: anillo.iter().skip(desde).cloned().collect(),
+                origen: viva.origen,
             });
         }
         if let Some(r) = self.resultados.lock().await.get(id) {
@@ -763,6 +877,8 @@ impl EjecutorComando for EjecutorCliente {
                 viva: false,
                 codigo_salida: r.codigo_salida,
                 lineas,
+                // [219A-4] Archivadas sin dueño retenido: Agente.
+                origen: OrigenConsola::Agente,
             });
         }
         Err(Error::NoEncontrado(format!(

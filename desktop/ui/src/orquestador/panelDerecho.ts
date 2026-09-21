@@ -173,6 +173,10 @@ export function montarPanelDerechoTodo(deps: PanelDerechoDeps): PanelDerechoTodo
     onEscribir(idEjecucion, texto) {
       return deps.adaptador.sesion.escribirConsola(idEjecucion, texto);
     },
+    // [219A-4] [+ Nueva] de la cabecera: consola propia (shell, sin jaula).
+    onCrear() {
+      return deps.adaptador.sesion.crearConsola();
+    },
   });
   // [209A-1 F3] Supresión de auto-apertura: la misma máquina pura que F1
   // (`crearSupresionNavegador` no sabe de navegadores: abrir/suprimir por
