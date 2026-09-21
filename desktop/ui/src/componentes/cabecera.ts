@@ -9,8 +9,8 @@
 // de cierre (`cerrable: true`). Los ids internos se sustituyen por un
 // prefijo por instancia (`idPrefijo`) para no colisionar entre paneles.
 
-import { icono } from './iconos';
 import { el } from '../util/dom';
+import { crearBotonIcono } from './chromePanel';
 
 export interface CabeceraChat {
   raiz: HTMLElement;
@@ -69,25 +69,27 @@ export function montarCabeceraChat(opts: CabeceraChatOpciones): CabeceraChat {
 
   // [089A-3] Sin toggles en la cabecera (mudados a la barra superior):
   // solo el × de cierre en laterales.
+  // (219A-1) Botones con el constructor único (canon 28×28 sin borde +
+  // hover invertido para conservar la affordance 039A-3).
   let btnCerrar: HTMLButtonElement | null = null;
 
   if (lateral) {
-    btnCerrar = el('button', 'cab-boton cab-cerrar') as HTMLButtonElement;
-    btnCerrar.id = `${opts.idPrefijo}-cerrar-panel`;
-    btnCerrar.type = 'button';
-    btnCerrar.title = 'cerrar panel lateral';
-    btnCerrar.setAttribute('aria-label', 'cerrar panel lateral');
-    btnCerrar.appendChild(icono('x'));
+    btnCerrar = crearBotonIcono({
+      icono: 'x',
+      etiqueta: 'cerrar panel lateral',
+      invertidoHover: true,
+      id: `${opts.idPrefijo}-cerrar-panel`,
+    });
     btnCerrar.addEventListener('click', () => opts.onCerrar?.());
     acciones.appendChild(btnCerrar);
   }
 
-  const btnMas = el('button', 'cab-boton') as HTMLButtonElement;
-  btnMas.id = `${opts.idPrefijo}-acciones-chat`;
-  btnMas.type = 'button';
-  btnMas.title = 'acciones de la conversación';
-  btnMas.setAttribute('aria-label', 'acciones de la conversación');
-  btnMas.appendChild(icono('mas-horizontal', true));
+  const btnMas = crearBotonIcono({
+    icono: 'mas-horizontal',
+    etiqueta: 'acciones de la conversación',
+    invertidoHover: true,
+    id: `${opts.idPrefijo}-acciones-chat`,
+  });
   btnMas.addEventListener('click', (e) => {
     e.stopPropagation();
     opts.onAcciones(btnMas.getBoundingClientRect());

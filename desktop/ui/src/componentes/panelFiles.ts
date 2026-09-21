@@ -4,7 +4,9 @@
 
 import '../estilos/files.css';
 import { icono } from './iconos';
-import { el } from '../util/dom';
+import { el, marcarCuerpo } from '../util/dom';
+import { crearBotonIcono } from './chromePanel';
+import { seguirPuntero } from '../plataforma/ventana';
 import type { EntradaWorkspace, ErrorFilesystem, ListadoWorkspace, ResultadoBusqueda } from '../dominio/tipos';
 
 export interface FilesTransport {
@@ -45,11 +47,9 @@ export function montarPanelFiles(opts: {
   input.type = 'search';
   input.placeholder = 'buscar archivos…';
   input.setAttribute('aria-label', 'buscar archivos por nombre');
-  const recargar = el('button', 'files-accion files-recargar') as HTMLButtonElement;
-  recargar.type = 'button';
-  recargar.title = 'Recargar workspace';
-  recargar.setAttribute('aria-label', 'Recargar workspace');
-  recargar.appendChild(icono('recargar'));
+  // (219A-1) Botones con el constructor único (canon 28×28 sin borde). El
+  // click se cablea más abajo (mismo sitio que antes).
+  const recargar = crearBotonIcono({ icono: 'recargar', etiqueta: 'Recargar workspace' });
   busqueda.append(input, recargar);
   const arbol = el('div', 'files-arbol');
   arbol.setAttribute('role', 'tree');
@@ -57,22 +57,61 @@ export function montarPanelFiles(opts: {
 
   const visor = el('div', 'files-visor');
   const visorCabecera = el('div', 'files-visor-cabecera');
+  /* Botón para ocultar/mostrar la lista de archivos (mismo patrón que el
+   * toggle del sidebar: iconos `panel-izq-cerrar/abrir`). `files-visor-lista`
+   * es solo hook posicional (margen); el estilo lo pone `crearBotonIcono`. */
+  const alternarLista = crearBotonIcono({
+    icono: 'panel-izq-cerrar',
+    etiqueta: 'Ocultar la lista de archivos',
+    claseExtra: 'files-visor-lista',
+  });
+  alternarLista.setAttribute('aria-expanded', 'true');
   const visorRuta = el('span', 'files-visor-ruta');
   visorRuta.textContent = 'Selecciona un archivo para verlo';
   visorRuta.title = 'Selecciona un archivo para verlo';
-  const abrirCon = el('button', 'files-accion files-abrir') as HTMLButtonElement;
-  abrirCon.type = 'button';
-  abrirCon.title = 'Abrir archivo con…';
-  abrirCon.setAttribute('aria-label', 'Abrir archivo con…');
-  abrirCon.disabled = true;
-  abrirCon.appendChild(icono('abrir'));
-  visorCabecera.append(visorRuta, abrirCon);
+  const abrirCon = crearBotonIcono({
+    icono: 'abrir',
+    etiqueta: 'Abrir archivo con…',
+    deshabilitado: true,
+  });
+  visorCabecera.append(alternarLista, visorRuta, abrirCon);
   const codigo = el('div', 'files-visor-codigo');
   const vacio = el('div', 'files-visor-vacio');
   vacio.textContent = 'Selecciona un archivo del árbol para previsualizarlo.';
   codigo.appendChild(vacio);
   visor.append(visorCabecera, codigo);
-  contenido.append(explorador, visor);
+  /* Divisor arrastrable entre explorador y visor (mismo patrón que el
+   * grip del panel derecho: `seguirPuntero` + cursor global). El
+   * explorador está anclado al borde izquierdo: su ancho es la
+   * distancia del cursor hasta ese borde. */
+  const ANCHO_MIN_EXPLORADOR = 150;
+  const FRACCION_MAX_EXPLORADOR = 0.6;
+  const grip = el('div', 'files-grip');
+  grip.setAttribute('aria-hidden', 'true');
+  function acotarAnchoExplorador(px: number): number {
+    const max = Math.round(contenido.getBoundingClientRect().width * FRACCION_MAX_EXPLORADOR);
+    return Math.min(max, Math.max(ANCHO_MIN_EXPLORADOR, Math.round(px)));
+  }
+  let arrastrandoGrip = false;
+  grip.addEventListener('mousedown', (e) => {
+    e.preventDefault();
+    arrastrandoGrip = true;
+    marcarCuerpo('redimensionando-lateral', true);
+  });
+  seguirPuntero(
+    (e) => {
+      if (!arrastrandoGrip) return;
+      const rect = contenido.getBoundingClientRect();
+      const px = acotarAnchoExplorador(e.clientX - rect.left);
+      explorador.style.flex = `0 0 ${px}px`;
+    },
+    () => {
+      if (!arrastrandoGrip) return;
+      arrastrandoGrip = false;
+      marcarCuerpo('redimensionando-lateral', false);
+    },
+  );
+  contenido.append(explorador, grip, visor);
   raiz.appendChild(contenido);
 
   const directoriosExpandidos = new Set<string>();
@@ -114,9 +153,73 @@ export function montarPanelFiles(opts: {
     codigo.appendChild(frag);
   }
 
+  /* Compara rutas para localizar filas: separadores unificados y sin
+   * importar mayúsculas (el agente puede escribir `test/x` y el workspace
+   * tener `Test/`; en Windows son el mismo archivo). Para listar/leer se
+   * usa siempre la ruta canónica de la fila (`dataset.ruta`), no esta. */
+  function normalizarRuta(ruta: string): string {
+    return ruta.replace(/\\/g, '/').toLowerCase();
+  }
+
+  function botonPara(ruta: string): HTMLButtonElement | null {
+    const objetivo = normalizarRuta(ruta);
+    const botones = arbol.querySelectorAll<HTMLButtonElement>('.files-nombre[data-ruta]');
+    for (const boton of botones) {
+      if (normalizarRuta(boton.dataset.ruta || '') === objetivo) return boton;
+    }
+    return null;
+  }
+
+  /** Marca en el árbol el archivo abierto en el visor (misma marca
+   * `seleccionado` que las filas del panel Git). */
+  function marcarSeleccionado(ruta: string): void {
+    arbol.querySelectorAll('.files-nombre.seleccionado').forEach((nodo) => {
+      nodo.classList.remove('seleccionado');
+      nodo.closest('.files-entrada')?.removeAttribute('aria-selected');
+    });
+    const boton = botonPara(ruta);
+    if (!boton) return;
+    boton.classList.add('seleccionado');
+    boton.closest('.files-entrada')?.setAttribute('aria-selected', 'true');
+    boton.scrollIntoView({ block: 'nearest' });
+  }
+
+  async function expandirDirectorio(rutaDir: string, filaNodo: HTMLElement): Promise<void> {
+    const nivel = Number(filaNodo.style.getPropertyValue('--files-nivel') || 0);
+    directoriosExpandidos.add(rutaDir);
+    const contenedor = el('div', 'files-hijos');
+    contenedor.dataset.ruta = rutaDir;
+    filaNodo.appendChild(contenedor);
+    filaNodo.querySelector<HTMLButtonElement>(':scope > .files-nombre')?.setAttribute('aria-expanded', 'true');
+    await cargarDirectorio(rutaDir, contenedor, nivel + 1);
+  }
+
+  /** Revela una ruta en el árbol: espera a la raíz (puede estar
+   * recargándose en el mismo tick), expande sus carpetas padre de arriba
+   * abajo y marca el archivo. Si otro archivo tomó el visor mientras
+   * tanto, no pisa su marca. */
+  async function revelarEnArbol(ruta: string): Promise<void> {
+    await raizLista;
+    if (rutaSeleccionada !== ruta) return;
+    const partes = normalizarRuta(ruta).split('/').filter((p) => p.length > 0);
+    let acumulado = '';
+    for (let i = 0; i < partes.length - 1; i++) {
+      acumulado = acumulado ? `${acumulado}/${partes[i]}` : partes[i];
+      const boton = botonPara(acumulado);
+      const filaNodo = boton?.closest<HTMLElement>('.files-entrada');
+      if (!boton || !filaNodo) break;
+      if (!filaNodo.querySelector(':scope > .files-hijos')) {
+        await expandirDirectorio(boton.dataset.ruta || acumulado, filaNodo);
+      }
+      if (rutaSeleccionada !== ruta) return;
+    }
+    if (rutaSeleccionada === ruta) marcarSeleccionado(ruta);
+  }
+
   async function abrirArchivo(ruta: string): Promise<void> {
     const id = ++secuenciaLectura;
     rutaSeleccionada = ruta;
+    void revelarEnArbol(ruta);
     abrirCon.disabled = false;
     visorRuta.textContent = ruta;
     visorRuta.title = ruta;
@@ -190,12 +293,29 @@ export function montarPanelFiles(opts: {
     }
   }
 
+  /* Promesa de la última carga de la raíz: el revelado la espera porque
+   * `abrirFilesEn` recarga el árbol y revela en el mismo tick (el árbol
+   * aún está vacío o con contenido viejo cuando llega la ruta). */
+  let raizLista: Promise<void> = Promise.resolve();
+
+  function cargarRaiz(): void {
+    directoriosExpandidos.clear();
+    raizLista = cargarDirectorio('', arbol, 0);
+  }
+
   async function cargarDirectorio(ruta: string, objetivo: HTMLElement, nivel: number): Promise<void> {
     const id = ++secuencia;
     try {
       const resultado = await opts.transporte.listar(ruta, nivel === 0 ? 1 : 0);
       if (id !== secuencia || (ruta !== '' && !directoriosExpandidos.has(ruta))) return;
       pintarEntradas(resultado.entradas, objetivo, nivel);
+      /* El árbol se repinta: si hay un archivo abierto en el visor, la
+       * raíz re-revela (re-expande padres + marca); una expansión solo
+       * re-marca si su fila ya es visible. */
+      if (rutaSeleccionada) {
+        if (ruta === '' && nivel === 0) void revelarEnArbol(rutaSeleccionada);
+        else marcarSeleccionado(rutaSeleccionada);
+      }
     } catch (error: unknown) {
       if (id !== secuencia) return;
       objetivo.replaceChildren();
@@ -223,8 +343,8 @@ export function montarPanelFiles(opts: {
   async function buscar(): Promise<void> {
     const consulta = input.value.trim();
     if (!consulta) {
-      directoriosExpandidos.clear();
-      await cargarDirectorio('', arbol, 0);
+      cargarRaiz();
+      await raizLista;
       return;
     }
     const id = ++secuencia;
@@ -240,15 +360,29 @@ export function montarPanelFiles(opts: {
     }
   }
 
+  function pintarBotonLista(visible: boolean): void {
+    alternarLista.replaceChildren(icono(visible ? 'panel-izq-cerrar' : 'panel-izq-abrir'));
+    const etiqueta = visible ? 'ocultar lista de archivos' : 'mostrar lista de archivos';
+    alternarLista.title = etiqueta;
+    alternarLista.setAttribute('aria-label', etiqueta);
+    alternarLista.setAttribute('aria-expanded', String(visible));
+  }
+
+  pintarBotonLista(true);
+  alternarLista.addEventListener('click', () => {
+    /* `toggle` devuelve si la clase QUEDÓ: oculta = lista escondida. */
+    const oculta = raiz.classList.toggle('files-sin-explorador');
+    pintarBotonLista(!oculta);
+  });
+
   abrirCon.addEventListener('click', () => void abrirArchivoConSeleccion());
   input.addEventListener('input', () => {
     window.clearTimeout(Number(input.dataset.timer || 0));
     input.dataset.timer = String(window.setTimeout(() => void buscar(), 220));
   });
   recargar.addEventListener('click', () => {
-    directoriosExpandidos.clear();
     input.value = '';
-    void cargarDirectorio('', arbol, 0);
+    cargarRaiz();
   });
 
   function registrarCambio(cambio: CambioArchivoFiles): void {
@@ -264,8 +398,7 @@ export function montarPanelFiles(opts: {
   return {
     raiz,
     recargar: () => {
-      directoriosExpandidos.clear();
-      void cargarDirectorio('', arbol, 0);
+      cargarRaiz();
     },
     registrarCambio,
     sincronizarCambios,

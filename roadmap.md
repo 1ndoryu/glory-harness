@@ -234,9 +234,36 @@ Siguiente en la serie de 6 pedidos: 129A-11 → 129A-9.
       `matar_todas` idempotente, `kill_on_drop` en ambos spawns, fix de la
       carrera `matar`-tras-`take` vía `Notify` en el pump; `cargo test
       --workspace --lib` 521 passed + `clippy -D warnings` en verde).
-      PENDIENTE: cablear cierres (conversación/app/tab → primitivas F4; no hay
-      canal UI→backend) + E2E real en `:8799` con turno vivo + gate. Detalle y
-      correcciones al diseño en el plan §Estado/§Correcciones.
+       PENDIENTE 20-09: cablear cierres (conversación/app/tab → primitivas F4; no hay
+       canal UI→backend) + E2E real en `:8799` con turno vivo + gate. Detalle y
+       correcciones al diseño en el plan §Estado/§Correcciones.
+       Estado 21-09: F4-resto CERRADO (retención executor/web/daemon/desktop +
+       transporte + tab × con `consola_matar` idempotente; commit `24954d4` 33
+       ficheros; `cargo test --workspace --lib` 523 passed + clippy + tsc +
+       build verdes) + lote visual Consola (disabled/focus/`:empty`/KB/hidden,
+       VarSense 0 hallazgos en Consola; SIN COMMIT, pasa a 219A-1). Detalle en
+       el plan §Estado.
+- [x] **219A-1 — Botones icono y títulos centralizados (canon 28×28 sin borde)**
+      (21-09, CERRADO con commit; incluye lote visual Consola del 20-09 que
+      estaba sin commit + mejoras Files integradas: grip arrastrable,
+      revelar-en-árbol, marca `.seleccionado`, toggle lista — el botón
+      `alternarLista` migrado solo funciona con ese cableado).
+      F1 `componentes/chromePanel.ts` (`crearBotonIcono` + `crearCabeceraPanel`)
+      + `estilos/botonIcono.css` (28×28 sin borde, `.ic` 16px,
+      hover/focus/disabled 0.35/activo/invertido-hover/`[hidden]`,
+      `.chrome-titulo` --sm); F2 migrados los 6 sitios y borradas
+      `.barra-boton/.cab-boton/.tab-mas/.consola-accion/.files-accion/.nav-btn`
+      (grep 0 en `desktop/ui/src` salvo comentarios); títulos a --sm
+      (Consola --md→--sm; `cerrarCaptura` Nav a `.btn` texto; `abrirCon`
+      normalizado `…`; `alternarLista` con title/aria-label/aria-expanded).
+      Evidencia: `type-check` EXIT 0, `vite build` OK (3.65s), VarSense scan
+      15E/14W idéntico baseline (0 nuevos; `todoProsa` preexistente en
+      "mé**todo**" y `cssInlineScript` en `explorador.style.flex` del grip),
+      DOM en vivo (vite :8760): 18/18 botones 28×28/borde none/icono 16px,
+      título Consola 11.05px (=--sm), 4 deshabilitados a opacity 0.35.
+      Spec: `Agente/documentacion/ui-chrome-botones-titulos-2026-09-21.md`.
+      Gate completo (cargo) no ejecutado: cambio solo-UI; documentado en
+      `Agente/completados/tareas-2026-09-21.md`.
 - [x] **F3 — PersistenciaSqlite** (`cli/src/persistencia_sqlite.rs`, 04-09): `AgentPersistence` +
       `ProgramadorTareas` sobre rusqlite bundled (WAL, `%APPDATA%/glory-harness/glory-harness.db`).
       CRUD de conversaciones, mensaje de usuario persistido por el consumidor en `enviar_turno`,

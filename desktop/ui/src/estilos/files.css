@@ -9,23 +9,23 @@
     color: var(--texto);
 }
 
-.files-accion {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 24px;
-    height: 24px;
-    padding: 0;
-    color: var(--texto);
-    background: transparent;
-    border: 1px solid var(--borde);
-    cursor: pointer;
+/* (219A-1) Los botones usan el constructor único `crearBotonIcono` y su
+ * estilo vive en `botonIcono.css` (canon 28×28 sin borde): aquí no queda
+ * ninguna regla de botón. */
+/* Botón de la cabecera del visor que oculta/muestra el explorador. */
+.files-visor-lista { flex: none; margin-right: var(--sp-xs); }
+.files-sin-explorador .files-explorador { display: none; }
+/* Divisor arrastrable entre explorador y visor: franja fina invisible
+ * que solo captura el puntero (el cursor global lo pone
+ * `body.redimensionando-lateral` en layout.css). */
+.files-contenido > .files-grip {
+    flex: none;
+    align-self: stretch;
+    width: 5px;
+    cursor: col-resize;
 }
-.files-accion .ic { width: 14px; height: 14px; }
-.files-recargar,
-.files-abrir { border: 0; }
-.files-accion:hover,
-.files-accion:focus-visible { background: var(--superficie-hover); outline-color: var(--foco); }
+.files-contenido > .files-grip:hover { background: var(--borde); }
+.files-sin-explorador .files-grip { display: none; }
 
 .files-contenido {
     display: flex;
@@ -97,6 +97,9 @@
 
 .files-nombre:hover,
 .files-nombre:focus-visible { background: var(--superficie-hover); outline-color: var(--foco); }
+/* Archivo abierto en el visor: se nota en el árbol (misma marca que las
+ * filas seleccionadas del panel Git). */
+.files-nombre.seleccionado { background: var(--superficie-active); }
 .files-nombre .ic { width: 14px; height: 14px; flex: none; }
 .files-nombre-texto { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .files-ignorado { position: absolute; right: var(--sp-sm); font-size: var(--xs); opacity: .45; }

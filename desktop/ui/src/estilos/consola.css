@@ -22,35 +22,25 @@
     flex: 0 0 auto;
 }
 
-.consola-titulo {
-    font-size: var(--md);
-}
-
 .consola-contador {
     font-size: var(--xs);
     color: var(--texto-tenue);
     margin-right: auto;
 }
 
-.consola-accion {
-    background: none;
-    border: 1px solid transparent;
-    color: var(--texto);
-    cursor: pointer;
-    padding: 2px 4px;
-    display: inline-flex;
-}
-
-.consola-accion:hover {
-    background: var(--superficie-hover);
-    border-color: var(--borde);
-}
+/* (219A-1) Título en `--sm` como el de la conversación (vía `.chrome-titulo`
+ * de `botonIcono.css`) y botones con el constructor único `crearBotonIcono`:
+ * aquí no queda ninguna regla de botón. */
 
 .consola-lista {
     flex: 0 1 auto;
     max-height: 32%;
     overflow-y: auto;
     border-bottom: 1px solid var(--borde);
+}
+
+.consola-lista:empty {
+    display: none;
 }
 
 .consola-fila {
@@ -71,6 +61,11 @@
 
 .consola-fila:hover {
     background: var(--superficie-hover);
+}
+
+.consola-fila:focus-visible {
+    outline: 2px solid var(--foco);
+    outline-offset: -2px;
 }
 
 .consola-fila.activa {
@@ -105,6 +100,11 @@
     min-height: 0;
     display: flex;
     flex-direction: column;
+}
+
+.consola-visor[hidden],
+.consola-vacio[hidden] {
+    display: none;
 }
 
 .consola-comando {

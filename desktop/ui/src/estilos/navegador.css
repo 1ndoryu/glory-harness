@@ -60,44 +60,10 @@
     border-bottom: 1px solid var(--borde);
 }
 
-.nav-btn {
-    font-family: inherit;
-    font-size: var(--xs);
-    background: var(--fondo);
-    color: var(--texto);
-    border: 1px solid var(--borde);
-    padding: 2px var(--sp-xs);
-    cursor: pointer;
-    white-space: nowrap;
-}
-
-.nav-btn:hover {
-    background: var(--superficie-hover);
-}
-
-.nav-btn:active {
-    background: var(--superficie-active);
-}
-
-.nav-btn:focus-visible {
-    outline: 2px solid var(--foco);
-    outline-offset: 2px;
-}
-
-/* [seleccionar] Botón en modo activo: inversión monocroma */
-.nav-btn.activo {
-    background: var(--texto);
-    color: var(--fondo);
-    border-color: var(--texto);
-}
-
-.nav-btn.activo:hover {
-    background: var(--superficie-seleccionada);
-}
-
-.nav-btn.activo .ic {
-    stroke: var(--fondo);
-}
+/* (219A-1) Los botones usan el constructor único `crearBotonIcono` y su
+ * estilo vive en `botonIcono.css` (canon 28×28 sin borde): aquí no queda
+ * ninguna regla de botón. El cierre de la captura es botón de texto con el
+ * canónico `.btn`. */
 
 /* Contenedor webview (HWND child en Tauri; iframe en modo web) */
 .nav-webview {

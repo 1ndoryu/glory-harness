@@ -77,7 +77,7 @@ html[data-tema='synara'] .aprobacion .args {
 html[data-tema='synara'] #sidebar .nav-boton,
 html[data-tema='synara'] #sidebar .pie-boton,
 html[data-tema='synara'] .proyecto-grupo-boton,
-html[data-tema='synara'] .cabecera-chat .cab-boton,
+html[data-tema='synara'] .cabecera-chat .boton-icono,
 html[data-tema='synara'] .conv .conv-mas,
 html[data-tema='synara'] .prog-mas,
 html[data-tema='synara'] .prog-orden,
@@ -105,7 +105,7 @@ html[data-tema='synara'] .barra,
 html[data-tema='synara'] .ajustes-item:hover,
 html[data-tema='synara'] .ajustes-item.sel,
 html[data-tema='synara'] .ajustes-volver:hover,
-html[data-tema='synara'] .cabecera-chat .cab-boton:hover,
+html[data-tema='synara'] .cabecera-chat .boton-icono:hover,
 html[data-tema='synara'] .menu-ctx .menu-item:hover,
 html[data-tema='synara'] .menu-ctx .menu-grupo:hover > .menu-item,
 html[data-tema='synara'] .menu-ctx .menu-grupo:hover > .menu-sub .menu-item:hover,
@@ -172,6 +172,7 @@ html[data-tema='synara'] *:focus-visible {
    (`git.css` del panel Git/Cambios, `.add`/`.del` de los resultados de
    herramienta en `mensajes.css` y del preview de Files en `panelVisor`). */
 html[data-tema='synara'] .add,
+html[data-tema='synara'] .rotulo-add,
 html[data-tema='synara'] .git-adiciones,
 html[data-tema='synara'] .git-diff-adiciones,
 html[data-tema='synara'] .git-diff-adicion .git-diff-marca {
@@ -180,6 +181,7 @@ html[data-tema='synara'] .git-diff-adicion .git-diff-marca {
 }
 
 html[data-tema='synara'] .del,
+html[data-tema='synara'] .rotulo-del,
 html[data-tema='synara'] .git-eliminaciones,
 html[data-tema='synara'] .git-diff-eliminaciones,
 html[data-tema='synara'] .git-diff-eliminacion .git-diff-marca {
@@ -193,4 +195,34 @@ html[data-tema='synara'] .git-diff-adicion {
 
 html[data-tema='synara'] .git-diff-eliminacion {
     background: var(--superficie-diff-eliminacion) !important;
+}
+
+/* [20-09-2026] El contador `-N +M` hereda `opacity: .6` de la base: pleno
+   para que el rojo/verde se lean puros (igual que en el oscuro). */
+html[data-tema='synara'] .herramienta .resultado .rotulo-cambios {
+    opacity: 1;
+}
+
+/* [179A-3] Modal "Nuevo proyecto" + navegador + ajustes: no estaban en las
+   listas de arriba y heredaban el lenguaje del tema claro (fondo sin teñir).
+   Mismo patrón que `.input-texto`/`.btn`: fondo base + borde del seed. */
+html[data-tema='synara'] .proyecto-modal-input,
+html[data-tema='synara'] .proyecto-modal-boton-ruta,
+html[data-tema='synara'] .proyecto-modal-btn,
+html[data-tema='synara'] .nav-url-input,
+html[data-tema='synara'] .panel-navegador .boton-icono,
+html[data-tema='synara'] .ajustes-buscar,
+html[data-tema='synara'] .ajustes-volver {
+    background-color: var(--fondo) !important;
+    color: var(--texto) !important;
+    border-color: var(--borde) !important;
+}
+
+html[data-tema='synara'] .proyecto-modal-btn-primario,
+html[data-tema='synara'] .proyecto-modal-btn:hover,
+html[data-tema='synara'] .proyecto-modal-boton-ruta:hover,
+html[data-tema='synara'] .panel-navegador .boton-icono.activo {
+    background-color: var(--texto) !important;
+    color: var(--fondo) !important;
+    border-color: var(--texto) !important;
 }

@@ -10,6 +10,7 @@ import '../estilos/launcher.css';
 import { cerrarMenuActual, abrirMenuContextual, crearItemMenu } from './menu';
 import { icono } from './iconos';
 import { el } from '../util/dom';
+import { crearBotonIcono } from './chromePanel';
 import type { IconoNombre } from '../dominio/tipos';
 
 /** Id de tab: 'files' | 'git' | 'navegador' | 'consola' | 'chat:<conversaId>'. */
@@ -63,12 +64,9 @@ export function montarPanelDerecho(opts: {
   barra.setAttribute('role', 'tablist');
   const botones = el('div', 'tabs-botones');
   barra.appendChild(botones);
-  const botonMas = el('button', 'tab-mas') as HTMLButtonElement;
-  botonMas.type = 'button';
-  botonMas.title = 'Agregar tab';
-  botonMas.setAttribute('aria-label', 'Agregar tab');
+  // (219A-1) Botón + con el constructor único (canon 28×28 sin borde).
+  const botonMas = crearBotonIcono({ icono: 'mas', etiqueta: 'Agregar tab' });
   botonMas.setAttribute('aria-haspopup', 'menu');
-  botonMas.appendChild(icono('mas'));
   barra.appendChild(botonMas);
 
   const contenido = el('div', 'tabs-contenido');

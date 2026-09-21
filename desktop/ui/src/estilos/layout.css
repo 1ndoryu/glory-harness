@@ -338,43 +338,24 @@
     flex: none;
     margin-left: auto;
 }
-.cabecera-chat .cab-boton {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 24px;
-    height: 24px;
-    background: transparent;
-    color: var(--texto);
-    border: none;
-    font-family: inherit;
-    font-size: var(--md);
-    line-height: 1;
-    padding: 0;
-    cursor: pointer;
-}
-.cabecera-chat .cab-boton .ic { display: block; }
-.cabecera-chat .cab-boton:hover {
-    background: var(--superficie-seleccionada);
-    color: var(--invertido);
-}
-.cabecera-chat .cab-boton:focus-visible {
-    outline: 2px solid var(--foco);
-    outline-offset: -2px;
-}
-/* [039A-3 P6b] `.cab-boton` usa `display:inline-flex`, que anula el atributo
-   `hidden` por defecto; se fuerza oculto cuando el botón de "mostrar lista"
-   no aplica (lista visible). */
-.cabecera-chat .cab-boton[hidden] { display: none; }
+/* (219A-1) Botones de la cabecera con el constructor único `crearBotonIcono`
+ * (canon 28×28 sin borde + hover invertido): el estilo vive en
+ * `botonIcono.css`. Aquí solo quedan reglas ESTRUCTURALES propias de la
+ * cabecera (colapso del grupo vacío + margen del × lateral). */
+.cabecera-chat .boton-icono .ic { display: block; }
+/* [039A-3 P6b] El flex anula el atributo `hidden` por defecto (también
+ * cubierto por `.boton-icono[hidden]`); se conserva la regla local por la
+ * especificidad con el `:has` de abajo. */
+.cabecera-chat .boton-icono[hidden] { display: none; }
 /* [039A-3 P6b retoque] Cuando el botón "mostrar lista" está oculto (lista
    visible), el grupo IZQUIERDO que lo contiene no debe dejar hueco (gap del
    .cabecera-chat + padding). En el principal ese grupo solo contiene ese
    botón, así que se colapsa entero; el grupo del lateral (con el ×) nunca
    tiene hijos con [hidden] y no le aplica esta regla. */
-.cabecera-chat .acciones-cabecera:has(.cab-boton[hidden]) { display: none; }
+.cabecera-chat .acciones-cabecera:has(.boton-icono[hidden]) { display: none; }
 /* [039A-3 P5] Botón de cierre del chat lateral (×). Misma mecánica que el
    resto de botones de cabecera; solo se monta en el panel lateral. */
-.cabecera-chat .cab-cerrar { margin-left: var(--sp-xs); }
+.cabecera-chat .acciones-cabecera .boton-icono { margin-left: var(--sp-xs); }
 
 /* ---------- Grip de redimensionado de la sidebar ---------- */
 /* [039A-3 retoque 3] El grip NO ocupa ancho de layout: es un área de captura

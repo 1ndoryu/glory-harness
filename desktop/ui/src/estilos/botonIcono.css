@@ -1,0 +1,76 @@
+/* Botón icono canónico del chrome (219A-1): 28×28 sin borde, icono 16px.
+   Única forma de construir botones icono en la barra superior, cabeceras de
+   panel/chat y tabs. Monocromo estricto: estados por fondo, sin radius.
+   Variantes: `.activo` (modo seleccionado, p. ej. toggles) e
+   `.invertido-hover` (⋯/× de la cabecera del chat, affordance 039A-3). */
+
+.boton-icono {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: none;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    color: var(--texto);
+    background: transparent;
+    border: none;
+    cursor: pointer;
+}
+
+.boton-icono .ic {
+    width: 16px;
+    height: 16px;
+}
+
+.boton-icono:hover {
+    background: var(--superficie-hover);
+}
+
+.boton-icono:active {
+    background: var(--superficie-active);
+}
+
+.boton-icono:focus-visible {
+    outline: 2px solid var(--foco);
+    outline-offset: -2px;
+}
+
+.boton-icono:disabled {
+    opacity: 0.35;
+    cursor: default;
+}
+
+.boton-icono:disabled:hover {
+    background: none;
+}
+
+/* Modo seleccionado permanente (toggle). El icono hereda el color por
+   `stroke: currentColor` (variables.css), sin regla extra. */
+.boton-icono.activo {
+    background: var(--texto);
+    color: var(--fondo);
+}
+
+.boton-icono.activo:hover {
+    background: var(--superficie-seleccionada);
+    color: var(--invertido);
+}
+
+/* Hover invertido de la cabecera del chat (⋯/×): mismo patrón que la fila
+   activa, para no perder su affordance al migrar al canon 28×28. */
+.boton-icono.invertido-hover:hover {
+    background: var(--superficie-seleccionada);
+    color: var(--invertido);
+}
+
+/* Como `.cab-boton` antes (039A-3 P6b): el flex anula `hidden` por defecto. */
+.boton-icono[hidden] {
+    display: none;
+}
+
+/* Título de cabecera de panel (219A-1): siempre `--sm`, como el título de la
+   conversación (`.cabecera-chat .titulo`). Lo pone `crearCabeceraPanel`. */
+.chrome-titulo {
+    font-size: var(--sm);
+}

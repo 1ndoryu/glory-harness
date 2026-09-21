@@ -5,12 +5,19 @@ html[data-tema='oscuro'] {
     --fondo: #111111;
     --texto: #eeeeee;
     --invertido: #111111;
-    --borde: #5a5a5a;
+    /* [179A-2] Bordes al 30% de opacidad (#5a5a5a → rgba): todas las reglas
+       que usan `var(--borde)` lo heredan sin tocar cada componente. */
+    --borde: rgba(90, 90, 90, 0.2);
     --superficie-hover: #292929;
     --superficie-active: #3a3a3a;
     --superficie-seleccionada: #eeeeee;
-    --superficie-diff-adicion: #292929;
-    --superficie-diff-eliminacion: #202020;
+    /* [20-09-2026] Diffs en verde/rojo (mismo seed que synara): el oscuro
+       monocromo no distinguía adiciones de eliminaciones. Fondos teñidos
+       del color semántico correspondiente. */
+    --diff-adicion: #40c977;
+    --diff-eliminacion: #fa423e;
+    --superficie-diff-adicion: #10301d;
+    --superficie-diff-eliminacion: #33191a;
     --texto-tenue: #aaaaaa;
     --foco: #eeeeee;
 }
@@ -54,7 +61,7 @@ html[data-tema='oscuro'] .aprobacion .args {
 html[data-tema='oscuro'] #sidebar .nav-boton,
 html[data-tema='oscuro'] #sidebar .pie-boton,
 html[data-tema='oscuro'] .proyecto-grupo-boton,
-html[data-tema='oscuro'] .cabecera-chat .cab-boton,
+html[data-tema='oscuro'] .cabecera-chat .boton-icono,
 html[data-tema='oscuro'] .conv .conv-mas,
 html[data-tema='oscuro'] .prog-mas,
 html[data-tema='oscuro'] .prog-orden,
@@ -79,7 +86,7 @@ html[data-tema='oscuro'] .campo .selector-modelo.selector-modal {
 html[data-tema='oscuro'] .ajustes-item:hover,
 html[data-tema='oscuro'] .ajustes-item.sel,
 html[data-tema='oscuro'] .ajustes-volver:hover,
-html[data-tema='oscuro'] .cabecera-chat .cab-boton:hover,
+html[data-tema='oscuro'] .cabecera-chat .boton-icono:hover,
 html[data-tema='oscuro'] .menu-ctx .menu-item:hover,
 html[data-tema='oscuro'] .menu-ctx .menu-grupo:hover > .menu-item,
 html[data-tema='oscuro'] .menu-ctx .menu-grupo:hover > .menu-sub .menu-item:hover,
@@ -129,6 +136,50 @@ html[data-tema='oscuro'] .msg-asis {
 html[data-tema='oscuro'] .cursor,
 html[data-tema='oscuro'] .panel-meta.corriendo .pm-estado .punto {
     background-color: var(--texto) !important;
+}
+
+/* [20-09-2026] Diffs verde/rojo SOLO en marcadores y contadores: el texto de
+   las líneas queda como antes (color normal). El tema claro sigue
+   monocromo; los fondos teñidos del panel Git vienen de las vars de arriba. */
+html[data-tema='oscuro'] .herramienta .resultado .rotulo-add,
+/* [20-09-2026] El `-N +M` también vive en títulos de tarjeta y en la
+ * cabecera del resumen del turno: mismo verde/rojo, solo contadores. */
+html[data-tema='oscuro'] .herramienta summary .rotulo-add,
+html[data-tema='oscuro'] .resumen-turno-cabecera .rotulo-add,
+html[data-tema='oscuro'] .git-adiciones,
+html[data-tema='oscuro'] .git-diff-adiciones,
+html[data-tema='oscuro'] .git-diff-adicion .git-diff-marca {
+    color: var(--diff-adicion) !important;
+    opacity: 1;
+}
+
+/* El `+`/`-` lo pinta el `::before` de la base: se tiñe solo el marcador. */
+html[data-tema='oscuro'] .herramienta .resultado .add::before,
+html[data-tema='oscuro'] .aprobacion .args .add::before {
+    color: var(--diff-adicion) !important;
+    opacity: 1;
+}
+
+html[data-tema='oscuro'] .herramienta .resultado .rotulo-del,
+html[data-tema='oscuro'] .herramienta summary .rotulo-del,
+html[data-tema='oscuro'] .resumen-turno-cabecera .rotulo-del,
+html[data-tema='oscuro'] .git-eliminaciones,
+html[data-tema='oscuro'] .git-diff-eliminaciones,
+html[data-tema='oscuro'] .git-diff-eliminacion .git-diff-marca {
+    color: var(--diff-eliminacion) !important;
+    opacity: 1;
+}
+
+html[data-tema='oscuro'] .herramienta .resultado .del::before,
+html[data-tema='oscuro'] .aprobacion .args .del::before {
+    color: var(--diff-eliminacion) !important;
+    opacity: 1;
+}
+
+/* El contador hereda `opacity: .6` de la base: en oscuro va pleno para que
+   el rojo/verde se lean puros. */
+html[data-tema='oscuro'] .herramienta .resultado .rotulo-cambios {
+    opacity: 1;
 }
 html[data-tema='oscuro'] .panel-meta.pausado .pm-estado .punto,
 html[data-tema='oscuro'] .panel-meta.inactivo .pm-estado .punto {

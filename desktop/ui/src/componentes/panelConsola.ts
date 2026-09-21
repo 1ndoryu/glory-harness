@@ -4,8 +4,8 @@
 // por adaptador, sin duplicados). Sin polling, sin timers, sin PTY.
 
 import '../estilos/consola.css';
-import { icono } from './iconos';
 import { el } from '../util/dom';
+import { crearBotonIcono, crearCabeceraPanel } from './chromePanel';
 import type { AgenteEvento } from '../tauri/realTipos';
 
 /** Subconjunto del contrato que alimenta la tab (fiel a `evento.rs`). */
@@ -59,6 +59,10 @@ export interface PanelConsola {
 
 export function montarPanelConsola(opts: {
   onError?: (texto: string, detalle?: string) => void;
+  /** [209A-1 F4-resto] El usuario pulsó × sobre la consola ACTIVA (solo
+   * habilitado si sigue viva): el orquestador la mata en el backend. El
+   * `consola_fin` posterior la marca como terminada en la vista. */
+  onMatar?: (idEjecucion: string) => void;
 }): PanelConsola {
   const entradas = new Map<string, EntradaConsola>();
   const orden: string[] = [];
@@ -67,21 +71,34 @@ export function montarPanelConsola(opts: {
   const raiz = el('div', 'panel-consola');
   raiz.setAttribute('aria-label', 'consolas de comandos');
 
-  const cabecera = el('div', 'consola-cabecera');
-  const titulo = el('span', 'consola-titulo');
-  titulo.textContent = 'Consola';
+  // (219A-1) Cabecera y botones con los constructores únicos: título en
+  // `--sm` y botones icono 28×28 sin borde.
   const contador = el('span', 'consola-contador');
-  const btnLimpiar = el('button', 'consola-accion') as HTMLButtonElement;
-  btnLimpiar.type = 'button';
-  btnLimpiar.title = 'Quitar las terminadas (las vivas siguen corriendo)';
+  const btnLimpiar = crearBotonIcono({
+    icono: 'x',
+    etiqueta: 'Quitar las terminadas (las vivas siguen corriendo)',
+  });
   btnLimpiar.setAttribute('aria-label', 'Quitar consolas terminadas');
-  btnLimpiar.appendChild(icono('x'));
-  const btnCopiar = el('button', 'consola-accion') as HTMLButtonElement;
-  btnCopiar.type = 'button';
-  btnCopiar.title = 'Copiar el transcript de la consola activa';
+  const btnCopiar = crearBotonIcono({
+    icono: 'copiar',
+    etiqueta: 'Copiar el transcript de la consola activa',
+  });
   btnCopiar.setAttribute('aria-label', 'Copiar transcript');
-  btnCopiar.appendChild(icono('copiar'));
-  cabecera.append(titulo, contador, btnLimpiar, btnCopiar);
+  // [209A-1 F4-resto] × por entrada viva: mata la ACTIVA en el backend
+  // (las terminadas se quitan con limpiar; no hay nada que matar).
+  // El click se cablea más abajo (mismo sitio que antes).
+  const btnMatar = crearBotonIcono({
+    icono: 'x-circulo',
+    etiqueta: 'Matar la consola activa (solo si sigue corriendo)',
+    deshabilitado: true,
+  });
+  btnMatar.setAttribute('aria-label', 'Matar la consola activa');
+  const cabecera = crearCabeceraPanel({
+    claseRaiz: 'consola-cabecera',
+    titulo: 'Consola',
+    medio: [contador],
+    acciones: [btnLimpiar, btnCopiar, btnMatar],
+  }).raiz;
 
   const lista = el('div', 'consola-lista');
   lista.setAttribute('role', 'list');
@@ -123,7 +140,9 @@ export function montarPanelConsola(opts: {
       cmd.textContent = e.comando;
       cmd.title = e.comando;
       const meta = el('span', 'consola-fila-meta');
-      const kb = Math.round(e.comando.length / 1024);
+      // KB de salida real (suma de líneas en vista), no del comando.
+      const bytesSalida = e.lineas.reduce((n, l) => n + l.texto.length, 0);
+      const kb = Math.round(bytesSalida / 1024);
       meta.textContent = `${idCorto(id)} · ${estadoTexto(e)} · ${e.lineas.length} líneas${kb > 0 ? ` · ${kb} KB` : ''}`;
       fila.append(marca, cmd, meta);
       fila.addEventListener('click', () => {
@@ -138,8 +157,9 @@ export function montarPanelConsola(opts: {
   function pintarVisor(): void {
     const e = activaId ? entradas.get(activaId) ?? null : null;
     const hay = e !== null;
-    visor.style.display = hay ? '' : 'none';
-    vacio.style.display = hay ? 'none' : '';
+    // `hidden` + regla CSS (sin estilo inline: regla cssInlineScript).
+    visor.hidden = !hay;
+    vacio.hidden = hay;
     if (!e) return;
     visorComando.textContent = '';
     visorComando.title = e.comando;
@@ -171,6 +191,8 @@ export function montarPanelConsola(opts: {
     pintarContador();
     pintarLista();
     pintarVisor();
+    const activa = activaId ? entradas.get(activaId) ?? null : null;
+    btnMatar.disabled = activa?.estado !== 'viva' || opts.onMatar === undefined;
   }
 
   function manejarEvento(ev: EventoConsola): void {
@@ -245,6 +267,15 @@ export function montarPanelConsola(opts: {
     repintar();
   });
 
+  // [209A-1 F4-resto] La vista NO retira la entrada al matar: el backend
+  // emite `consola_fin` y `manejarEvento` la congela como terminada.
+  btnMatar.addEventListener('click', () => {
+    const id = activaId;
+    const e = id ? entradas.get(id) ?? null : null;
+    if (!id || !e || e.estado !== 'viva' || opts.onMatar === undefined) return;
+    opts.onMatar(id);
+  });
+
   btnCopiar.addEventListener('click', () => {
     const e = activaId ? entradas.get(activaId) ?? null : null;
     if (!e) {
@@ -264,8 +295,7 @@ export function montarPanelConsola(opts: {
     revelar(id: string): void {
       if (!entradas.has(id)) return;
       activaId = id;
-      pintarLista();
-      pintarVisor();
+      repintar();
     },
     hayVivas(): boolean {
       return vivas() > 0;

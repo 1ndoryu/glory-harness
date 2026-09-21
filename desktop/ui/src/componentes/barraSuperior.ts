@@ -16,6 +16,7 @@ import '../estilos/barraSuperior.css';
 import { esEntornoTauri } from '../tauri/real';
 import { icono } from './iconos';
 import { el } from '../util/dom';
+import { crearBotonIcono } from './chromePanel';
 import { crearControlesVentana, hacerArrastrable } from './ventana';
 
 export interface BarraSuperiorOpciones {
@@ -43,19 +44,15 @@ export interface BarraSuperior {
   montarTabs(tabsBarra: HTMLElement): void;
 }
 
-/** Botón de la barra (Lucide, monocromo). */
+/** Botón de la barra (219A-1: constructor único `crearBotonIcono`, canon
+ * 28×28 sin borde; aquí solo se fija el repertorio de iconos propio). */
 function botonBarra(
   iconoAbierto: 'panel-izq-cerrar' | 'panel-izq-abrir' | 'flecha-izq' | 'flecha-der' | 'panel-der-cerrar' | 'panel-der-abrir',
   etiqueta: string,
   alPulsar: () => void,
+  deshabilitado = false,
 ): HTMLButtonElement {
-  const btn = el('button', 'barra-boton') as HTMLButtonElement;
-  btn.type = 'button';
-  btn.title = etiqueta;
-  btn.setAttribute('aria-label', etiqueta);
-  btn.appendChild(icono(iconoAbierto));
-  btn.addEventListener('click', alPulsar);
-  return btn;
+  return crearBotonIcono({ icono: iconoAbierto, etiqueta, alPulsar, deshabilitado });
 }
 
 export function montarBarraSuperior(opts: BarraSuperiorOpciones): BarraSuperior {
@@ -68,13 +65,11 @@ export function montarBarraSuperior(opts: BarraSuperiorOpciones): BarraSuperior 
     opts.onAlternarSidebar(),
   );
   grupoIzq.appendChild(btnSidebar);
-  const btnAtras = botonBarra('flecha-izq', 'atrás', () => opts.onAtras());
-  const btnAdelante = botonBarra('flecha-der', 'adelante', () => opts.onAdelante());
+  const btnAtras = botonBarra('flecha-izq', 'atrás', () => opts.onAtras(), true);
+  const btnAdelante = botonBarra('flecha-der', 'adelante', () => opts.onAdelante(), true);
   // Historial de la app (089A-5): deshabilitados hasta la primera
   // navegación, como en Synara cuando no hay a dónde ir
   // (`canGoBack`/`canGoForward`).
-  btnAtras.disabled = true;
-  btnAdelante.disabled = true;
   grupoIzq.appendChild(btnAtras);
   grupoIzq.appendChild(btnAdelante);
   barra.appendChild(grupoIzq);

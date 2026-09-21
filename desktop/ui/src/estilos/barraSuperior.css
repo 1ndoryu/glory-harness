@@ -60,36 +60,9 @@
     height: 100%;
 }
 
-.barra-superior .barra-boton {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 28px;
-    height: 28px;
-    background: transparent;
-    color: inherit;
-    border: none;
-    padding: 0;
-    cursor: pointer;
-}
-.barra-superior .barra-boton:hover {
-    background: var(--superficie-hover);
-}
-.barra-superior .barra-boton:active {
-    background: var(--superficie-active);
-}
-.barra-superior .barra-boton:focus-visible {
-    outline: 2px solid var(--foco);
-    outline-offset: -2px;
-}
-.barra-superior .barra-boton:disabled {
-    opacity: 0.35;
-    cursor: default;
-}
-.barra-superior .barra-boton .ic {
-    width: 16px;
-    height: 16px;
-}
+/* (219A-1) Los botones de la barra usan el constructor único
+ * `crearBotonIcono` y su estilo vive en `botonIcono.css` (canon 28×28 sin
+ * borde): aquí no queda ninguna regla de botón. */
 
 /* Marca a la izquierda del centro: ocupa el hueco y arrastra. */
 .barra-superior .barra-marca {

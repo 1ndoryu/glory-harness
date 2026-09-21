@@ -41,30 +41,9 @@
     overflow: hidden;
 }
 
-.tab-mas {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    flex: none;
-    width: 30px;
-    padding: 0;
-    color: var(--texto);
-    background: transparent;
-    border: none;
-    cursor: pointer;
-    opacity: 0.65;
-}
-
-.tab-mas:hover,
-.tab-mas:focus-visible {
-    opacity: 1;
-    background: var(--superficie-hover);
-}
-
-.tab-mas .ic {
-    width: 14px;
-    height: 14px;
-}
+/* (219A-1) El botón + usa el constructor único `crearBotonIcono` y su estilo
+ * vive en `botonIcono.css` (canon 28×28 sin borde): aquí no queda ninguna
+ * regla de botón (se pierde el `opacity:.65` idle, intencional). */
 
 .tab {
     display: inline-flex;
@@ -95,8 +74,7 @@
 }
 
 .tab:focus-visible,
-.tab-x:focus-visible,
-.tab-mas:focus-visible {
+.tab-x:focus-visible {
     outline: 2px solid var(--foco);
     outline-offset: -2px;
 }

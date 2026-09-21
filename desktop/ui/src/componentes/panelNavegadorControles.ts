@@ -1,8 +1,11 @@
 /* DOM del panel Navegador: construye barra URL, botones, contenedor de vista
  * (webview child en Tauri, iframe reutilizable en modo web) y área de captura.
- * Sin estado ni IPC: solo nodos. */
-import { icono } from './iconos';
+ * Sin estado ni IPC: solo nodos. Botones con el constructor único
+ * `crearBotonIcono` (219A-1, canon 28×28 sin borde); el cableado lo hace el
+ * dueño desde los nodos devueltos. */
+import type { IconoNombre } from '../dominio/tipos';
 import { el } from '../util/dom';
+import { crearBotonIcono } from './chromePanel';
 
 /** Barra de navegación: raíz, URL e historial. */
 export interface NodosNavBarra {
@@ -33,11 +36,8 @@ export interface NodosNavCaptura {
 /** Todos los nodos que la fábrica necesita cablear. */
 export interface NodosNav extends NodosNavBarra, NodosNavVista, NodosNavCaptura {}
 
-function boton(titulo: string): HTMLButtonElement {
-  const b = el('button', 'nav-btn') as HTMLButtonElement;
-  b.type = 'button';
-  b.title = titulo;
-  return b;
+function boton(titulo: string, nombre: IconoNombre): HTMLButtonElement {
+  return crearBotonIcono({ icono: nombre, etiqueta: titulo });
 }
 
 export function crearControlesNav(idP: string, esTauri: boolean): NodosNav {
@@ -53,21 +53,16 @@ export function crearControlesNav(idP: string, esTauri: boolean): NodosNav {
   inputURL.type = 'text';
   inputURL.placeholder = 'https://ejemplo.com';
   inputURL.className = 'nav-url-input';
-  const btnIr = boton('Navegar a la URL');
-  btnIr.textContent = 'Ir';
+  const btnIr = boton('Navegar a la URL', 'flecha-der');
   barraURL.appendChild(inputURL);
   barraURL.appendChild(btnIr);
 
   // Botones de navegación.
   const botones = el('div', 'nav-botones-barra');
-  const btnAtras = boton('Atrás');
-  btnAtras.appendChild(icono('flecha-izq', true));
-  const btnAdelante = boton('Adelante');
-  btnAdelante.appendChild(icono('flecha-der', true));
-  const btnRecargar = boton('Recargar');
-  btnRecargar.appendChild(icono('recargar', true));
-  const btnCapturar = boton('Capturar pantalla');
-  btnCapturar.appendChild(icono('camara', true));
+  const btnAtras = boton('Atrás', 'flecha-izq');
+  const btnAdelante = boton('Adelante', 'flecha-der');
+  const btnRecargar = boton('Recargar', 'recargar');
+  const btnCapturar = boton('Capturar pantalla', 'camara');
   // [seleccionar] Botón de "seleccionar elemento": entra en un modo donde el
   // elemento bajo el cursor se resalta al hacer hover y un clic lo captura
   // para pasarlo al modelo. Solo tiene efecto real en Tauri (WebView2); en el
@@ -76,8 +71,8 @@ export function crearControlesNav(idP: string, esTauri: boolean): NodosNav {
     esTauri
       ? 'Seleccionar elemento de la página'
       : 'Seleccionar elemento (requiere la app de escritorio)',
+    'seleccionar',
   );
-  btnSeleccionar.appendChild(icono('seleccionar', true));
   botones.appendChild(btnAtras);
   botones.appendChild(btnAdelante);
   botones.appendChild(btnRecargar);
@@ -97,7 +92,11 @@ export function crearControlesNav(idP: string, esTauri: boolean): NodosNav {
   const imgCaptura = el('img') as HTMLImageElement;
   imgCaptura.id = `${idP}-captura-img`;
   imgCaptura.alt = 'Captura del navegador';
-  const cerrarCaptura = boton('Cerrar previsualización');
+  // (219A-1) Botón de TEXTO con el canónico `.btn` (no es botón icono).
+  const cerrarCaptura = el('button', 'btn') as HTMLButtonElement;
+  cerrarCaptura.type = 'button';
+  cerrarCaptura.title = 'Cerrar previsualización';
+  cerrarCaptura.setAttribute('aria-label', 'Cerrar previsualización');
   cerrarCaptura.textContent = '× cerrar';
   capturaArea.appendChild(imgCaptura);
   capturaArea.appendChild(cerrarCaptura);
