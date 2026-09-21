@@ -264,6 +264,14 @@ Siguiente en la serie de 6 pedidos: 129A-11 → 129A-9.
       Spec: `Agente/documentacion/ui-chrome-botones-titulos-2026-09-21.md`.
       Gate completo (cargo) no ejecutado: cambio solo-UI; documentado en
       `Agente/completados/tareas-2026-09-21.md`.
+- [x] **219A-2 — Botón + tabs: centrado vertical** (21-09, CERRADO con commit):
+      `.tabs-barra` usa `align-items: stretch` para las tabs; el `+` antes sin
+      altura propia estiraba y centraba su icono, con el canon 28px fijos
+      quedaba pegado arriba. Fix: `.tabs-barra > .boton-icono
+      { align-self: center }` en `tabs.css` (posicional, solo el botón; las
+      tabs siguen con `stretch`). Verificado en DOM en vivo (harness con tab
+      alta: barra 41px, botón top 6px = centrado; con `flex-start` forzado top
+      0 = bug reproducido).
 - [x] **F3 — PersistenciaSqlite** (`cli/src/persistencia_sqlite.rs`, 04-09): `AgentPersistence` +
       `ProgramadorTareas` sobre rusqlite bundled (WAL, `%APPDATA%/glory-harness/glory-harness.db`).
       CRUD de conversaciones, mensaje de usuario persistido por el consumidor en `enviar_turno`,

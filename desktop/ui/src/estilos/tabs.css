@@ -44,6 +44,9 @@
 /* (219A-1) El botón + usa el constructor único `crearBotonIcono` y su estilo
  * vive en `botonIcono.css` (canon 28×28 sin borde): aquí no queda ninguna
  * regla de botón (se pierde el `opacity:.65` idle, intencional). */
+/* El + es hijo directo de la barra (`stretch` para las tabs): con la altura
+ * fija del canon quedaría pegado arriba; se centra solo él (219A-2). */
+.tabs-barra > .boton-icono { align-self: center; }
 
 .tab {
     display: inline-flex;
