@@ -111,6 +111,28 @@
     color: var(--texto-tenue);
 }
 
+/* [219A-5 F4] × por fila (solo vivas): mata esa entrada sin pasar por la
+ * activa. Monocromo, mismo idioma que el chrome (sin color literal). */
+.consola-matar {
+    flex: 0 0 auto;
+    cursor: pointer;
+    color: var(--texto-tenue);
+    padding: 0 var(--sp-xs);
+}
+
+.consola-matar:hover {
+    color: var(--texto);
+}
+
+.consola-fila.activa .consola-matar {
+    color: var(--invertido);
+}
+
+.consola-matar:focus-visible {
+    outline: 2px solid var(--foco);
+    outline-offset: -2px;
+}
+
 .consola-visor {
     flex: 1 1 auto;
     min-height: 0;

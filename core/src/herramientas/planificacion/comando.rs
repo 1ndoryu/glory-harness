@@ -18,6 +18,19 @@ pub struct ToolComando {
     ejecutor: Arc<dyn EjecutorComando>,
 }
 
+impl ToolComando {
+    /* [219A-5 F0] Id de la viva con el mismo comando en esta conversación,
+     * si existe: el modelo a veces relanza el MISMO fondo segundos después
+     * (turno 9264ab4c: doble `ping -n 25` fondo:true → 2 consolas). */
+    async fn fondo_duplicado(&self, comando: &str, conversacion_id: Uuid) -> Option<String> {
+        let consolas = self.ejecutor.lista().await.ok()?;
+        consolas
+            .iter()
+            .find(|c| c.viva && c.comando == comando && c.conversacion_id == conversacion_id)
+            .map(|c| c.id_ejecucion.clone())
+    }
+}
+
 #[async_trait]
 impl AgentTool for ToolComando {
     fn id(&self) -> &'static str {
@@ -59,6 +72,25 @@ impl AgentTool for ToolComando {
             .and_then(Value::as_bool)
             .unwrap_or(false);
         let nivel = clasificar_comando(&comando);
+        /* [219A-5 F0] Dedup de fondos idénticos: si ya hay una viva con el
+         * mismo comando en esta conversación, se devuelve su id en vez de
+         * engendrar un duplicado. Solo fondo: en síncrono cada ejecución
+         * es intencional y barata. */
+        if fondo {
+            if let Some(dup) = self.fondo_duplicado(&comando, ctx.conversacion_id).await {
+                return Ok(AgentToolResult {
+                    ok: true,
+                    contenido: format!(
+                        "[FONDO id={dup}] riesgo {}\nYa en curso en esta conversación (mismo comando); NO lo relances, consulta con comando_status (id={dup}).",
+                        nivel.clave()
+                    ),
+                    resumen: format!("comando fondo duplicado: se reutiliza {dup}"),
+                    diff: None,
+                    evento_extra: None,
+                    consola_id: Some(dup),
+                });
+            }
+        }
         let resumen = format!(
             "comando [{}] {}",
             nivel.clave(),
@@ -140,7 +172,7 @@ impl AgentTool for ToolComando {
         }
         let contenido = match resultado.id_fondo {
             Some(id) => format!(
-                "[FONDO id={id}] riesgo {}\nLanzado en background; consulta con comando_status (id={id}).",
+                "[FONDO id={id}] riesgo {}\nLanzado en background; NO lo relances, consulta con comando_status (id={id}).",
                 nivel.clave()
             ),
             None => {
@@ -799,5 +831,45 @@ mod tests {
         assert!(r.contenido.contains("comando_lista"), "contenido: {}", r.contenido);
         assert!(r.consola_id.is_none(), "sin consola que seguir");
         assert!(r.evento_extra.is_none(), "sin fin que emitir");
+    }
+
+    /* [219A-5 F0] Dedup: relanzar el mismo fondo en la misma conversación
+     * reutiliza la viva en vez de engendrar un duplicado (turno 9264ab4c:
+     * doble `ping -n 25` fondo:true con 2 s de diferencia → 2 consolas).
+     * En otra conversación sí lanza (el runner devuelve su propio id). */
+    #[tokio::test]
+    async fn fondo_duplicado_reutiliza_viva_misma_conversacion() {
+        let mock = PersistenciaMock::default();
+        let ejecutor = Arc::new(EjecutorF2 {
+            infos: vec![info_viva("v-1")],
+            limite: false,
+        });
+        let tool = ToolComando {
+            ejecutor: ejecutor as Arc<dyn EjecutorComando>,
+        };
+        let mut c = ctx(&mock);
+        c.conversacion_id = Uuid::nil();
+        let r = tool
+            .ejecutar(&c, json!({"comando": "cargo build", "fondo": true}))
+            .await
+            .unwrap();
+        assert!(r.ok);
+        assert!(
+            r.contenido.contains("Ya en curso"),
+            "contenido: {}",
+            r.contenido
+        );
+        assert_eq!(r.consola_id.as_deref(), Some("v-1"));
+
+        let c2 = ctx(&mock);
+        let r2 = tool
+            .ejecutar(&c2, json!({"comando": "cargo build", "fondo": true}))
+            .await
+            .unwrap();
+        assert!(
+            r2.consola_id.as_deref() != Some("v-1"),
+            "otra conversación sí lanza: {}",
+            r2.contenido
+        );
     }
 }

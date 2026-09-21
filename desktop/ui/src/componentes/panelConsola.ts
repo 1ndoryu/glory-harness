@@ -1,7 +1,13 @@
 // Tab Consola: visor de ejecuciones `comando` en vivo (plan 209A-1 F3).
 // Store por `id_ejecucion` + lista y visor. Solo pinta: los eventos llegan
 // por `manejarEvento` desde el hook `onConsolaEvento` (un solo `TurnoReal`
-// por adaptador, sin duplicados). Sin polling, sin timers, sin PTY.
+// por adaptador, sin duplicados). Sin polling global ni PTY.
+// [219A-5 F1] Excepción acotada al cero-polling 209A-1: el fondo no emite
+// `consola_fin` (la tool ya volvió), así que sin refresco la vista se queda
+// en `● corriendo` hasta reabrir la tab. Intervalo de 2 s SOLO mientras haya
+// vivas (se arranca con actividad y se detiene solo al vaciarse): cada tick
+// llama a `sincronizar`, que congela las ya terminadas y recarga las propias.
+// Sin vivas no hay timer ni red.
 // [219A-3] Visor interactivo: la lista es la sub-barra interna (ver +
 // seleccionar); `sincronizar` trae vivas+recientes del backend (backfill al
 // abrir la tab); las vivas aceptan stdin en la caja del visor.
@@ -79,10 +85,15 @@ export interface PanelConsola {
 
 export function montarPanelConsola(opts: {
   onError?: (texto: string, detalle?: string) => void;
-  /** [209A-1 F4-resto] El usuario pulsó × sobre la consola ACTIVA (solo
-   * habilitado si sigue viva): el orquestador la mata en el backend. El
-   * `consola_fin` posterior la marca como terminada en la vista. */
-  onMatar?: (idEjecucion: string) => void;
+  /** [219A-5 F4] Aviso informativo (toast): resultado de matar (`true` =
+   * matada, `false` = ya había terminado). */
+  onInfo?: (texto: string) => void;
+  /** [209A-1 F4-resto] El usuario pulsó × sobre una consola viva: el
+   * orquestador la mata en el backend. Devuelve si la mató (`false` = ya
+   * había terminado). El `consola_fin` posterior (o el refresco acotado F1)
+   * la congela como terminada en la vista.
+   * [219A-5 F4] × por fila: ya no solo la activa. */
+  onMatar?: (idEjecucion: string) => Promise<boolean> | void;
   /** [219A-3] Puentes al backend (los cablea el orquestador a la sesión):
    * lista para la sub-barra, transcript por entrada, stdin de una viva.
    * Ausentes = panel solo-en-vivo (como hasta 209A-1).
@@ -202,6 +213,30 @@ export function montarPanelConsola(opts: {
       const kb = Math.round(bytesSalida / 1024);
       meta.textContent = `${idCorto(id)} · ${estadoTexto(e)} · ${e.lineas.length} líneas${kb > 0 ? ` · ${kb} KB` : ''}`;
       fila.append(marca, dueno, cmd, meta);
+      // [219A-5 F4] × por fila (solo vivas): mata esa entrada sin pasar
+      // por la activa. `span` con rol botón (un `button` no puede anidarse
+      // en el `button` de la fila); frena la propagación para no cambiar
+      // la activa al matar.
+      if (e.estado === 'viva' && opts.onMatar !== undefined) {
+        const matar = el('span', 'consola-matar') as HTMLSpanElement;
+        matar.textContent = '✕';
+        matar.title = 'Matar esta consola';
+        matar.setAttribute('role', 'button');
+        matar.tabIndex = 0;
+        matar.setAttribute('aria-label', `Matar la consola ${e.comando}`);
+        matar.addEventListener('click', (ev) => {
+          ev.stopPropagation();
+          matarEntrada(id);
+        });
+        matar.addEventListener('keydown', (ev) => {
+          if (ev.key === 'Enter' || ev.key === ' ') {
+            ev.preventDefault();
+            ev.stopPropagation();
+            matarEntrada(id);
+          }
+        });
+        fila.appendChild(matar);
+      }
       fila.addEventListener('click', () => {
         activaId = id;
         pintarLista();
@@ -263,6 +298,33 @@ export function montarPanelConsola(opts: {
     btnMatar.disabled = activa?.estado !== 'viva' || opts.onMatar === undefined;
   }
 
+  /** [219A-5 F1] Refresco acotado con vivas (ver cabecera): arranca con
+   * actividad y se detiene solo cuando no quedan vivas. Sin solape: un tick
+   * no entra si el anterior sigue en vuelo. */
+  let intervaloRefresco: number | null = null;
+  let sincronizando = false;
+  function detenerRefresco(): void {
+    if (intervaloRefresco !== null) {
+      window.clearInterval(intervaloRefresco);
+      intervaloRefresco = null;
+    }
+  }
+  function programarRefresco(): void {
+    if (intervaloRefresco !== null || opts.onSincronizar === undefined) return;
+    if (vivas() === 0) return;
+    intervaloRefresco = window.setInterval(() => {
+      if (vivas() === 0) {
+        detenerRefresco();
+        return;
+      }
+      if (sincronizando) return;
+      sincronizando = true;
+      void sincronizar().finally(() => {
+        sincronizando = false;
+      });
+    }, 2000);
+  }
+
   /** Acota un depósito de líneas al tope de vista (cuenta las caídas). */
   function acotar(e: EntradaConsola, deposito: LineaConsola[]): void {
     if (deposito.length > MAX_LINEAS_VISTA) {
@@ -289,7 +351,14 @@ export function montarPanelConsola(opts: {
       const viva = entradas.get(id);
       if (!viva) return;
       const base: LineaConsola[] = t.lineas.map((l) => ({ flujo: l.flujo, texto: l.linea }));
-      viva.lineas = [...base, ...viva.pendientes];
+      // [219A-5 F2] Sin blankeo: un volcado vacío transitorio (reap en
+      // curso en el backend) no borra lo ya pintado; solo sustituye si trae
+      // líneas o la vista está vacía. Los pendientes siempre se fusionan.
+      if (base.length > 0 || viva.lineas.length === 0) {
+        viva.lineas = [...base, ...viva.pendientes];
+      } else {
+        viva.lineas.push(...viva.pendientes);
+      }
       viva.pendientes = [];
       acotar(viva, viva.lineas);
       viva.transcript = true;
@@ -325,7 +394,13 @@ export function montarPanelConsola(opts: {
       const viva = entradas.get(id);
       if (!viva) return;
       const base: LineaConsola[] = t.lineas.map((l) => ({ flujo: l.flujo, texto: l.linea }));
-      viva.lineas = [...base, ...viva.pendientes];
+      // [219A-5 F2] Sin blankeo (igual que `cargarTranscript`): un volcado
+      // vacío no borra lo ya pintado.
+      if (base.length > 0 || viva.lineas.length === 0) {
+        viva.lineas = [...base, ...viva.pendientes];
+      } else {
+        viva.lineas.push(...viva.pendientes);
+      }
       viva.pendientes = [];
       acotar(viva, viva.lineas);
       viva.transcript = true;
@@ -369,6 +444,8 @@ export function montarPanelConsola(opts: {
       activaId = n.id_ejecucion;
       repintar();
       cargarTranscript(n.id_ejecucion);
+      // [219A-5 F1] La propia nace viva: seguirla hasta el fin.
+      programarRefresco();
     }).catch((err: unknown) => {
       opts.onError?.('no se pudo abrir la consola propia', String(err));
     }).finally(() => {
@@ -430,6 +507,8 @@ export function montarPanelConsola(opts: {
     for (const c of remotas) {
       if (c.viva && c.origen === 'usuario') recargarSalida(c.id_ejecucion);
     }
+    // [219A-5 F1] Si quedan vivas, el refresco acotado las sigue hasta el fin.
+    programarRefresco();
   }
 
   function manejarEvento(ev: EventoConsola): void {
@@ -506,6 +585,8 @@ export function montarPanelConsola(opts: {
       e.duracionMs = ev.duracion_ms;
     }
     repintar();
+    // [219A-5 F1] Actividad nueva: el refresco acotado sigue a las vivas.
+    programarRefresco();
   }
 
   // [219A-4] [+ Nueva] en cabecera: abre la shell propia (ver
@@ -528,11 +609,28 @@ export function montarPanelConsola(opts: {
 
   // [209A-1 F4-resto] La vista NO retira la entrada al matar: el backend
   // emite `consola_fin` y `manejarEvento` la congela como terminada.
+  // [219A-5 F4] El backend dice si la mató (`false` = ya había terminado,
+  // honesto, con aviso en vez del silencio de 209A-1). La × por fila usa
+  // esta misma vía sin pasar por la activa.
+  function matarEntrada(id: string): void {
+    const e = entradas.get(id) ?? null;
+    if (!e || e.estado !== 'viva' || opts.onMatar === undefined) return;
+    const r = opts.onMatar(id);
+    if (r !== undefined && typeof (r as Promise<boolean>).then === 'function') {
+      (r as Promise<boolean>).then(
+        (matada) => {
+          opts.onInfo?.(
+            matada ? 'consola matada: esperando el fin…' : 'la consola ya había terminado',
+          );
+        },
+        (err: unknown) => {
+          opts.onError?.('no se pudo matar la consola', String(err));
+        },
+      );
+    }
+  }
   btnMatar.addEventListener('click', () => {
-    const id = activaId;
-    const e = id ? entradas.get(id) ?? null : null;
-    if (!id || !e || e.estado !== 'viva' || opts.onMatar === undefined) return;
-    opts.onMatar(id);
+    if (activaId) matarEntrada(activaId);
   });
 
   // [219A-3] Enter en la caja de stdin: envía lo tecleado + `\n` a la

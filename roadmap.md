@@ -293,8 +293,20 @@ Siguiente en la serie de 6 pedidos: 129A-11 → 129A-9.
       sin `chunks`: antes las propias devolvían transcript vacío) + `RegistroFondo`
       (clippy `too_many_arguments`). Gate PASS (541 ok, clippy limpio),
       `type-check` + `build` UI, funcional `:8799` (crear→escribir→salida con
-      eco→matar). Sin PTY. Plan cerrado en
-      `Agente/planes/completados/plan-219A-4-consola-propia-2026-09-21.md`.
+       eco→matar). Sin PTY. Plan cerrado en
+       `Agente/planes/completados/plan-219A-4-consola-propia-2026-09-21.md`.
+- [x] **219A-5 — Consola de fondo: fin vivo, reap atómico, dueño y matar
+      honestos (CERRADA 21-09)**: H5 localizada (relanzamiento del modelo,
+      no reintento) + `fondo_duplicado()`; refresco acotado 2 s con vivas;
+      `RegistroConsolas` + `archivar()` atómico + orden por fin real + UI
+      sin blankeo; `Archivada{resultado,origen}`; × por fila + toast
+      matada/ya-terminada; graceful web ya existía (`apagado_ordenado` →
+      `matar_todas`). Full gate forzado PASS (rust 68.4 s, 0 errores, 30
+      tests), `type-check` limpio, batería API `:8799` (matar honesto +
+      orden + dueño verificados). Pendiente operador: comprobación visual
+      + `taskkill` PIDs 19872/22056. Evidencia en
+      `Agente/completados/tareas-2026-09-21.md`. Plan cerrado en
+      `Agente/planes/completados/plan-219A-5-consola-fondo-2026-09-21.md`.
 - [x] **F3 — PersistenciaSqlite** (`cli/src/persistencia_sqlite.rs`, 04-09): `AgentPersistence` +
       `ProgramadorTareas` sobre rusqlite bundled (WAL, `%APPDATA%/glory-harness/glory-harness.db`).
       CRUD de conversaciones, mensaje de usuario persistido por el consumidor en `enviar_turno`,

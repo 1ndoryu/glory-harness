@@ -119,6 +119,25 @@ struct RegistroFondo {
     stdin_hijo: Option<ChildStdin>,
 }
 
+/// [219A-5 F3] Archivada con dueño: el resultado + el origen de la viva.
+/// `lista`/`salida` etiquetan con el dueño real (antes forzaban `Agente`).
+struct Archivada {
+    resultado: ResultadoEjecucionComando,
+    origen: OrigenConsola,
+}
+
+/// [219A-5 F2] Registro único de consolas bajo UN solo lock: vivas +
+/// archivadas + orden de archivo (fin real). El reap (retirar viva +
+/// archivar) es atómico: ningún lector ve el id en tierra de nadie.
+/// `orden` fija el orden de `lista` y la evicción saca la MÁS ANTIGUA
+/// (antes: `Instant::now()` sobre un HashMap y evicción arbitraria).
+#[derive(Default)]
+struct RegistroConsolas {
+    vivas: HashMap<String, Arc<ConsolaViva>>,
+    archivadas: HashMap<String, Archivada>,
+    orden: VecDeque<String>,
+}
+
 /// Handle compartido de una tarea de fondo: el spawner y `matar` compiten por
 /// el `Child`; quien lo toma (o mata) lo deja en `None`.
 type HandleTarea = Arc<Mutex<Option<Child>>>;
@@ -126,10 +145,9 @@ type HandleTarea = Arc<Mutex<Option<Child>>>;
 /// Implementación concreta del puerto para el CLI.
 pub struct EjecutorCliente {
     tareas: Arc<Mutex<HashMap<String, HandleTarea>>>,
-    resultados: Arc<Mutex<HashMap<String, ResultadoEjecucionComando>>>,
-    /// [209A-1 F2] Consolas vivas por `id_ejecucion`: ejecución desacoplada
-    /// en curso (hijo + anillo). El reaper las retira al salir el hijo.
-    vivas: Arc<Mutex<HashMap<String, Arc<ConsolaViva>>>>,
+    /// [219A-5 F2] Vivas + archivadas + orden bajo un solo lock (reap
+    /// atómico, orden de fin real, evicción de la más antigua).
+    registro: Arc<Mutex<RegistroConsolas>>,
     /// [119A-7 F0] Raíz enjaulada: cwd de arranque de cada hijo.
     /// `None` = heredar el cwd del proceso (solo diagnósticos sin run).
     raiz: Option<PathBuf>,
@@ -140,8 +158,7 @@ impl EjecutorCliente {
     pub fn nuevo() -> Self {
         Self {
             tareas: Arc::default(),
-            resultados: Arc::default(),
-            vivas: Arc::default(),
+            registro: Arc::default(),
             raiz: None,
         }
     }
@@ -151,8 +168,7 @@ impl EjecutorCliente {
     pub fn en_raiz(raiz: PathBuf) -> Self {
         Self {
             tareas: Arc::default(),
-            resultados: Arc::default(),
-            vivas: Arc::default(),
+            registro: Arc::default(),
             raiz: Some(raiz),
         }
     }
@@ -372,6 +388,36 @@ impl EjecutorCliente {
         .await
     }
 
+    /// [219A-5 F2] Reap ATÓMICO bajo un solo lock: la consola pasa de viva
+    /// a archivada sin ventana invisible para `lista` o `estado`. Solo el
+    /// pump archiva (la carrera con `matar` la gana por `remove`: `matar`
+    /// NO toca el registro). `orden` = fin real; la evicción saca la más
+    /// antigua, no una arbitraria del mapa.
+    /// [219A-5 F3] La archivada retiene el dueño de la viva.
+    async fn archivar(
+        registro: &Arc<Mutex<RegistroConsolas>>,
+        id: &str,
+        resultado: ResultadoEjecucionComando,
+        origen: OrigenConsola,
+    ) {
+        let mut reg = registro.lock().await;
+        reg.vivas.remove(id);
+        reg.archivadas.insert(
+            id.to_string(),
+            Archivada {
+                resultado,
+                origen,
+            },
+        );
+        reg.orden.push_back(id.to_string());
+        while reg.archivadas.len() > MAX_CONSOLAS_RECIENTES {
+            let Some(viejo) = reg.orden.pop_front() else {
+                break;
+            };
+            reg.archivadas.remove(&viejo);
+        }
+    }
+
     /// Registro + pump de un hijo ya spawneado (común al modelo y al
     /// operador): tope de vivas bajo lock, anillo, reap al salir.
     async fn registrar_fondo(&self, reg: RegistroFondo) -> Result<ResultadoEjecucionComando> {
@@ -387,8 +433,8 @@ impl EjecutorCliente {
         // Tope de vivas BAJO EL MISMO LOCK que el registro (sin carrera:
         // dos fondos concurrentes no pueden colar la 5ª).
         let viva = {
-            let mut vivas = self.vivas.lock().await;
-            if vivas.len() >= MAX_CONSOLAS_VIVAS {
+            let mut reg = self.registro.lock().await;
+            if reg.vivas.len() >= MAX_CONSOLAS_VIVAS {
                 let _ = hijo_inicial.kill().await;
                 let _ = hijo_inicial.wait().await;
                 return Err(Error::Limite(format!(
@@ -407,14 +453,13 @@ impl EjecutorCliente {
                 bytes_descartados: AtomicUsize::new(0),
                 stdin: Mutex::new(stdin_hijo),
             });
-            vivas.insert(id.to_string(), Arc::clone(&viva));
+            reg.vivas.insert(id.to_string(), Arc::clone(&viva));
             viva
         };
         let handle: HandleTarea = Arc::new(Mutex::new(Some(hijo_inicial)));
         self.tareas.lock().await.insert(id.to_string(), handle.clone());
         let tareas = self.tareas.clone();
-        let resultados = self.resultados.clone();
-        let vivas = self.vivas.clone();
+        let registro = self.registro.clone();
         let id_detach = id.to_string();
         let comando_archivo = comando.to_string();
         tokio::spawn(async move {
@@ -489,23 +534,9 @@ impl EjecutorCliente {
                     }
                 }
             };
-            // Reap: retirar la viva y archivar (el `remove` hace idempotente
-            // la carrera con `matar`, que NO toca `vivas` a propósito: el
-            // pump es el único que archiva).
+            // [219A-5 F2/F3] Reap atómico con dueño retenido (ver `archivar`).
             tareas.lock().await.remove(&id_detach);
-            vivas.lock().await.remove(&id_detach);
-            {
-                let mut r = resultados.lock().await;
-                r.insert(id_detach.clone(), resultado);
-                let sobran = r.len().saturating_sub(MAX_CONSOLAS_RECIENTES);
-                if sobran > 0 {
-                    let ids: Vec<String> =
-                        r.keys().take(sobran).cloned().collect();
-                    for id in ids {
-                        r.remove(&id);
-                    }
-                }
-            }
+            Self::archivar(&registro, &id_detach, resultado, viva.origen).await;
         });
         Ok(ResultadoEjecucionComando {
             codigo_salida: None,
@@ -625,7 +656,7 @@ impl EjecutorCliente {
                 }
             }
         }
-        if let Some(viva) = self.vivas.lock().await.get(id) {
+        if let Some(viva) = self.registro.lock().await.vivas.get(id) {
             viva.matar.notify_one();
             return true;
         }
@@ -638,9 +669,10 @@ impl EjecutorCliente {
     /// coincide: devuelve 0, sin error.
     pub async fn matar_por_conversacion(&self, conv: Uuid) -> usize {
         let ids: Vec<String> = {
-            self.vivas
+            self.registro
                 .lock()
                 .await
+                .vivas
                 .iter()
                 .filter(|(_, v)| v.conversacion_id == conv)
                 .map(|(id, _)| id.clone())
@@ -657,10 +689,12 @@ impl EjecutorCliente {
 
     /// [209A-1 F4] Reap global (cierre de app): mata TODAS las vivas, de
     /// cualquier conversación. Cada pump retira y archiva; devuelve el
-    /// conteo. Punto de enganche para el cierre ordenado de cada
-    /// transporte (hoy sin cablear: ver plan 209A-1 §F4).
+    /// conteo. Lo usa el cierre ordenado web (`apagado_ordenado` en
+    /// `comandos/web/mod.rs`: Ctrl+C mata antes de soltar el listener).
     pub async fn matar_todas(&self) -> usize {
-        let ids: Vec<String> = { self.vivas.lock().await.keys().cloned().collect() };
+        let ids: Vec<String> = {
+            self.registro.lock().await.vivas.keys().cloned().collect()
+        };
         let mut matadas = 0;
         for id in ids {
             if self.matar_handle(&id).await {
@@ -709,8 +743,9 @@ impl EjecutorComando for EjecutorCliente {
     }
 
     async fn desacoplar(&self, id: &str) -> Result<()> {
-        let vivas = self.vivas.lock().await;
-        let viva = vivas
+        let reg = self.registro.lock().await;
+        let viva = reg
+            .vivas
             .get(id)
             .ok_or_else(|| Error::NoEncontrado(format!("consola desconocida: {id}")))?;
         viva.suelta.store(true, Ordering::Relaxed);
@@ -725,53 +760,48 @@ impl EjecutorComando for EjecutorCliente {
     }
 
     async fn lista(&self) -> Result<Vec<InfoConsola>> {
-        let mut infos: Vec<(Instant, InfoConsola)> = Vec::new();
-        {
-            let vivas = self.vivas.lock().await;
-            for (id, viva) in vivas.iter() {
-                infos.push((
-                    viva.inicio,
-                    InfoConsola {
-                        id_ejecucion: id.clone(),
-                        comando: viva.comando.clone(),
-                        conversacion_id: viva.conversacion_id,
-                        viva: true,
-                        codigo_salida: None,
-                        bytes: viva.bytes_anillo.load(Ordering::Relaxed),
-                        origen: viva.origen,
-                    },
-                ));
+        // [219A-5 F2] Foto bajo UN solo lock: vivas (ordenadas por inicio) +
+        // archivadas (en `orden` = fin real). Sin `Instant::now()` ni
+        // ventana entre mapas.
+        // [219A-5 F3] La archivada trae su dueño retenido.
+        let reg = self.registro.lock().await;
+        let mut vivas: Vec<(&String, &Arc<ConsolaViva>)> = reg.vivas.iter().collect();
+        vivas.sort_by_key(|(_, v)| v.inicio);
+        let mut infos = Vec::with_capacity(reg.vivas.len() + reg.archivadas.len());
+        for (id, viva) in vivas {
+            infos.push(InfoConsola {
+                id_ejecucion: id.clone(),
+                comando: viva.comando.clone(),
+                conversacion_id: viva.conversacion_id,
+                viva: true,
+                codigo_salida: None,
+                bytes: viva.bytes_anillo.load(Ordering::Relaxed),
+                origen: viva.origen,
+            });
+        }
+        for id in reg.orden.iter() {
+            if let Some(a) = reg.archivadas.get(id) {
+                infos.push(InfoConsola {
+                    id_ejecucion: id.clone(),
+                    comando: a.resultado.comando.clone(),
+                    conversacion_id: Uuid::nil(),
+                    viva: false,
+                    codigo_salida: a.resultado.codigo_salida,
+                    bytes: a.resultado.salida.len(),
+                    origen: a.origen,
+                });
             }
         }
-        {
-            let resultados = self.resultados.lock().await;
-            for (id, r) in resultados.iter() {
-                infos.push((
-                    // Archivadas sin marca temporal: van después de las vivas.
-                    Instant::now(),
-                    InfoConsola {
-                        id_ejecucion: id.clone(),
-                        comando: r.comando.clone(),
-                        conversacion_id: Uuid::nil(),
-                        viva: false,
-                        codigo_salida: r.codigo_salida,
-                        bytes: r.salida.len(),
-                        // [219A-4] Archivadas sin dueño retenido: Agente.
-                        origen: OrigenConsola::Agente,
-                    },
-                ));
-            }
-        }
-        infos.sort_by_key(|(inicio, _)| *inicio);
-        Ok(infos.into_iter().map(|(_, info)| info).collect())
+        Ok(infos)
     }
 
     async fn estado(&self, id_fondo: &str) -> Result<ResultadoEjecucionComando> {
-        if let Some(r) = self.resultados.lock().await.get(id_fondo) {
-            return Ok(r.clone());
+        let reg = self.registro.lock().await;
+        if let Some(a) = reg.archivadas.get(id_fondo) {
+            return Ok(a.resultado.clone());
         }
         // Viva: informar el comando real (F2; antes `String::new()`).
-        if let Some(viva) = self.vivas.lock().await.get(id_fondo) {
+        if let Some(viva) = reg.vivas.get(id_fondo) {
             return Ok(ResultadoEjecucionComando {
                 codigo_salida: None,
                 salida: "(aún en ejecución)".to_string(),
@@ -821,9 +851,10 @@ impl EjecutorComando for EjecutorCliente {
             )));
         }
         let viva = self
-            .vivas
+            .registro
             .lock()
             .await
+            .vivas
             .get(id)
             .cloned()
             .ok_or_else(|| {
@@ -846,7 +877,7 @@ impl EjecutorComando for EjecutorCliente {
         // [219A-3] Backfill de la UI: viva = volcado del anillo (con flujo);
         // archivada = líneas del resultado guardado (flujo stdout: el archivo
         // mezcla ambos). Acotado a `MAX_LINEAS_TRANSCRIPT`.
-        if let Some(viva) = self.vivas.lock().await.get(id) {
+        if let Some(viva) = self.registro.lock().await.vivas.get(id) {
             let anillo = viva.anillo.lock().await;
             let total = anillo.len();
             let desde = total.saturating_sub(MAX_LINEAS_TRANSCRIPT);
@@ -859,8 +890,9 @@ impl EjecutorComando for EjecutorCliente {
                 origen: viva.origen,
             });
         }
-        if let Some(r) = self.resultados.lock().await.get(id) {
-            let mut lineas: Vec<ChunkConsola> = r
+        if let Some(a) = self.registro.lock().await.archivadas.get(id) {
+            let mut lineas: Vec<ChunkConsola> = a
+                .resultado
                 .salida
                 .lines()
                 .rev()
@@ -873,12 +905,13 @@ impl EjecutorComando for EjecutorCliente {
             lineas.reverse();
             return Ok(TranscriptConsola {
                 id_ejecucion: id.to_string(),
-                comando: r.comando.clone(),
+                comando: a.resultado.comando.clone(),
                 viva: false,
-                codigo_salida: r.codigo_salida,
+                codigo_salida: a.resultado.codigo_salida,
                 lineas,
-                // [219A-4] Archivadas sin dueño retenido: Agente.
-                origen: OrigenConsola::Agente,
+                // [219A-5 F3] Dueño retenido al archivar (ya no `Agente` a
+                // la fuerza: las propias siguen siendo propias al terminar).
+                origen: a.origen,
             });
         }
         Err(Error::NoEncontrado(format!(
@@ -1022,6 +1055,63 @@ mod tests {
         let archivada = archivada.expect("la viva debió reapearse al terminar");
         assert!(!archivada.viva);
         assert_eq!(archivada.codigo_salida, Some(0));
+    }
+
+    /// [219A-5 F2/F3] Reap atómico en orden de fin + dueño retenido: dos
+    /// fondos en serie quedan archivados en orden de terminación (el
+    /// registro único sustituye el `Instant::now()` sobre el HashMap), y
+    /// una propia archiva como `usuario` (ya no `agente` a la fuerza).
+    #[tokio::test]
+    async fn reap_ordena_por_fin_y_retiene_dueno() {
+        let e = EjecutorCliente::nuevo();
+        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+        let id1 = format!("test-orden-{}", Uuid::new_v4());
+        e.ejecutar_en_vivo(&id1, "echo primero-219A-5", Uuid::new_v4(), true, tx)
+            .await
+            .unwrap();
+        for _ in 0..60 {
+            if e.estado(&id1).await.unwrap().codigo_salida.is_some() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(200)).await;
+        }
+        // Propia: shell vivo (se mata para archivarla).
+        let id2 = e.ejecutar_propia(None).await.unwrap();
+        let viva_propia = e
+            .lista()
+            .await
+            .unwrap()
+            .into_iter()
+            .find(|i| i.id_ejecucion == id2)
+            .expect("propia viva en lista");
+        assert!(viva_propia.viva);
+        assert_eq!(viva_propia.origen, OrigenConsola::Usuario);
+        e.matar(&id2).await.unwrap();
+        for _ in 0..60 {
+            let infos = e.lista().await.unwrap();
+            if infos.iter().any(|i| i.id_ejecucion == id2 && !i.viva) {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(200)).await;
+        }
+        let infos = e.lista().await.unwrap();
+        // Orden de fin real: primero el echo, después la propia matada.
+        let hechas: Vec<&str> = infos
+            .iter()
+            .filter(|i| !i.viva)
+            .map(|i| i.id_ejecucion.as_str())
+            .collect();
+        assert_eq!(
+            hechas,
+            vec![id1.as_str(), id2.as_str()],
+            "orden de archivo: {hechas:?}"
+        );
+        // Dueño retenido al archivar: la propia sigue siendo del usuario.
+        let arch = infos.iter().find(|i| i.id_ejecucion == id2).unwrap();
+        assert_eq!(arch.origen, OrigenConsola::Usuario);
+        let t = e.salida(&id2).await.unwrap();
+        assert!(!t.viva);
+        assert_eq!(t.origen, OrigenConsola::Usuario);
     }
 
     /// [219A-3] `escribir` acepta bytes en una viva; `salida` vuelca el anillo

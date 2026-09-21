@@ -147,20 +147,21 @@ export function montarPanelDerechoTodo(deps: PanelDerechoDeps): PanelDerechoTodo
       toastGlobal.mostrar(texto, detalle);
     },
   });
-  // [209A-1 F3] La tab Consola: store por `id_ejecucion` + lista y visor.
+  // [209A-1 F4-resto] La tab Consola: store por `id_ejecucion` + lista y visor.
   // Los errores del panel (portapapeles) van al toast global, como Files.
-  // [209A-1 F4-resto] La × sobre una viva mata en el backend (`false` =
-  // ya terminó: sin aviso, el `consola_fin` la congela en la vista).
+  // [219A-5 F4] × por fila + aviso honesto: `onMatar` devuelve si la mató
+  // (`false` = ya había terminado); el panel avisa vía `onInfo` y el
+  // `consola_fin` la congela en la vista. Los errores los muestra el panel
+  // vía `onError` (aquí no se duplican).
   const consola = montarPanelConsola({
     onError(texto, detalle) {
       toastGlobal.mostrar(texto, detalle);
     },
+    onInfo(texto) {
+      toastGlobal.mostrar(texto);
+    },
     onMatar(idEjecucion) {
-      deps.adaptador.sesion
-        .matarConsola(idEjecucion)
-        .catch((err: unknown) => {
-          toastGlobal.mostrar('no se pudo matar la consola', String(err));
-        });
+      return deps.adaptador.sesion.matarConsola(idEjecucion);
     },
     // [219A-3] Puentes al backend para la sub-barra + backfill + stdin. Los
     // fallos los muestra el panel vía `onError` (aquí no se duplican).
