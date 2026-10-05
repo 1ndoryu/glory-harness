@@ -9,3 +9,15 @@ license = "MIT"
 
 [profile.release]
 lto = "thin"
+
+# [05AA-1] Perfil dev adelgazado (receta 124A-OPT1 de NAKOMI): menos debug
+# info = menor disco + builds más rápidos. line-tables-only conserva
+# breakpoints por línea y backtraces; la inspección de variables en el
+# debugger se degrada (revertir si molesta).
+[profile.dev]
+debug = "line-tables-only"
+split-debuginfo = "packed"
+
+[profile.dev.package."*"]
+opt-level = 1
+debug = false
