@@ -102,7 +102,9 @@ Siguiente en la serie de 6 pedidos: 129A-9 (129A-11 HECHO 07-10, gate PASS).
        empezar por Perfil y tema; tema ya existe en 129A-12); **F2 bloques
        Perfil + Proveedores HECHOS 07-10** (`nombre_perfil` + `handle_perfil`;
        lista ESTADO read-only con vivo + `en uso` + `recargar`; F3 smoke
-       vivo pendiente; mostrar el nombre en barra/sidebar = bloque
+       vivo de Proveedores HECHO con Chromium headless: 4 filas
+       `disponible · 1 clave(s)`, `4 de 4`, 0 errores JS; F3 de Perfil
+       pendiente; mostrar el nombre en barra/sidebar = bloque
        posterior). 12 paneles inventariados.
       Plan: `Agente/planes/plan-129A-9-configs-synara-2026-09-12.md`.
 - [x] **129A-10 — El agente controla GH (navegador + abrir archivos)**

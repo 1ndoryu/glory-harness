@@ -80,7 +80,7 @@ render genérico verificado (`formulario.ts` caso `texto` + índice
 navegador/Tauri vivo) pendiente: esta sesión no tiene navegador.
 Mostrar el nombre en barra/sidebar = bloque posterior.
 
-## F2 bloque 2 — Proveedores (07-10, HECHO; F3 smoke vivo pendiente)
+## F2 bloque 2 — Proveedores (07-10, HECHO; F3 smoke vivo HECHO)
 
 Réplica adaptada de `ProvidersSettingsPanel`: sección `Proveedores` tras
 Perfil con lista ESTADO read-only (sin install-settings, sin orden
@@ -97,8 +97,12 @@ catálogo (cerebras, groq) → el conteo solo cubre filas visibles (evita
 Evidencia: `tsc` EXIT 0; `vite build` OK (bundle con `proveedor-fila`/
 `proveedores-chip`); gate `129A-9 --full` PASS (9 archivos; warnings solo
 prosa ajena en Rust no tocado); backend 8799: `POST /api/v1/session` ok con
-6 proveedores con claves>0. F3 (abrir Ajustes→Proveedores en vivo)
-pendiente: esta sesión no tiene navegador.
+6 proveedores con claves>0. F3 HECHO con Chromium headless temporal
+(`C:\tmp`, fuera del repo, limpiado tras el smoke): Ajustes→Proveedores
+muestra 4 filas con chip `disponible · 1 clave(s)`, `en uso` en OpenCode Go
+(modelo activo), estado `4 de 4 proveedor(es) disponible(s)`, nota de
+`~/.glory-harness.env`; click en `recargar` re-lee el vivo sin romper
+filas; 0 errores JS del panel; captura visual verificada.
 
 ## DoD
 
