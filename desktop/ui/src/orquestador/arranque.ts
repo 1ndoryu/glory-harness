@@ -120,7 +120,7 @@ export function ejecutarArranque(deps: ArranqueDeps): void {
     void (async () => {
       try {
         await deps.asegurarSesion();
-        const [provG, modG, modoG, razG, anchoG, colG, ctxG, ganchoG, temaLeido] = await Promise.all([
+        const [provG, modG, modoG, razG, anchoG, colG, ctxG, ganchoG, temaLeido, nombreG, handleG] = await Promise.all([
           deps.configLeer('proveedor'),
           deps.configLeer('modelo'),
           deps.configLeer('modo'),
@@ -130,6 +130,9 @@ export function ejecutarArranque(deps: ArranqueDeps): void {
           deps.configLeer('contexto_max_ventana'),
           deps.configLeer('gancho_pre_compact'),
           deps.configLeer(deps.claveTema),
+          // [129A-9] Perfil Synara adaptado.
+          deps.configLeer('nombre_perfil'),
+          deps.configLeer('handle_perfil'),
         ]);
         /* [129A-12] Migración del boolean histórico: si no hay valor nuevo
          * pero sí `temaOscuro`, se normaliza y se reescribe bajo la clave
@@ -164,6 +167,8 @@ export function ejecutarArranque(deps: ArranqueDeps): void {
           contextoMaxVentana: ctxG,
           ganchoPreCompact: ganchoG,
           tema: temaG,
+          nombrePerfil: nombreG,
+          handlePerfil: handleG,
         });
         deps.sincronizarPanelMeta();
         await deps.resincronizarSidebar();

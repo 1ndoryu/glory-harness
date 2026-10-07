@@ -46,6 +46,33 @@ export interface FormularioDefinicion {
 // proveedores/modelos (core/src/llm.rs). El harness no persiste en SQLite:
 // la persistencia real es en memoria (PersistenciaMemoria del CLI).
 
+// [129A-9 F2 bloque Perfil] Identidad local (réplica adaptada de Synara
+// `ProfileSettingsPanel`: nombre + handle editables y persistidos; sin
+// stats/heatmap/share/avatar — GH no tiene BD de actividad ni UI de avatar).
+// Claves libres (`nombre_perfil`, `handle_perfil`): Tauri las persiste vía
+// `config_guardar` genérico y web cae a localStorage (igual que `tema`).
+export const OPCIONES_PERFIL: GrupoOpciones = {
+  titulo: 'Perfil',
+  opciones: [
+    {
+      id: 'nombre_perfil',
+      etiqueta: 'Nombre visible',
+      tipo: 'texto',
+      valor: '',
+      placeholder: 'p. ej. Operadora',
+      nota: 'Nombre local del operador (mostrarlo en barra/sidebar es bloque posterior).',
+    },
+    {
+      id: 'handle_perfil',
+      etiqueta: 'Alias',
+      tipo: 'texto',
+      valor: '',
+      placeholder: 'p. ej. @operadora',
+      nota: 'Identificador corto (opcional).',
+    },
+  ],
+};
+
 export const OPCIONES_MODELO: GrupoOpciones = {
   titulo: 'Modelo',
   opciones: [
@@ -256,6 +283,8 @@ export const FORMULARIO_CONFIGURACION: Array<{
   etiqueta: string;
   grupos: GrupoOpciones[];
 }> = [
+  // [129A-9] Perfil primero (decisión 12-09: empezar por Perfil y tema).
+  { id: 'perfil', etiqueta: 'Perfil', grupos: [OPCIONES_PERFIL] },
   { id: 'modelo', etiqueta: 'Modelo', grupos: [OPCIONES_MODELO] },
   { id: 'ejecucion', etiqueta: 'Ejecución', grupos: [OPCIONES_EJECUCION] },
   { id: 'permisos', etiqueta: 'Permisos', grupos: [OPCIONES_PERMISOS] },

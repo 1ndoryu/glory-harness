@@ -26,6 +26,9 @@ export interface SesionGuardadaVista {
   contextoMaxVentana: string | null;
   ganchoPreCompact: string | null;
   tema: string | null;
+  /** [129A-9] Perfil Synara adaptado (claves libres `nombre_perfil` / `handle_perfil`). */
+  nombrePerfil: string | null;
+  handlePerfil: string | null;
 }
 
 /** Estado inicial del modal: modelo, modo, razonamiento y tema. */
@@ -105,6 +108,9 @@ export function montarVistaModal(deps: VistaModalDeps): VistaModal {
         // resto histórico se normaliza (nunca se aplica un tema inválido).
         const tema = normalizarTema(valor);
         if (tema !== null) deps.aplicarTema(tema);
+      } else if (id === 'nombre_perfil' || id === 'handle_perfil') {
+        // [129A-9] Perfil: texto libre, sin estado local (el modal lo
+        // muestra; la superficie visible —barra/sidebar— es bloque posterior).
       }
       if (
         deps.usaReal &&
@@ -112,6 +118,8 @@ export function montarVistaModal(deps: VistaModalDeps): VistaModal {
           id === 'nivelRazonamiento' ||
           id === 'contexto_max_ventana' ||
           id === 'gancho_pre_compact' ||
+          id === 'nombre_perfil' ||
+          id === 'handle_perfil' ||
           id === deps.claveTema)
       ) {
         void deps
@@ -223,6 +231,13 @@ export function montarVistaModal(deps: VistaModalDeps): VistaModal {
         deps.aplicarTema(tema);
         modal.asignarValor(deps.claveTema, tema);
       }
+    }
+    // [129A-9] Restaura el perfil persistido en sus controles.
+    if (sesion.nombrePerfil !== null) {
+      modal.asignarValor('nombre_perfil', sesion.nombrePerfil);
+    }
+    if (sesion.handlePerfil !== null) {
+      modal.asignarValor('handle_perfil', sesion.handlePerfil);
     }
   }
 

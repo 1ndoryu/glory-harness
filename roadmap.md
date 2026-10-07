@@ -98,8 +98,11 @@ Siguiente en la serie de 6 pedidos: 129A-9 (129A-11 HECHO 07-10, gate PASS).
       bloque. 17/17 asserts CDP + captura Synara.
 - [ ] **129A-9 — Configuraciones Synara: inventario, decisión y réplica**
       (quiere replicar casi todas): F1 tabla panel→opciones→equivalente GH
-      (requiere decisión del usuario, bloquea F2+); F2+ réplica por bloques en
-      `ajustes-pagina`. 12 paneles inventariados.
+      en el plan §F1 (decisión del usuario registrada 12-09: replicar todo,
+      empezar por Perfil y tema; tema ya existe en 129A-12); **F2 bloque
+      Perfil EN CURSO 07-10** (`nombre_perfil` + `handle_perfil`, claves
+      libres como `tema`; mostrar el nombre en barra/sidebar = bloque
+      posterior). 12 paneles inventariados.
       Plan: `Agente/planes/plan-129A-9-configs-synara-2026-09-12.md`.
 - [x] **129A-10 — El agente controla GH (navegador + abrir archivos)**
       (HECHO 12-09, gate PASS): F1 auto-apertura de la tab en abrir/navegar
