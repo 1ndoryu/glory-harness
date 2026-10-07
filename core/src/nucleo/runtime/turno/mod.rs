@@ -30,7 +30,6 @@ mod permisos;
 ///
 /// [Re-export]: los submódulos hermanos (`permisos`, `auditoria`) usan estos
 /// tipos como `super::`; el re-export preserva esas rutas sin tocarlos.
-
 pub(crate) use estado::{EstadoTurno, PasoIteracion, PasoTool};
 pub use estado::PeticionTurno;
 
