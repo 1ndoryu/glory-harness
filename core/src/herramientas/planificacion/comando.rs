@@ -7,7 +7,7 @@
 use crate::bash_clasificar::clasificar_comando;
 use crate::error::{Error, Result};
 use crate::evento::AgenteEvento;
-use crate::ports::{ChunkConsola, EjecutorComando};
+use crate::ports::{ChunkConsola, EjecutorComando, ResultadoEjecucionComando};
 use crate::tool::{AgentTool, AgentToolContext, AgentToolResult};
 use async_trait::async_trait;
 use serde_json::{json, Value};
@@ -28,6 +28,102 @@ impl ToolComando {
             .iter()
             .find(|c| c.viva && c.comando == comando && c.conversacion_id == conversacion_id)
             .map(|c| c.id_ejecucion.clone())
+    }
+}
+
+/* [309A-3] Lectura de argumentos de la tool `comando` (extraída de
+ * `ejecutar` sin cambio de comportamiento: el archivo superaba el límite
+ * de función larga en `ejecutar`). */
+fn leer_argumentos(argumentos: &Value) -> Result<(String, bool)> {
+    let comando = argumentos
+        .get("comando")
+        .and_then(Value::as_str)
+        .ok_or_else(|| Error::Argumentos("comando requerido".into()))?
+        .to_string();
+    let fondo = argumentos
+        .get("fondo")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    Ok((comando, fondo))
+}
+
+/* [309A-3] Bomba chunks → eventos del turno (extraída de `ejecutar`).
+ * Termina solo (el runner suelta su emisor al acabar) o al cerrar el turno
+ * (el send falla y se corta; la UI ya no escucha y no hay nada que
+ * acumular aquí). */
+async fn reenviar_chunks(
+    mut rx_chunk: tokio::sync::mpsc::UnboundedReceiver<ChunkConsola>,
+    tx_eventos: Option<tokio::sync::mpsc::Sender<AgenteEvento>>,
+    id_reenvio: String,
+) {
+    while let Some(chunk) = rx_chunk.recv().await {
+        let Some(tx) = &tx_eventos else { break };
+        let evento = AgenteEvento::ConsolaChunk {
+            id_ejecucion: id_reenvio.clone(),
+            flujo: chunk.flujo,
+            linea: chunk.linea,
+        };
+        if tx.send(evento).await.is_err() {
+            break;
+        }
+    }
+}
+
+/* [309A-3] Respuesta accionable al tope de vivas (extraída de `ejecutar`):
+ * no es un fallo del comando sino del plan, con vía de escape. */
+fn respuesta_tope(detalle: &str) -> AgentToolResult {
+    AgentToolResult {
+        ok: false,
+        contenido: format!(
+            "límite de consolas simultáneas: {detalle}\nConsulta comando_lista, espera a que termine alguna o mata una con comando_matar."
+        ),
+        resumen: "comando rechazado por tope de consolas".to_string(),
+        diff: None,
+        evento_extra: None,
+        consola_id: None,
+    }
+}
+
+/* [309A-3] Texto final del resultado (extraído de `ejecutar`). */
+fn contenido_resultado(resultado: &ResultadoEjecucionComando, clave_riesgo: &str) -> String {
+    match &resultado.id_fondo {
+        Some(id) => format!(
+            "[FONDO id={id}] riesgo {clave_riesgo}\nLanzado en background; NO lo relances, consulta con comando_status (id={id})."
+        ),
+        None => {
+            let mut s = format!(
+                "código de salida: {}\nriesgo clasificado: {clave_riesgo}\n{}",
+                resultado
+                    .codigo_salida
+                    .map_or_else(|| "n/a".to_string(), |c| c.to_string()),
+                resultado.salida
+            );
+            if resultado.truncada {
+                s.push_str("\n[AVISO: salida truncada a 8 KB]");
+            }
+            s
+        }
+    }
+}
+
+/* [309A-3] Evento de fin (extraído de `ejecutar`): en síncrono viaja como
+ * `evento_extra` (el runtime lo emite tras `ToolResult`, en orden); en
+ * fondo NO hay fin todavía (F2 lo emitirá al archivar). */
+fn evento_fin(
+    fondo: bool,
+    id_ejecucion: &str,
+    resultado: &ResultadoEjecucionComando,
+    t0: std::time::Instant,
+) -> Option<AgenteEvento> {
+    if fondo {
+        None
+    } else {
+        Some(AgenteEvento::ConsolaFin {
+            id_ejecucion: id_ejecucion.to_string(),
+            codigo: resultado.codigo_salida,
+            truncada: resultado.truncada,
+            duracion_ms: t0.elapsed().as_millis() as u64,
+        })
     }
 }
 
@@ -62,15 +158,7 @@ impl AgentTool for ToolComando {
         ctx: &AgentToolContext<'_>,
         argumentos: Value,
     ) -> Result<AgentToolResult> {
-        let comando = argumentos
-            .get("comando")
-            .and_then(Value::as_str)
-            .ok_or_else(|| Error::Argumentos("comando requerido".into()))?
-            .to_string();
-        let fondo = argumentos
-            .get("fondo")
-            .and_then(Value::as_bool)
-            .unwrap_or(false);
+        let (comando, fondo) = leer_argumentos(&argumentos)?;
         let nivel = clasificar_comando(&comando);
         /* [219A-5 F0] Dedup de fondos idénticos: si ya hay una viva con el
          * mismo comando en esta conversación, se devuelve su id en vez de
@@ -115,23 +203,8 @@ impl AgentTool for ToolComando {
             tokio::sync::mpsc::unbounded_channel::<ChunkConsola>();
         let tx_eventos = ctx.tx_eventos.clone();
         let id_reenvio = id_ejecucion.clone();
-        /* Reenvío chunks → turno. Termina solo (el runner suelta su emisor
-         * al acabar) o al cerrar el turno (el send falla y se corta; la UI
-         * ya no escucha y no hay nada que acumular aquí). */
-        let reenvio = tokio::spawn(async move {
-            let mut rx_chunk = rx_chunk;
-            while let Some(chunk) = rx_chunk.recv().await {
-                let Some(tx) = &tx_eventos else { break };
-                let evento = AgenteEvento::ConsolaChunk {
-                    id_ejecucion: id_reenvio.clone(),
-                    flujo: chunk.flujo,
-                    linea: chunk.linea,
-                };
-                if tx.send(evento).await.is_err() {
-                    break;
-                }
-            }
-        });
+        /* Reenvío chunks → turno (ver `reenviar_chunks`). */
+        let reenvio = tokio::spawn(reenviar_chunks(rx_chunk, tx_eventos, id_reenvio));
         let resultado = match self
             .ejecutor
             .ejecutar_en_vivo(
@@ -144,23 +217,12 @@ impl AgentTool for ToolComando {
             .await
         {
             Ok(r) => r,
-            /* [209A-1 F2] Tope de vivas: no es un fallo del comando sino del
-             * plan (demasiados fondos simultáneos). `ok:false` accionable con
-             * la vía de escape (`comando_lista`) en vez de error opaco. */
+            /* [209A-1 F2] Tope de vivas (ver `respuesta_tope`). */
             Err(Error::Limite(detalle)) => {
                 if !fondo {
                     let _ = reenvio.await;
                 }
-                return Ok(AgentToolResult {
-                    ok: false,
-                    contenido: format!(
-                        "límite de consolas simultáneas: {detalle}\nConsulta comando_lista, espera a que termine alguna o mata una con comando_matar."
-                    ),
-                    resumen: "comando rechazado por tope de consolas".to_string(),
-                    diff: None,
-                    evento_extra: None,
-                    consola_id: None,
-                });
+                return Ok(respuesta_tope(&detalle));
             }
             Err(e) => return Err(e),
         };
@@ -170,40 +232,9 @@ impl AgentTool for ToolComando {
         if !fondo {
             let _ = reenvio.await;
         }
-        let contenido = match resultado.id_fondo {
-            Some(id) => format!(
-                "[FONDO id={id}] riesgo {}\nLanzado en background; NO lo relances, consulta con comando_status (id={id}).",
-                nivel.clave()
-            ),
-            None => {
-                let mut s = format!(
-                    "código de salida: {}\nriesgo clasificado: {}\n{}",
-                    resultado
-                        .codigo_salida
-                        .map_or_else(|| "n/a".to_string(), |c| c.to_string()),
-                    nivel.clave(),
-                    resultado.salida
-                );
-                if resultado.truncada {
-                    s.push_str("\n[AVISO: salida truncada a 8 KB]");
-                }
-                s
-            }
-        };
-        /* En síncrono el fin viaja como `evento_extra` (el runtime lo emite
-         * tras `ToolResult`, en orden). En fondo NO hay fin todavía: la
-         * tarea sigue corriendo y `comando_status` conserva su consulta; F2
-         * emitirá el fin al archivar el resultado. */
-        let evento_extra = if fondo {
-            None
-        } else {
-            Some(AgenteEvento::ConsolaFin {
-                id_ejecucion: id_ejecucion.clone(),
-                codigo: resultado.codigo_salida,
-                truncada: resultado.truncada,
-                duracion_ms: t0.elapsed().as_millis() as u64,
-            })
-        };
+        let contenido = contenido_resultado(&resultado, nivel.clave());
+        /* En síncrono el fin viaja como `evento_extra` (ver `evento_fin`). */
+        let evento_extra = evento_fin(fondo, &id_ejecucion, &resultado, t0);
         Ok(AgentToolResult {
             ok: true,
             contenido,

@@ -25,14 +25,11 @@
 //! (sin `\n` literales: seguro para axum 0.8 sin sanitizar).
 
 use std::collections::{HashMap, VecDeque};
-use std::convert::Infallible;
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime};
 
 use axum::{
-    extract::{Path, State},
     http::{header, HeaderMap, Method, StatusCode},
-    response::sse::{Event, KeepAlive, Sse},
     response::{IntoResponse, Response},
     routing::{delete, get, patch, post},
     Json, Router,
@@ -40,33 +37,22 @@ use axum::{
 use serde_json::Value;
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
-use tokio_stream::wrappers::ReceiverStream;
-use tokio_stream::StreamExt;
 use tower_http::limit::RequestBodyLimitLayer;
 use uuid::Uuid;
 
-use crate::servicio::{OpcionesSesion, SesionComun};
-use glory_harness_core::llm::LlavesProveedor;
+use crate::servicio::SesionComun;
 
 // Dominios del servidor web, en subdirectorio para no abarrotar `comandos/`.
+pub mod eventos;
 pub mod meta;
 pub mod seguridad;
+pub mod sesiones;
 pub mod sse;
 pub mod turnos;
 
 use self::meta::{actualizar_meta, leer_meta};
 use self::seguridad::SecretoSesion;
 use self::sse::DifusionSse;
-
-/// Token maestro opcional: solo crea sesiones. Nunca autoriza nada más.
-/// Sin token configurado, `web` funciona en modo local tokenless; `run` lo
-/// limita a loopback para que esa comodidad no exponga una API sin auth.
-fn token_desde_env() -> Option<String> {
-    match std::env::var("GLORY_HARNESS_WEB_TOKEN") {
-        Ok(t) if !t.trim().is_empty() => Some(t),
-        _ => None,
-    }
-}
 
 /// Nombre de la cookie de sesión (`HttpOnly`, `SameSite=Lax`).
 pub(crate) const COOKIE_SESION: &str = "gh_sesion";
@@ -322,232 +308,23 @@ pub(crate) fn cable(tipo: &str, data: Value) -> String {
 }
 
 // ── Handlers ─────────────────────────────────────────────────────────────
-
-/// `GET /healthz`
-async fn healthz() -> Json<Value> {
-    Json(serde_json::json!({ "ok": true }))
-}
-
-/// `POST /api/v1/session` — solo token maestro; fija cookie `gh_sesion`.
-async fn crear_sesion(
-    State(state): State<Arc<AppState>>,
-    headers: HeaderMap,
-) -> Result<Response, ApiError> {
-    let autorizado = state.token.is_none()
-        || matches!(
-            credencial(&headers, &state).await,
-            Some(Credencial::Maestra)
-        );
-    if !autorizado {
-        return Err(error("no_autorizado", "token inválido o ausente"));
-    }
-
-    let (comun, apertura) = SesionComun::abrir(OpcionesSesion::default())
-        .map_err(|e| error("sesion", e.to_string()))?;
-
-    /* [069A-7] Create-on-write: si el servicio auto-creó una "Nueva
-     * conversación" vacía porque no había ninguna, se DESCARTA aquí (se
-     * elimina la fila) y la sesión arranca en borrador (`conversacion:
-     * null`). La primera escritura del usuario creará la fila real. Si había
-     * una conversación previa, se conserva como la actual (decisión A). */
-    let conv_autocreada = apertura.conv_autocreada;
-    let conversacion = if conv_autocreada {
-        comun
-            .persistencia
-            .conversacion_eliminar(apertura.conversacion.id, comun.user_id)
-            .map_err(|e| error("sesion", e.to_string()))?;
-        None
-    } else {
-        Some(apertura.conversacion)
-    };
-
-    let session_id = Uuid::new_v4().to_string();
-    let sesion = Arc::new(SesionWeb {
-        comun: Mutex::new(comun),
-        conversacion_id: Mutex::new(conversacion.as_ref().map(|c| c.id)),
-        sse: Mutex::new(DifusionSse::nueva()),
-        meta: Mutex::new(None),
-        turno: Mutex::new(None),
-        creada: SystemTime::now(),
-    });
-    {
-        let mut sesiones = state.sesiones.lock().await;
-        // [069A-2 F6] Purga perezosa de expiradas + tope de vivas: el modo
-        // web es single-user loopback, no un multitenant.
-        sesiones.retain(|_, s| antiguedad_sesion(s.creada) <= SESION_TTL_SECS);
-        if sesiones.len() >= MAX_SESIONES {
-            return Err(error(
-                "demasiadas_sesiones",
-                "demasiadas sesiones abiertas: cierra alguna con DELETE",
-            ));
-        }
-        sesiones.insert(session_id.clone(), Arc::clone(&sesion));
-    }
-
-    let cuerpo = Json(serde_json::json!({
-        "ok": true,
-        "session_id": session_id,
-        "modelo": apertura.modelo,
-        "workspace": apertura.workspace,
-        "proveedores": apertura.proveedores,
-        /* [069A-7] `null` cuando no hay conversación (borrador); objeto cuando
-         * la apertura ancló una existente. */
-        "conversacion": conversacion,
-    }));
-    let cookie = format!(
-        "{COOKIE_SESION}={}; HttpOnly; SameSite=Lax; Path=/; Max-Age=86400",
-        // [139A-8 K9] La cookie viaja firmada con el secreto de arranque.
-        state.secreto.empaquetar(&session_id)
-    );
-    Ok((StatusCode::OK, [(header::SET_COOKIE, cookie)], cuerpo).into_response())
-}
-
-/// `GET /api/v1/session/actual` — reanuda la sesión viva de la cookie
-/// `gh_sesion` sin crear una nueva (misma forma que `POST /api/v1/session`;
-/// `conversacion` es `null` si la sesión está en borrador). Sin cookie de
-/// sesión válida → 401 y el cliente crea una con `POST`. Cada recarga de
-/// página creaba una sesión y agotaba el tope (16 con TTL 24 h); reanudar
-/// evita la fuga. Solo cookie: el token maestro no reanuda (crea).
-async fn sesion_actual(
-    State(state): State<Arc<AppState>>,
-    headers: HeaderMap,
-) -> Result<Response, ApiError> {
-    let sid = match credencial(&headers, &state).await {
-        Some(Credencial::SesionCookie(s)) => s,
-        _ => return Err(error("no_autorizado", "sin sesión activa en la cookie")),
-    };
-    // Reutiliza la validación completa (UUID, coincidencia, origen GET y
-    // expiración/TTL con purga).
-    let (sesion, _) = autorizar_sesion(&headers, &Method::GET, &state, &sid).await?;
-    let comun = sesion.comun.lock().await.clone();
-    let llaves = LlavesProveedor::from_env();
-    let proveedores = serde_json::json!([
-        { "nombre": "cerebras", "claves": llaves.cerebras.len() },
-        { "nombre": "groq", "claves": llaves.groq.len() },
-        { "nombre": "deepseek", "claves": llaves.deepseek.len() },
-        { "nombre": "glory", "claves": llaves.glory.len() },
-        { "nombre": "commandcode", "claves": llaves.commandcode.len() },
-        { "nombre": "opencode-go", "claves": llaves.opencode_go.len() },
-    ]);
-    let actual = *sesion.conversacion_id.lock().await;
-    let conversacion = match actual {
-        Some(cid) => comun
-            .persistencia
-            .conversaciones_listar(comun.user_id)
-            .map_err(|e| error("sesion", e.to_string()))?
-            .into_iter()
-            .find(|c| c.id == cid),
-        None => None,
-    };
-    Ok(Json(serde_json::json!({
-        "ok": true,
-        "session_id": sid,
-        "modelo": comun.modelo,
-        "workspace": comun.workspace,
-        "proveedores": proveedores,
-        "conversacion": conversacion,
-    }))
-    .into_response())
-}
+// [Partición limite-lineas] `healthz` + SSE viven en `eventos.rs`; el ciclo
+// de vida de sesiones (`crear_sesion`, `sesion_actual`, `cerrar_sesion`) en
+// `sesiones.rs`. Aquí quedan errores, autorización, router y arranque.
 
 /* [109A-5 F3] El ciclo de vida de la meta por HTTP (PATCH/GET `/meta`) vive
  * en `meta.rs`: este archivo roza el límite de 500 líneas y ese par de
  * handlers, con su carga y su emisión de `agent.event`, es autocontenido. */
 
-/// `DELETE /api/v1/session/:id` — cancela el turno activo y cierra.
-async fn cerrar_sesion(
-    State(state): State<Arc<AppState>>,
-    headers: HeaderMap,
-    Path(id): Path<String>,
-) -> Result<Json<Value>, ApiError> {
-    let (sesion, _) = autorizar_sesion(&headers, &Method::DELETE, &state, &id).await?;
-    self::turnos::abortar_turno_activo(&sesion, "sesión cerrada").await;
-    /* [209A-1 F4-resto] Reap global de la sesión que se cierra: ninguna
-     * consola viva debe sobrevivir a su sesión. */
-    {
-        let comun = sesion.comun.lock().await;
-        if let Some(ejecutor) = comun.ejecutor.as_ref() {
-            let matadas = ejecutor.matar_todas().await;
-            if matadas > 0 {
-                tracing::info!(sesion = %id, matadas, "reap de consolas al cerrar sesión");
-            }
-        }
-    }
-    state.sesiones.lock().await.remove(&id);
-    Ok(Json(serde_json::json!({ "ok": true, "session_id": id })))
-}
-
-/// `GET /api/v1/session/:id/events` → SSE con snapshot `ready` + difusión.
-async fn eventos_sse(
-    State(state): State<Arc<AppState>>,
-    headers: HeaderMap,
-    Path(id): Path<String>,
-) -> Result<
-    Sse<impl tokio_stream::Stream<Item = Result<Event, Infallible>> + Send + 'static>,
-    ApiError,
-> {
-    let (sesion, _) = autorizar_sesion(&headers, &Method::GET, &state, &id).await?;
-
-    // Snapshot mínimo al suscribir (el `ready` de F1 se perdía si el SSE
-    // llegaba tarde: reconexión recibe estado actual, sin replay completo).
-    let turno_activo = sesion.turno.lock().await.as_ref().map(|t| t.id);
-    let conversacion_id = *sesion.conversacion_id.lock().await;
-    let ready = cable(
-        "ready",
-        serde_json::json!({
-            "session_id": id,
-            "conversacion_id": conversacion_id,
-            "turno_activo": turno_activo,
-        }),
-    );
-
-    let rx = sesion.sse.lock().await.suscribir().1;
-    let stream = tokio_stream::once(Ok(Event::default()
-        .event("ready")
-        .data(ready_json_data(&ready))))
-    // [079A-1 F1] Sin `Lagged`: el mpsc acotado descarta ante lector lento
-    // en vez de avisar (ver `sse.rs`); el lector ve eventos contiguos.
-    .chain(ReceiverStream::new(rx).map(|cable| {
-        let (tipo, data) = partir_cable(&cable);
-        Ok(Event::default().event(tipo).data(data))
-    }));
-
-    Ok(Sse::new(stream).keep_alive(
-        KeepAlive::new()
-            .interval(Duration::from_secs(15))
-            .text("heartbeat"),
-    ))
-}
-
-/// Extrae `data` del cable (el `event:` viaja en el campo SSE, no en data).
-fn ready_json_data(cable: &str) -> String {
-    partir_cable(cable).1
-}
-
-fn partir_cable(cable: &str) -> (String, String) {
-    match serde_json::from_str::<Value>(cable) {
-        Ok(v) => (
-            v.get("event")
-                .and_then(|e| e.as_str())
-                .unwrap_or("message")
-                .to_string(),
-            v.get("data")
-                .map(|d| serde_json::to_string(d).unwrap_or_default())
-                .unwrap_or_default(),
-        ),
-        Err(_) => ("error".into(), r#"{"code":"cable"}"#.into()),
-    }
-}
-
 // ── Enrutador y arranque ─────────────────────────────────────────────────
 
 pub(crate) fn router(state: Arc<AppState>) -> Router {
     Router::new()
-        .route("/healthz", get(healthz))
-        .route("/api/v1/session", post(crear_sesion))
-        .route("/api/v1/session/actual", get(sesion_actual))
-        .route("/api/v1/session/{id}", delete(cerrar_sesion))
-        .route("/api/v1/session/{id}/events", get(eventos_sse))
+        .route("/healthz", get(self::eventos::healthz))
+        .route("/api/v1/session", post(self::sesiones::crear_sesion))
+        .route("/api/v1/session/actual", get(self::sesiones::sesion_actual))
+        .route("/api/v1/session/{id}", delete(self::sesiones::cerrar_sesion))
+        .route("/api/v1/session/{id}/events", get(self::eventos::eventos_sse))
         .route("/api/v1/session/{id}/meta", patch(actualizar_meta).get(leer_meta))
         .route(
             "/api/v1/session/{id}/turns",
@@ -661,7 +438,7 @@ pub async fn run(
     fixture: bool,
     secreto_fijo: Option<String>,
 ) -> std::process::ExitCode {
-    let token = token_desde_env();
+    let token = self::sesiones::token_desde_env();
     let tokenless = token.is_none();
     // [139A-8 K9] Secreto de firma: flag > env > aleatorio por arranque.
     let secreto = secreto_fijo

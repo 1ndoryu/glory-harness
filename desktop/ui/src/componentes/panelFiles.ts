@@ -7,38 +7,16 @@ import { icono } from './iconos';
 import { el, marcarCuerpo } from '../util/dom';
 import { crearBotonIcono } from './chromePanel';
 import { seguirPuntero } from '../plataforma/ventana';
-import type { EntradaWorkspace, ErrorFilesystem, ListadoWorkspace, ResultadoBusqueda } from '../dominio/tipos';
+import type { EntradaWorkspace } from '../dominio/tipos';
+import type { CambioArchivoFiles, OpcionesPanelFiles, PanelFiles } from './filesModelo';
+import { pintarCodigoFiles } from './filesCodigo';
+import { errorTextoFiles, normalizarRutaFiles } from './filesRutas';
 
-export interface FilesTransport {
-  listar(ruta: string, profundidad?: number): Promise<ListadoWorkspace>;
-  buscar(consulta: string, ruta?: string): Promise<ResultadoBusqueda>;
-  leer(ruta: string): Promise<{ ruta: string; lineas: number; contenido: string }>;
-  abrirCon(ruta: string): Promise<void>;
-}
+// Compatibilidad: los contratos viven en `filesModelo.ts`; el orquestador
+// (`panelDerecho`, `ganchos`) sigue importándolos desde aquí.
+export type { CambioArchivoFiles, FilesTransport, OpcionesPanelFiles, PanelFiles } from './filesModelo';
 
-export interface CambioArchivoFiles {
-  origen: 'tool';
-  tool: 'file_write' | 'file_patch';
-  ruta: string;
-  titulo: string;
-  resumen: string;
-  diff: string | null;
-}
-
-export interface PanelFiles {
-  raiz: HTMLElement;
-  recargar(): void;
-  registrarCambio(cambio: CambioArchivoFiles): void;
-  sincronizarCambios(cambios: CambioArchivoFiles[]): void;
-  /** [129A-10 F2] Previsualiza una ruta cualquiera (vista del agente, no
-   * cambio: no toca el mapa de cambios). */
-  mostrarArchivo(ruta: string): void;
-}
-
-export function montarPanelFiles(opts: {
-  transporte: FilesTransport;
-  onError?: (texto: string, detalle?: string) => void;
-}): PanelFiles {
+export function montarPanelFiles(opts: OpcionesPanelFiles): PanelFiles {
   const raiz = el('div', 'panel-files');
   const contenido = el('div', 'files-contenido');
   const explorador = el('div', 'files-explorador');
@@ -120,52 +98,15 @@ export function montarPanelFiles(opts: {
   let secuencia = 0;
   let secuenciaLectura = 0;
 
-  function errorTexto(error: unknown): string {
-    if (typeof error === 'object' && error !== null && 'mensaje' in error) {
-      return String((error as ErrorFilesystem).mensaje);
-    }
-    return String(error);
-  }
-
   function notificarError(texto: string, error: unknown): void {
-    opts.onError?.(texto, errorTexto(error));
-  }
-
-  function pintarCodigo(contenidoArchivo: string): void {
-    codigo.replaceChildren();
-    const lineas = contenidoArchivo.split('\n');
-    if (lineas.length > 2000) {
-      const pre = el('pre', 'files-visor-plano');
-      pre.textContent = contenidoArchivo;
-      codigo.appendChild(pre);
-      return;
-    }
-    const frag = document.createDocumentFragment();
-    lineas.forEach((texto, i) => {
-      const fila = el('div', 'files-visor-linea');
-      const numero = el('span', 'files-visor-numero');
-      numero.textContent = String(i + 1);
-      const textoNodo = el('span', 'files-visor-texto');
-      textoNodo.textContent = texto === '' ? ' ' : texto;
-      fila.append(numero, textoNodo);
-      frag.appendChild(fila);
-    });
-    codigo.appendChild(frag);
-  }
-
-  /* Compara rutas para localizar filas: separadores unificados y sin
-   * importar mayúsculas (el agente puede escribir `test/x` y el workspace
-   * tener `Test/`; en Windows son el mismo archivo). Para listar/leer se
-   * usa siempre la ruta canónica de la fila (`dataset.ruta`), no esta. */
-  function normalizarRuta(ruta: string): string {
-    return ruta.replace(/\\/g, '/').toLowerCase();
+    opts.onError?.(texto, errorTextoFiles(error));
   }
 
   function botonPara(ruta: string): HTMLButtonElement | null {
-    const objetivo = normalizarRuta(ruta);
+    const objetivo = normalizarRutaFiles(ruta);
     const botones = arbol.querySelectorAll<HTMLButtonElement>('.files-nombre[data-ruta]');
     for (const boton of botones) {
-      if (normalizarRuta(boton.dataset.ruta || '') === objetivo) return boton;
+      if (normalizarRutaFiles(boton.dataset.ruta || '') === objetivo) return boton;
     }
     return null;
   }
@@ -201,7 +142,7 @@ export function montarPanelFiles(opts: {
   async function revelarEnArbol(ruta: string): Promise<void> {
     await raizLista;
     if (rutaSeleccionada !== ruta) return;
-    const partes = normalizarRuta(ruta).split('/').filter((p) => p.length > 0);
+    const partes = normalizarRutaFiles(ruta).split('/').filter((p) => p.length > 0);
     let acumulado = '';
     for (let i = 0; i < partes.length - 1; i++) {
       acumulado = acumulado ? `${acumulado}/${partes[i]}` : partes[i];
@@ -232,7 +173,7 @@ export function montarPanelFiles(opts: {
       if (id !== secuenciaLectura) return;
       visorRuta.textContent = `${resultado.ruta} — ${resultado.lineas} líneas`;
       visorRuta.title = resultado.ruta;
-      pintarCodigo(resultado.contenido);
+      pintarCodigoFiles(codigo, resultado.contenido);
     } catch (error: unknown) {
       if (id !== secuenciaLectura) return;
       codigo.replaceChildren();

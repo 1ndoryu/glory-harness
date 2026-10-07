@@ -7,6 +7,9 @@
     flex-direction: column;
     height: 100%;
     min-height: 0;
+    /* [07AA-1 F2] Sin esto el mínimo intrínseco (líneas largas sin corte)
+       ensanchaba la caja y el texto se salía del panel. */
+    min-width: 0;
     background: var(--fondo);
     color: var(--texto);
     font-family: var(--font);
@@ -136,6 +139,8 @@
 .consola-visor {
     flex: 1 1 auto;
     min-height: 0;
+    /* [07AA-1 F2] Contiene el mínimo intrínseco (ver .panel-consola). */
+    min-width: 0;
     display: flex;
     flex-direction: column;
 }
@@ -152,6 +157,9 @@
     font-size: var(--sm);
     overflow-x: auto;
     white-space: nowrap;
+    /* [07AA-1 F2] nowrap + auto-mínimo ensanchaba todo el panel: el scroll
+       interno ya existe, el mínimo debe ser 0. */
+    min-width: 0;
     flex: 0 0 auto;
 }
 

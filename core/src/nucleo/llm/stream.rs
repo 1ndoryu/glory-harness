@@ -150,6 +150,113 @@ pub(crate) async fn hojear_stream(
  * - modelo: `response.created/completed.response.model`;
  * `incomplete` (max tokens) y `failed` se marcan en finish_reason en vez de
  * fallar: el runtime ya sabe cerrar turnos parciales. */
+/* [309A-3] Aplica un evento `response.*` del dialecto Responses (extraido
+ * de `hojear_responses_stream` sin cambio de comportamiento): modelo real,
+ * uso (de cualquier evento que lo traiga) y finish_reason segun estado. */
+fn aplicar_evento_response(
+    evento: &serde_json::Value,
+    tipo: &str,
+    modelo_real: &mut String,
+    tokens_prompt: &mut u32,
+    tokens_complecion: &mut u32,
+    finish_reason: &mut String,
+) {
+    if let Some(resp) = evento.get("response") {
+        if modelo_real.is_empty() {
+            if let Some(m) = resp.get("model").and_then(serde_json::Value::as_str) {
+                if !m.is_empty() {
+                    *modelo_real = m.to_string();
+                }
+            }
+        }
+        /* [20-09-2026] El uso viaja en el evento terminal...
+         * pero el terminal NO siempre es `completed`: con
+         * presupuesto agotado el gateway cierra con
+         * `incomplete` (sin `completed` posterior) y el uso
+         * viene ahí (`response.usage {input_tokens,
+         * output_tokens}`). Se toma de cualquier evento que
+         * lo traiga, no solo de `completed`. */
+        if let Some(usage) = resp.get("usage") {
+            if let Some(entrada) =
+                usage.get("input_tokens").and_then(serde_json::Value::as_u64)
+            {
+                *tokens_prompt = entrada as u32;
+            }
+            if let Some(salida) =
+                usage.get("output_tokens").and_then(serde_json::Value::as_u64)
+            {
+                *tokens_complecion = salida as u32;
+            }
+        }
+        if tipo == "response.completed" || tipo == "response.incomplete" {
+            let estado = resp
+                .get("status")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("completed");
+            *finish_reason = match estado {
+                "completed" => "stop".to_string(),
+                "incomplete" => "length".to_string(),
+                other => other.to_string(),
+            };
+        }
+        if tipo == "response.failed" {
+            *finish_reason = "error".to_string();
+        }
+    }
+}
+
+/* [309A-3] Delta de texto: acumula, emite y cancela igual (extraido de
+ * `hojear_responses_stream`). */
+fn aplicar_delta_texto(
+    evento: &serde_json::Value,
+    contenido: &mut String,
+    on_token: &mut (dyn FnMut(&str) -> bool + Send),
+) -> Result<(), Error> {
+    if let Some(texto_delta) =
+        evento.get("delta").and_then(serde_json::Value::as_str)
+    {
+        contenido.push_str(texto_delta);
+        if !on_token(texto_delta) {
+            return Err(Error::Cancelado);
+        }
+    }
+    Ok(())
+}
+
+/* [309A-3] Delta de pensamiento visible (extraido de
+ * `hojear_responses_stream`). */
+fn aplicar_delta_razonamiento(
+    evento: &serde_json::Value,
+    razonamiento: &mut String,
+    on_razonamiento: &mut (dyn FnMut(&str) + Send),
+) {
+    if let Some(pensado) =
+        evento.get("delta").and_then(serde_json::Value::as_str)
+    {
+        razonamiento.push_str(pensado);
+        on_razonamiento(pensado);
+    }
+}
+
+/* [309A-3] Item terminado: solo `function_call` va a tool_calls (extraido
+ * de `hojear_responses_stream`). */
+fn aplicar_item_terminado(evento: &serde_json::Value, tool_calls: &mut Vec<serde_json::Value>) {
+    if let Some(item) = evento.get("item") {
+        if item.get("type").and_then(serde_json::Value::as_str)
+            == Some("function_call")
+        {
+            tool_calls.push(serde_json::json!({
+                "id": item.get("call_id"),
+                "type": "function",
+                "function": {
+                    "name": item.get("name"),
+                    "arguments": item.get("arguments"),
+                },
+            }));
+        }
+    }
+}
+
 pub(crate) async fn hojear_responses_stream(
     respuesta: reqwest::Response,
     salidas: SalidasVivo<'_>,
@@ -193,86 +300,23 @@ pub(crate) async fn hojear_responses_stream(
             match tipo {
                 "response.created" | "response.in_progress" | "response.completed"
                 | "response.failed" | "response.incomplete" => {
-                    if let Some(resp) = evento.get("response") {
-                        if modelo_real.is_empty() {
-                            if let Some(m) =
-                                resp.get("model").and_then(serde_json::Value::as_str)
-                            {
-                                if !m.is_empty() {
-                                    modelo_real = m.to_string();
-                                }
-                            }
-                        }
-                        /* [20-09-2026] El uso viaja en el evento terminal...
-                         * pero el terminal NO siempre es `completed`: con
-                         * presupuesto agotado el gateway cierra con
-                         * `incomplete` (sin `completed` posterior) y el uso
-                         * viene ahí (`response.usage {input_tokens,
-                         * output_tokens}`). Se toma de cualquier evento que
-                         * lo traiga, no solo de `completed`. */
-                        if let Some(usage) = resp.get("usage") {
-                            if let Some(entrada) = usage
-                                .get("input_tokens")
-                                .and_then(serde_json::Value::as_u64)
-                            {
-                                tokens_prompt = entrada as u32;
-                            }
-                            if let Some(salida) = usage
-                                .get("output_tokens")
-                                .and_then(serde_json::Value::as_u64)
-                            {
-                                tokens_complecion = salida as u32;
-                            }
-                        }
-                        if tipo == "response.completed" || tipo == "response.incomplete" {
-                            let estado = resp
-                                .get("status")
-                                .and_then(serde_json::Value::as_str)
-                                .unwrap_or("completed");
-                            finish_reason = match estado {
-                                "completed" => "stop".to_string(),
-                                "incomplete" => "length".to_string(),
-                                other => other.to_string(),
-                            };
-                        }
-                        if tipo == "response.failed" {
-                            finish_reason = "error".to_string();
-                        }
-                    }
+                    aplicar_evento_response(
+                        &evento,
+                        tipo,
+                        &mut modelo_real,
+                        &mut tokens_prompt,
+                        &mut tokens_complecion,
+                        &mut finish_reason,
+                    )
                 }
                 "response.output_text.delta" => {
-                    if let Some(texto_delta) =
-                        evento.get("delta").and_then(serde_json::Value::as_str)
-                    {
-                        contenido.push_str(texto_delta);
-                        if !on_token(texto_delta) {
-                            return Err(Error::Cancelado);
-                        }
-                    }
+                    aplicar_delta_texto(&evento, &mut contenido, &mut *on_token)?
                 }
                 "response.reasoning_summary_text.delta" => {
-                    if let Some(pensado) =
-                        evento.get("delta").and_then(serde_json::Value::as_str)
-                    {
-                        razonamiento.push_str(pensado);
-                        on_razonamiento(pensado);
-                    }
+                    aplicar_delta_razonamiento(&evento, &mut razonamiento, &mut *on_razonamiento)
                 }
                 "response.output_item.done" => {
-                    if let Some(item) = evento.get("item") {
-                        if item.get("type").and_then(serde_json::Value::as_str)
-                            == Some("function_call")
-                        {
-                            tool_calls.push(serde_json::json!({
-                                "id": item.get("call_id"),
-                                "type": "function",
-                                "function": {
-                                    "name": item.get("name"),
-                                    "arguments": item.get("arguments"),
-                                },
-                            }));
-                        }
-                    }
+                    aplicar_item_terminado(&evento, &mut tool_calls)
                 }
                 _ => {}
             }

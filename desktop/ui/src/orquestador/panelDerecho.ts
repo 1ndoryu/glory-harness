@@ -7,21 +7,11 @@
 
 import { invoke } from '@tauri-apps/api/core';
 import { porId } from '../util/dom';
-import { montarPanelDerecho, type PanelDerecho } from '../componentes/panelDerecho';
-import { montarPanelFiles, type PanelFiles } from '../componentes/panelFiles';
-import { montarPanelCambios, type PanelCambios } from '../componentes/panelCambios';
-import {
-  montarPanelConsola,
-  type EventoConsola,
-  type PanelConsola,
-} from '../componentes/panelConsola';
-import { crearSupresionNavegador as crearSupresionAutoapertura } from './navegadorAuto';
-import { montarToastGlobal, type ToastGlobal } from '../componentes/toastGlobal';
-import type { PanelChat } from '../componentes/panelChat';
-import type { BarraSuperior } from '../componentes/barraSuperior';
-import type { AdaptadorReal } from '../tauri/real';
+import { montarPanelDerecho } from '../componentes/panelDerecho';
+import type { EventoConsola } from '../componentes/panelConsola';
 import { crearAnchoPanelDerecho } from './panelDerechoAncho';
-import type { PersistenciaDeps } from './persistencia';
+import { montarPiezasPanelDerecho } from './panelDerechoMontaje';
+import type { PanelDerechoDeps, PanelDerechoTodo } from './panelDerechoTipos';
 import {
   CLAVE_LATERAL_ANCHO,
   CLAVE_PANEL_DERECHO,
@@ -29,83 +19,8 @@ import {
   leerPreferencia,
 } from './persistencia';
 
-/** Núcleo del panel derecho: montaje, adaptador y paneles. */
-export interface PanelDerechoNucleo {
-  cuerpo: HTMLElement;
-  app: HTMLElement;
-  barra: BarraSuperior;
-  adaptador: AdaptadorReal;
-  usaTauri: boolean;
-  persistencia: PersistenciaDeps;
-  paneles: PanelChat[];
-  panelActivo: () => PanelChat | null;
-  getConversaciones: () => Array<{ id: string }>;
-  /** Turno en curso (para la supresión de auto-apertura: igual que F1). */
-  turnoEnCurso: () => boolean;
-}
-
-/** Navegador embebido y aperturas delegadas. */
-export interface PanelDerechoNavegador {
-  onCambioWorkspace: (accion: (ruta: string | null) => void) => void;
-  navegadorRaiz: HTMLElement;
-  mostrarNavegador: (visible: boolean) => void;
-  estaNavegadorAbierto: () => boolean;
-  abrirNavegador: () => void;
-  abrirChatLateral: () => void;
-  abrirChatLateralPorId: (id: string) => Promise<void>;
-}
-
-export interface PanelDerechoDeps
-  extends PanelDerechoNucleo, PanelDerechoNavegador {}
-
-/** Piezas montadas del panel derecho. */
-export interface PanelDerechoPiezas {
-  panelDerecho: PanelDerecho;
-  files: PanelFiles;
-  /** [129A-7] La tab "Git local" ahora es "Cambios" (filesystem por turno +
-   * estado git debajo). El id de tab 'git' se conserva. */
-  cambios: PanelCambios;
-  /** [209A-1 F3] La tab Consola: visor de ejecuciones `comando` en vivo. */
-  consola: PanelConsola;
-  toastGlobal: ToastGlobal;
-}
-
-/** Visibilidad del panel derecho (vacío = oculto). */
-export interface PanelDerechoVisibilidad {
-  asegurarPanelDerecho: () => void;
-  ocultarPanelDerecho: () => void;
-  alternarPanelDerecho: () => void;
-  cerrarPanelDerechoSiVacio: () => void;
-  pintarToggleDerecho: () => void;
-  restaurarEstado: () => Promise<void>;
-}
-
-/** Aperturas delegadas (archivos, git, reposicionado del webview). */
-export interface PanelDerechoAperturas {
-  abrirFiles: () => void;
-  abrirGit: () => void;
-  /** [129A-8] Abre Cambios y revela el archivo (enlace del resumen). */
-  abrirCambiosEn: (ruta: string) => void;
-  /** [129A-10 F2] Abre Files y previsualiza la ruta (vista del agente). */
-  abrirFilesEn: (ruta: string) => void;
-  /** [209A-1 F3] Abre la Consola (tab manual: inicio, menú +, persistencia). */
-  abrirConsola: () => void;
-  /** [209A-1 F3] Abre la Consola y revela la ejecución (enlace del resumen). */
-  abrirConsolaEn: (id: string) => void;
-  /** [209A-1 F3] Auto-apertura por `consola_inicio` del agente (misma
-   * máquina de supresión que F1: 'suprimida' = el usuario la cerró a mitad
-   * de turno y solo se acumula hasta el próximo turno). */
-  abrirConsolaPorAgente: (id: string) => 'abierta' | 'ya' | 'suprimida';
-  /** [209A-1 F3] Streaming de consola hacia el store (hook del adaptador).
-   * Devuelve lo que decidió la auto-apertura (para el aviso visible). */
-  onConsolaEvento: (ev: EventoConsola) => 'abierta' | 'ya' | 'suprimida';
-  /** [209A-1 F3] Reinicia la supresión al empezar un turno (igual que F1). */
-  notificarTurnoInicioConsola: () => void;
-  reposicionarWebview: () => void;
-}
-
-export interface PanelDerechoTodo
-  extends PanelDerechoPiezas, PanelDerechoVisibilidad, PanelDerechoAperturas {}
+// Los contratos viven en `panelDerechoTipos.ts`; las piezas montadas en
+// `panelDerechoMontaje.ts`. Aquí queda la visibilidad y las aperturas.
 
 export function montarPanelDerechoTodo(deps: PanelDerechoDeps): PanelDerechoTodo {
   /* [109A-6] Ancho + grip viven en `panelDerechoAncho` (medir, aplicar y
@@ -117,72 +32,15 @@ export function montarPanelDerechoTodo(deps: PanelDerechoDeps): PanelDerechoTodo
   });
   let gripPanelDerecho: HTMLElement | null = null;
 
-  // Files es un pane único estilo Synara: árbol a la izquierda + preview a la
-  // derecha; el preview forma parte del mismo pane.
-  const toastGlobal: ToastGlobal = montarToastGlobal();
-  const files = montarPanelFiles({
-    transporte: deps.adaptador.sesion.filesystem,
-    onError(texto, detalle) {
-      toastGlobal.mostrar(texto, detalle);
-    },
-  });
-  // [139A-7] Resumen batch si el transporte lo expone; si no, el panel usa
-  // el fan-out clásico (sin simular el batch en web).
-  const gitResumenBatch = deps.adaptador.sesion.filesystem.gitResumen;
-  const git = montarPanelCambios({
-    git: {
-      estado: (ruta) => deps.adaptador.sesion.filesystem.gitEstado(ruta),
-      repos: () => deps.adaptador.sesion.filesystem.gitRepos(),
-      ...(gitResumenBatch ? { resumen: () => gitResumenBatch() } : {}),
-    },
-    cambios: {
-      listar: (conv) => deps.adaptador.sesion.cambios(conv),
-      rechazar: (conv, turno, ruta) => deps.adaptador.sesion.rechazarCambio(conv, turno, ruta),
-    },
-    convId: () => deps.panelActivo()?.conversaId ?? null,
-    onError(texto, detalle) {
-      toastGlobal.mostrar(texto, detalle);
-    },
-    onToast(texto, detalle) {
-      toastGlobal.mostrar(texto, detalle);
-    },
-  });
-  // [209A-1 F4-resto] La tab Consola: store por `id_ejecucion` + lista y visor.
-  // Los errores del panel (portapapeles) van al toast global, como Files.
-  // [219A-5 F4] × por fila + aviso honesto: `onMatar` devuelve si la mató
-  // (`false` = ya había terminado); el panel avisa vía `onInfo` y el
-  // `consola_fin` la congela en la vista. Los errores los muestra el panel
-  // vía `onError` (aquí no se duplican).
-  const consola = montarPanelConsola({
-    onError(texto, detalle) {
-      toastGlobal.mostrar(texto, detalle);
-    },
-    onInfo(texto) {
-      toastGlobal.mostrar(texto);
-    },
-    onMatar(idEjecucion) {
-      return deps.adaptador.sesion.matarConsola(idEjecucion);
-    },
-    // [219A-3] Puentes al backend para la sub-barra + backfill + stdin. Los
-    // fallos los muestra el panel vía `onError` (aquí no se duplican).
-    onSincronizar() {
-      return deps.adaptador.sesion.listarConsolas();
-    },
-    onLeerSalida(idEjecucion) {
-      return deps.adaptador.sesion.leerSalidaConsola(idEjecucion);
-    },
-    onEscribir(idEjecucion, texto) {
-      return deps.adaptador.sesion.escribirConsola(idEjecucion, texto);
-    },
-    // [219A-4] [+ Nueva] de la cabecera: consola propia (shell, sin jaula).
-    onCrear() {
-      return deps.adaptador.sesion.crearConsola();
-    },
-  });
-  // [209A-1 F3] Supresión de auto-apertura: la misma máquina pura que F1
-  // (`crearSupresionNavegador` no sabe de navegadores: abrir/suprimir por
-  // turno; aquí gobierna la tab Consola).
-  const supresionConsola = crearSupresionAutoapertura();
+  // Las piezas (toast, Files, Cambios, Consola, supresión) las monta
+  // `montarPiezasPanelDerecho` (ver `panelDerechoMontaje.ts`).
+  const {
+    toastGlobal,
+    files,
+    cambios: git,
+    consola,
+    supresionConsola,
+  } = montarPiezasPanelDerecho({ adaptador: deps.adaptador, panelActivo: deps.panelActivo });
   const panelDerecho = montarPanelDerecho({
     onCambioTab(id) {
       // La webview hija es nativa: no respeta `hidden`. Al salir de su tab
@@ -243,14 +101,16 @@ export function montarPanelDerechoTodo(deps: PanelDerechoDeps): PanelDerechoTodo
     deps.barra.setPanelDerechoAbierto(panelDerechoVisible);
   }
 
-  // Monta el panel derecho en #cuerpo (con su grip) si aún no está.
+  // Monta el panel derecho en #cuerpo si aún no está. [07AA-1 F3] El grip
+  // vive DENTRO del panel (anclado a su borde izquierdo): con la fila en
+  // scroll horizontal, un grip anclado a #cuerpo se despegaba del divisor.
   function asegurarPanelDerecho(): void {
+    if (!panelDerecho.raiz.parentNode) deps.cuerpo.appendChild(panelDerecho.raiz);
     if (!gripPanelDerecho) {
       gripPanelDerecho = ancho.crearGrip();
       ancho.restaurar();
     }
-    if (!gripPanelDerecho.parentNode) deps.cuerpo.appendChild(gripPanelDerecho);
-    if (!panelDerecho.raiz.parentNode) deps.cuerpo.appendChild(panelDerecho.raiz);
+    if (!gripPanelDerecho.parentNode) panelDerecho.raiz.appendChild(gripPanelDerecho);
     panelDerechoVisible = true;
     pintarToggleDerecho();
     guardarEstadoPanel();

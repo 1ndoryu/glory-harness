@@ -1156,7 +1156,7 @@ mod tests {
     /// Posición del `\n\n` que cierra un frame SSE (el `\r` se filtra al
     /// acumular, así los índices son exactos).
     fn doble_salto(buf: &[u8]) -> Option<usize> {
-        buf.windows(2).position(|w| w == [b'\n', b'\n'])
+        buf.windows(2).position(|w| w == b"\n\n")
     }
     /// `(event, data)` de un frame SSE.
     fn frame_sse(frame: &str) -> (String, String) {

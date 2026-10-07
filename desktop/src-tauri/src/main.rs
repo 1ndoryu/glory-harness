@@ -476,6 +476,33 @@ fn area_activa(sesion: &Sesion) -> Result<Option<Workspace>, String> {
     }
 }
 
+/// [Partición funcion-larga] Reap global al cerrar la app: mata las consolas
+/// vivas de la sesión; ningún hijo sobrevive al proceso. Extraído de `main`
+/// (superaba 100 líneas efectivas). `block_on` corre en el hilo principal
+/// (no en un worker del runtime), y `matar_todas` solo señaliza + espera.
+fn reap_consolas_al_cerrar(ventana: &tauri::Window, evento: &tauri::WindowEvent) {
+    if matches!(evento, tauri::WindowEvent::CloseRequested { .. }) {
+        /* Se clona el `Arc` de sesión dentro del guard (`try_state`
+         * no vive más allá del closure): el ejecutor sale owned. */
+        let sesion = ventana
+            .app_handle()
+            .try_state::<Estado>()
+            .and_then(|estado| estado.sesion.lock().ok().and_then(|g| g.clone()));
+        let ejecutor = sesion
+            .as_ref()
+            .and_then(|s| s.comun.lock().ok())
+            .and_then(|c| c.ejecutor.clone());
+        if let Some(ejecutor) = ejecutor {
+            let matadas = tauri::async_runtime::block_on(ejecutor.matar_todas());
+            if matadas > 0 {
+                eprintln!(
+                    "[glory-harness-desktop] reap al cerrar la app: {matadas} matada(s)"
+                );
+            }
+        }
+    }
+}
+
 fn main() {
     // [129A-4 F3] Log de proceso + panic hook ANTES de todo (un panic en el
     // arranque también debe dejar rastro).
@@ -568,31 +595,10 @@ fn main() {
             navegador::comandos::navegador_rellenar,
             navegador::comandos::navegador_snapshot,
         ])
-        /* [209A-1 F4-resto] Reap global al cerrar la app: se matan las
-         * consolas vivas de la sesión; ningún hijo sobrevive al proceso.
-         * `block_on` corre en el hilo principal (no en un worker del
-         * runtime), y `matar_todas` solo señaliza + espera la salida. */
+        /* [209A-1 F4-resto] Reap global al cerrar la app (ver
+         * `reap_consolas_al_cerrar`). */
         .on_window_event(|ventana, evento| {
-            if matches!(evento, tauri::WindowEvent::CloseRequested { .. }) {
-                /* Se clona el `Arc` de sesión dentro del guard (`try_state`
-                 * no vive más allá del closure): el ejecutor sale owned. */
-                let sesion = ventana
-                    .app_handle()
-                    .try_state::<Estado>()
-                    .and_then(|estado| estado.sesion.lock().ok().and_then(|g| g.clone()));
-                let ejecutor = sesion
-                    .as_ref()
-                    .and_then(|s| s.comun.lock().ok())
-                    .and_then(|c| c.ejecutor.clone());
-                if let Some(ejecutor) = ejecutor {
-                    let matadas = tauri::async_runtime::block_on(ejecutor.matar_todas());
-                    if matadas > 0 {
-                        eprintln!(
-                            "[glory-harness-desktop] reap al cerrar la app: {matadas} matada(s)"
-                        );
-                    }
-                }
-            }
+            reap_consolas_al_cerrar(ventana, evento);
         })
         .run(tauri::generate_context!())
         .unwrap_or_else(|e| {

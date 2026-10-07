@@ -267,7 +267,10 @@ fn simbolo_rust(linea: &str) -> Option<(&'static str, String)> {
         ("static", r)
     } else if let Some(r) = s.strip_prefix("macro_rules!") {
         ("macro", r.trim_start_matches('!').trim_start())
-    } else if let Some(cuerpo) = s.strip_prefix("impl ").or_else(|| s.strip_prefix("impl<")) {
+    } else {
+        let cuerpo = s
+            .strip_prefix("impl ")
+            .or_else(|| s.strip_prefix("impl<"))?;
         let cuerpo = cuerpo.trim_start();
         /* `impl Display for Foo` → Foo; `impl Foo` → Foo (sin genéricos). */
         let objetivo = match cuerpo.split_once(" for ") {
@@ -275,8 +278,6 @@ fn simbolo_rust(linea: &str) -> Option<(&'static str, String)> {
             None => cuerpo,
         };
         ("impl", objetivo)
-    } else {
-        return None;
     };
     let nombre = hasta_delimitador(resto);
     if nombre.is_empty() {
@@ -316,10 +317,9 @@ fn simbolo_ts(linea: &str) -> Option<(&'static str, String)> {
         ("enum", r)
     } else if let Some(r) = s.strip_prefix("type ") {
         ("type", r)
-    } else if let Some(r) = s.strip_prefix("const ") {
-        ("const", r)
     } else {
-        return None;
+        let r = s.strip_prefix("const ")?;
+        ("const", r)
     };
     let nombre = hasta_delimitador(resto);
     if nombre.is_empty() {
@@ -343,10 +343,9 @@ fn simbolo_py(linea: &str) -> Option<(&'static str, String)> {
     }
     let (tipo, resto) = if let Some(r) = s.strip_prefix("def ") {
         ("def", r)
-    } else if let Some(r) = s.strip_prefix("class ") {
-        ("class", r)
     } else {
-        return None;
+        let r = s.strip_prefix("class ")?;
+        ("class", r)
     };
     let nombre = hasta_delimitador(resto);
     if nombre.is_empty() {

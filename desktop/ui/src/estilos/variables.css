@@ -42,6 +42,9 @@
        ancho del navegador): vivir aquí evita duplicar el respaldo en cada
        var() con fallback hardcodeado. */
     --panel-derecho-ancho: 50%;
+    /* [07AA-1] Ancho mínimo global de los paneles (chats + panel derecho).
+       La lista de conversaciones (sidebar) queda excluida. */
+    --panel-ancho-min: 460px;
     --entrada-reserva: 200px;
     --navegador-ancho: 480px;
 }

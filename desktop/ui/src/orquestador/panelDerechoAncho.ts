@@ -3,7 +3,8 @@
  * Extraído de `panelDerecho.ts` en 109A-6 para no rebasar el techo de líneas
  * del componente, sin cambiar comportamiento ni contrato persistido: el ancho
  * sigue viviendo en `--panel-derecho-ancho` sobre #cuerpo y #app, en el rango
- * [260, 70%] y en la misma clave de preferencia.
+ * [460, tope] y en la misma clave de preferencia. El tope es lo que cabe en
+ * la fila sin desbordar (tope 70% con viewport enano).
  *
  * El grip se crea una sola vez (lo pide `asegurarPanelDerecho`) y se monta o
  * desmonta con el panel: este módulo no decide la visibilidad, solo mide,
@@ -13,10 +14,13 @@ import { el, marcarCuerpo } from '../util/dom';
 import { seguirPuntero } from '../plataforma/ventana';
 import { CLAVE_LATERAL_ANCHO, guardarSidebar, leerSidebar, type PersistenciaDeps } from './persistencia';
 
-/** Ancho mínimo del panel derecho en px (por debajo su contenido no cabe). */
-const ANCHO_MIN = 260;
+/** [07AA-1] Ancho mínimo del panel derecho en px (mínimo global de paneles). */
+const ANCHO_MIN = 460;
 /** Fracción máxima del ancho de #cuerpo que puede ocupar el panel. */
 const FRACCION_MAX = 0.7;
+/** Mínimo del chat principal en px (`--panel-ancho-min`): lo que la fila
+ *  reserva sí o sí además de la sidebar. */
+const CHAT_MIN = 460;
 
 export interface AnchoPanelDerechoDeps {
   cuerpo: HTMLElement;
@@ -25,7 +29,7 @@ export interface AnchoPanelDerechoDeps {
 }
 
 export interface AnchoPanelDerecho {
-  /** Divisor listo para insertar en #cuerpo. */
+  /** Divisor listo para insertar en la raíz del panel. */
   crearGrip(): HTMLElement;
   /** Aplica un ancho concreto (px) a las dos raíces que lo consumen. */
   aplicar(px: number): void;
@@ -41,7 +45,20 @@ export function crearAnchoPanelDerecho(deps: AnchoPanelDerechoDeps): AnchoPanelD
   let fijado: number | null = null;
 
   function acotar(px: number): number {
-    const max = Math.round(deps.cuerpo.getBoundingClientRect().width * FRACCION_MAX);
+    const vista = deps.cuerpo.getBoundingClientRect().width;
+    /* [07AA-1 F4] La fila (sidebar + chat + panel) no debe desbordar: si lo
+     * hace, las tabs de la barra superior (ancladas a la derecha del
+     * viewport) se despegan del panel (anclado a la fila con scroll) y todo
+     * el arrastre "se mueve raro". El tope es lo que cabe una vez
+     * reservados sidebar y mínimo del chat; con viewport enano se vuelve
+     * al 70% y la fila desplaza (red de F2). */
+    const sidebar = deps.cuerpo.querySelector<HTMLElement>('#sidebar');
+    const sidebarAncho = sidebar ? sidebar.getBoundingClientRect().width : 0;
+    const cabe = Math.round(vista - sidebarAncho - CHAT_MIN);
+    const max = Math.max(
+      ANCHO_MIN,
+      Math.min(Math.round(vista * FRACCION_MAX), cabe),
+    );
     return Math.min(max, Math.max(ANCHO_MIN, Math.round(px)));
   }
 
@@ -64,10 +81,14 @@ export function crearAnchoPanelDerecho(deps: AnchoPanelDerechoDeps): AnchoPanelD
     seguirPuntero(
       (e) => {
         if (!arrastrando) return;
-        /* El panel derecho está ANCLADO al borde derecho de #cuerpo: su ancho
-         * es la distancia del cursor hasta ese borde. */
+        /* El panel derecho está ANCLADO al final de la fila: su ancho es la
+         * distancia del cursor hasta ese borde. [07AA-1 F3] En coordenadas
+         * de contenido (con scroll horizontal, `rect.right` miente: el borde
+         * real está en `scrollWidth - scrollLeft` desde el origen visible). */
         const rect = deps.cuerpo.getBoundingClientRect();
-        aplicar(acotar(rect.right - e.clientX));
+        const bordeContenido =
+          rect.left + deps.cuerpo.scrollWidth - deps.cuerpo.scrollLeft;
+        aplicar(acotar(bordeContenido - e.clientX));
       },
       () => {
         if (!arrastrando) return;

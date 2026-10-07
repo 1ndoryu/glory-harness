@@ -20,9 +20,8 @@ import {
   type TranscriptConsola,
   type Transporte,
 } from '../tauri/real';
-import type { EstadoGit, RepoGit } from '../componentes/panelGit';
-import type { ListadoWorkspace, ResultadoBusqueda } from '../dominio/tipos';
 import { crearClienteApi } from './apiCliente';
+import { crearTransporteArchivos } from './apiArchivos';
 import { crearTransporteMeta } from './apiMeta';
 import { crearTransporteWorkspaces } from './apiWorkspaces';
 import { crearTransporteConversacionesProyecto } from './apiConversaciones';
@@ -304,46 +303,8 @@ export function crearTransporteApi(base: string, hooks: HooksAdaptador = {}): Tr
     ...crearTransporteWorkspaces(cliente),
     // [119A-2 F4] Batch de hilos por proyecto en `apiConversaciones`.
     ...crearTransporteConversacionesProyecto(cliente),
-    workspaceInfo: async () =>
-      http<{ ruta: string; nombre: string }>(
-        'GET',
-        `/api/v1/session/${cliente.getSid()}/files/info`,
-      ),
-    workspaceListarEntrada: async (ruta, profundidad) => {
-      // [089A-10] El backend limita profundidad a 0..=3; el panel Files usa
-      // profundidad 1 para la raíz (carpetas expandibles) y 0 para el resto.
-      const nivel = profundidad && profundidad > 0 ? `&profundidad=${profundidad}` : '';
-      return http<ListadoWorkspace>(
-        'GET',
-        `/api/v1/session/${cliente.getSid()}/files/listar?ruta=${encodeURIComponent(ruta)}${nivel}`,
-      );
-    },
-    workspaceLeerArchivo: async (ruta) =>
-      http<{ ruta: string; lineas: number; contenido: string }>(
-        'GET',
-        `/api/v1/session/${cliente.getSid()}/files/leer?ruta=${encodeURIComponent(ruta)}`,
-      ),
-    workspaceAbrirCon: async () => {
-      throw new Error('abrir archivos con otra aplicación no está disponible en modo web');
-    },
-    workspaceBuscar: async (consulta, ruta) => {
-      const extra = ruta ? `&ruta=${encodeURIComponent(ruta)}` : '';
-      return http<ResultadoBusqueda>(
-        'GET',
-        `/api/v1/session/${cliente.getSid()}/files/buscar?consulta=${encodeURIComponent(consulta)}${extra}`,
-      );
-    },
-    workspaceGitEstado: async (ruta?): Promise<EstadoGit> => {
-      // [139A-2] El modo web no expone repos por ruta: nunca se devuelve el
-      // área haciéndola pasar por el repo (explícito en vez de dato erróneo).
-      if (ruta) throw new Error('estado por repo no disponible en modo web');
-      return http<EstadoGit>('GET', `/api/v1/session/${cliente.getSid()}/git/estado`);
-    },
-    // [139A-2] Sin espejo `git/repos` en el servidor web: el front usa el
-    // modo simple (una sola consulta al área).
-    workspaceGitRepos: async (): Promise<RepoGit[]> => {
-      throw new Error('repos multi-git no disponibles en modo web');
-    },
+    // Archivos del workspace + git en `apiArchivos` por el mismo límite.
+    ...crearTransporteArchivos(cliente),
     // [109A-3] El servidor web no expone rutas de memoria (el ámbito lo
     // resuelve el backend de escritorio): se rechaza con motivo explícito en
     // vez de devolver una lista vacía, que se leería como "no hay recuerdos".

@@ -100,7 +100,39 @@ impl AgentRuntime {
          * tool_call del assistant previo (contrato OpenAI). */
         self.empujar_tool_call_asistente(estado, call);
         let primera_vez = estado.denegadas_en_turno.insert(call.nombre.clone());
-        let (eventos, mensaje_tool, resumen) = match verdicto {
+        let (eventos, mensaje_tool, resumen) =
+            self.eventos_y_mensaje_para_veredicto(call, verdicto, primera_vez, vetada_por_hook);
+        if !eventos.is_empty() {
+            /* [318A-15 F0] Telemetría: acción bloqueada emitida. */
+            self.telemetria().registrar_denegacion();
+            for ev in eventos {
+                let _ = tx.send(ev).await;
+            }
+        }
+        let _ = tx
+            .send(AgenteEvento::ToolResult {
+                tool: call.nombre.clone(),
+                ok: false,
+                resumen,
+                diff: None,
+                consola_id: None,
+            })
+            .await;
+        self.empujar_mensaje_tool_denegado(estado, call, &mensaje_tool);
+        Ok(false)
+    }
+
+    /// [Partición funcion-larga] Mensajes y eventos para un veredicto
+    /// no-ejecutado: extraído de `manejar_verdicto_no_ejecutar` (superaba 100
+    /// líneas efectivas). Puro salvo el registro de la petición `ask`.
+    fn eventos_y_mensaje_para_veredicto(
+        &self,
+        call: &AiToolCall,
+        verdicto: VerdictoPermiso,
+        primera_vez: bool,
+        vetada_por_hook: bool,
+    ) -> (Vec<AgenteEvento>, String, String) {
+        match verdicto {
             VerdictoPermiso::Preguntar => {
                 /* [318A-16 F2] Canal explícito: cada `ask` registra una
                  * petición con `id` y la emite para que la UI responda
@@ -177,25 +209,7 @@ impl AgentRuntime {
                 (eventos, mensaje, "permiso_denegado".to_string())
             }
             VerdictoPermiso::Ejecutar => unreachable!("filtrado arriba"),
-        };
-        if !eventos.is_empty() {
-            /* [318A-15 F0] Telemetría: acción bloqueada emitida. */
-            self.telemetria().registrar_denegacion();
-            for ev in eventos {
-                let _ = tx.send(ev).await;
-            }
         }
-        let _ = tx
-            .send(AgenteEvento::ToolResult {
-                tool: call.nombre.clone(),
-                ok: false,
-                resumen,
-                diff: None,
-                consola_id: None,
-            })
-            .await;
-        self.empujar_mensaje_tool_denegado(estado, call, &mensaje_tool);
-        Ok(false)
     }
 
     /// [129A-3] Pausa de espera en turno (solo desktop): si el veredicto es

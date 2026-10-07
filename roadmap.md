@@ -55,6 +55,42 @@ Siguiente en la serie de 6 pedidos: 129A-11 → 129A-9.
 
 ## Tareas pendientes
 
+- [x] **07AA-1 - Ancho mínimo 460px en paneles (HECHO 07-10)**: `min-width:
+      460px` global vía `--panel-ancho-min` en chat principal, lateral y
+      panel derecho; sidebar excluida (sigue 260px, grip 180-260 intacto);
+      tope del grip `panelDerechoAncho.ts` 260 → 460. `tsc` + `vite build`
+      OK; verificado en navegador (`chatMin/panelMin: 460px`).
+      Gate `--full` FAIL solo por clippy ajeno en
+      `core/.../turno/mod.rs` (refactor concurrente de otro agente, 23
+      ficheros tocados); sin hallazgos en mis ficheros.
+      F2 (07-10, mismo día): el mínimo dejaba la fila comprimirse bajo la
+      suma (#paneles colapsaba a 140px, el chat lo desbordaba y solapaba el
+      panel; el texto de consola se salía de la caja) → `#paneles` con el
+      mismo piso 460, `#cuerpo` con scroll horizontal, y `min-width: 0` en
+      `.panel-consola/.consola-visor/.consola-comando`. Verificado en
+      navegador: chat dentro de #paneles, página sin desborde, cero
+      derrames internos.
+      F3 (07-10, mismo día): con el scroll de F2 el grip quedó despegado
+      del borde del panel (anclado a `#cuerpo` con `right: var(...)`; medido
+      en mitad del chat, x=396 con el panel en 720, y sin handler bajo el
+      cursor el arrastre real no respondía) → grip montado DENTRO de
+      `.panel-derecho` (`position: relative` + grip `absolute; left: 0` con
+      `translateX(-50%)`) y cálculo de arrastre consciente del scroll
+      (`rect.left + scrollWidth - scrollLeft - clientX`). Verificado en
+      navegador: grip dentro del panel y pegado a su borde, el arrastre
+      sigue al cursor y frena en 460; preferencia restaurada a 932 tras
+      las pruebas.
+      F4 (07-10, mismo día): con el panel al máximo la fila desbordaba
+      (932+460+260 > viewport) y las tabs —subidas a la barra superior por
+      el refactor ajeno en curso, ancladas a la derecha del viewport— se
+      despegaban del panel (anclado a la fila con scroll): al arrastrar se
+      movían a ritmos distintos. Fix solo en `panelDerechoAncho.ts`: el
+      tope pasa del 70% a "lo que cabe" (`viewport - sidebar - 460` del
+      chat; con viewport enano se vuelve al 70% y la fila desplaza).
+      Verificado en navegador (viewport 1332): al recargar 932→612, fila
+      sin scroll y tabs clavadas sobre el panel en todo el recorrido
+      (máx 612, mín 460); preferencia dejada en 612.
+
 - [x] **129A-8 — Resumen de cambios al finalizar el turno (estilo Synara)**
       (HECHO 12-09, gate PASS): bloque `N cambios: X creados · Y modificados`
       + filas con enlace "ver en Cambios" tras el pie (vivo y recarga);

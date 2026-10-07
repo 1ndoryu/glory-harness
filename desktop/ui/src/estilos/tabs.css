@@ -6,22 +6,27 @@
 
 .panel-derecho {
     flex: 0 0 var(--panel-derecho-ancho);
-    min-width: 0;
+    /* [07AA-1] Mínimo global de paneles (laterales, Files, Git, navegador). */
+    min-width: var(--panel-ancho-min);
     display: flex;
     flex-direction: column;
     border-left: 1px solid var(--borde);
     min-height: 0;
+    /* [07AA-1 F3] Ancla del grip: vive dentro del panel para no despegarse
+       del divisor cuando la fila desplaza en horizontal. */
+    position: relative;
 }
 
-/* El grip solo captura el arrastre sobre el divisor: se superpone a la
-   línea y no ocupa una franja visible entre #paneles y el panel derecho. */
-#cuerpo > .panel-derecho-grip {
+/* [07AA-1 F3] El grip captura el arrastre sobre el borde izquierdo del
+   panel (centrado en la línea, sin franja visible). Al vivir dentro del
+   panel viaja con él aunque #cuerpo tenga scroll. */
+.panel-derecho > .panel-derecho-grip {
     position: absolute;
     top: 0;
-    right: var(--panel-derecho-ancho);
     bottom: 0;
+    left: 0;
     width: 9px;
-    transform: translateX(50%);
+    transform: translateX(-50%);
     cursor: col-resize;
     z-index: 5;
 }

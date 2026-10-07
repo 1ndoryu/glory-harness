@@ -12,6 +12,10 @@
     flex: 1;
     display: flex;
     min-height: 0;
+    /* [07AA-1 F2] La fila NUNCA se comprime bajo la suma de mínimos: si la
+       ventana no da, la fila desplaza en horizontal en vez de solapar
+       columnas (el chat desbordaba #paneles y pintaba sobre el panel). */
+    overflow-x: auto;
     /* [039A-3 retoque 3] Ancla de los grips absolutos (no ocupan layout). */
     position: relative;
 }
@@ -246,7 +250,10 @@
 #paneles {
     flex: 1;
     display: flex;
-    min-width: 0;
+    /* [07AA-1 F2] Piso igual al de los chats: sin esto #paneles colapsaba
+       (p. ej. a 140px) y el chat con mínimo 460 lo desbordaba y solapaba
+       el panel derecho. */
+    min-width: var(--panel-ancho-min);
     min-height: 0;
     /* [039A-3 P6b] Ancho del chat lateral cuando hay 2 paneles. Por defecto
        parte de la mitad de #paneles; el arrastre del grip lo fija en px y lo
@@ -261,7 +268,9 @@
     flex: 1;
     display: flex;
     flex-direction: column;
-    min-width: 0;
+    /* [07AA-1] Mínimo global de paneles (no 0: por debajo de 460px el
+       contenido no cabe). La sidebar queda excluida. */
+    min-width: var(--panel-ancho-min);
     min-height: 0;
     /* [089A-2] La entrada flota por encima (absolute): el chat es su marco. */
     position: relative;
@@ -272,7 +281,8 @@
 #paneles .chat[data-panel='lateral'] {
     border-left: 1px solid var(--borde);
     flex: 0 0 var(--lateral-ancho);
-    min-width: 0;
+    /* [07AA-1] Mismo mínimo global que el principal. */
+    min-width: var(--panel-ancho-min);
 }
 /* [039A-3 P5] Si la ventana encoge por debajo de ~900px (p. ej. el usuario
    abrió el lateral con ventana ancha y luego la reduce), los dos .chat se
