@@ -100,14 +100,21 @@ export function crearTransporteApi(base: string, hooks: HooksAdaptador = {}): Tr
       void http('POST', `/api/v1/session/${cliente.getSid()}/turns/${tid}/cancel`).catch(() => {});
     },
     responderAprobacion: async (id, respuesta) => {
-      await http('POST', `/api/v1/session/${cliente.getSid()}/approvals/${id}`, {
-        approved: respuesta !== 'rechazar',
-        siempre: respuesta === 'siempre' ? true : undefined,
-      });
-      /* [129A-5] Modo web = entre-turnos clásico: se asume turno en espera
-       * (el servidor reenvía); si el turno ya cerró, el `tool_result` y el
-       * `done` siguientes corrigen la tarjeta en el flujo. */
-      return true;
+      const r = await http<{ ok: boolean; desperto?: boolean }>(
+        'POST',
+        `/api/v1/session/${cliente.getSid()}/approvals/${id}`,
+        {
+          approved: respuesta !== 'rechazar',
+          siempre: respuesta === 'siempre' ? true : undefined,
+        },
+      );
+      /* [129A-3] Modo web = entre-turnos clásico (`desperto:false`): el
+       * servidor aplica token/regla pero ningún turno ejecuta; el front
+       * (aplicarEventos) pinta "el turno ya terminó · envía un mensaje
+       * nuevo" en vez de prometer "ejecutando…" (contrato 129A-5). Solo
+       * `true` explícito promete ejecución (despliegue en lockstep:
+       * la UI servida y la API son el mismo binario). */
+      return r.desperto === true;
     },
     pendientesAprobacion: () => Promise.resolve([]),
     /* [109A-4 F4] Sin política por turno en el modo web. */

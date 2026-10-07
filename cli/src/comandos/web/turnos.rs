@@ -191,6 +191,10 @@ pub(crate) async fn cancelar_turno(
 /// `POST /api/v1/session/:id/approvals/:approval_id` — idempotente: una
 /// aprobación tardía o duplicada responde `duplicada:true` sin ejecutar
 /// la tool dos veces.
+/// [129A-3] Devuelve `desperto` (el `bool` de `responder_aprobacion`): `true`
+/// = el turno aguarda y ejecuta lo aprobado en este mismo turno; `false` =
+/// modo entre-turnos o turno ya cerrado (el front NO debe pintar
+/// "ejecutando…": hace falta un mensaje nuevo; contrato 129A-5).
 pub(crate) async fn responder_aprobacion(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
@@ -205,7 +209,7 @@ pub(crate) async fn responder_aprobacion(
         .iter()
         .any(|p| p.id == approval_id);
     if !pendiente {
-        return Ok(Json(serde_json::json!({ "ok": true, "duplicada": true })));
+        return Ok(Json(serde_json::json!({ "ok": true, "duplicada": true, "desperto": false })));
     }
 
     let respuesta = match (peticion.approved, peticion.siempre) {
@@ -213,10 +217,10 @@ pub(crate) async fn responder_aprobacion(
         (true, _) => RespuestaAprobacion::Aprobar,
         (false, _) => RespuestaAprobacion::Rechazar,
     };
-    runtime
+    let desperto = runtime
         .responder_aprobacion(&approval_id, respuesta)
         .map_err(|e| error("turno", e))?;
-    Ok(Json(serde_json::json!({ "ok": true })))
+    Ok(Json(serde_json::json!({ "ok": true, "desperto": desperto })))
 }
 
 // ── Ejecución ────────────────────────────────────────────────────────────
@@ -593,6 +597,7 @@ mod tests {
         body::Body,
         http::{header, Request},
     };
+    use glory_harness_core::aprobacion::PeticionAprobacion;
     use tokio::time::{timeout, Duration};
     use tower::ServiceExt;
 
@@ -845,7 +850,46 @@ mod tests {
         let body: Value =
             serde_json::from_slice(&axum::body::to_bytes(res.into_body(), 1024).await.unwrap())
                 .unwrap();
-        assert_eq!(body, serde_json::json!({ "ok": true, "duplicada": true }));
+        assert_eq!(body, serde_json::json!({ "ok": true, "duplicada": true, "desperto": false }));
+    }
+
+    /// [129A-3] La aprobación web devuelve `desperto`: en entre-turnos (la
+    /// sesión web no pausa el turno) es `false` aunque la petición exista —
+    /// el front no debe pintar "ejecutando…" sino pedir un mensaje nuevo.
+    #[tokio::test]
+    async fn aprobacion_entre_turnos_devuelve_desperto_falso() {
+        let state = state_test();
+        let (sid, sesion) = sesion_memoria(&state).await;
+        let _aguarda = sesion
+            .comun
+            .lock()
+            .await
+            .runtime
+            .registry
+            .registrar_peticion(PeticionAprobacion::nueva(
+                "ap-1",
+                "comando",
+                serde_json::json!({"comando": "mkdir x"}),
+                "comando:bajo:**",
+            ));
+        let app = super::super::router(state);
+        let res = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri(format!("/api/v1/session/{sid}/approvals/ap-1"))
+                    .header(header::AUTHORIZATION, format!("Bearer {sid}"))
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(r#"{"approved":true}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), axum::http::StatusCode::OK);
+        let body: Value =
+            serde_json::from_slice(&axum::body::to_bytes(res.into_body(), 1024).await.unwrap())
+                .unwrap();
+        assert_eq!(body, serde_json::json!({ "ok": true, "desperto": false }));
     }
 
     #[tokio::test]

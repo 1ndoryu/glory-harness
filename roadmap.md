@@ -176,10 +176,16 @@ Siguiente en la serie de 6 pedidos: 129A-9 (129A-11 HECHO 07-10, gate PASS).
       `onAprobacionResuelta` + `requiereReenvioTrasAprobar`; la tarjeta queda
       en el slot y pasa a "aprobada · ejecutando…" hasta el `ToolResult`.
       Toca Rust (`tool.rs` esperas, `permisos.rs` + `subagente.rs` espera,
-      `main.rs` desktop opt-in) + frente (`aplicarEventos`, `turnoReal`,
-      `realTipos`, `transporteTauri`, `main.ts`, `vistaMeta`). Slot + toast
-      (`notificacionSistema.ts`, plugin `notification`) ya verificados; gate
+       `main.rs` desktop opt-in) + frente (`aplicarEventos`, `turnoReal`,
+       `realTipos`, `transporteTauri`, `main.ts`, `vistaMeta`). Slot + toast
+       (`notificacionSistema.ts`, plugin `notification`) ya verificados; gate
        anterior 129A-3 PASS 12-09 (464 tests) sobre el diseño viejo.
+      Plan: `Agente/planes/plan-129A-3-aprobacion-pausa-continua-2026-10-07.md`.
+      **HECHO 07-10: fix web `desperto` (endpoint devuelve `{ok,desperto}`, front
+      propaga valor real) + gate PASS 530 tests + smoke real V1 (aprobar →
+      tarjeta "el turno ya terminó", follow-up crea `smoke-129A-3` vacío) y V2
+      (rechazar → `{desperto:false}`, sin ejecución, follow-up informa
+      denegación sin reintento).**
 - [ ] **119A-2 — Menú contextual de proyecto** (F1–F4 implementados y
       verificados: F2 commit 1878d17, F3 commit 7c77b5e, F4 commit 41cd31b
       con gate PASS 12-09 de 459 tests ok):
