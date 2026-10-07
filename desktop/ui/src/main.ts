@@ -21,6 +21,7 @@ import { montarVistaBarra } from './orquestador/vistaBarra';
 import { montarVistaMeta } from './orquestador/vistaMeta';
 import './estilos/modalProyecto.css';
 import type { PanelChat } from './componentes/panelChat';
+import type { FichaSubagente } from './componentes/subagentesViva';
 import { montarNavegadorVista } from './orquestador/navegadorVista';
 import { montarPanelDerechoTodo } from './orquestador/panelDerecho';
 
@@ -154,6 +155,8 @@ const hooksAdaptador: HooksAdaptador = crearGanchos({
   // [209A-1 F3] Streaming de consola hacia la tab Consola (cierre perezoso).
   reflejarConsola: (ev) => todoPanelDerecho.onConsolaEvento(ev),
   verConsolaEn: (id) => todoPanelDerecho.abrirConsolaEn(id),
+  // [129A-11 F3] Ficha del subagente en el lateral (cierre perezoso).
+  verSubagenteEn: (ficha: FichaSubagente) => todoPanelDerecho.abrirSubagenteEn(ficha),
 });
 // Tauri → IPC in-process; web (`?api=`/`gh_api`/mismo origen) → HTTP/SSE.
 // `adaptador` se usa en cierres de runtime; en modo ni-ni nunca se monta.

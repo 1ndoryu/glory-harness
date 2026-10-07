@@ -19,7 +19,7 @@
 Cierres 12-09: 129A-7 (panel "Cambios", gate PASS), 129A-12 (tema Synara,
 gate PASS), 129A-8 (resumen fin turno, gate PASS) y 129A-10 (agente controla
 GH, gate PASS) — evidencia en `Agente/completados/tareas-2026-09-12.md`.
-Siguiente en la serie de 6 pedidos: 129A-11 → 129A-9.
+Siguiente en la serie de 6 pedidos: 129A-9 (129A-11 HECHO 07-10, gate PASS).
 (119A-2 queda pendiente solo de prueba en ventana Tauri real; ver Tareas.)
 Últimos cierres 11-09: 069A-6 (aviso de iframe bloqueado, a petición), 089A-5
 (historial de la app, gate PASS), Bloque B (pasada visual Tauri), 089A-16
@@ -107,11 +107,14 @@ Siguiente en la serie de 6 pedidos: 129A-11 → 129A-9.
       F2 tool `mostrar_archivo` (lectura libre, respeta secretos) →
       evento `mostrar_archivo` → Files + preview + toast. Smokes CDP
       6/6 (F1) + 8/8 (F2); `tsc` EXIT 0; `vite build` OK; rust 471 tests ok.
-- [ ] **129A-11 — Subagentes fijos + conversación de solo lectura**
-      (el core YA crea subagentes: tool `task`, 4 perfiles, eventos SSE; el
-      front solo pinta una línea): tarjeta fija mientras trabajan; click abre
-      su conversación en el lateral sin poder enviar.
-      Plan: `Agente/planes/plan-129A-11-subagentes-fijos-2026-09-12.md`.
+- [x] **129A-11 — Subagentes fijos + conversación de solo lectura**
+      (HECHO 07-10, gate PASS): tarjeta flotante única por subagente
+      (perfil+instrucción+estado, colapsable, con resumen al terminar);
+      click → ficha de solo lectura en tab `subagente:<n>` sin caja de
+      envío. Smoke real con hijo explorar (fin parcial + resumen
+      HECHO/PENDIENTE/SIGUIENTE PASO). Evidencia en
+      `Agente/completados/tareas-2026-10-07.md`.
+      Plan: `Agente/planes/completados/plan-129A-11-subagentes-fijos-2026-09-12.md`.
 - [x] **139A-7 — Cambios eficiente: sin re-análisis al cambiar de conversación**
       (HECHO 13-09, gate PASS): F1 pipeline partido git/vault
       (cambiar de conversación no toca git) + single-flight con trailing +

@@ -248,9 +248,14 @@ export function montarPanelChat(opts: PanelChatOpciones): PanelChat {
       }
     },
     async cargarConversacion(id) {
+      // [129A-11] La tarjeta flotante de subagentes es vista en vivo de la
+      // conversación anterior: al cargar otra, se retira (el próximo
+      // `subagente_inicio` recrea una fresca vía `montado()`).
+      chat.querySelector(':scope > .subagentes')?.remove();
       await carga.cargarConversacion(id);
     },
     async nuevaConversacion() {
+      chat.querySelector(':scope > .subagentes')?.remove();
       await carga.nuevaConversacion();
     },
     reanudarUltimo() {

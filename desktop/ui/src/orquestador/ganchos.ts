@@ -7,6 +7,7 @@ import type { PanelNavegador } from '../componentes/panelNavegador';
 import type { PanelChat } from '../componentes/panelChat';
 import type { CambioArchivoFiles } from '../componentes/panelFiles';
 import type { EventoConsola } from '../componentes/panelConsola';
+import type { FichaSubagente } from '../componentes/subagentesViva';
 import type { HooksAdaptador, InfoSesion } from '../tauri/real';
 
 /** Ganchos de sesión y workspace (modelo + proyectos + paneles). */
@@ -39,6 +40,9 @@ export interface GanchosNavegadorCambios {
   /** [209A-1 F3] "ver en Consola" pulsado en la fila de un `comando`:
    * abre la tab y revela esa ejecución (gesto del usuario, sin toast). */
   verConsolaEn: (id: string) => void;
+  /** [129A-11 F3] Click en un subagente de la tarjeta flotante: abre su
+   * ficha de solo lectura en el lateral (cierre perezoso, runtime). */
+  verSubagenteEn: (ficha: FichaSubagente) => void;
 }
 
 export interface GanchosDeps extends GanchosSesion, GanchosNavegadorCambios {}
@@ -131,6 +135,11 @@ export function crearGanchos(deps: GanchosDeps): HooksAdaptador {
     // Seguro: corre en runtime (cierre perezoso).
     onVerConsola(id) {
       deps.verConsolaEn(id);
+    },
+    // [129A-11 F3] Gesto del usuario: abrir la ficha del subagente en el
+    // lateral (solo lectura por construcción). Seguro: runtime perezoso.
+    onVerSubagente(ficha) {
+      deps.verSubagenteEn(ficha);
     },
   };
 }

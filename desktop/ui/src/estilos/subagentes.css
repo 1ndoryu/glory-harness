@@ -1,0 +1,158 @@
+/*
+   Tarjeta flotante de subagentes ([129A-11 F2]) + ficha de solo lectura (F3).
+   Monocromo y sin adornos, como el resto del chrome: borde de 1px,
+   tokens de `variables.css`. La tarjeta flota arriba a la derecha dentro de
+   `.chat` (su marco posicionado); pequeña por diseño (max-width).
+   ============================================================ */
+
+.subagentes {
+  position: absolute;
+  top: var(--sp-sm);
+  right: var(--sp-sm);
+  z-index: 5;
+  width: 280px;
+  max-width: calc(100% - 2 * var(--sp-sm));
+  border: 1px solid var(--borde);
+  background: var(--fondo);
+  font-size: var(--sm);
+  box-shadow: 0 2px 8px rgb(0 0 0 / 0.15);
+}
+
+.subagentes[hidden] { display: none; }
+
+.subagentesCabecera {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-xs);
+  width: 100%;
+  padding: var(--sp-xs) var(--sp-sm);
+  background: none;
+  border: none;
+  color: var(--texto);
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.subagentesIcono { color: var(--texto); }
+
+.subagentesTitulo { flex: 1 1 auto; }
+
+.subagentesCuenta {
+  flex: none;
+  font-size: var(--xs);
+  color: var(--texto-tenue);
+}
+
+.subagentesPlegar {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  color: var(--texto-tenue);
+}
+
+.subagentesLista {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 0 var(--sp-sm) var(--sp-sm);
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.subagentes.subagentesPlegada .subagentesLista { display: none; }
+
+.subagente {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-xs);
+  width: 100%;
+  padding: var(--sp-xs);
+  background: none;
+  border: 1px solid transparent;
+  color: var(--texto);
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.subagente:hover { border-color: var(--borde); }
+
+.subagenteIcono {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+}
+
+.subagenteCuerpo {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.subagentePerfil {
+  font-size: var(--xs);
+  color: var(--texto-tenue);
+}
+
+.subagenteTexto {
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* Terminados: colapsados con su resumen (texto atenuado, sin tachar: el
+ * resumen SÍ importa, a diferencia de una tarea hecha). */
+.subagente[data-estado='fin'] .subagenteTexto,
+.subagente[data-estado='parcial'] .subagenteTexto,
+.subagente[data-estado='fallido'] .subagenteTexto {
+  color: var(--texto-tenue);
+}
+
+/* ---------- Ficha de solo lectura (tab `subagente:<seq>`, F3) ---------- */
+/* Sin caja de escritura por construcción: solo texto, ningún input. */
+
+.fichaSubagente {
+  padding: var(--sp-md);
+  font-size: var(--sm);
+  overflow-y: auto;
+}
+
+.fichaSubagenteCabecera {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-xs);
+  margin-bottom: var(--sp-sm);
+}
+
+.fichaSubagenteTitulo {
+  flex: 1 1 auto;
+  margin: 0;
+  font-size: var(--md);
+}
+
+.fichaSubagenteEstado {
+  flex: none;
+  font-size: var(--xs);
+  color: var(--texto-tenue);
+  border: 1px solid var(--borde);
+  padding: 1px var(--sp-xs);
+}
+
+.fichaSubagenteApartado {
+  margin: var(--sp-sm) 0 2px;
+  font-size: var(--xs);
+  color: var(--texto-tenue);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.fichaSubagenteTexto {
+  margin: 0;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}

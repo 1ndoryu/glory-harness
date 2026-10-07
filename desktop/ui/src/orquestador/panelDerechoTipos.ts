@@ -8,6 +8,7 @@ import type { PanelCambios } from '../componentes/panelCambios';
 import type { EventoConsola, PanelConsola } from '../componentes/panelConsola';
 import type { ToastGlobal } from '../componentes/toastGlobal';
 import type { PanelChat } from '../componentes/panelChat';
+import type { FichaSubagente } from '../componentes/subagentesViva';
 import type { BarraSuperior } from '../componentes/barraSuperior';
 import type { AdaptadorReal } from '../tauri/real';
 import type { PersistenciaDeps } from './persistencia';
@@ -63,8 +64,15 @@ export interface PanelDerechoVisibilidad {
   restaurarEstado: () => Promise<void>;
 }
 
+/** [129A-11 F3] Apertura de la ficha de solo lectura del subagente (tab
+ * `subagente:<n>`, sin caja de escritura por construcción). Interfaz aparte
+ * para no engordar `PanelDerechoAperturas` (ISP). */
+export interface PanelDerechoSubagentes {
+  abrirSubagenteEn: (ficha: FichaSubagente) => void;
+}
+
 /** Aperturas delegadas (archivos, git, reposicionado del webview). */
-export interface PanelDerechoAperturas {
+export interface PanelDerechoAperturas extends PanelDerechoSubagentes {
   abrirFiles: () => void;
   abrirGit: () => void;
   /** [129A-8] Abre Cambios y revela el archivo (enlace del resumen). */

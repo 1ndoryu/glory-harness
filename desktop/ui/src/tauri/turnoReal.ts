@@ -62,6 +62,7 @@ export function crearTurnoReal(hooks: HooksAdaptador, transporte: Transporte): T
     uso,
     cambiosResumen: [],
     tareas: null,
+    subagentes: null,
     ultimoTurnoId: null,
     razonamiento: null,
   };

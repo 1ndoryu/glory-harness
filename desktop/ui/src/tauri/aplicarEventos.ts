@@ -16,6 +16,10 @@ import {
 import type { CambioArchivoPanel } from '../componentes/panelChatTipos';
 import { tituloCambioHtml } from '../componentes/mensajesUtil';
 import { crearTareasViva, type TareasViva } from '../componentes/tareasMeta';
+import {
+  crearSubagentesViva,
+  type SubagentesViva,
+} from '../componentes/subagentesViva';
 import { notificarAprobacion } from '../componentes/notificacionSistema';
 import type { DecisionAprobacion } from '../dominio/tipos';
 import { compacto, descripcionDeTool, iconoDeTool, rutaDeArgumentos } from './descripcionHerramientas';
@@ -26,6 +30,15 @@ const RESPUESTA: Record<DecisionAprobacion, string> = {
   permitir: 'siempre',
   denegar: 'rechazar',
 };
+
+/** [129A-2] Bloque de pensamiento en curso (hay `razonamiento_delta` sin su
+ * `razonamiento` de cierre todavía). Tipo con nombre (en vez de literal en
+ * línea) para que `EstadoTurno` no acumule campos anidados (ISP). */
+export interface RazonamientoEnCurso {
+  bloque: RazonamientoVivo;
+  inicioMs: number;
+  chars: number;
+}
 
 /** Parte mutable del turno que `aplicarEvento` lee/escribe. */
 export interface EstadoTurno {
@@ -40,6 +53,10 @@ export interface EstadoTurno {
    * propósito: el plan es de la CONVERSACIÓN, así que el mismo bloque se
    * actualiza en los turnos siguientes (resume) en vez de duplicarse. */
   tareas: TareasViva | null;
+  /** [129A-11 F2] Tarjeta flotante de subagentes (una sola, agrupada). Como
+   * `tareas`: sobrevive al fin del turno (al terminar queda colapsada con su
+   * resumen) y se recrea si el contenedor cambió de conversación. */
+  subagentes: SubagentesViva | null;
   /** [109A-5 F3] Id del último turno cerrado (llega en `done`). El evento
    * `meta_lograda` puede llegar DESPUÉS del cierre, así que hace falta el id
    * para localizar el pie de ese turno y anclar ahí el badge. */
@@ -47,11 +64,7 @@ export interface EstadoTurno {
   /** [129A-2] Bloque de pensamiento en curso (hay `razonamiento_delta` sin su
    * `razonamiento` de cierre todavía). Sobrevive entre eventos del mismo
    * turno; se cierra en `razonamiento`/`done`/`error` o al detener. */
-  razonamiento: {
-    bloque: RazonamientoVivo;
-    inicioMs: number;
-    chars: number;
-  } | null;
+  razonamiento: RazonamientoEnCurso | null;
 }
 
 /** Lo que el render necesita del adaptador (DOM + hooks + transporte). */
@@ -228,11 +241,25 @@ export function aplicarEvento(ev: AgenteEvento, st: EstadoTurno, d: EventosDeps)
     case 'permiso_denegado':
       d.aviso(`${ev.tool} denegada (${ev.motivo})`, 'permiso', 'el modelo cambia de plan');
       break;
-    case 'subagente_inicio':
-      d.aviso(`└ subagente [${ev.perfil}]…`, '', '');
+    case 'subagente_inicio': {
+      /* [129A-11 F2] Tarjeta flotante única y agrupada (anclada al `.chat`,
+       * como el slot de aprobaciones): una fila por subagente activo con
+       * perfil, instrucción recortada y estado. Sustituye al aviso de una
+       * línea (la tarjeta YA es el aviso visible). */
+      if (!st.subagentes || !st.subagentes.montado()) {
+        st.subagentes = crearSubagentesViva();
+        st.subagentes.onAbrir = (ficha) => d.hooks.onVerSubagente?.(ficha);
+        d.mensajes()?.closest('.chat')?.appendChild(st.subagentes.raiz);
+      }
+      st.subagentes.inicio(ev.perfil, ev.instruccion);
+      d.bajarScroll();
       break;
+    }
     case 'subagente_fin':
-      d.aviso(`└ subagente: ${ev.ok ? 'fin' : 'sin resumen'}`, '', '');
+      // Sin `inicio` previo no hay fila que cerrar (el núcleo siempre emite
+      // el par; si el contenedor cambió, el próximo inicio recrea la tarjeta).
+      st.subagentes?.fin(ev.resumen, ev.ok, ev.parcial);
+      d.bajarScroll();
       break;
     case 'plan_propuesto':
       d.aviso(`propuesta del modo plan: ${ev.cambios} cambios pendientes`, 'plan', '');

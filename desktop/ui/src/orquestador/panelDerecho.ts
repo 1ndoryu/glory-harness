@@ -9,6 +9,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { porId } from '../util/dom';
 import { montarPanelDerecho } from '../componentes/panelDerecho';
 import type { EventoConsola } from '../componentes/panelConsola';
+import { crearFichaSubagente, type FichaSubagente } from '../componentes/subagentesViva';
 import { crearAnchoPanelDerecho } from './panelDerechoAncho';
 import { montarPiezasPanelDerecho } from './panelDerechoMontaje';
 import type { PanelDerechoDeps, PanelDerechoTodo } from './panelDerechoTipos';
@@ -250,6 +251,25 @@ export function montarPanelDerechoTodo(deps: PanelDerechoDeps): PanelDerechoTodo
     supresionConsola.alIniciarTurno();
   }
 
+  // [129A-11 F3] Ficha de solo lectura del subagente en su propia tab
+  // (`subagente:<n>`, efímera como `chat:nuevo-*`: el filtro de restauración
+  // no la conoce y no se restaura). Sin caja de escritura por construcción
+  // (la ficha solo tiene texto). Contador propio: los `seq` de cada tarjeta
+  // empiezan en 1 y las tabs son globales del panel derecho.
+  let contadorSubagentes = 0;
+  function abrirSubagenteEn(ficha: FichaSubagente): void {
+    contadorSubagentes += 1;
+    const tabId = `subagente:${contadorSubagentes}`;
+    const nodo = crearFichaSubagente(ficha);
+    asegurarPanelDerecho();
+    panelDerecho.abrirTab(tabId, `Subagente ${ficha.perfil}`, nodo, () => {
+      panelDerecho.cerrarTab(tabId);
+      guardarEstadoPanel();
+      cerrarPanelDerechoSiVacio();
+    });
+    guardarEstadoPanel();
+  }
+
   async function restaurarEstado(): Promise<void> {
     try {
       const anchoPreferido = await leerPreferencia(deps.persistencia, CLAVE_LATERAL_ANCHO);
@@ -340,6 +360,7 @@ export function montarPanelDerechoTodo(deps: PanelDerechoDeps): PanelDerechoTodo
     abrirConsola,
     abrirConsolaEn,
     abrirConsolaPorAgente,
+    abrirSubagenteEn,
     onConsolaEvento,
     notificarTurnoInicioConsola,
     reposicionarWebview,

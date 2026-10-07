@@ -28,6 +28,32 @@ mostrarlos.
   pero SIN caja de escritura.
 - Al terminar: queda colapsada con su resumen.
 
+## F1 — resultado (verificado 07-10-2026, fija el diseño)
+
+- Transcript del hijo NO recuperable: `mensajes: Vec<AiMessage>` vive solo
+  en memoria de `ejecutar_subagente` (`core/src/nucleo/runtime/subagente.rs:159`)
+  y se descarta al terminar; el hijo nunca escribe persistencia por diseño
+  (aislamiento, `core/src/nucleo/subagente.rs:6-8`).
+- Superviviente único: `resumen_acotado(texto_final)` vía
+  `SubagenteFin { resumen, ok, parcial }` + resultado de tool al padre.
+- Sin IDs: `SubagenteInicio { perfil, instruccion }` /
+  `SubagenteFin { resumen, ok, parcial }` sin UUID ni turno propio (el hijo
+  se audita contra el `turno_id` del padre); correlación inicio→fin por orden
+  FIFO, ambigua si 2 concurrentes
+  (`CONCURRENTES_MAX_SUBAGENTES = 2`, `core/src/nucleo/subagente.rs:183`).
+- Actividad viva SÍ visible: el hijo emite `ToolStart`/`ToolResult`/
+  `PeticionAprobacion`/`RequiereAprobacion`/`PermisoDenegado` al mismo `tx`
+  (`core/src/nucleo/runtime/subagente.rs:344-489`), indistinguibles de las
+  del padre en el stream.
+- Front en un solo punto: tipos en
+  `desktop/ui/src/tauri/tipos/realTiposEventos.ts:37-38`, avisos de una línea
+  en `desktop/ui/src/tauri/aplicarEventos.ts:231-235`; el adaptador web
+  comparte la misma superficie (`desktop/ui/src/adaptadores/api.ts:321-323`).
+- Aplica el fallback registrado: F2 muestra instrucción+estado+resumen en
+  vivo; F3 recortada a ficha de solo lectura (perfil+estado+instrucción+
+  resumen, tab `subagente:<n>` sin caja de escritura). Transcript completo
+  requeriría persistencia en core = alcance nuevo, no se hace.
+
 ## Fases verificables
 
 - F1 (técnico, sin UI): determinar qué transcript del hijo es recuperable
@@ -45,6 +71,15 @@ mostrarlos.
   y sin transporte de envío cableado.
 - F4: smoke `tauri dev` con un `task` real: tarjeta fija → click → lectura
   del hijo → fin con resumen.
+- F4 en curso 07-10: backend por mando (`Arranque up glory-harness`,
+  `http://harness.localhost:8799/`, conversación `b802c65c`, turno hijo
+  `982efa95` perfil explorar) con la pregunta "dónde se define la tool
+  `task`". Tarjeta F2 visible en vivo (`subagente explorar: trabajando`) y
+  toggle colapsar/expandir verificado. Gate full PASS tras 1 reintento (un
+  flaky ajeno: `runner_real_lee_payload_y_acepta_ajuste`, 346ok/1fail →
+  529ok/0fail) y 2 INFO ISP nuevos corregidos (`PanelDerechoSubagentes`,
+  `RazonamientoEnCurso`). Falta: fin del hijo → resumen en tarjeta → click
+  → tab `subagente:<n>` de solo lectura → captura → commit.
 
 ## No alcance
 

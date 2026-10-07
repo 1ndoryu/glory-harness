@@ -2,6 +2,7 @@
  * Extraído de `realTipos.ts` (superaba el límite de 300 líneas): sin cambios
  * de contrato; `realTipos.ts` re-exporta este módulo. */
 import type { EstadoGit, RepoGit, ResumenRepo } from '../../componentes/panelGit';
+import type { FichaSubagente } from '../../componentes/subagentesViva';
 import type {
   ComandoMetaVisible,
   EstadoMetaVisible,
@@ -62,6 +63,10 @@ export interface HooksAdaptador {
   onConsolaEvento?: (
     ev: AgenteEvento & { tipo: 'consola_inicio' | 'consola_chunk' | 'consola_fin' },
   ) => void;
+  /** [129A-11 F3] Click en un subagente de la tarjeta flotante: el
+   * orquestador abre su ficha de solo lectura en el lateral (tab
+   * `subagente:<n>`, sin caja de escritura por construcción). */
+  onVerSubagente?: (ficha: FichaSubagente) => void;
   /** [069A-2 F4] Estado de la conexión del transporte (solo el HTTP/SSE la
    * reporta; Tauri in-process no la usa). */
   onConexion?: (estado: 'conectando' | 'en-linea' | 'reconectando' | 'error', detalle?: string) => void;
