@@ -1,6 +1,9 @@
 {
   "schemaVersion": 2,
   "mode": "enforce",
+  "budgets": {
+    "mode": "enforce"
+  },
   "project": {
     "primaryBranch": "main"
   },
