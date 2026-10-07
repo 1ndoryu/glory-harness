@@ -291,6 +291,11 @@ export const FORMULARIO_CONFIGURACION: Array<{
   // install-settings: las claves viven en `~/.glory-harness.env`.
   { id: 'proveedores', etiqueta: 'Proveedores', grupos: [] },
   { id: 'modelo', etiqueta: 'Modelo', grupos: [OPCIONES_MODELO] },
+  // [129A-9 bloque Modelos] Réplica adaptada de Synara `ModelsSettingsPanel`
+  // (solo "Custom models": "Generation defaults" no tiene contraparte en GH,
+  // que no genera commits/PRs). Editor de slugs por proveedor; se declara
+  // sin grupos y `componentes/modal.ts` monta ahí el panel custom.
+  { id: 'modelos-personalizados', etiqueta: 'Modelos personalizados', grupos: [] },
   { id: 'ejecucion', etiqueta: 'Ejecución', grupos: [OPCIONES_EJECUCION] },
   { id: 'permisos', etiqueta: 'Permisos', grupos: [OPCIONES_PERMISOS] },
   { id: 'apariencia', etiqueta: 'Apariencia', grupos: [OPCIONES_APARIENCIA] },

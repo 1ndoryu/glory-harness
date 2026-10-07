@@ -1,0 +1,122 @@
+/*
+   Panel "Modelos personalizados" del modal de configuración ([129A-9]).
+   Mismo lenguaje monocromo del resto: bordes de 1px, sin radios ni sombras,
+   estados por inversión. Solo tokens de variables.css (nada literal): el tema
+   oscuro se hereda redefiniendo las variables.
+   ============================================================ */
+
+.mp {
+    display: flex;
+    flex-direction: column;
+    gap: var(--sp-sm);
+    min-height: 0;
+}
+
+.mp-cabecera {
+    border-bottom: 1px solid var(--borde);
+    padding-bottom: var(--sp-xs);
+}
+
+.mp-titulo {
+    font-size: calc(var(--xs) + 1px);
+    text-decoration: underline;
+}
+
+.mp-forma {
+    display: flex;
+    gap: var(--sp-xs);
+    align-items: center;
+}
+
+.mp-forma .select {
+    flex: none;
+    max-width: 12rem;
+}
+
+.mp-forma .input-texto {
+    flex: 1;
+    min-width: 0;
+}
+
+.mp-anadir {
+    flex: none;
+    border: 1px solid var(--borde);
+    background: none;
+    color: var(--texto);
+    font-size: var(--xs);
+    padding: 2px 8px;
+    cursor: pointer;
+}
+
+.mp-anadir:hover {
+    background: var(--superficie-seleccionada);
+    color: var(--invertido);
+}
+
+.mp-linea-error {
+    font-size: var(--xs);
+    color: var(--texto);
+    text-decoration: underline;
+}
+
+.mp-lista {
+    display: flex;
+    flex-direction: column;
+    border: 1px solid var(--borde);
+}
+
+.mp-vacio {
+    font-size: var(--xs);
+    color: var(--texto-tenue);
+    padding: var(--sp-xs) var(--sp-sm);
+}
+
+.mp-fila {
+    display: flex;
+    align-items: baseline;
+    gap: var(--sp-sm);
+    padding: var(--sp-xs) var(--sp-sm);
+    border-bottom: 1px solid var(--borde);
+    font-size: var(--xs);
+}
+
+.mp-fila:last-child {
+    border-bottom: none;
+}
+
+.mp-prov {
+    color: var(--texto-tenue);
+    white-space: nowrap;
+}
+
+.mp-slug {
+    font-family: inherit;
+    font-size: var(--xs);
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.mp-quitar {
+    flex: none;
+    margin-left: auto;
+    border: 1px solid var(--borde);
+    background: none;
+    color: var(--texto);
+    font-size: var(--xs);
+    padding: 0 6px;
+    cursor: pointer;
+}
+
+.mp-quitar:hover {
+    background: var(--superficie-seleccionada);
+    color: var(--invertido);
+}
+
+.mp-nota {
+    font-size: var(--xs);
+    color: var(--texto-tenue);
+    border-top: 1px solid var(--borde);
+    padding-top: var(--sp-xs);
+}

@@ -104,8 +104,13 @@ Siguiente en la serie de 6 pedidos: 129A-9 (129A-11 HECHO 07-10, gate PASS).
        lista ESTADO read-only con vivo + `en uso` + `recargar`; F3 smoke
        vivo de Proveedores HECHO con Chromium headless: 4 filas
        `disponible · 1 clave(s)`, `4 de 4`, 0 errores JS; F3 de Perfil
-       pendiente; mostrar el nombre en barra/sidebar = bloque
-       posterior). 12 paneles inventariados.
+       pendiente; **F2 bloque Modelos HECHO 07-10** (modelos personalizados
+       por proveedor: editor con validación + fusión en el selector +
+       persistencia `modelos_personalizados`; sin "generation defaults":
+       GH no genera commits/PRs; F3 smoke vivo HECHO con Chromium
+       headless: añadir/duplicado/vacío/selector/quitar/recarga, 0 errores
+       JS); mostrar el nombre en barra/sidebar =
+       bloque posterior). 12 paneles inventariados.
       Plan: `Agente/planes/plan-129A-9-configs-synara-2026-09-12.md`.
 - [x] **129A-10 — El agente controla GH (navegador + abrir archivos)**
       (HECHO 12-09, gate PASS): F1 auto-apertura de la tab en abrir/navegar

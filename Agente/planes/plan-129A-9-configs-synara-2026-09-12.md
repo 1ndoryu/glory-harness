@@ -1,6 +1,6 @@
 # Plan 129A-9 — Configuraciones Synara: inventario, decisión y réplica
 
-Fecha: 2026-09-12. Estado: activo (F2 en curso 07-10, bloques Perfil + Proveedores).
+Fecha: 2026-09-12. Estado: activo (F2 en curso 07-10, bloques Perfil + Proveedores + Modelos).
 Roadmap: `129A-9`. El usuario quiere replicar casi todas.
 
 ## Inventario verificado (fuente: `synara/apps/web/src/components/settings/`)
@@ -55,7 +55,7 @@ con grep sobre `desktop/ui/src`)
 | 1 | Perfil (nombre, handle, avatar, stats, heatmap, share) | ninguno | **adaptar**: `nombre_perfil` + `handle_perfil` editables y persistidos (claves config como `tema`); sin stats/heatmap/share (GH no tiene BD de actividad); sin avatar (sin UI de avatar). Mostrar el nombre en barra/sidebar = bloque posterior |
 | 2 | Proveedores (+ install/dirty/reset) | `OPCIONES_MODELO` + allowlist 6 proveedores + claves env | HECHO bloque 2 (lista ESTADO read-only; sin installs) |
 | 3 | Uso por proveedor | ninguno (sin telemetría de uso) | no (sin fuente de datos) |
-| 4 | Modelos (+ personalizados) | `selectorModelo` + `OPCIONES_MODELO` | replicar (bloque posterior) |
+| 4 | Modelos (+ personalizados) | `selectorModelo` + `OPCIONES_MODELO` | HECHO bloque 3 (solo personalizados; generation-defaults no: sin contraparte) |
 | 5 | Skills por origen/proveedor | toggle `skills` (`OPCIONES_PERMISOS`) + panel Memorias | adaptar (bloque posterior) |
 | 6 | MCP externos (+ setup prompt) | ninguno (`mcp` = 0 matches en el front) | no (sin backend MCP) |
 | 7 | Worktrees + Archivados | archivar/desarchivar en sidebar (sin sección en Ajustes); sin worktrees | adaptar solo Archivados (bloque posterior); Worktrees no |
@@ -103,6 +103,38 @@ muestra 4 filas con chip `disponible · 1 clave(s)`, `en uso` en OpenCode Go
 (modelo activo), estado `4 de 4 proveedor(es) disponible(s)`, nota de
 `~/.glory-harness.env`; click en `recargar` re-lee el vivo sin romper
 filas; 0 errores JS del panel; captura visual verificada.
+
+## F2 bloque 3 — Modelos personalizados (07-10, HECHO; F3 smoke vivo HECHO)
+
+Réplica adaptada de `ModelsSettingsPanel` (solo "Custom models" +
+`validateCustomModelInput`; "Generation defaults" no tiene contraparte: GH
+no genera commits/PRs). Sección `Modelos personalizados` tras Modelo, sin
+grupos (panel custom como Memorias/Proveedores): `dominio/
+modelosPersonalizados.ts` (clave `modelos_personalizados`, JSON
+`Array<{proveedor, modelo}>`, tope 120, validación, parseo tolerante,
+fusión/retiro in place con `splice`) + `componentes/
+modelosPersonalizados.ts` (select proveedor + input slug + `añadir`,
+errores `ya está guardado`/`ya viene integrado`/`escribe el slug`,
+`×` por fila, guardado automático) + `estilos/
+modelosPersonalizados.css` (monocromo, solo tokens). Cableado:
+`opciones.ts` (sección), `modal.ts` (`modelosPersonalizados` +
+`fijarModelosPersonalizados`), `vistaModal.ts` (fusión al catálogo vivo
+compartido + persistencia `configGuardar`; mock = memoria), `arranque.ts`
+(lee la clave y restaura). Cero cambios Rust.
+Gotchas del smoke: el duplicado debe chequearse antes que el integrado (la
+fusión mete el slug propio en el catálogo vivo y el mensaje mentiría); `quitar`
+debe retirar del catálogo (`retirarDeSitio` con foto de integrados al montar)
+o el slug sigue en el menú y no se puede re-añadir; la pieza `error?: never`
+del union no estrecha con `in` (`resultado.error !== undefined`); web persiste
+en localStorage (`modelos_personalizados` ∉ `CLAVES_SERVIDOR`, igual que
+`nombre_perfil`); bootstrap `GET session/actual` → 401 `no_autorizado` por
+diseño (tolerado y documentado en el smoke).
+Evidencia: `tsc` EXIT 0; `vite build` OK (CSS +1.5 kB); gate `129A-9 --full`
+PASS (12 archivos; warnings solo prosa ajena en Rust no tocado). F3 HECHO con
+Chromium headless temporal (`C:\tmp`, fuera del repo, limpiado tras el smoke):
+panel visible, añadir `glory/humo129a9`, duplicado/vacío rechazados, el slug
+sale en el menú del selector del chat, quitar lo elimina, recarga lo restaura
+(localStorage), 0 errores JS propios; captura visual verificada.
 
 ## DoD
 

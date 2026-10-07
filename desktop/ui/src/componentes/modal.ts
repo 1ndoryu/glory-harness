@@ -12,6 +12,12 @@ import type { ModeloSeleccionado, ProveedorModelo } from '../dominio/tipos';
 import type { ModoEjecucion } from './entrada';
 import { montarFormulario } from './formulario';
 import { montarMemorias, type MemoriasDeps, type MemoriasPanel } from './memorias';
+import {
+  montarModelosPersonalizados,
+  type ModelosPersonalizadosDeps,
+  type ModelosPersonalizadosPanel,
+} from './modelosPersonalizados';
+import type { ModeloPersonalizado } from '../dominio/modelosPersonalizados';
 import { montarProveedores, type ProveedoresDeps, type ProveedoresPanel } from './proveedores';
 import { montarSelectorModelo, type SelectorModeloApi } from './selectorModelo';
 import { el, porId } from '../util/dom';
@@ -24,6 +30,8 @@ export interface ModalConfiguracion {
   asignarValor(id: string, valor: string | boolean): void;
   /** Reemplaza el modelo mostrado por el selector (sin notificar). */
   setModelo(modelo: ModeloSeleccionado): void;
+  /** [129A-9] Restaura los slugs personalizados (arranque real). */
+  fijarModelosPersonalizados(lista: ModeloPersonalizado[]): void;
 }
 
 export interface ModalOpciones {
@@ -42,6 +50,8 @@ export interface ModalOpciones {
   memoria: MemoriasDeps;
   /** [129A-9] Deps del panel "Proveedores" (estado vivo + catálogo). */
   proveedoresPanel: ProveedoresDeps;
+  /** [129A-9] Deps del panel "Modelos personalizados" (slugs por proveedor). */
+  modelosPersonalizados: ModelosPersonalizadosDeps;
 }
 
 type PanelId = (typeof FORMULARIO_CONFIGURACION)[number]['id'];
@@ -99,6 +109,8 @@ export function montarModalConfiguracion(opts: ModalOpciones): ModalConfiguracio
   let panelMemorias: MemoriasPanel | null = null;
   /** [129A-9] Panel "Proveedores" (estado vivo al mostrarlo). */
   let panelProveedores: ProveedoresPanel | null = null;
+  /** [129A-9] Panel "Modelos personalizados" (lista local + persistido). */
+  let panelModelos: ModelosPersonalizadosPanel | null = null;
   /** Panel visible ahora mismo (para recargar al reabrir la página). */
   let panelActivo: PanelId = FORMULARIO_CONFIGURACION[0].id as PanelId;
 
@@ -245,6 +257,12 @@ export function montarModalConfiguracion(opts: ModalOpciones): ModalConfiguracio
       panelProveedores = montarProveedores(opts.proveedoresPanel);
       f.raiz.appendChild(panelProveedores.raiz);
     }
+
+    // [129A-9] Sección "Modelos personalizados": editor de slugs (misma razón).
+    if (seccion.id === 'modelos-personalizados') {
+      panelModelos = montarModelosPersonalizados(opts.modelosPersonalizados);
+      f.raiz.appendChild(panelModelos.raiz);
+    }
   });
 
   const contenedor = el('div', 'ajustes-paneles');
@@ -324,6 +342,9 @@ export function montarModalConfiguracion(opts: ModalOpciones): ModalConfiguracio
     },
     setModelo(modelo: ModeloSeleccionado) {
       selectorModeloApi?.setModelo(modelo);
+    },
+    fijarModelosPersonalizados(lista: ModeloPersonalizado[]) {
+      panelModelos?.fijarLista(lista);
     },
   };
 }

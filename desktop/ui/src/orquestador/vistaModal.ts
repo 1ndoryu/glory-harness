@@ -8,9 +8,15 @@ import { montarModalConfiguracion, type ModalConfiguracion } from '../componente
 import { montarModalProyecto, type ModalProyecto } from '../componentes/modalProyecto';
 import type { PanelChat } from '../componentes/panelChat';
 import type { MemoriasDeps } from '../componentes/memorias';
+import type { ModelosPersonalizadosDeps } from '../componentes/modelosPersonalizados';
 import type { ProveedoresDeps } from '../componentes/proveedores';
 import type { ProveedorInfo } from '../tauri/real';
 import type { ModeloSeleccionado, ProveedorModelo } from '../dominio/tipos';
+import {
+  CLAVE_MODELOS_PERSONALIZADOS,
+  parsearModelos,
+  serializarModelos,
+} from '../dominio/modelosPersonalizados';
 import type { ModoEjecucion } from '../componentes/entrada';
 import { normalizarTema, type Tema } from './entorno';
 
@@ -31,6 +37,8 @@ export interface SesionGuardadaVista {
   /** [129A-9] Perfil Synara adaptado (claves libres `nombre_perfil` / `handle_perfil`). */
   nombrePerfil: string | null;
   handlePerfil: string | null;
+  /** [129A-9] Modelos personalizados (JSON `Array<{proveedor, modelo}>`). */
+  modelosPersonalizados: string | null;
 }
 
 /** Estado inicial del modal: modelo, modo, razonamiento y tema. */
@@ -155,6 +163,18 @@ export function montarVistaModal(deps: VistaModalDeps): VistaModal {
       modeloActual: () => estado.modelo,
       avisar: deps.avisar,
     } satisfies ProveedoresDeps,
+    // [129A-9] El editor de slugs fusiona al catálogo vivo compartido (los
+    // selectores ya montados lo leen al abrir su menú) y persiste en config.
+    // En mock no hay backend: la lista vive solo en memoria.
+    modelosPersonalizados: {
+      catalogo: deps.proveedores,
+      iniciales: [],
+      guardar: (lista) =>
+        deps.usaReal
+          ? deps.configGuardar(CLAVE_MODELOS_PERSONALIZADOS, serializarModelos(lista))
+          : Promise.resolve(),
+      avisar: deps.avisar,
+    } satisfies ModelosPersonalizadosDeps,
   });
 
   // [069A-Proyectos] Modal "Nuevo proyecto" autocontenido.
@@ -252,6 +272,11 @@ export function montarVistaModal(deps: VistaModalDeps): VistaModal {
     }
     if (sesion.handlePerfil !== null) {
       modal.asignarValor('handle_perfil', sesion.handlePerfil);
+    }
+    // [129A-9] Restaura los slugs personalizados: fusiona al catálogo vivo
+    // (los selectores los ven al abrir su menú) y pinta el editor.
+    if (sesion.modelosPersonalizados !== null) {
+      modal.fijarModelosPersonalizados(parsearModelos(sesion.modelosPersonalizados));
     }
   }
 
