@@ -12,6 +12,7 @@ import type { ModeloSeleccionado, ProveedorModelo } from '../dominio/tipos';
 import type { ModoEjecucion } from './entrada';
 import { montarFormulario } from './formulario';
 import { montarMemorias, type MemoriasDeps, type MemoriasPanel } from './memorias';
+import { montarProveedores, type ProveedoresDeps, type ProveedoresPanel } from './proveedores';
 import { montarSelectorModelo, type SelectorModeloApi } from './selectorModelo';
 import { el, porId } from '../util/dom';
 
@@ -39,6 +40,8 @@ export interface ModalOpciones {
   onModeloCambiado?: (modelo: ModeloSeleccionado) => void;
   /** [109A-3] Acciones del panel "Memorias" (proyecto activo). */
   memoria: MemoriasDeps;
+  /** [129A-9] Deps del panel "Proveedores" (estado vivo + catálogo). */
+  proveedoresPanel: ProveedoresDeps;
 }
 
 type PanelId = (typeof FORMULARIO_CONFIGURACION)[number]['id'];
@@ -94,6 +97,8 @@ export function montarModalConfiguracion(opts: ModalOpciones): ModalConfiguracio
   let selectorModeloApi: SelectorModeloApi | null = null;
   /** [109A-3] Panel "Memorias" (se consulta al backend al mostrarlo). */
   let panelMemorias: MemoriasPanel | null = null;
+  /** [129A-9] Panel "Proveedores" (estado vivo al mostrarlo). */
+  let panelProveedores: ProveedoresPanel | null = null;
   /** Panel visible ahora mismo (para recargar al reabrir la página). */
   let panelActivo: PanelId = FORMULARIO_CONFIGURACION[0].id as PanelId;
 
@@ -106,6 +111,8 @@ export function montarModalConfiguracion(opts: ModalOpciones): ModalConfiguracio
     // Las memorias viven en el backend: se leen al abrir la sección (no al
     // construir la página) y otra vez al reabrir, para ver lo que cambió.
     if (objetivo === 'memorias') panelMemorias?.refrescar();
+    // [129A-9] El estado de proveedores también es vivo: se relee igual.
+    if (objetivo === 'proveedores') panelProveedores?.refrescar();
   }
 
   /** Texto buscable por opción (etiqueta + nota + id + grupo + sección). */
@@ -232,6 +239,12 @@ export function montarModalConfiguracion(opts: ModalOpciones): ModalConfiguracio
       panelMemorias = montarMemorias(opts.memoria);
       f.raiz.appendChild(panelMemorias.raiz);
     }
+
+    // [129A-9] Sección "Proveedores": panel custom de estado (misma razón).
+    if (seccion.id === 'proveedores') {
+      panelProveedores = montarProveedores(opts.proveedoresPanel);
+      f.raiz.appendChild(panelProveedores.raiz);
+    }
   });
 
   const contenedor = el('div', 'ajustes-paneles');
@@ -278,6 +291,8 @@ export function montarModalConfiguracion(opts: ModalOpciones): ModalConfiguracio
     // Si la página se cierra en "Memorias" y se reabre, se relista el ámbito
     // activo (pudo cambiar el proyecto o curar el agente entre medias).
     if (panelActivo === 'memorias') panelMemorias?.refrescar();
+    // [129A-9] Igual con "Proveedores": las claves pudieron recargarse fuera.
+    if (panelActivo === 'proveedores') panelProveedores?.refrescar();
   }
   function cerrar(): void {
     pagina.hidden = true;

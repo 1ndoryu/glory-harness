@@ -285,6 +285,11 @@ export const FORMULARIO_CONFIGURACION: Array<{
 }> = [
   // [129A-9] Perfil primero (decisión 12-09: empezar por Perfil y tema).
   { id: 'perfil', etiqueta: 'Perfil', grupos: [OPCIONES_PERFIL] },
+  // [129A-9 bloque Proveedores] Réplica adaptada de Synara
+  // `ProvidersSettingsPanel`: lista de ESTADO por proveedor (sin grupos, como
+  // "Memorias"; `componentes/modal.ts` monta ahí el panel custom). Sin
+  // install-settings: las claves viven en `~/.glory-harness.env`.
+  { id: 'proveedores', etiqueta: 'Proveedores', grupos: [] },
   { id: 'modelo', etiqueta: 'Modelo', grupos: [OPCIONES_MODELO] },
   { id: 'ejecucion', etiqueta: 'Ejecución', grupos: [OPCIONES_EJECUCION] },
   { id: 'permisos', etiqueta: 'Permisos', grupos: [OPCIONES_PERMISOS] },

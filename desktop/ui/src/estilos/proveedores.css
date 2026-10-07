@@ -1,0 +1,127 @@
+/*
+   Panel "Proveedores" del modal de configuración ([129A-9]).
+   Mismo lenguaje monocromo del resto: bordes de 1px, sin radios ni sombras,
+   estados por inversión. Solo tokens de variables.css (nada literal): el tema
+   oscuro se hereda redefiniendo las variables.
+   ============================================================ */
+
+.proveedores {
+    display: flex;
+    flex-direction: column;
+    gap: var(--sp-sm);
+    min-height: 0;
+}
+
+.proveedores-cabecera {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--sp-sm);
+    border-bottom: 1px solid var(--borde);
+    padding-bottom: var(--sp-xs);
+}
+
+.proveedores-identidad {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+
+.proveedores-titulo {
+    font-size: calc(var(--xs) + 1px);
+    text-decoration: underline;
+}
+
+.proveedores-subtitulo {
+    font-size: var(--xs);
+    color: var(--texto-tenue);
+}
+
+.proveedores-acciones {
+    display: flex;
+    gap: var(--sp-xs);
+}
+
+.proveedores-accion {
+    border: 1px solid var(--borde);
+    background: none;
+    color: var(--texto);
+    font-size: var(--xs);
+    padding: 2px 8px;
+    cursor: pointer;
+}
+
+.proveedores-accion:hover {
+    background: var(--superficie-seleccionada);
+    color: var(--invertido);
+}
+
+.proveedores-lista {
+    display: flex;
+    flex-direction: column;
+    border: 1px solid var(--borde);
+}
+
+.proveedor-fila {
+    display: flex;
+    align-items: baseline;
+    gap: var(--sp-sm);
+    padding: var(--sp-xs) var(--sp-sm);
+    border-bottom: 1px solid var(--borde);
+    font-size: var(--xs);
+}
+
+.proveedor-fila:last-child {
+    border-bottom: none;
+}
+
+.proveedor-nombre {
+    font-weight: bold;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.proveedor-modelos {
+    color: var(--texto-tenue);
+    margin-left: auto;
+    white-space: nowrap;
+}
+
+.proveedores-chip {
+    flex: none;
+    border: 1px solid var(--borde);
+    color: var(--texto);
+    padding: 0 4px;
+    font-size: var(--xs);
+    white-space: nowrap;
+}
+
+/* Sin claves: se invierte para que el ojo no lo confunda con disponible. */
+.proveedores-chip.vacio {
+    background: var(--superficie-seleccionada);
+    color: var(--invertido);
+}
+
+.proveedores-chip.en-uso {
+    text-decoration: underline;
+}
+
+.proveedores-linea {
+    font-size: var(--xs);
+    color: var(--texto-tenue);
+}
+
+.proveedores-linea.error {
+    color: var(--texto);
+    text-decoration: underline;
+}
+
+.proveedores-nota {
+    font-size: var(--xs);
+    color: var(--texto-tenue);
+    border-top: 1px solid var(--borde);
+    padding-top: var(--sp-xs);
+}

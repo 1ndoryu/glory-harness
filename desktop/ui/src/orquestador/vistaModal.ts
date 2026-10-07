@@ -8,6 +8,8 @@ import { montarModalConfiguracion, type ModalConfiguracion } from '../componente
 import { montarModalProyecto, type ModalProyecto } from '../componentes/modalProyecto';
 import type { PanelChat } from '../componentes/panelChat';
 import type { MemoriasDeps } from '../componentes/memorias';
+import type { ProveedoresDeps } from '../componentes/proveedores';
+import type { ProveedorInfo } from '../tauri/real';
 import type { ModeloSeleccionado, ProveedorModelo } from '../dominio/tipos';
 import type { ModoEjecucion } from '../componentes/entrada';
 import { normalizarTema, type Tema } from './entorno';
@@ -58,6 +60,10 @@ export interface VistaModalAcciones {
   /** [109A-3] Acciones del panel "Memorias" (ámbito = proyecto activo). El
    * aviso lo aporta el modal desde `avisar`, así que no viaja aquí. */
   memoria: Omit<MemoriasDeps, 'avisar'>;
+  /** [129A-9] Estado vivo de proveedores (`adaptador.sesion.proveedores`:
+   * misma superficie en Tauri y web). El resto de deps del panel
+   * (catálogo, modelo actual, aviso) las pone el modal. */
+  proveedoresVivo: () => Promise<ProveedorInfo[]>;
   hayTurno: () => boolean;
   avisar: (texto: string, meta: string, detalle: string) => void;
   ponerBorradorPrincipal: () => void;
@@ -141,6 +147,14 @@ export function montarVistaModal(deps: VistaModalDeps): VistaModal {
     // [109A-3] El panel de memorias no elige ámbito: el backend usa el área
     // activa de la sesión. Solo se le pasan las acciones y el aviso.
     memoria: { ...deps.memoria, avisar: deps.avisar },
+    // [129A-9] El panel de proveedores cruza catálogo estático (etiquetas)
+    // con estado vivo (nº claves) y marca el modelo activo del estado vista.
+    proveedoresPanel: {
+      catalogo: deps.proveedores,
+      listar: deps.proveedoresVivo,
+      modeloActual: () => estado.modelo,
+      avisar: deps.avisar,
+    } satisfies ProveedoresDeps,
   });
 
   // [069A-Proyectos] Modal "Nuevo proyecto" autocontenido.

@@ -247,6 +247,10 @@ const todoVistaModal = montarVistaModal({
   // (área activa de la sesión). En modo web el transporte rechaza con su
   // motivo, que el panel muestra tal cual; el aviso lo añade el modal.
   memoria: adaptador.sesion.memorias,
+  // [129A-9] Estado vivo de proveedores: misma superficie `AdaptadorReal`
+  // en Tauri (allowlist + nº claves) y web (GET providers → claves 0/1).
+  // Cierre de runtime (tras crear el adaptador), fuera de la TDZ.
+  proveedoresVivo: () => adaptador.sesion.proveedores(),
   hayTurno: () => vistaMeta.hayTurnoGlobal(),
   avisar: avisoGlobal,
   ponerBorradorPrincipal: () => principal.ponerBorrador(),

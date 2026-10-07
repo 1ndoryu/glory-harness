@@ -1,6 +1,6 @@
 # Plan 129A-9 — Configuraciones Synara: inventario, decisión y réplica
 
-Fecha: 2026-09-12. Estado: activo (F2 en curso 07-10, bloque Perfil).
+Fecha: 2026-09-12. Estado: activo (F2 en curso 07-10, bloques Perfil + Proveedores).
 Roadmap: `129A-9`. El usuario quiere replicar casi todas.
 
 ## Inventario verificado (fuente: `synara/apps/web/src/components/settings/`)
@@ -53,7 +53,7 @@ con grep sobre `desktop/ui/src`)
 | # | Panel Synara | Equivalente GH | Propuesta |
 |---|--------------|----------------|-----------|
 | 1 | Perfil (nombre, handle, avatar, stats, heatmap, share) | ninguno | **adaptar**: `nombre_perfil` + `handle_perfil` editables y persistidos (claves config como `tema`); sin stats/heatmap/share (GH no tiene BD de actividad); sin avatar (sin UI de avatar). Mostrar el nombre en barra/sidebar = bloque posterior |
-| 2 | Proveedores (+ install/dirty/reset) | `OPCIONES_MODELO` + allowlist 6 proveedores + claves env | replicar (bloque posterior) |
+| 2 | Proveedores (+ install/dirty/reset) | `OPCIONES_MODELO` + allowlist 6 proveedores + claves env | HECHO bloque 2 (lista ESTADO read-only; sin installs) |
 | 3 | Uso por proveedor | ninguno (sin telemetría de uso) | no (sin fuente de datos) |
 | 4 | Modelos (+ personalizados) | `selectorModelo` + `OPCIONES_MODELO` | replicar (bloque posterior) |
 | 5 | Skills por origen/proveedor | toggle `skills` (`OPCIONES_PERMISOS`) + panel Memorias | adaptar (bloque posterior) |
@@ -79,6 +79,26 @@ render genérico verificado (`formulario.ts` caso `texto` + índice
 `formularioDeOpcion` en `modal.ts`). F3 (teclear→recargar→restaurado en
 navegador/Tauri vivo) pendiente: esta sesión no tiene navegador.
 Mostrar el nombre en barra/sidebar = bloque posterior.
+
+## F2 bloque 2 — Proveedores (07-10, HECHO; F3 smoke vivo pendiente)
+
+Réplica adaptada de `ProvidersSettingsPanel`: sección `Proveedores` tras
+Perfil con lista ESTADO read-only (sin install-settings, sin orden
+arrastrable, sin checks de update: GH no gestiona installs). Cruza catálogo
+`PROVEEDORES` con vivo `ProveedorInfo{id,modelos,claves}` vía
+`adaptador.sesion.proveedores()` (Tauri `proveedores_disponibles` / web
+`GET providers` con auth, código preexistente sin tocar): chip `disponible ·
+N clave(s)`/`sin claves`, `en uso` sobre el modelo actual, botón `recargar`,
+nota de que las claves viven en `~/.glory-harness.env` (no se editan aquí).
+Gotchas: colisión `Duplicate identifier 'proveedores'` (import + local) →
+local renombrado `proveedoresPanel`; el vivo trae proveedores fuera del
+catálogo (cerebras, groq) → el conteo solo cubre filas visibles (evita
+"6 de 4"). Cero cambios Rust.
+Evidencia: `tsc` EXIT 0; `vite build` OK (bundle con `proveedor-fila`/
+`proveedores-chip`); gate `129A-9 --full` PASS (9 archivos; warnings solo
+prosa ajena en Rust no tocado); backend 8799: `POST /api/v1/session` ok con
+6 proveedores con claves>0. F3 (abrir Ajustes→Proveedores en vivo)
+pendiente: esta sesión no tiene navegador.
 
 ## DoD
 
