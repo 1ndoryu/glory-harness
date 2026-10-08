@@ -1,5 +1,5 @@
-/* [03-09-2026] Tool `todo` del núcleo (plan 318A-15, F5): plan visible de la
- * tarea para turnos de varios pasos (paridad opencode `todo`).
+/* [03-09-2026] Tool de plan visible del núcleo (`ListaTodo`, plan 318A-15, F5):
+ * lista de pasos para turnos de varios pasos (paridad con el plan visible de opencode).
  *
  * Estado: `ListaTodo` vive en una store compartida por runtime
  * (`TodoCompartida = Arc<tokio::sync::Mutex<ListaTodo>>`) que el registro
@@ -35,7 +35,7 @@ use tokio::sync::Mutex;
 /// Estado de un ítem del plan visible.
 ///
 /// [109A-5 F2] Tres estados (paridad `normalizeRuntimeTaskStatus`: pendiente /
-/// en curso / completada). `Pendiente` es el estado inicial de todo ítem nuevo;
+/// en curso / completada). `Pendiente` es el estado inicial de cada ítem nuevo;
 /// no hay estado "cancelado" porque un paso descartado se actualiza o se queda
 /// en pendiente, sin inventar un cuarto valor que la UI tendría que aprender.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -449,7 +449,7 @@ id inexistente."
     }
 }
 
-/// Registra la store compartida + la tool `todo` en el registry. Siempre
+/// Registra la store compartida + la tool `ListaTodo` en el registry. Siempre
 /// disponible (agnóstica): el runtime la llama al construirse.
 pub fn registrar_tool_todo(registry: &mut AgentToolRegistry) {
     registry.registrar_todo(Arc::new(Mutex::new(ListaTodo::nueva())));

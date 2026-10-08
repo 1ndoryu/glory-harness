@@ -34,7 +34,7 @@ pub const CAT_TODO: &str = "todo";
 pub const CAT_COMANDO: &str = "comando";
 /// [Bloque 3, F2] Tools expuestas por servidores MCP: efecto=true → ask en
 /// predeterminado, deny en meta/plan; una regla `mcp:*` o `mcp:<servidor>:*`
-/// (clave derivada del id de la tool) controla todo un servidor.
+/// (clave derivada del id de la tool) gobierna un servidor íntegro.
 pub const CAT_MCP: &str = "mcp";
 
 /// Una regla de permiso: para la categoría `categoria`, si el valor concreto

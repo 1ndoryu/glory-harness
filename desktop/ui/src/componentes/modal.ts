@@ -199,7 +199,7 @@ export function montarModalConfiguracion(opts: ModalOpciones): ModalConfiguracio
     });
   }
 
-  // guardado automático: todo cambio se notifica al vuelo
+  // guardado automático: cada cambio se notifica al vuelo
   function notificarCambio(id: string, valor: string | boolean): void {
     // Persistencia real: el dueño (main.ts) guarda vía `configGuardar` del
     // adaptador. Aquí el valor queda en memoria, en el DOM (control

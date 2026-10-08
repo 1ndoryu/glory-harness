@@ -7,7 +7,7 @@
 //!
 //! # Contrato
 //!
-//! | Método y ruta                                   | Propósito              |
+//! | Verbo y ruta                                    | Propósito              |
 //! |-------------------------------------------------|------------------------
 //! | `GET /healthz`                                  | Liveness               |
 //! | `POST /api/v1/session` (Bearer master)          | Crear sesión + cookie  |

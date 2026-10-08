@@ -114,7 +114,7 @@ mod win {
         Ok(tomar(slot))
     }
 
-    /// Invoca un método CDP en el hilo de UI y devuelve su resultado.
+    /// Invoca una operación CDP en el hilo de UI y devuelve su resultado.
     fn invocar_cdp(
         core: ICoreWebView2,
         metodo: String,

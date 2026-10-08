@@ -44,7 +44,7 @@
 //! ## F5: NavegadorPort (069A-1, 2026-09-08)
 //!
 //! `NavegadorTauri` implementa el trait del núcleo y se inyecta al runtime
-//! como puerto. Cada método usa `AppHandle` para despachar al hilo principal
+//! como puerto. Cada función usa `AppHandle` para despachar al hilo principal
 //! via `run_on_main_thread` (COM) o acceder a `EstadoNavegador` (Tauri API).
 
 pub(crate) mod comandos;

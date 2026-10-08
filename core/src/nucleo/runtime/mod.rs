@@ -1,5 +1,5 @@
 //! Runtime del agente (plan 318A-13, Fase 1c): port agnóstico de
-//! `src/agent/runtime.rs` de task **sin SQL y sin `AppState`**. Todo acceso a
+//! `src/agent/runtime.rs` de task **sin SQL y sin `AppState`**. Cualquier acceso a
 //! estado durable entra por [`AgentPersistence`]; el proveedor LLM es
 //! [`LlmProviderService`] (movido al núcleo en Fase 1b).
 //!
@@ -62,7 +62,7 @@ pub(crate) use tools::LlamadaLlm;
 
 /// [109A-5 F2] Reparto del plan visible entre conversaciones.
 ///
-/// La store de la tool `todo` vive en el REGISTRY del runtime
+/// La store de la tool `ListaTodo` vive en el REGISTRY del runtime
 /// (`Arc<Mutex<ListaTodo>>`), y un runtime atiende a varias conversaciones a lo
 /// largo de su vida (el escritorio reusa la sesión al cambiar de hilo). Por eso
 /// el runtime guarda aquí la lista de cada conversación y solo deja cargada en

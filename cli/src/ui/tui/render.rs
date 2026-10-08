@@ -68,7 +68,7 @@ pub(crate) fn render_markdown_linea(l: &str) -> Line<'static> {
 }
 
 /// [059A-S6] Asegura que `cache_filas` cubra los bloques cerrados para `ancho`
-/// (los bloques cerrados nunca mutan; todo cambio ocurre en el último bloque
+/// (los bloques cerrados nunca mutan; cada cambio ocurre en el último bloque
 /// mientras está abierto o al hacer push de uno nuevo). Devuelve cuántos
 /// bloques quedaron en el prefijo cacheado.
 pub(crate) fn sincronizar_cache(ui: &mut UiEstado, ancho: usize) -> usize {

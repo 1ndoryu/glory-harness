@@ -9,7 +9,7 @@
 //! - `peticion_turno`: vínculo petición→turno para atribuir la RESPUESTA de
 //!   aprobación (que viaja por comando, fuera del canal de eventos) al turno
 //!   que la esperaba.
-//! - Todo fuera del trait `AgentPersistence` del núcleo (como `config_*`):
+//! - Lo ubicado fuera del trait `AgentPersistence` del núcleo (como `config_*`):
 //!   el core no cambia y web/CLI pueden adoptar estos métodos después.
 
 use rusqlite::{params, OptionalExtension};

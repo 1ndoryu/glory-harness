@@ -53,12 +53,12 @@ impl AgentRuntime {
 
     /// [109A-5 F2] Publica el plan visible COMPLETO al canal del turno como
     /// evento `TareasActualizadas`. Se emite tras cada acción de la tool
-    /// `todo` y al arrancar un turno que ya tenía plan vigente (resume).
+    /// `ListaTodo` y al arrancar un turno que ya tenía plan vigente (resume).
     ///
     /// `solo_si_hay` evita el ruido del arranque: una lista vacía al empezar un
     /// turno haría que la UI dibujara un bloque de tareas sin tareas. Tras una
-    /// acción de `todo` sí se publica aunque quede vacía: el usuario debe ver
-    /// que el plan terminó. Sin store de `todo` (defensivo: siempre está
+    /// acción de `ListaTodo` sí se publica aunque quede vacía: el usuario debe ver
+    /// que el plan terminó. Sin store de `ListaTodo` (defensivo: siempre está
     /// registrada) no emite.
     pub(crate) async fn emitir_tareas(&self, tx: &Sender<AgenteEvento>, solo_si_hay: bool) {
         let Some(store) = self.registry.todo() else {

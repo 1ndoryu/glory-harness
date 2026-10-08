@@ -635,7 +635,7 @@ mod tests {
         // El backend acumula el uso REAL tras fallback y lo persiste.
         p.turno_actualizar_uso(turno, 5120, 640, Some("glory"), Some("gpt-4.1"))
             .expect("actualizar uso");
-        // Releer por SQL directo: el m├®todo es inherente y no expone lector.
+        // Releer por SQL directo: la función asociada es inherente y no expone lector.
         let conn = bloquear(&p.conn);
         let (tokens_p, tokens_c, provider, modelo): (i64, i64, Option<String>, Option<String>) =
             conn.query_row(

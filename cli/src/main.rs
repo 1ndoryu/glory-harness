@@ -318,7 +318,7 @@ pub(crate) fn extraer_opcion(args: &[String], nombres: &[&str]) -> Option<String
     None
 }
 
-/// Lee todo stdin como prompt (modo pipeline: `echo "x" | glory-harness run --stdin`).
+/// Lee stdin completo como prompt (modo pipeline: `echo "x" | glory-harness run --stdin`).
 fn leer_stdin() -> Option<String> {
     use std::io::Read;
     let mut buf = String::new();

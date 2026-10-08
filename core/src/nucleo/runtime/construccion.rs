@@ -147,7 +147,7 @@ impl AgentRuntime {
         turno_config: TurnoConfig,
     ) -> Self {
         registrar_tools_red(&mut registry);
-        /* [318A-15 F5] Tool `todo` (plan visible) siempre disponible: es
+        /* [318A-15 F5] Tool `ListaTodo` (plan visible) siempre disponible: es
          * agnóstica y efímera (la store vive en este runtime, nunca en BD). */
         registrar_tool_todo(&mut registry);
         /* [318A-15 F4] Tool `task` (subagente): siempre disponible; el

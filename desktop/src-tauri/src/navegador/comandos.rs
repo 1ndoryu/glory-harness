@@ -171,7 +171,7 @@ pub async fn navegador_js(app: AppHandle, codigo: String) -> Result<String, Stri
     webview2::ejecutar_script(app, codigo).await
 }
 
-/// Invoca un método CDP con parámetros JSON.
+/// Invoca una operación CDP con parámetros JSON.
 #[tauri::command]
 pub async fn navegador_cdp(
     app: AppHandle,

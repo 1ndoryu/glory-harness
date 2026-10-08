@@ -22,7 +22,7 @@ use uuid::Uuid;
 pub const CARPETA_PROYECTO: &str = ".glory/memorias";
 
 /// Raíz del área contenida: canonicaliza `ruta_area` (resuelve `..`,
-/// enlaces y montajes) y exige carpeta real. Todo destino `project` deriva
+/// enlaces y montajes) y exige carpeta real. Cada destino `project` deriva
 /// de aquí, nunca de la cadena de la BD tal cual.
 ///
 /// [139A-8 F5n/K8] Sin esto, `Path::new(&area.ruta).join(CARPETA_PROYECTO)`

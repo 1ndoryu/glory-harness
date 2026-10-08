@@ -47,7 +47,7 @@ impl PersistenciaSqlite {
         let ws_s = workspace_id.as_hyphenated().to_string();
         // SELECT previo sobre `conn` (no sobre `tx`): `prepare`+`query_map`
         // con `stmt` de vida corta dentro de la transacción no compila
-        // (E0597). Los borrados sí van en `tx` (todo o nada).
+        // (E0597). Los borrados sí van en `tx` (atómicos: conjunto o nada).
         let ids: Vec<String> = {
             let conn = bloquear(&self.conn);
             let mut stmt = conn

@@ -79,3 +79,17 @@ Ambos son los que la consola contaba con el checkout compartido `902c45e` mientr
 gate de este repo ya usaba `1587c59`: causa raíz registrada como `039A-4` en
 `workspace-manager/roadmap.md` (el medidor debe resolver el `provisionPath` de cada
 proyecto, no solo el checkout compartido).
+
+## 4. `todo-prosa-sin-marcador` parte `método` por el `\b` ASCII (08-10, 08AA-1)
+
+- **Caso mínimo (reproducible):** cualquier comentario con la palabra `método`
+  (`Cada método delega…`, `el método decide…`) se reporta como `todo-prosa-sin-marcador`.
+- **Por qué coincide:** la regla es `/\btodo\b/gi`
+  (`staticCodeRules.ts`, `PATRON_TODO_PROSA`): en JS `\b` solo conoce `[A-Za-z0-9_]`,
+  así que entre `é` y `t` hay frontera de palabra y `todo` casa dentro de `método`.
+  El mismo patrón marca la prosa española legítima (`todo` = "todo lo demás") y el
+  nombre de la tool (`` `todo` `` / `ListaTodo`).
+- **Capa responsable:** `glory-sentinel` (usar `\b` Unicode con flag `u`, o exigir que
+  `todo` no vaya precedido de letra acentuada). Este repo reformuló su prosa en 08AA-1
+  (orden explícita del usuario para bajar el corte de consola); el defecto del medidor
+  sigue vivo para el resto del área.

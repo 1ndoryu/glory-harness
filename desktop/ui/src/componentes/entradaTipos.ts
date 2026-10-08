@@ -112,7 +112,7 @@ export interface Entrada {
   setComandosProyecto(comandos: ComandoProyecto[]): void;
 }
 
-/** Identidad y variante de la entrada (núcleo mínimo que todo consumidor usa). */
+/** Identidad y variante de la entrada (núcleo mínimo que cada consumidor usa). */
 export interface EntradaBase {
   /** Prefijo de los ids internos (una instancia por panel). */
   idPrefijo: string;

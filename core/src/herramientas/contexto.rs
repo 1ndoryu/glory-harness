@@ -46,7 +46,7 @@ pub struct AgentToolContext<'a> {
     /// aquí sus servicios (p. ej. `&PgPool` + repos), y sus tools hacen
     /// `downcast_ref`. El núcleo no interpreta este tipo.
     pub dominio: Option<&'a (dyn Any + Send + Sync)>,
-    /// Plan `todo` compartido del runtime (318A-15 F5). `None` si el runtime
+    /// Plan `ListaTodo` compartido del runtime (318A-15 F5). `None` si el runtime
     /// no registró la tool (no debería pasar: el runtime la crea siempre).
     pub todo: Option<TodoCompartida>,
     /// [318A-16 F5] Store del modo plan: presente SOLO cuando el turno corre

@@ -36,7 +36,7 @@ impl AgentRuntime {
     /// [109A-5 F4] Cierra el conteo de bloqueo del turno que acaba de terminar:
     /// si el plan de ESA conversación sigue bloqueado, suma un turno.
     ///
-    /// Lo hace el runtime (una vez por turno) y no la tool `todo`: N
+    /// Lo hace el runtime (una vez por turno) y no la tool `ListaTodo`: N
     /// declaraciones en el mismo turno contarían N veces cuando lo que se mide
     /// son TURNOS atascados, no llamadas. Con la lista bloqueada por una tool se
     /// registra y no se cuenta; el error nunca debe romper el turno, que ya

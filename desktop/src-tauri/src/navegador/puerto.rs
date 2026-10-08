@@ -19,9 +19,9 @@ use super::comandos::{
 
 /// Adaptador Tauri del puerto `NavegadorPort`.
 ///
-/// Cada método delega al `AppHandle` para despachar al hilo principal y
+/// Cada función delega al `AppHandle` para despachar al hilo principal y
 /// consulta el estado global del navegador (webview + COM). Como Tauri exige
-/// que todo acceso a la webview viva en el hilo de UI, los métodos COM usan
+/// que cualquier acceso a la webview viva en el hilo de UI, los métodos COM usan
 /// `run_on_main_thread` vía las funciones del submódulo `webview2`.
 ///
 /// ## Afinidad de hilo

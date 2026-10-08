@@ -440,7 +440,7 @@ impl AgentRuntime {
         /* [109A-5 F2] Plan visible: además del resultado textual, la lista
          * completa de tareas viaja como evento propio para que la UI la pinte
          * sin parsear el texto del plan. Solo tras una acción correcta (una
-         * acción fallida no cambia la lista) y solo para `todo`. */
+         * acción fallida no cambia la lista) y solo para `ListaTodo`. */
         if ok && call.nombre == "todo" {
             self.emitir_tareas(tx, false).await;
         }

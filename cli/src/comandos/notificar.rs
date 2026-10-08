@@ -26,7 +26,7 @@ use glory_harness_core::runtime::AgentRuntime;
 
 /// [069A-3] Script PowerShell del toast: lee el payload JSON de stdin,
 /// distingue el evento por forma (`tool` presente = permiso pendiente, si no
-/// fin de turno con `resumen`) y muestra un toast WinRT. Todo dentro de
+/// fin de turno con `resumen`) y muestra un toast WinRT. El bloque completo dentro de
 /// try/catch + `exit 0` final: un error nunca sale con 2 (no veta nada) ni
 /// aborta el turno. Solo comillas simples (el `-EncodedCommand` evita el
 /// quoting de la línea de comandos).

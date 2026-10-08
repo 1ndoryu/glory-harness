@@ -185,7 +185,7 @@ impl AgentToolRegistry {
         self.sandbox_archivos.clone()
     }
 
-    /// Fija la store compartida del plan `todo` del runtime (318A-15 F5).
+    /// Fija la store compartida del plan `ListaTodo` del runtime (318A-15 F5).
     pub fn registrar_todo(&mut self, todo: TodoCompartida) {
         self.todo = Some(todo);
     }

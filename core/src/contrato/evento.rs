@@ -34,7 +34,7 @@ pub enum EstadoTareaVisible {
     Completada,
 }
 
-/// [109A-5 F2] Tarea del plan visible de la conversación (tool `todo`): DTO del
+/// [109A-5 F2] Tarea del plan visible de la conversación (tool `ListaTodo`): DTO del
 /// contrato, sin acoplar el front al tipo interno de la herramienta.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TareaVisible {
@@ -222,7 +222,7 @@ pub enum AgenteEvento {
     /// la ruta; si no puede leerla lo avisa de forma explícita. Aditivo.
     MostrarArchivo { ruta: String, descripcion: String },
     /// [109A-5 F2] Plan visible de la conversación: se emite tras cada acción
-    /// de la tool `todo` y también al arrancar un turno que ya tenía plan
+    /// de la tool `ListaTodo` y también al arrancar un turno que ya tenía plan
     /// vigente (resume entre turnos por conversación). Lleva la lista COMPLETA,
     /// no un delta: el front pinta verdad absoluta y no acumula estados
     /// divergentes. Aditivo: los consumidores que no lo conocen lo ignoran.

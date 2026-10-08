@@ -17,7 +17,7 @@
  * predeterminado):
  * - `predeterminado` → ask para tools con efecto, allow para las demás.
  * - `meta`           → deny para tools con efecto, allow para las demás.
- * - `autonomo`       → allow para todo.
+ * - `autonomo`       → allow sin restricciones.
  *
  * F4 consumirá este modelo tal cual: el runtime del subagente resuelve la
  * policy de su perfil con los mismos `Permiso` y hereda los overrides.

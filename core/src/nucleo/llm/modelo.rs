@@ -555,7 +555,7 @@ pub(crate) fn es_error_transitorio(error: &Error) -> bool {
 }
 
 /* Convierte las tool_calls crudas del SSE a la estructura tipada del dominio.
- * Función pura extraída del método stream para acortarlo (funcion-larga-rs).
+ * Función pura extraída de la función stream para acortarla (funcion-larga-rs).
  * [318A-10 02-09-2026] Sanidad defensiva: Laguna S 2.1 free (commandcode)
  * devuelve tool_calls en streaming con `id` y `function.name` VACÍOS. Antes
  * eso llegaba al runtime como AiToolCall{id:"", nombre:"", ...} → la tool

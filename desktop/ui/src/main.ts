@@ -346,7 +346,7 @@ const pintarToggleDerecho = todoPanelDerecho.pintarToggleDerecho;
 
 // Dependencias de los laterales: se resuelven aquí porque el panel derecho,
 // la sidebar y la fábrica de paneles ya existen; los usos anteriores son
-// cierres de runtime (clic), cuando todo ya está definido.
+// cierres de runtime (clic), cuando el conjunto ya está definido.
 const depsLaterales: LateralesDeps = {
   paneles: panelesRegistrados,
   getConversaciones: sesionVista.getConversaciones,

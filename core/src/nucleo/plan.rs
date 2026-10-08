@@ -8,7 +8,7 @@
  * a esta capa) pero aquí se desvían a la propuesta; el resto de tools con
  * efecto siguen `deny` (semántica de `meta`). La store vive en el runtime
  * (efímera, nunca en BD): si el runtime se descarta, la propuesta se pierde
- * con él (mismo ciclo de vida que `todo`).
+ * con él (mismo ciclo de vida que `ListaTodo`).
  *
  * Regla de una sola aplicación: `aplicar` marca la propuesta como aplicada;
  * un segundo `aplicar` falla con error claro (no se puede aplicar dos veces

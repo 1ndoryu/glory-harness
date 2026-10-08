@@ -1,4 +1,4 @@
-/* [109A-5 F2] Plan visible de la conversación (tool `todo`): bloque con las
+/* [109A-5 F2] Plan visible de la conversación (tool `ListaTodo`): bloque con las
  * tareas del turno y su estado en vivo.
  *
  * Es una vista PURA del contrato `tareas_actualizadas`: cada evento trae la

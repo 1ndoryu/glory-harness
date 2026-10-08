@@ -167,13 +167,13 @@ export function montarCabeceraChat(opts: CabeceraChatOpciones): CabeceraChat {
       ponerTitulo(texto);
     },
     // [089A-3] No-op: el toggle de la lista vive en la barra superior
-    // global (`barraSuperior.ts`). Se conserva el método para no cambiar
+    // global (`barraSuperior.ts`). Se conserva la función para no cambiar
     // la interfaz `CabeceraChat` ni `panelChat.ts`.
     setSidebarAbierta(_abierta: boolean) {
       /* no-op */
     },
     // [089A-3] No-op: el toggle del panel derecho vive en la barra
-    // superior global. Se conserva el método por la misma razón.
+    // superior global. Se conserva la función por la misma razón.
     setPanelDerechoAbierto(_abierto: boolean) {
       /* no-op */
     },

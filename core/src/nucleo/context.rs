@@ -414,7 +414,7 @@ impl AgentContextManager {
         let mut medio: Vec<AiMessage> = Vec::new();
         let mut cola: Vec<AiMessage> = Vec::new();
 
-        /* [318A-15 F1] Head protegido: además del system del índice dado, todo
+        /* [318A-15 F1] Head protegido: además del system del índice dado, cada
          * mensaje system con marcadores [ENTORNO]/[REGLAS] se conserva verbatim
          * (nunca se resume ni cae al medio). El runtime lo reinyecta fresco en
          * cada turno, pero si un consumidor persistió uno anterior, tampoco se
@@ -446,8 +446,8 @@ impl AgentContextManager {
         medio.truncate(corte);
 
         /* [318A-15 F6] Tramo fechado: el resumen del medio lleva la fecha de la
-         * compactación (cada tramo deja su propio resumen system; nunca "todo
-         * lo anterior" sin referencia temporal). Si el consumidor aportó un
+         * compactación (cada tramo deja su propio resumen system; nunca el historial
+         * previo sin referencia temporal). Si el consumidor aportó un
          * resumen LLM (variante A) se usa; si no o si llegó vacío, fallback B
          * determinista — los tests nunca dependen del proveedor. */
         let resumen = if medio.is_empty() {
@@ -1025,7 +1025,7 @@ mod tests {
     #[test]
     fn forzado_con_todo_en_la_cola_no_compacta() {
         /* Historial largo pero con la cola por defecto (10K tokens) absorbiendo
-         * todo: compactar solo añadiría el mensaje de continuación. */
+         * el historial íntegro: compactar solo añadiría el mensaje de continuación. */
         let mut cm = AgentContextManager::new(ContextoConfig::default());
         let msgs = historial_largo(5);
         let r = cm.compactar_forzado(&msgs, 0, None);

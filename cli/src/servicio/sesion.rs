@@ -433,7 +433,7 @@ impl SesionComun {
     ///
     /// El conteo NO vive aquí: lo lleva el plan del núcleo, porque el motivo es
     /// tan efímero como él y contar turnos de un plan que ya no existe no
-    /// significaría nada. Este método decide la única parte durable, que es la
+    /// significaría nada. Esta función decide la única parte durable, que es la
     /// transición del reloj. `Pausar` no cierra la meta, así que el plan sigue
     /// visible: el usuario ve en qué se atascó el agente.
     ///

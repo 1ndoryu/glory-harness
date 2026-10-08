@@ -44,8 +44,8 @@ export interface GestorRepos {
   /** Pinta estados; si la firma no cambió, no toca el DOM. Devuelve los
    * prefijos cubiertos y si el contenedor quedó oculto. */
   pintar(resultados: ResumenRepo[]): { cubiertos: string[]; oculto: boolean };
-  /** [139A-2] Revelado: traduce la ruta del área a relativa al repo con el
-   * prefijo más largo; fuera de todo repo delega en el huérfano. */
+   /** [139A-2] Revelado: traduce la ruta del área a relativa al repo con el
+    * prefijo más largo; fuera de cualquier repo delega en el huérfano. */
   revelarAhora(ruta: string): void;
 }
 

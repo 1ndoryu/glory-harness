@@ -13,7 +13,7 @@
 //! ```
 //! Un comando slash es un `.md` con `tipo: comando` y `comando: <nombre>`: la
 //! plantilla (cuerpo) se expande con `$ARGUMENTOS` y referencias `@archivo`
-//! (el contenido del archivo se embebe; opencode `@file`). Todo es puro y
+//! (el contenido del archivo se embebe; opencode `@file`). La expansión es pura y
 //! determinista: sin I/O implícita, sin LLM.
 
 use async_trait::async_trait;

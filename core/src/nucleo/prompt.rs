@@ -85,7 +85,7 @@ impl DesgloseContexto {
 /// mientras el turno se ejecuta en modo meta.
 ///
 /// [109A-5 F4] Incluye la regla anti-atasco (paridad Synara): el agente declara
-/// el bloqueo con la tool `todo` y un motivo concreto, y NUNCA pausa la meta por
+/// el bloqueo con la tool `ListaTodo` y un motivo concreto, y NUNCA pausa la meta por
 /// su cuenta. El bloqueo "difícil/incompleto" queda prohibido por escrito: es
 /// trabajo pendiente disfrazado, y es justo lo que la escalada de 3 turnos
 /// existe para detectar.

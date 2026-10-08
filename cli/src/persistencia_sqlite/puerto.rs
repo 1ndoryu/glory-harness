@@ -3,7 +3,7 @@
 //! Un solo bloque `impl` (el trait no admite repartos por fichero); los
 //! dominios inherentes viven en `conversaciones` / `memoria` / `tareas`.
 //!
-//! [139A-8 F2] (R1/R2) Cada método mueve sus argumentos a valores propios y
+//! [139A-8 F2] (R1/R2) Cada función mueve sus argumentos a valores propios y
 //! ejecuta el SQL en `con_conn` (`spawn_blocking`): rusqlite es síncrono y
 //! estos `await` retenían el worker async.
 

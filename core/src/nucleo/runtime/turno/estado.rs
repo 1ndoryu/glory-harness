@@ -114,7 +114,7 @@ pub(crate) enum PasoTool {
 /// [109A-4 F4] Petición de un turno: identidad, entrada y política forzada.
 /// Agrupa lo que antes eran argumentos posicionales para que el override de
 /// modo no añada un séptimo parámetro a `ejecutar_turno_con_modo` (límite de
-/// clippy y, sobre todo, llamada legible desde el transporte Tauri).
+/// clippy y, en especial, llamada legible desde el transporte Tauri).
 pub struct PeticionTurno<'a> {
     pub user_id: Uuid,
     pub turno_id: Uuid,

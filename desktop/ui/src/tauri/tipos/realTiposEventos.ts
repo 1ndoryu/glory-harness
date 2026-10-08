@@ -58,8 +58,8 @@ export type AgenteEvento =
       ocupacion_pct: number;
     }
   | { tipo: 'telemetria'; subagentes_parciales: number; herramientas: Array<{ tool: string; usos: number; fallos: number; duracion_ms_total: number }> }
-  /** [109A-5 F2] Plan visible de la conversación: llega tras cada acción de la
-   * tool `todo` y al arrancar un turno con plan vigente (resume). Trae la lista
+   /** [109A-5 F2] Plan visible de la conversación: llega tras cada acción de la
+    * tool `ListaTodo` y al arrancar un turno con plan vigente (resume). Trae la lista
    * COMPLETA, no un delta. */
   | { tipo: 'tareas_actualizadas'; items: TareaVisible[] }
   /** [109A-5 F3] Meta declarada como lograda: llega al marcar la meta (no al

@@ -48,8 +48,8 @@ export function crearAnchoPanelDerecho(deps: AnchoPanelDerechoDeps): AnchoPanelD
     const vista = deps.cuerpo.getBoundingClientRect().width;
     /* [07AA-1 F4] La fila (sidebar + chat + panel) no debe desbordar: si lo
      * hace, las tabs de la barra superior (ancladas a la derecha del
-     * viewport) se despegan del panel (anclado a la fila con scroll) y todo
-     * el arrastre "se mueve raro". El tope es lo que cabe una vez
+     * viewport) se despegan del panel (anclado a la fila con scroll) y el arrastre
+     * completo "se mueve raro". El tope es lo que cabe una vez
      * reservados sidebar y mínimo del chat; con viewport enano se vuelve
      * al 70% y la fila desplaza (red de F2). */
     const sidebar = deps.cuerpo.querySelector<HTMLElement>('#sidebar');

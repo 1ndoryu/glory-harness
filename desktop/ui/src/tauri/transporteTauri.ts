@@ -1,4 +1,4 @@
-/* Transporte Tauri in-process (comportamiento 039A-1 intacto): cada método es
+/* Transporte Tauri in-process (comportamiento 039A-1 intacto): cada operación es
  * un `invoke` directo al comando del backend con el mismo nombre. */
 import { invoke } from '@tauri-apps/api/core';
 import type { EstadoGit, RepoGit, ResumenRepo } from '../componentes/panelGit';

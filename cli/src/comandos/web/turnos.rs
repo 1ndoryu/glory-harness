@@ -1119,7 +1119,7 @@ mod tests {
      * durable, aviso por el cable y no repetir el aviso. Lo que NO cubre: que
      * el modelo declare el bloqueo (`REGLAS_META` lo instruye, pero declararlo
      * depende del proveedor) ni el contador del plan, que se prueba en
-     * `nucleo::runtime` y en la tool `todo`. */
+     * `nucleo::runtime` y en la tool `ListaTodo`. */
     #[tokio::test]
     async fn bloqueo_sostenido_tres_turnos_pausa_la_meta_y_avisa_una_sola_vez() {
         let state = state_test();

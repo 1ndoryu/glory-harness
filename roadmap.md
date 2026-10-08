@@ -55,6 +55,15 @@ Siguiente en la serie de 6 pedidos: 129A-9 (129A-11 HECHO 07-10, gate PASS).
 
 ## Tareas pendientes
 
+- [ ] **08AA-1 — Corte de consola 08-10: 58 `todo-prosa` + 1 `todo-pendiente` + ISP + `rustls`** (EN CURSO):
+      reformulación neutra de la prosa (raíz: `\b` ASCII parte `método`; `todo` = "todo lo demás" en español;
+      `tool \`todo\`` → `ListaTodo`); `context.rs:1028` era prosa, no tarea (sin Plan que extraer);
+      `logs/` (3 logs de sesión) eliminados. Excepción ISP: `VistaModalAcciones` (`vistaModal.ts:62`, 11
+      campos) queda como está —es el contrato mínimo que el orquestador inyecta al modal, partirla rompería
+      el cableado F1–F6—; el hallazgo es `hint`, no bloquea.
+- [ ] **08AA-2 — Gate `rust` roto en desktop (ajeno a 08AA-1, detectado 08-10)**: `main.rs:516-545` E0603
+      (`__cmd__*` privado) + `conversaciones.rs:17-25` `unused_imports`; último toque `18968de` (refactor
+      concurrente en curso). No se mezcla con 08AA-1: el diff propio es 100 % comentarios + bump `rustls`.
 - [x] **07AA-1 - Ancho mínimo 460px en paneles (HECHO 07-10)**: `min-width:
       460px` global vía `--panel-ancho-min` en chat principal, lateral y
       panel derecho; sidebar excluida (sigue 260px, grip 180-260 intacto);
