@@ -63,9 +63,14 @@ Siguiente en la serie de 6 pedidos: 129A-9 (129A-11 HECHO 07-10, gate PASS).
       el cableado F1–F6—; el hallazgo es `hint`, no bloquea. Gate FULL: coverage/sccache/sentinel PASS
       (0E/0W/1I); etapa `rust` FAIL por código ajeno (`main.rs` E0603) → tarea 08AA-2. Evidencia en
       `Agente/completados/tareas-2026-10-08.md`.
-- [ ] **08AA-2 — Gate `rust` roto en desktop (ajeno a 08AA-1, detectado 08-10)**: `main.rs:516-545` E0603
-      (`__cmd__*` privado) + `conversaciones.rs:17-25` `unused_imports`; último toque `18968de` (refactor
-      concurrente en curso). No se mezcla con 08AA-1: el diff propio es 100 % comentarios + bump `rustls`.
+- [x] **08AA-2 — Gate `rust` roto en desktop (HECHO 08-10, commit `3a52433`, push OK)**: causa raíz =
+      `generate_handler!` resuelve `__cmd__*` en el módulo de definición; `main.rs` usa `crud::`/`rewind::`/
+      `consolas::`, sin re-exports en `conversaciones.rs`; `UsoTurnoPorTurno` + campos a `pub(crate)`; cabecera
+      a párrafo corrido (sin lista → 0 `doc_lazy_continuation`). Gate FULL PASS: coverage/sccache/sentinel
+      (cached) + rust 207.6s 0E/0W/1I, tests 544 ok. Evidencia en `Agente/completados/tareas-2026-10-08.md`.
+- [ ] **08AA-3 — GitHub avisa 3 vulns (1 high/1 moderate/1 low) en default tras push `3a52433`, pero
+      `npm audit` local en `desktop/ui` da 0**: pueden ser advisories Cargo o lag de reindex de GitHub.
+      Verificar en `github.com/1ndoryu/glory-harness/security/dependabot` y actuar solo si hay ruta local.
 - [x] **07AA-1 - Ancho mínimo 460px en paneles (HECHO 07-10)**: `min-width:
       460px` global vía `--panel-ancho-min` en chat principal, lateral y
       panel derecho; sidebar excluida (sigue 260px, grip 180-260 intacto);
