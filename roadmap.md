@@ -68,9 +68,12 @@ Siguiente en la serie de 6 pedidos: 129A-9 (129A-11 HECHO 07-10, gate PASS).
       `consolas::`, sin re-exports en `conversaciones.rs`; `UsoTurnoPorTurno` + campos a `pub(crate)`; cabecera
       a párrafo corrido (sin lista → 0 `doc_lazy_continuation`). Gate FULL PASS: coverage/sccache/sentinel
       (cached) + rust 207.6s 0E/0W/1I, tests 544 ok. Evidencia en `Agente/completados/tareas-2026-10-08.md`.
-- [ ] **08AA-3 — GitHub avisa 3 vulns (1 high/1 moderate/1 low) en default tras push `3a52433`, pero
-      `npm audit` local en `desktop/ui` da 0**: pueden ser advisories Cargo o lag de reindex de GitHub.
-      Verificar en `github.com/1ndoryu/glory-harness/security/dependabot` y actuar solo si hay ruta local.
+- [x] **08AA-3 — 3 vulns GitHub tras push `3a52433` (HECHO 08-10, gate FULL PASS)**: `#4 high source-map-js`
+      venía del `pnpm-lock.yaml` obsoleto (07/09, residue scaffolding; manager canónico = npm: node_modules con
+      `.package-lock.json`, sin pnpm ni CI) → `git rm` del lock + `pnpm-workspace.yaml`. `#1 medium glib 0.18.5`
+      y `#2 low lru 0.12.5` quedan BLOQUEADAS: glib lo pide `gtk 0.18.2` vía `wry 0.55` (cadena linux-only,
+      ni compila en Windows; exige major de tauri/wry) y lru lo pinde `ratatui 0.29.0` (`^0.12`; exige
+      `ratatui→0.30` con riesgo de API). `npm audit` local 0; gate `08AA-3` PASS (rust 530 tests ok).
 - [x] **07AA-1 - Ancho mínimo 460px en paneles (HECHO 07-10)**: `min-width:
       460px` global vía `--panel-ancho-min` en chat principal, lateral y
       panel derecho; sidebar excluida (sigue 260px, grip 180-260 intacto);
