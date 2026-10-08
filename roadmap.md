@@ -1014,4 +1014,7 @@ Siguiente en la serie de 6 pedidos: 129A-9 (129A-11 HECHO 07-10, gate PASS).
   commit que fija `quality-tools.json`), sobre el **mismo árbol y los mismos 224 archivos**; en
   WANDORIUS (8) y GLORYPORT (5) los dos builds coinciden, así que la diferencia **no** es subreporte
   del nuevo, son las dos reglas ya corregidas ahí. Por eso toda cifra de este roadmap debe decir con
-  qué binario y con qué alcance se midió, y por eso `109A-10` se cerró (11-09) sin tocar código de este repo.
+   qué binario y con qué alcance se midió, y por eso `109A-10` se cerró (11-09) sin tocar código de este repo.
+- **Seguridad deps JS 08AA (2026-10-08)**: `desktop/ui` `npm audit` 1 HIGH → 0
+  (source-map-js 1.2.1→1.2.2, patch no-breaking vía `npm audit fix`; lado cargo ya en
+  rustls 0.23.45 con 0 vulns). Evidencia: `type-check` (tsc) PASS.
