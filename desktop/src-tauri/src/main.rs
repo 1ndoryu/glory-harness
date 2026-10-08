@@ -37,7 +37,10 @@ use uuid::Uuid;
  * ficheros planos de `directorio-abarrotado`. Los `use` reexportan los
  * submódulos con su nombre corto para que las rutas ya escritas en este
  * fichero (`vault::VaultArchivos`, `turno::enviar_turno`, `git::…`) sigan
- * siendo válidas: el movimiento no cambia el contrato ni los comandos. */
+ * siendo válidas: el movimiento no cambia el contrato ni los comandos.
+ * [08AA-2] `generate_handler!` usa las rutas de DEFINICIÓN (`crud::`,
+ * `rewind::`, `consolas::`): tauri genera `__cmd__*` donde vive
+ * `#[tauri::command]` y los re-exports no lo arrastran (E0603). */
 mod archivos;
 mod chat;
 mod comandos;
@@ -46,7 +49,7 @@ mod navegador;
 mod proyecto;
 mod sesion;
 use archivos::{archivo, filesystem, vault};
-use chat::{conversaciones, turno};
+use chat::{consolas, conversaciones, crud, rewind, turno};
 use proyecto::{git, memoria, workspaces};
 
 /// [039A-3 P3] Tramo rebobinado pendiente de restaurar archivos (acción
@@ -522,27 +525,27 @@ fn main() {
             turno::log_turno,
             sesion::responder_aprobacion,
             sesion::pendientes_aprobacion,
-            conversaciones::conversacion_nueva,
-            conversaciones::listar_conversaciones,
-            conversaciones::cargar_conversacion,
-            conversaciones::rewind_conversacion,
-            conversaciones::restaurar_archivos_tramo,
+            crud::conversacion_nueva,
+            crud::listar_conversaciones,
+            crud::cargar_conversacion,
+            rewind::rewind_conversacion,
+            rewind::restaurar_archivos_tramo,
             // [129A-7] Panel "Cambios": lista por turno + rechazar puntual.
-            conversaciones::cambios_archivo,
-            conversaciones::rechazar_cambio,
-            conversaciones::renombrar_conversacion,
-            conversaciones::archivar_conversacion,
-            conversaciones::eliminar_conversacion,
+            rewind::cambios_archivo,
+            rewind::rechazar_cambio,
+            crud::renombrar_conversacion,
+            crud::archivar_conversacion,
+            crud::eliminar_conversacion,
             // [209A-1 F4-resto] × de la tab Consola sobre una entrada viva.
-            conversaciones::consola_matar,
+            consolas::consola_matar,
             // [219A-3] Sub-barra de la tab Consola: lista + backfill + stdin.
-            conversaciones::consolas_listar,
-            conversaciones::consola_salida,
-            conversaciones::consola_escribir,
+            consolas::consolas_listar,
+            consolas::consola_salida,
+            consolas::consola_escribir,
             // [219A-4] [+ Nueva]: consola propia del operador.
-            conversaciones::consola_crear,
-            conversaciones::archivar_conversaciones_proyecto,
-            conversaciones::eliminar_conversaciones_proyecto,
+            consolas::consola_crear,
+            crud::archivar_conversaciones_proyecto,
+            crud::eliminar_conversaciones_proyecto,
             sesion::proveedores_disponibles,
             sesion::config_leer,
             sesion::config_guardar,

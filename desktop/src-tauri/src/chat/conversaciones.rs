@@ -1,29 +1,21 @@
 //! Comandos CRUD de conversaciones del desktop.
 //!
 //! [Partición limite-lineas/god-object] Los comandos viven por dominio:
-//! - `crud.rs`: crear/listar/cargar/renombrar/archivar/eliminar (+ proyecto)
-//!   con `CargaConversacion` y `panel_poner_conversacion`.
-//! - `consolas.rs`: `consola_matar/listar/salida/escribir/crear`.
-//! - `rewind.rs`: `rewind_conversacion`, `restaurar_archivos_tramo`,
-//!   `cambios_archivo`, `rechazar_cambio`.
-//! Este fichero conserva los helpers de panel (los usan `turno.rs`,
-//! `sesion.rs` y `main.rs`) y re-exporta los comandos para no cambiar las
-//! rutas `conversaciones::…` registradas en `main.rs`.
+//! Comandos por dominio: `crud.rs` (crear/listar/cargar/renombrar/archivar/
+//! eliminar, con `CargaConversacion` y `panel_poner_conversacion`),
+//! `consolas.rs` (`consola_matar/listar/salida/escribir/crear`) y `rewind.rs`
+//! (`rewind_conversacion`, `restaurar_archivos_tramo`, `cambios_archivo`,
+//! `rechazar_cambio`). Este fichero conserva los helpers de panel (los usan
+//! `turno.rs`, `sesion.rs`, `crud.rs`, `rewind.rs` y `main.rs`).
+//!
+//! [08AA-2] Sin re-exports de comandos: `generate_handler!` resuelve
+//! `__cmd__*` en el módulo donde vive `#[tauri::command]` (`crud`, `rewind`,
+//! `consolas`); re-exportar la fn no arrastra el wrapper (E0603). El handler
+//! de `main.rs` usa las rutas de definición; los nombres de comando del
+//! front no cambian.
 
 // [109A-6] El módulo vive en `chat/`: `super` ya no es la raíz del crate.
 use crate::*;
-
-pub(crate) use super::consolas::{
-    consola_crear, consola_escribir, consola_matar, consola_salida, consolas_listar,
-};
-pub(crate) use super::crud::{
-    archivar_conversacion, archivar_conversaciones_proyecto, cargar_conversacion,
-    conversacion_nueva, eliminar_conversacion, eliminar_conversaciones_proyecto,
-    listar_conversaciones, renombrar_conversacion,
-};
-pub(crate) use super::rewind::{
-    cambios_archivo, rechazar_cambio, restaurar_archivos_tramo, rewind_conversacion,
-};
 
 /// [069A-7] Conversación actual de un panel. `Ok(None)` = el panel está en
 /// borrador (sin conversación creada todavía); `Err` = panel inexistente.

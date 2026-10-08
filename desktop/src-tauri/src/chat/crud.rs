@@ -124,12 +124,12 @@ pub(crate) struct UsoTurnoPersistido {
 /// [20-09-2026] Uso real de un turno con su ancla temporal (para que el front
 /// lo ancle a los mensajes de ESE turno en vez de pintar solo el último pie).
 #[derive(serde::Serialize)]
-struct UsoTurnoPorTurno {
-    turno_en: String,
-    provider: String,
-    modelo: String,
-    tokens_prompt: u32,
-    tokens_complecion: u32,
+pub(crate) struct UsoTurnoPorTurno {
+    pub(crate) turno_en: String,
+    pub(crate) provider: String,
+    pub(crate) modelo: String,
+    pub(crate) tokens_prompt: u32,
+    pub(crate) tokens_complecion: u32,
 }
 
 /// [20-09-2026] Usos de todos los turnos de una conversación (ordenados por
