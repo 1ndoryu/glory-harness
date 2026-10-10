@@ -55,6 +55,11 @@ Siguiente en la serie de 6 pedidos: 129A-9 (129A-11 HECHO 07-10, gate PASS).
 
 ## Tareas pendientes
 
+- [ ] **10AA-1 — Refactor y auditoría de rendimiento (re-planificado 10-10; planificado, sin ejecutar)**:
+      código cambió desde 13-09 (139A-8 resolvió R2/R4/S3–S5). Estado: R1, R5–R8 y S1/S2 parciales; R9–R12,
+      S6, S11, S12, S15 abiertos. Plan `Agente/planes/plan-refactor-rendimiento-2026-10-10.md`. Espera D1
+      (coordinar con 119A-7 F2 en `tool.rs`/`runtime/`) y D2 (Sentinel en mantenimiento). F0 línea base listo al aprobar.
+
 - [x] **08AA-1 — Corte de consola 08-10: 56 `todo-prosa` + 1 `todo-pendiente` + ISP + `rustls`** (HECHO 08-10,
       commit `cd3826c`, push OK): reformulación neutra de la prosa (raíz: `\b` ASCII parte `método`; `todo` =
       "todo lo demás" en español; `tool \`todo\`` → `ListaTodo`); `context.rs:1028` era prosa, no tarea (sin Plan
@@ -889,6 +894,8 @@ Siguiente en la serie de 6 pedidos: 129A-9 (129A-11 HECHO 07-10, gate PASS).
 
 ## Planes activos
 
+- `Agente/planes/plan-refactor-rendimiento-2026-10-10.md` (10AA-1) —
+  **planificado, sin ejecutar**: refactor SOLID y rendimiento sobre el código de hoy; F0 línea base al aprobar.
 - `Agente/planes/plan-209A-1-consola-lateral-2026-09-20.md` (209A-1) —
   **activo**: consola lateral con visor de ejecuciones en vivo + topes
   anti-fuga; próximo paso F1 (streaming backend).
