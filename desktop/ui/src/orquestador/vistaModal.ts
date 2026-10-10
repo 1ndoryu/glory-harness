@@ -58,13 +58,17 @@ export interface VistaModalEntorno {
   usaTauri: boolean;
 }
 
-/** Acciones de persistencia y vista delegadas al orquestador. */
-export interface VistaModalAcciones {
+/** Persistencia de configuración y proyecto delegada al orquestador. */
+export interface VistaModalConfiguracion {
   sincronizarPanelMeta: () => void;
   aplicarTema: (tema: Tema) => void;
   configGuardar: (id: string, valor: string) => Promise<void>;
   configGuardarModelo: (nuevo: ModeloSeleccionado) => Promise<void>;
   guardarProyecto: (nombre: string, ruta: string) => Promise<void>;
+}
+
+/** Acciones de los paneles de memoria y proveedores. */
+export interface VistaModalPaneles {
   /** [109A-3] Acciones del panel "Memorias" (ámbito = proyecto activo). El
    * aviso lo aporta el modal desde `avisar`, así que no viaja aquí. */
   memoria: Omit<MemoriasDeps, 'avisar'>;
@@ -72,11 +76,19 @@ export interface VistaModalAcciones {
    * misma superficie en Tauri y web). El resto de deps del panel
    * (catálogo, modelo actual, aviso) las pone el modal. */
   proveedoresVivo: () => Promise<ProveedorInfo[]>;
+}
+
+/** Control del turno activo y del aviso al usuario. */
+export interface VistaModalTurno {
   hayTurno: () => boolean;
   avisar: (texto: string, meta: string, detalle: string) => void;
   ponerBorradorPrincipal: () => void;
   activarPrincipal: () => void;
 }
+
+/** Acciones de persistencia y vista delegadas al orquestador. */
+export interface VistaModalAcciones
+  extends VistaModalConfiguracion, VistaModalPaneles, VistaModalTurno {}
 
 export interface VistaModalDeps
   extends VistaModalEstado, VistaModalEntorno, VistaModalAcciones {}

@@ -58,9 +58,8 @@ Siguiente en la serie de 6 pedidos: 129A-9 (129A-11 HECHO 07-10, gate PASS).
 - [x] **08AA-1 — Corte de consola 08-10: 56 `todo-prosa` + 1 `todo-pendiente` + ISP + `rustls`** (HECHO 08-10,
       commit `cd3826c`, push OK): reformulación neutra de la prosa (raíz: `\b` ASCII parte `método`; `todo` =
       "todo lo demás" en español; `tool \`todo\`` → `ListaTodo`); `context.rs:1028` era prosa, no tarea (sin Plan
-      que extraer); `logs/` (3 logs de sesión) eliminados. Excepción ISP: `VistaModalAcciones` (`vistaModal.ts:62`,
-      11 campos) queda como está —es el contrato mínimo que el orquestador inyecta al modal, partirla rompería
-      el cableado F1–F6—; el hallazgo es `hint`, no bloquea. Gate FULL: coverage/sccache/sentinel PASS
+      que extraer); `logs/` (3 logs de sesión) eliminados. Excepción ISP de `VistaModalAcciones` (11 campos)
+      superada por 09AA-1: partida en sub-interfaces con `extends`, cableado intacto, sentinel 0 hallazgos. Gate FULL: coverage/sccache/sentinel PASS
       (0E/0W/1I); etapa `rust` FAIL por código ajeno (`main.rs` E0603) → tarea 08AA-2. Evidencia en
       `Agente/completados/tareas-2026-10-08.md`.
 - [x] **08AA-2 — Gate `rust` roto en desktop (HECHO 08-10, commit `3a52433`, push OK)**: causa raíz =
