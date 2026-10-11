@@ -17,7 +17,7 @@ html[data-tema='synara'] {
     /* Base del seed */
     --fondo: #0e0e0e;
     --texto: #f5f5f5;
-    --invertido: #0e0e0e;
+    --invertido: var(--fondo);
     --borde: #2b2b2b;
     --superficie-hover: #1c1c1c;
     --superficie-active: #2a2a2a;
@@ -27,9 +27,10 @@ html[data-tema='synara'] {
     --superficie-diff-adicion: #10301d;
     --superficie-diff-eliminacion: #33191a;
     --texto-tenue: #9a9a9a;
-    --foco: #6073cc;
+    --foco: var(--superficie-seleccionada);
+    --velo-modal: rgba(0, 0, 0, 0.65);
     /* Acentos propios del tema (no existen en claro/oscuro) */
-    --accent: #6073cc;
+    --accent: var(--superficie-seleccionada);
     --diff-adicion: #40c977;
     --diff-eliminacion: #fa423e;
     --skill: #ad7bf9;
@@ -101,7 +102,6 @@ html[data-tema='synara'] .campo .selector-modelo.selector-modal {
 
 /* Estados invertidos (hover/primario): claro sobre oscuro, como el tema
    oscuro pero partiendo del ink del seed. */
-html[data-tema='synara'] .barra,
 html[data-tema='synara'] .ajustes-item:hover,
 html[data-tema='synara'] .ajustes-item.sel,
 html[data-tema='synara'] .ajustes-volver:hover,
@@ -142,7 +142,7 @@ html[data-tema='synara'] .pm-play {
 }
 
 html[data-tema='synara'] .modal-fondo {
-    background: rgba(0, 0, 0, 0.65) !important;
+    background: var(--velo-modal) !important;
 }
 
 /* El mensaje conserva solo su contorno también en synara; no es una tarjeta. */
@@ -157,8 +157,7 @@ html[data-tema='synara'] .msg-asis {
 /* El acento marca la selección real cuando su regla NO invierte el color
    (p. ej. la conversación activa de la lista). */
 html[data-tema='synara'] .conv.sel,
-html[data-tema='synara'] .tarea.sel,
-html[data-tema='synara'] .memoria.sel {
+html[data-tema='synara'] .tarea.sel {
     background-color: var(--superficie-seleccionada) !important;
     color: var(--invertido) !important;
 }

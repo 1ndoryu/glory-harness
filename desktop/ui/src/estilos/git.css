@@ -43,7 +43,7 @@
     min-width: 2ch;
     padding: 0 var(--sp-xs);
     border: 1px solid var(--borde);
-    border-radius: 999px;
+    border-radius: var(--radio-pastilla);
     font-size: var(--xs);
     text-align: center;
     opacity: .75;

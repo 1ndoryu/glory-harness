@@ -16,7 +16,8 @@
     "**/target/**",
     "**/.quality-tools/**",
     "**/.quality-reports/**",
-    "**/.sentinel/**"
+    "**/.sentinel/**",
+    "data/**"
   ],
   "scanAllFiles": false,
   "hardcodedDetection": {
