@@ -189,7 +189,7 @@ const entorno = {
   ...process.env,
   CARGO_TARGET_DIR: targetDir,
   RUSTC_WRAPPER: process.env.RUSTC_WRAPPER || 'sccache',
-  SCCACHE_CACHE_SIZE: process.env.SCCACHE_CACHE_SIZE || '5G',
+  SCCACHE_CACHE_SIZE: process.env.SCCACHE_CACHE_SIZE || '10G',
   CARGO_TERM_COLOR: 'never',
   CARGO_TERM_PROGRESS_WHEN: 'never',
 };

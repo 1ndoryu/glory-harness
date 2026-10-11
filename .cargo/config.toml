@@ -1,4 +1,4 @@
-## sccache delante de rustc, acotado a 5 GB (regla del area).
+## sccache delante de rustc, con el tope global de sccache (10 GB, variable de usuario SCCACHE_CACHE_SIZE).
 ##
 ## La purga horaria de C:\tmp borra los targets de compilacion, asi que sin
 ## cache compartida cada rebuild vuelve a compilar desde cero. El gate ejecuta
@@ -8,6 +8,3 @@
 ## (scripts/quality/sentinel-sccache.mjs).
 [build]
 rustc-wrapper = "sccache"
-
-[env]
-SCCACHE_CACHE_SIZE = "5G"
