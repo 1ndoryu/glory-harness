@@ -14,9 +14,9 @@
   "guard": {
     "directCommands": {
       "npmScripts": [],
-      "npxTools": [],
-      "cargoSubcommands": ["check", "clippy", "test", "bench", "fmt"],
-      "tools": ["rustfmt"]
+      "npxTools": ["tsc", "vitest", "eslint"],
+      "cargoSubcommands": ["check", "clippy", "test", "bench", "fmt", "nextest"],
+      "tools": ["rustfmt", "tsc", "vitest", "eslint"]
     }
   },
   "runtime": {
