@@ -892,6 +892,16 @@ Siguiente en la serie de 6 pedidos: 129A-9 (129A-11 HECHO 07-10, gate PASS).
 > (meta editable en caliente, tokens/tiempo del turno, play/pausa real) quedó implementado en
 > §10.5.2 (commit `5dcefe4`) y el boceto se retiró.
 
+- [ ] **11AA-1 — Partir `Entrada` (`entradaTipos.ts`) en sub-interfaces (ISP)**:
+      23 miembros (recuento propio; sentinel `large-interface-isp` cuenta 22). Ya sin `setModeloNombre` ni `getTexto` (1b82fb2).
+      Partir con `extends`, como 09AA-1 (`VistaModalAcciones`), sin disable. Criterio: sentinel sin hallazgos en el archivo y `tsc --noEmit` exit 0 en `desktop/ui`.
+
+- [ ] **11AA-2 — Partir `PanelChatTipos` (`panelChatTipos.ts:23` y `:58`) en sub-interfaces (ISP)**:
+      `:23` tiene 19 miembros propios (sentinel 13); `:58`, 30 (sentinel 25). Sin cambios en 1b82fb2. Partir por responsabilidad con `extends`, sin disable. Criterio: sentinel sin hallazgos en el archivo y `tsc --noEmit` exit 0.
+
+- [ ] **11AA-3 — Recuento de `Transporte` (`realTiposTransporte.ts:89`) sin explicar**:
+      sentinel `large-interface-isp` cuenta 32 miembros; el recuento propio da ~58. Sentinel no está en el repo, así que no se puede reproducir. Antes de partir la interfaz, fijar el criterio de conteo con la versión de sentinel del tablero. Mientras, queda con la excepción de 1b82fb2 (`realTiposTransporte.ts:88`).
+
 ## Planes activos
 
 - `Agente/planes/plan-refactor-rendimiento-2026-10-10.md` (10AA-1) —
