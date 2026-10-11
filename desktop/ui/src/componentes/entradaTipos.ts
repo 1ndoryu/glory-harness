@@ -62,8 +62,6 @@ export interface Entrada {
   medir(): void;
   /** Estado del botón enviar/detener. */
   setCorriendo(corriendo: boolean): void;
-  /** Nombre del modelo mostrado. No-op en la variante mínima. */
-  setModeloNombre(nombre: string): void;
   /** Modelo mostrado (reemplaza proveedor/modelo/nombre). No-op mínima. */
   setModelo(modelo: ModeloSeleccionado): void;
   /** [039A-1 04-09 H7] Nivel de razonamiento activo ('low'|'medium'|'high').
@@ -88,8 +86,6 @@ export interface Entrada {
   enEdicion(): boolean;
   /** [039A-3 P2] Id del mensaje en edición (`null` si no). */
   edicionId(): string | null;
-  /** [039A-3 P2] Texto actual del textarea (sin recortar). */
-  getTexto(): string;
   /** [039A-3 P6] Actualiza el indicador circular de contexto y su detalle de
    * hover. Con `estado.pct` se pinta el arco (0-100); `null` deja el círculo
    * vacío. El resto de campos alimenta el pequeño menú `.ctx-detalle` que

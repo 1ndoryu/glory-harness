@@ -33,10 +33,6 @@ export interface PanelMeta {
   /** [109A-5 F3] ¿La meta activa está pausada? `reanudar` sobre una meta que
    * corre es un error del dominio: el llamador no debe emitirlo a ciegas. */
   metaPausada(): boolean;
-  /** [039A-1 04-09 H1] Muestra/oculta el panel (modo meta o hay meta). */
-  mostrar(visible: boolean): void;
-  /** ¿Está visible el panel? */
-  visible(): boolean;
 }
 
 export interface PanelMetaOpciones {
@@ -244,13 +240,6 @@ export function montarPanelMeta(opts: PanelMetaOpciones): PanelMeta {
     },
     metaPausada() {
       return logros.pausada();
-    },
-    mostrar(v: boolean) {
-      oculto = !v;
-      pintarVisible();
-    },
-    visible() {
-      return !oculto;
     },
   };
 }

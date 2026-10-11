@@ -290,11 +290,6 @@ export function montarEntrada(opts: EntradaOpciones): Entrada {
       selectorModelo?.setDeshabilitado(v);
       barras.pintarBotonEnviar(corriendo);
     },
-    setModeloNombre(nombre: string) {
-      if (!selectorModelo) return;
-      const m = selectorModelo.getModelo();
-      selectorModelo.setModelo({ ...m, nombre });
-    },
     setModelo(modelo: ModeloSeleccionado) {
       selectorModelo?.setModelo(modelo);
     },
@@ -334,9 +329,6 @@ export function montarEntrada(opts: EntradaOpciones): Entrada {
     },
     edicionId() {
       return barras.edicionId();
-    },
-    getTexto() {
-      return textarea.value;
     },
     setContexto(estado: EstadoContexto) {
       ultimoContexto = estado;

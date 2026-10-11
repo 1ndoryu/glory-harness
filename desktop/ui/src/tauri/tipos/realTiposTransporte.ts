@@ -85,6 +85,7 @@ export interface HooksAdaptador {
 /** [069A-2 F4] Transporte del adaptador: la fuente de los eventos y el
  * destino de los comandos. El render (aplicar/aviso/montar) vive una sola
  * vez en `crearAdaptadorReal`; Tauri IPC y HTTP/SSE solo implementan esto. */
+// sentinel-disable-next-line large-interface-isp — espejo del contrato de transporte: Tauri IPC y HTTP/SSE implementan la misma superficie; partirla duplicaría el contrato (cubierto por adaptadorReal.ts y turnoReal.ts).
 export interface Transporte {
   abrirSesion(opts: OpcionesTurno): Promise<InfoSesion>;
   reconfigurarSesion(opts: OpcionesTurno): Promise<InfoSesion>;

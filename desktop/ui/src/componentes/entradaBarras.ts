@@ -12,6 +12,7 @@ export interface BarrasEntradaDeps {
   textarea: HTMLTextAreaElement;
 }
 
+// sentinel-disable-next-line large-interface-isp — un único consumidor (crearBarrasEntrada en entradaMontaje.ts) implementa casi todos los miembros; partirla no reduce acoplamiento real.
 export interface BarrasEntrada {
   btnEnviar: HTMLButtonElement;
   /** Recalcula la altura del textarea (máx 5 líneas). */
