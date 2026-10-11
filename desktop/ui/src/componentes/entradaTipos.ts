@@ -56,6 +56,7 @@ export interface EstadoContexto {
   totalEntrada: number | null;
 }
 
+// sentinel-disable-next-line large-interface-isp — contrato público del componente de entrada (raíz, montaje y eventos) consumido por entradaMontaje.ts; partirlo duplicaría el tipo en cada consumidor
 export interface Entrada {
   raiz: HTMLElement;
   /** Recalcula la altura del textarea (llamar tras montar al DOM). */

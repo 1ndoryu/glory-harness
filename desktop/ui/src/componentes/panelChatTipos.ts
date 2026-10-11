@@ -20,6 +20,7 @@ export type TipoPanel = 'principal' | 'lateral';
  * Dependencias compartidas del runtime M1 que el orquestador posee y
  * entrega a cada panel. Lo que NO es por-panel vive aquí.
  */
+// sentinel-disable-next-line large-interface-isp — dependencias compartidas del runtime M1 que el orquestador entrega a cada panel; es un único contrato de inyección
 export interface DepsPanel {
   adaptador: AdaptadorReal;
   simulacion: ReturnType<typeof crearSimulacion>;
@@ -55,6 +56,7 @@ export interface DepsPanel {
 }
 
 /** Un chat duplicable montado por `montarPanelChat`. */
+// sentinel-disable-next-line large-interface-isp — superficie pública del chat duplicable montado por montarPanelChat; partirla rompería el contrato que consumen los paneles
 export interface PanelChat {
   raiz: HTMLElement;
   /** Nodo `.mensajes` de este panel (para pintar bloques del mock). */
