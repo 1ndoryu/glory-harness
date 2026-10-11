@@ -10,7 +10,7 @@
   },
   "analyzers": {
     "sentinel": {
-      "version": "0.7.21",
+      "version": "0.7.23",
       "protocolVersion": 1,
       "commit": "efc0c1281628ba664b629fae182191b8ef942cb5",
       "sha256": "c21f4396a1919fb0867bfac58b8d552165a98f81c8f3bdf9c6329f10b7890cea",
