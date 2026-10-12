@@ -1,7 +1,7 @@
 # Brechas del gate — reglas Sentinel nuevas (S7, plan 059A-1)
 
 - **Fecha:** 05-09-2026 · **Área:** glory-harness + glory-sentinel
-- **Base:** plan `Agente/planes/plan-saneamiento-calidad-2026-09-05.md` (S7), defectos
+- **Base:** plan `Agente/planes/completados/plan-saneamiento-calidad-2026-09-05.md` (S7), defectos
   reales vividos en este repo y evidencia del `quality:analyze` del 05-09.
 - **Estado del bump:** glory-sentinel `902c45e` (v0.7.8), repineado en glory-harness
   (`quality-tools.json` + `sentinel.lock.json`), doctor verde, suite 583 passing.

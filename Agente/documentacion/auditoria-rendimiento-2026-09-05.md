@@ -1,6 +1,6 @@
 # Auditoría de rendimiento — glory-harness (S6, 2026-09-05)
 
-Plan: `Agente/planes/plan-saneamiento-calidad-2026-09-05.md` (S6).
+Plan: `Agente/planes/completados/plan-saneamiento-calidad-2026-09-05.md` (S6).
 Método: instrumentación corta, micro-benchmark puntual en la TUI y revisión de
 los puntos calientes candidatos del checklist. Se corrige **solo lo demostrado**;
 lo que resulta "no problema" queda documentado con evidencia para evitar

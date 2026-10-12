@@ -578,7 +578,7 @@ Siguiente en la serie de 6 pedidos: 129A-9 (129A-11 HECHO 07-10, gate PASS).
       Tauri. La cabecera queda con título + ⋯ (+ × en laterales). Referencia:
       `area-trabajo/synara` (`DesktopWindowControls.tsx`,
       `SidebarHeaderNavigationControls.tsx`, `AppNavigationButtons.tsx`). Plan en
-      `Agente/planes/plan-089A-3-barra-superior-2026-09-08.md`.
+      `Agente/planes/completados/plan-089A-3-barra-superior-2026-09-08.md`.
       **Estado (11-09, medido en el DOM del modo web y luego en la ventana Tauri real):**
       `.barra-superior` es la primera hija de `#app`, mide **38px** de alto y ocupa todo el
       ancho (926px en la ventana de prueba web; 1100px de viewport en Tauri); contiene el
@@ -937,7 +937,7 @@ Siguiente en la serie de 6 pedidos: 129A-9 (129A-11 HECHO 07-10, gate PASS).
   fases F1–F6 y el Bloque A (backend + cableado + panel meta real) están cerrados; los 7
   hallazgos del primer `tauri dev` quedaron corregidos (H1–H7) y el E2E en la ventana
   Tauri real quedó Todo OK con gate 039A-3 PASS.
-- `Agente/planes/plan-glory-harness-ux-turno-2026-09-04.md` (039A-3) — **cerrado 06-09**; el bloque P1–P6, P6b, el backend de contexto y el E2E Tauri real quedaron verificados. El detalle histórico siguiente conserva la evidencia de cada fase.
+- `Agente/planes/completados/plan-glory-harness-ux-turno-2026-09-04.md` (039A-3) — **cerrado 06-09**; el bloque P1–P6, P6b, el backend de contexto y el E2E Tauri real quedaron verificados. El detalle histórico siguiente conserva la evidencia de cada fase.
   (04-09): bloque completo aprobado (P1-P6). P1 (pie de turno + persistir uso/modelo real)
   HECHO (mock + type-check + cargo check). P2 (editar/volver a punto: rewind transaccional por
   `rowid` + menú por mensaje) HECHO (unit + type-check + build + mock; commit `039A-3 (P2)`).
