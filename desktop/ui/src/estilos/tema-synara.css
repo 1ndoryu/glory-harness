@@ -30,10 +30,8 @@ html[data-tema='synara'] {
     --foco: var(--superficie-seleccionada);
     --velo-modal: rgba(0, 0, 0, 0.65);
     /* Acentos propios del tema (no existen en claro/oscuro) */
-    --accent: var(--superficie-seleccionada);
     --diff-adicion: #40c977;
     --diff-eliminacion: #fa423e;
-    --skill: #ad7bf9;
     /* Scrollbar: la base de `scrollbar.css` es de tema claro */
     --scrollbar-thumb: rgba(255, 255, 255, 0.09);
     --scrollbar-thumb-hover: rgba(255, 255, 255, 0.16);

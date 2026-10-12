@@ -37,9 +37,13 @@
     box-sizing: border-box;
 }
 
+/* El ancho lo fija panelFiles.ts en linea (--explorador-ancho); este valor es el
+   de respaldo antes de medir. Va como definicion de variable y no como fallback
+   de var(): VarSense marca los literales dentro de var(). */
 .files-explorador {
+    --explorador-ancho: 42%;
     display: flex;
-    flex: 0 0 42%;
+    flex: 0 0 var(--explorador-ancho);
     flex-direction: column;
     align-self: stretch;
     min-width: 150px;
@@ -179,5 +183,5 @@
 }
 
 @media (max-width: 620px) {
-    .files-explorador { flex-basis: 48%; min-width: 120px; }
+    .files-explorador { --explorador-ancho: 48%; flex-basis: var(--explorador-ancho); min-width: 120px; }
 }

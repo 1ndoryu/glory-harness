@@ -81,7 +81,7 @@ export function montarPanelFiles(opts: OpcionesPanelFiles): PanelFiles {
       if (!arrastrandoGrip) return;
       const rect = contenido.getBoundingClientRect();
       const px = acotarAnchoExplorador(e.clientX - rect.left);
-      explorador.style.flex = `0 0 ${px}px`;
+      explorador.style.setProperty('--explorador-ancho', `${px}px`);
     },
     () => {
       if (!arrastrandoGrip) return;

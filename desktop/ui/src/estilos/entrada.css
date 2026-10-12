@@ -93,7 +93,7 @@
        aquí solo se aplica. El overflow lo conmuta el helper (`hidden`
        mientras crece, `auto` solo al llegar al tope): sin scrollbar fantasma. */
     height: var(--entrada-alto, auto);
-    overflow-y: hidden;
+    overflow-y: var(--entrada-overflow, hidden);
 }
 /* barra de controles bajo el textarea, dentro de la misma caja */
 .entrada .controles {

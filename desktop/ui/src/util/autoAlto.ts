@@ -15,5 +15,5 @@ export function ajustarTextArea(textarea: HTMLTextAreaElement, maxLineas = 5): v
   const desbordado = textarea.scrollHeight > max;
   const alto = desbordado ? max : textarea.scrollHeight + 1;
   textarea.style.setProperty('--entrada-alto', `${alto}px`);
-  textarea.style.overflowY = desbordado ? 'auto' : 'hidden';
+  textarea.style.setProperty('--entrada-overflow', desbordado ? 'auto' : 'hidden');
 }
