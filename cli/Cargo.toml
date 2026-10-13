@@ -27,12 +27,12 @@ uuid = { version = "1", features = ["v4", "serde"] }
 # TUI enriquecida (Fase 5, opción B sobre el híbrido C): bloques por turno,
 # streaming en vivo, tools inline y scroll (estilo opencode-ligero). Se usa
 # solo con `chat --tui`; el REPL lineal sigue siendo el default.
-ratatui = "0.29"
+ratatui = "0.30"
 
 # web_fetch (Bloque 3, F1): cliente HTTP mínimo con rustls (sin openssl).
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
-crossterm = "0.28"
+crossterm = "0.29"
 unicode-width = "0.1"
 
 # [069A-2 F1/F6] Servidor HTTP loopback del modo web (`glory-harness web`):

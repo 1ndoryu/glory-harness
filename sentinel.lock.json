@@ -12,7 +12,7 @@
     "sentinel": {
       "version": "0.7.24",
       "protocolVersion": 1,
-      "commit": "ba6d9c7187477a5f2af83c705d61037235b1fb54",
+      "commit": "f6915105be7c403e912dae1f627b5df393736933",
       "sha256": "ba1baafc6d85b876af2d4fe4436081d500cba2f12a944929f55322ff472551b1",
       "patchSha256": null
     },
