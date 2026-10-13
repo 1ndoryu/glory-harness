@@ -24,6 +24,7 @@
    06-09: cron que ejecuta turnos con entrega durable + diseño de memoria de
    aprendizaje; evidencia en `Agente/completados/tareas-2026-09-06.md`).
    Bloque 3 completo.
+> **Archivado 2026-10-13** en `Agente/planes/completados/`: bloque 3 cerrado; decisiones de §10 registradas. Quedan fuera MCP HTTP/SSE y oauth, LSP y hooks `prompt`/`agent` (ver «Quedan fuera de este bloque»).
 - **IDs sugeridos** para las fases del Bloque 3: `049A-N` (verificar contra
   `Agente/completados/` y `roadmap` antes de asignar).
 
@@ -419,11 +420,11 @@ Cosas que **ninguno de los planes 1–2 cubrió** y que las referencias sí tien
 
 ---
 
-## 9. Bloque 3 recomendado (propuesta — aún NO ejecutada)
+## 9. Bloque 3 recomendado (ejecutado F1–F8, 04/05/06-09)
 
-Prioridad por **valor ÷ esfuerzo** y por dependencias. Cada fase seguirá el flujo de
+Prioridad por **valor ÷ esfuerzo** y por dependencias. Cada fase siguió el flujo de
 los planes 1-2 (checklist propio, tests deterministas, clippy, gate Sentinel,
-commit por fase). Mover a ejecución solo tras aprobación del usuario.
+commit por fase).
 
 ### Fase 1 — `ask_user` + `webfetch` (barato, alto valor inmediato) ✅
 - [x] Tool `ask_user`: pregunta con opciones y respuesta acotada, evento SSE
@@ -637,16 +638,13 @@ notebooks, multi-mensajería (Telegram/Discord), sandbox OS, i18n, media
 
 ---
 
-## 10. Decisiones que necesita el usuario
+## 10. Decisiones (cerradas)
 
-1. **Orden y alcance del Bloque 3**: ¿todas las fases 1–8, o arrancar con 1–3
-   (ask_user/webfetch + MCP + skills/comandos) que son las de mayor valor?
-2. **MCP**: ¿cliente stdio primero (sí) y HTTP/SSE + oauth en fase posterior?
-3. **LSP vs repo map** (Fase 7): mi recomendación es repo map.
-4. **Hooks**: ¿solo `command` + `http` en v1, o también `prompt`/`agent`
-   (verificadores LLM)?
-5. **IA de Tasks**: ¿la memoria de aprendizaje entra en este bloque o queda como
-   diseño para el siguiente?
+1. **Orden y alcance del Bloque 3**: Decidido: fases 1–8 completas (F1–F8 ✅). Se ejecutó el bloque entero, no solo 1–3.
+2. **MCP**: Decidido: cliente stdio en CLI (F2 ✅). HTTP/SSE y oauth quedan fuera de este bloque.
+3. **LSP vs repo map** (Fase 7): Decidido: repo map (opción B, F7 ✅). LSP queda como plugin futuro sin fecha.
+4. **Hooks**: Decidido: `command` y `http` en v1 (F4 ✅). `prompt`/`agent` quedan diferidos.
+5. **IA de Tasks**: Decidido: la memoria de aprendizaje entró en el bloque (069A-4, fases 1–5, 06-09). El diseño de 318A-18 se conserva como referencia.
 
 ## 11. Evidencia (paths de la auditoría inicial)
 
