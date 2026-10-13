@@ -2,7 +2,7 @@
 
 - **Fecha:** 2026-09-06
 - **Área:** `glory-harness` (`cli/src/comandos/web.rs`, `cli/src/servicio/sesion.rs`, `desktop/ui`)
-- **Estado:** pendiente de revisión del usuario — NO implementar hasta aprobación
+- **Estado:** archivado como superado. Su trabajo se completó bajo 069A-2 F2–F6 (2026-09-07); ver `Agente/completados/tareas-2026-09-07.md` y `Agente/completados/tareas-2026-10-12.md`
 - **Plan de arquitectura/contrato (fuente canónica):** `Agente/planes/plan-web-real-069A-2.md` (ID 069A-2)
 - **Rama:** `main`. **Gate:** Sentinel/VarSense en `.quality-tools-harness`.
 
