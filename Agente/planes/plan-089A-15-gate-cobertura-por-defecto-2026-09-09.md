@@ -1,6 +1,6 @@
 # Plan 089A-15 — Gate con cobertura por defecto (nada fuente queda fuera en silencio)
 
-> ID roadmap: **089A-15** · Fecha: 2026-09-09 · Estado: activo (plan, pendiente de aprobación para ejecutar)
+> ID roadmap: **089A-15** · Fecha: 2026-09-09 · Estado: completado. roadmap.md:645 marca 089A-15 [x] con evidencia de coverage PASS (roadmap.md:649-655).
 > Origen: 089A-13 demostró que `desktop/ui/src/**/*.ts` (35 ficheros) y
 > `desktop/src-tauri` en VarSense eran invisibles para el gate desde fase 0.
 > Defecto general: Sentinel confía ciegamente en `includePatterns` y `doctor`

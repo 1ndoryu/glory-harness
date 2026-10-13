@@ -1,6 +1,6 @@
 # Plan 119A-4 — Ajustes estilo Synara: página completa + todas las opciones aplicables
 
-> ID: **119A-4** · Fecha: 2026-09-11 · Estado: **activo (planificado, sin implementar)**.
+> ID: **119A-4** · Fecha: 2026-09-11 · Estado: **en curso. F1 completada 11-09 (plan:105, roadmap.md:242); F2 pendiente de decisión**.
 > Origen: captura del usuario con la página de ajustes de Synara (nav por
 > secciones + buscador + «Back to app»). Pide: (a) listar todas las
 > configuraciones, (b) aplicar en GH todas las que se puedan, (c) que los
