@@ -131,7 +131,7 @@ F4 operará sobre vivas, que sí lo portan); orden de firma
 (viva visible + reapea, desacoplar no mata, tope rechaza 5ª, id desconocido)
 + 3 en core (lista vivas/hechas, lista vacía, tope→ok:false) + registro con
 `comando_lista`. `cargo test --workspace --lib` 519 passed (173 cli + 346
-core) + `clippy -D warnings` en verde. Próximo paso: F3 (UI tab Consola).
+core) + `clippy -D warnings` en verde. Próximo paso (superado): F3 (UI tab Consola).
 F3.1 cerrado 20-09 noche (exploración UI: `abrirTab`, SSE→`aplicarEvento`,
 `onMostrarArchivo`, supresión F1, `EjecutorCliente` en desktop vía
 `SesionComun`).
@@ -149,7 +149,7 @@ notificarTurnoInicioConsola` con la misma máquina `crearSupresionNavegador`
 que F1 (manual abre→olvida, × a mitad de turno→suprime, turno nuevo→reinicia),
 restore + persistencia; `ganchos.ts` `reflejarConsola` + toasts
 abierta/suprimida; `main.ts` cablea hook, `turnoEnCurso` y `alIniciarTurno`.
-`npm run type-check` + `npm run build` en verde. Próximo: F3.3 (enlaces
+`npm run type-check` + `npm run build` en verde. Próximo (superado 13-10): F3.3 (enlaces
 fila/resumen por `consola_id` + botones lista/matar/desacoplar) y F4 (reap).
 F3.3 cerrado 20-09 noche (enlace fila→Consola): `HerramientaViva` gana
 `agregarAccion(etiqueta,icono,onClick)` (receta `aviso-accion`
@@ -193,8 +193,21 @@ el `consola_fin` la congela). VERIFICADO 21-09: `cargo check --workspace
 nuevos `matar_consola_*`, 346 core) + `clippy --workspace --all-targets
 -D warnings` + `npm run type-check` + `npm run build` en verde. Tests
 nuevos: id-desconocido → `{ok:true, matada:false}`; viva real (ping 60 s)
-→ `{ok:true, matada:true}` + proceso muerto. PENDIENTE solo F5 E2E real
-en `:8799` (turno vivo con LLM + verificación de procesos por OS).
+→ `{ok:true, matada:true}` + proceso muerto. PENDIENTE F5 E2E real y F3-resto
+(ver Revisión 13-10) en `:8799` (turno vivo con LLM + verificación de procesos por OS).
+Revisión 13-10 (lectura de código; sin compilar ni ejecutar tests; corrige lo
+anterior): el alcance de F3 del plan (l.21-22, 77-81) no está completo.
+Faltan: botón "abrir terminal" por fila, botón "segundo plano", "cargar más"
+(hoy tope de vista 1000 con contador, `desktop/ui/src/componentes/consolaModelo.ts:58`),
+KB por fila y auto-apertura configurable (hoy fija,
+`desktop/ui/src/orquestador/panelDerecho.ts:228-239`). "Segundo plano" no tiene
+canal UI (no hay `comando_desacoplar`, l.207). F4 cableado: reap en
+`desktop/src-tauri/src/chat/crud.rs:283` y `cli/src/comandos/web/mod.rs:510`.
+F5 sin evidencia (no hay E2E ni `Agente/completados/tareas-2026-09-20.md`).
+Estado real: F1, F2, F4 hechas en código; F3 parcial; F5 pendiente.
+Próximo paso: F3-resto (abrir terminal por fila, cargar más, KB por fila,
+auto-apertura configurable; decidir si "segundo plano" entra o se difiere con
+motivo) y después F5 E2E en `:8799`. Gate Sentinel al cerrar.
 
 ## Correcciones al diseño (lo que el código desmintió)
 - Diseño-3 "el cierre UI invoca `matar`": FALSO hasta F4-resto (no había
