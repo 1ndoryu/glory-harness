@@ -1,6 +1,6 @@
 # Plan 119A-5 — Meta: fix `meta_leer` + tareas fijas y colapsables
 
-> ID: **119A-5** · Fecha: 2026-09-11 · Estado: **activo (F1 implementado y verificado 11-09 — front PASS + Rust vía PASS 119A-3 mismo árbol; pendiente verificación funcional en Tauri + commit; F2–F3 sin implementar)**.
+> ID: **119A-5** · Fecha: 2026-09-11 · Estado: **F3 parcial (tareas-2026-09-12.md:148)**.
 > Origen: reporte del usuario — (a) toast `no se pudo leer la meta:
 > invalid args 'conversacionId' for command 'meta_leer': command meta_leer
 > missing required key conversacionId` al escribir; (b) «empezó una meta sin
@@ -108,8 +108,4 @@ confirmada contra firmas Rust (`turno.rs`, `conversaciones.rs`,
 árbol (cache hit); etapa `rust` cubierta por el PASS 119A-3 (mismo código,
 441 tests) — el gate propio no corre por preflight de disco (ver
 completadas). Evidencia ya en `Agente/completados/tareas-2026-09-11.md`.
-**Siguiente paso:** en `tauri dev` real (pendiente de disco) — enviar
-mensaje sin toast de meta; fijar/pausar/reanudar/lograr/leer meta sin
-error; `/meta` solo-lectura con efecto → commit. F2 y F3
-independientes una vez cerrado F1 (arrancar F1 era el siguiente paso;
-F2/F3 sin implementar).
+**Siguiente paso:** Cerrar F3: distinguir «sin meta» de «meta vacía»

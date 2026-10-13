@@ -1,7 +1,6 @@
 # Plan 119A-3 — Ordenar proyectos e hilos (referencia Paseo)
 
-> ID: **119A-3** · Fecha: 2026-09-11 · Estado: **activo (F1 hilos implementado
-> y gate PASS 11-09; pendiente verificación en `tauri dev` + commit)**.
+> ID: **119A-3** · Fecha: 2026-09-11 · Estado: **F1 hilos implementado, gate PASS 11-09 (tareas-2026-09-11.md:19, 32-34); pendiente verificación en tauri dev y commit**.
 > Origen: segunda captura del usuario (menú `Sort projects` de Paseo):
 > `Sort projects`: Last user message · Created at · Manual (✓) /
 > `Sort threads`: Last user message (✓) · Created at.
@@ -102,7 +101,4 @@ sin drag; Sort projects = F2–F4). Cambios:
   `limite-lineas` desapareció tras la extracción).
   Reporte: `.quality-reports/check/119A-3/latest.md`.
 
-**Siguiente paso:** verificación en ventana `tauri dev` real (pendiente de
-disco: la pasada consumió ~2,2 GB, quedan 6,06 GB) → commit + evidencia en
-`Agente/completados/tareas-2026-09-11.md` (evidencia ya registrada).
-Orden respecto a 119A-2: independiente.
+**Siguiente paso:** Verificar F1 en tauri dev y commitear; después F2 (proyectos por actividad)

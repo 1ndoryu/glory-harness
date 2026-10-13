@@ -246,7 +246,7 @@ glory-harness, + casos ➕/➖ de la auditoría en tests. Escalera de degradaci�
 
 ## Estado
 
-- rev.2 (14-09): corregido tras reto (H1–H11). Pendiente de ejecución desde F0.
+- cerrado: HECHO 14-09 (roadmap.md:170; tareas-2026-09-14.md:69)
 - IDs: `[149A-1]` (sin colisión en sentinel; verificar en varsense al empezar F3).
 - Versiones: sentinel `0.7.11` única (F1+F2, 10 reglas); varsense `2.2.2`
   (F3, 4 reglas + 1 opción). Total: **14 reglas + 1 opción de severidad**.

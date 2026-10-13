@@ -1,6 +1,6 @@
 # Plan 119A-6 — Automatizaciones estilo Synara + nav temporal sin Agentes/Flujo/Complementos
 
-> ID: **119A-6** · Fecha: 2026-09-11 · Estado: **activo (F1 ejecutado 11-09; F2–F5 planificados)**.
+> ID: **119A-6** · Fecha: 2026-09-11 · Estado: **F1 y F2 hechos 11-09 (tareas-2026-09-11.md:1022-1042); F3-F5 planificados**.
 > Origen: pide copiar el sistema de automatización de Synara a GH y ocultar
 > temporalmente Agentes, Flujo y Complementos del menú.
 
@@ -104,10 +104,7 @@ también la forma normalizada validando el DOW de la clase
 (`cron_desde_hora_o_cron`) + test de roundtrip
 `texto_parse_redondo_en_todas_las_clases`.
 
-**Siguiente paso:** evidencia en
-`Agente/completados/tareas-2026-09-11.md` → commit F2. Luego 119A-7
-F0/F1. F1 verificado: `tsc --noEmit` EXIT 0 + `vite build` OK el 11-09
-tras ocultar el nav.
+**Siguiente paso:** Ejecutar F3: motor con bucle planificador
 
 ## 7. Reto F2 (11-09, verificado contra el código)
 

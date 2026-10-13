@@ -1,6 +1,6 @@
 # Plan 119A-2 — Menú contextual de proyecto (referencia Paseo)
 
-> ID: **119A-2** · Fecha: 2026-09-11 · Estado: **activo (F1 implementado y verificado 11-09 — front PASS + Rust vía PASS 119A-3 mismo árbol; pendiente verificación funcional en Tauri + commit; F2–F4 sin implementar)**.
+> ID: **119A-2** · Fecha: 2026-09-11 · Estado: **F2-F4 hechos con commits (roadmap.md:223-225; tareas-2026-09-12.md:112-114); pendiente prueba en ventana Tauri real**.
 > Origen: captura del usuario con el menú de proyecto de Paseo (RESTAURANTE):
 > Open in Finder · Open in Kanban · Copy Path · Start dev · Move to space › ·
 > Edit name · Pin project · Archive threads · Delete threads · Remove.
@@ -97,7 +97,7 @@ siguen diferidos (089A-9).
 `orquestador/barraLateral.ts` (backend + resync + aviso visible);
 estilo del input en `estilos/layout.css`. `tsc --noEmit` EXIT 0 +
 `vite build` OK (109 módulos, 1.33s).
-**Siguiente paso:** verificación funcional en ventana `tauri dev` real (clic derecho + cada acción; pendiente de disco) → commit en español con ID (evidencia ya en `Agente/completados/tareas-2026-09-11.md`). Handlers extraídos a `orquestador/barraLateralProyecto.ts` (límite 300 líneas).
+**Siguiente paso:** Probar menú contextual en ventana Tauri real
 **F2 implementado 11-09:** `workspace_revelar` (Tauri, por id, fail-closed si la carpeta falta; registrado en `main.rs`) + `workspaceRevelar` en `Transporte` (invoke Tauri; en web rechaza con aviso) + `revelar` en `sesion.workspaces` + ítem `Open in Finder` primero en el menú + `onRevelarProyecto` en `sidebar.ts`/`barraLateral.ts`/`barraLateralProyecto.ts` (sin resync, no muta estado). `tsc` EXIT 0 + `vite build` OK (111 módulos) + gate `sentinel check 119A-2` PASS (457 tests ok).
 **F3 implementado 11-09:** `fijado INTEGER DEFAULT 0` (CREATE + migración) + `Workspace.fijado` + `workspaces_listar` ordenado (`fijado DESC, creada_en DESC`) + `workspace_fijar` en persistencia/Tauri/CLI (`PATCH /workspaces/:wid` con `{fijado}`, respuesta `fijada`) + ítem `Pin/Unpin project` con marca + `onFijarProyecto` con resync + bloque HTTP extraído a `adaptadores/apiWorkspaces.ts` (límite 300). Test `fijar_ordena_fijados_primero`.
 **F4 implementado 11-09:** `conversaciones_archivar/eliminar_por_workspace` (UPDATE / tx espejo del single, delete devuelve ids para el vault) + test `conversaciones_batch_por_workspace` + comandos Tauri `archivar/eliminar_conversaciones_proyecto` (guard turno + vault + re-anclaje panel) + web `POST .../workspaces/:wid/archivar` y `DELETE .../workspaces/:wid/conversaciones` (con `actual` como el single) + `convArchivar/EliminarProyecto` en las 3 capas front (HTTP en `apiConversaciones.ts` nuevo) + ítems `Archive threads` (un paso) / `Delete threads` (confirmar en dos pasos) + handlers con resync y re-anclaje de paneles. `tsc` + `vite build` OK + gate `sentinel check 119A-2` PASS 12-09 (459 tests ok). Gotcha: `prepare`+`query_map` con `stmt` de vida corta dentro de `tx` no compila (E0597); SELECT previo sobre `conn` y borrados en `tx`.
