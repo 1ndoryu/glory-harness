@@ -76,7 +76,7 @@ Siguiente en la serie de 6 pedidos: 129A-9 (129A-11 HECHO 07-10, gate PASS).
       venía del `pnpm-lock.yaml` obsoleto (07/09, residue scaffolding; manager canónico = npm: node_modules con
       `.package-lock.json`, sin pnpm ni CI) → `git rm` del lock + `pnpm-workspace.yaml`. `#1 medium glib 0.18.5`
       sigue BLOQUEADA: lo pide `gtk 0.18.2` vía `wry 0.55` (cadena linux-only, ni compila en Windows; exige
-      major de tauri/wry). `#2 low lru 0.12.5` CERRADA por 12AA-1 (`ratatui 0.30` + `crossterm 0.29`).
+      major de tauri/wry). Plan: `Agente/planes/plan-migracion-tauri-glib-2026-10-12.md` (F0 hecha 12-10: tauri 2.12.3, tauri-runtime-wry 2.12.1 y wry 0.57.0 siguen con gtk 0.18; **reabrir** cuando wry o tauri-runtime-wry publiquen gtk4; revisión 2026-11-12). `#2 low lru 0.12.5` CERRADA por 12AA-1 (`ratatui 0.30` + `crossterm 0.29`).
       `npm audit` local 0; gate `08AA-3` PASS (rust 530 tests ok).
 - [x] **07AA-1 - Ancho mínimo 460px en paneles (HECHO 07-10)**: `min-width:
       460px` global vía `--panel-ancho-min` en chat principal, lateral y
