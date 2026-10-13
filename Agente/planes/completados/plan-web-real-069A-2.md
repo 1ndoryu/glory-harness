@@ -3,7 +3,7 @@
 - **Fecha:** 2026-09-07 (v3 — revisión tras auditoría `supervisor-thinking`; resincroniza F0/F1 ya ejecutadas, resuelve contradicciones §9/§4.3 y §7, añade auth SSE usable desde navegador a F2 y parte F5 en F5a/F5b)
 - **Área:** `glory-harness` (`core` + `cli` + `desktop/src-tauri` + `desktop/ui`)
 - **Estado:** COMPLETADO CON OBSERVACIONES — F0-F6 y la paridad de meta web quedaron implementadas y verificadas el 07-09; el gate conserva observaciones de diseño SSE y deuda ajena documentada.
-- **Dependencias:** Bloque A Tauri cerrado; `Agente/planes/plan-glory-harness-desktop-2026-09-03.md`; contrato `AgenteEvento`; persistencia SQLite y sesión real existentes.
+- **Dependencias:** Bloque A Tauri cerrado; `Agente/planes/completados/plan-glory-harness-desktop-2026-09-03.md`; contrato `AgenteEvento`; persistencia SQLite y sesión real existentes.
 - **Relación con otros planes:** no modifica el alcance del navegador interno `069A-1`; reutiliza el runtime y la persistencia ya validados por Tauri. 069A-1 aportó además el fix SSE/axum-0.8 usado por F1 (commit `5f67e82`).
 
 ## 0. Decisión resumida

@@ -7,7 +7,7 @@
 
 ## Contexto y fuentes
 
-- **Plan maestro de escritorio (UI real + backend Tauri):** `Agente/planes/plan-glory-harness-desktop-2026-09-03.md`
+- **Plan maestro de escritorio (UI real + backend Tauri):** `Agente/planes/completados/plan-glory-harness-desktop-2026-09-03.md`
   (ID **039A-1**). Contiene fases F1–F6 y el anexo **§10**: mapa de cada acción de la UI →
   backend real (nueva conversación, acciones del agente, selector de modelo real,
   configuraciones, cancelar ejecución, modos) + bloqueos de integración B1–B4.
@@ -916,7 +916,7 @@ Siguiente en la serie de 6 pedidos: 129A-9 (129A-11 HECHO 07-10, gate PASS).
   **cerrado 08-09** con Fases 0–4 completadas; watcher y PTY diferidos (ponytail).
 - `Agente/planes/completados/plan-deuda-cero-079A-1-2026-09-07.md` (079A-1) —
   **cerrado 07-09** con gate full PASS 0/0/0.
-- `Agente/planes/plan-web-real-069A-2.md` (069A-2) — **cerrado con observaciones**:
+- `Agente/planes/completados/plan-web-real-069A-2.md` (069A-2) — **cerrado con observaciones**:
   implementación y meta web verificadas contra el binario reconstruido; quedan
   observaciones del gate y no se reabre F5b sin nueva justificación.
 
@@ -933,7 +933,7 @@ Siguiente en la serie de 6 pedidos: 129A-9 (129A-11 HECHO 07-10, gate PASS).
   Gate con `coverage`/`sentinel` PASS en el baseline de 10 warnings preexistentes.
 - `Agente/planes/completados/plan-109A-memorias-por-proyecto-2026-09-10.md` (109A-2/109A-3) —
   **cerrado 10-09**.
-- `Agente/planes/plan-glory-harness-desktop-2026-09-03.md` (039A-1) — **cerrado 06-09**; las
+- `Agente/planes/completados/plan-glory-harness-desktop-2026-09-03.md` (039A-1) — **cerrado 06-09**; las
   fases F1–F6 y el Bloque A (backend + cableado + panel meta real) están cerrados; los 7
   hallazgos del primer `tauri dev` quedaron corregidos (H1–H7) y el E2E en la ventana
   Tauri real quedó Todo OK con gate 039A-3 PASS.
