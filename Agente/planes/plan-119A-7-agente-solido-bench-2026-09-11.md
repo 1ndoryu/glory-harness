@@ -1,7 +1,7 @@
 # Plan 119A-7 — Agente sólido: auditoría del núcleo vs referencias + bench propio
 
 > ID: **119A-7** · Fecha: 2026-09-11 (profundizado con `supervisor-thinking`)
-> · Estado: **activo (planificado, sin implementar)**.
+> · Estado: **activo. F0 hecha (32bf6b6, adbe5b3); F1 hecha (839e16e); F2 en curso: run 1 10/11, run 2 inválido; F3–F5 pendientes. Credencial de modelo resuelta (glory/auto).**
 > Origen: pide revisar qué falta antes de probar GH para que funcione bien —
 > no la interfaz, sino el entorno donde trabajan las IAs (la inteligencia):
 > comparar con todas las referencias de principio a fin y medir con
@@ -130,7 +130,7 @@ fixtures que se vuelven obsoletos; referencias que divergen de su upstream.
 ## 9. Estado y siguiente paso
 
 - F0-jaula cerrada 11-09 (commit `32bf6b6`, gate PASS 446 ok).
-- F1 evidencia completada 11-09 (§11); pendiente gate F1 + commit.
+- F1 evidencia completada 11-09 (§11); gate PASS y commit 839e16e.
 - F0-protocolo ×3 cerrado 11-09: 3/3 PASS con modelo real
   (`--provider glory --modelo auto`, binario debug construido con
   `cargo build -p glory-harness`, 22 s, sccache). Humo: `dir` en jaula +
@@ -179,8 +179,10 @@ fixtures que se vuelven obsoletos; referencias que divergen de su upstream.
   afirmó "no existe herramienta de deshacer" e improvisó con `del`
   (en run 1 `/undo` SÍ revirtió el patch) — gap undo expuesto
   confirmado, candidato F4 nº6.
-- Siguiente: F2 runs 2-3 válidos con driver adaptativo (o flag de
-  jaula si se decide implementarlo); criterio sigue 11/11 en ≥2/3.
+- Siguiente: implementar driver adaptativo o flag de jaula; luego F2
+  runs 2-3 válidos (criterio 11/11 en ≥2/3). Decidido: run 1 cuenta (es una
+  ejecución válida del protocolo; descartarla sería cherry-picking), así que
+  runs 2 y 3 deben pasar 11/11.
 
 ## 10. Reto F0/F1 (11-09, verificado contra el código)
 
@@ -222,8 +224,7 @@ Sin código tocado; correcciones al plan antes de arrancar:
 Veredicto del reto: el plan sigue **VIABLE**; F0/F1 arrancan con los
 puntos 1–6 incorporados. Sin cambios en fases, gate ni DoD.
 
-**SIGUIENTE ACCIÓN:** arrancar F0 (jaula + protocolo) y luego F1 (matriz,
-solo lectura). **AUTORIZADO PARA EJECUTAR** el ciclo local (investigar,
+**SIGUIENTE ACCIÓN:** F2 (ver Estado; F0 y F1 ya hechas). **AUTORIZADO PARA EJECUTAR** el ciclo local (investigar,
 editar, probar, gate, commit) cuando se arranque; nunca deploy ni
 escrituras fuera de la jaula; SSH prohibido siempre.
 
