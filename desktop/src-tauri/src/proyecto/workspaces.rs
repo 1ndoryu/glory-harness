@@ -244,11 +244,26 @@ pub(crate) fn workspace_revelar(estado: State<'_, Estado>, id: String) -> Result
     if !std::path::Path::new(&ws.ruta).is_dir() {
         return Err("la carpeta del proyecto ya no existe".to_string());
     }
-    std::process::Command::new("explorer")
-        .arg(&ws.ruta)
-        .spawn()
-        .map_err(|e| e.to_string())?;
+    revelar_en_sistema(&ws.ruta).map_err(|e| e.to_string())?;
     Ok(())
+}
+
+/// Windows: el Explorador de archivos.
+#[cfg(windows)]
+fn revelar_en_sistema(ruta: &str) -> Result<(), std::io::Error> {
+    std::process::Command::new("explorer")
+        .arg(ruta)
+        .spawn()
+        .map(|_| ())
+}
+
+/// Linux: el gestor de archivos por defecto (`xdg-open`).
+#[cfg(not(windows))]
+fn revelar_en_sistema(ruta: &str) -> Result<(), std::io::Error> {
+    std::process::Command::new("xdg-open")
+        .arg(ruta)
+        .spawn()
+        .map(|_| ())
 }
 
 /// [119A-2 F3] Fija o suelta un proyecto propio (los fijados van primero

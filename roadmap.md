@@ -1033,3 +1033,13 @@ Siguiente en la serie de 6 pedidos: 129A-9 (129A-11 HECHO 07-10, gate PASS).
 - **Seguridad deps JS 08AA (2026-10-08)**: `desktop/ui` `npm audit` 1 HIGH → 0
   (source-map-js 1.2.1→1.2.2, patch no-breaking vía `npm audit fix`; lado cargo ya en
   rustls 0.23.45 con 0 vulns). Evidencia: `type-check` (tsc) PASS.
+- **El desktop corre nativo en la VPS 89 (16-10, tarea 16AA-1)**: el shell Tauri
+  ya compila y arranca en Linux (port de `Cargo.toml` + `filesystem.rs` +
+  `workspaces.rs`; `navegador/` ya tenía stubs `not(windows)`). Se corre en modo
+  dev con `scripts/desktop-correr-linux.sh` (tmux `gh-desktop`, `DISPLAY=:1`,
+  target `/var/tmp/glory-target/glory-harness_linux`, sccache en `~/bin`, render
+  por software) y se usa por el escritorio VNC de la 89. **No está dado de alta
+  en `registro.json`**: `Arranque up` exige puerto que escuche y responda 200 y
+  una GUI no tiene puerto. Runbook y trampas:
+  `Agente/documentacion/desktop-en-vps89-2026-10-16.md`. El navegador interno
+  WebView2 sigue siendo exclusivo de Windows.

@@ -11,7 +11,9 @@ use std::cmp::Ordering;
 use std::fs;
 use std::path::{Path, PathBuf};
 use tauri::State;
+#[cfg(windows)]
 use windows::core::PCWSTR;
+#[cfg(windows)]
 use windows::Win32::UI::Shell::{SHOpenWithDialog, OAIF_EXEC, OPENASINFO};
 
 // [109A-6] El módulo vive en `archivos/`: `super` ya no es la raíz del crate.
@@ -123,6 +125,13 @@ pub(crate) fn workspace_abrir_con(
     let sesion = sesion_actual(&estado).map_err(|e| ErrorFilesystem::new("sesion", e, None))?;
     let raiz = raiz_activa(&sesion)?;
     let archivo = resolver_existente(&raiz, &ruta_relativa, false)?;
+    abrir_con_sistema(&archivo)
+        .map_err(|e| ErrorFilesystem::new("apertura_no_disponible", e, Some(&archivo)))
+}
+
+/// Windows: diálogo nativo "Abrir con" (`SHOpenWithDialog`).
+#[cfg(windows)]
+fn abrir_con_sistema(archivo: &Path) -> Result<(), String> {
     let ruta = archivo
         .to_string_lossy()
         .encode_utf16()
@@ -133,8 +142,17 @@ pub(crate) fn workspace_abrir_con(
         pcszClass: PCWSTR::null(),
         oaifInFlags: OAIF_EXEC,
     };
-    unsafe { SHOpenWithDialog(None, &info) }
-        .map_err(|e| ErrorFilesystem::new("apertura_no_disponible", e.to_string(), Some(&archivo)))
+    unsafe { SHOpenWithDialog(None, &info) }.map_err(|e| e.to_string())
+}
+
+/// Linux: no hay diálogo "Abrir con" nativo; se lanza el handler por defecto.
+#[cfg(not(windows))]
+fn abrir_con_sistema(archivo: &Path) -> Result<(), String> {
+    std::process::Command::new("xdg-open")
+        .arg(archivo)
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]

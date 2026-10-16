@@ -22,6 +22,11 @@ uuid = { version = "1", features = ["v4", "serde"] }
 chrono = "0.4"
 rfd = "0.15"
 sha2 = "0.10"
+
+# Solo Windows: `webview2-com` y `windows` son crates Win32 y `webview2-com`
+# no compila fuera de Windows (usa `windows::Win32::…` sin `cfg`). El resto del
+# shell tiene ramas `not(windows)` en `navegador/` y en `archivos/filesystem.rs`.
+[target.'cfg(windows)'.dependencies]
 webview2-com = "0.38.2"
 windows = { version = "0.61.3", features = [
   "Win32_Foundation",
