@@ -1,0 +1,4 @@
+# Los .sh se ejecutan en Linux (taller 89), no en el laptop. Con
+# `core.autocrlf=true` git les ponía CRLF en el working tree y Mutagen replicaba
+# ese CRLF a la 89, donde bash fallaba con "set: pipefail: invalid option name".
+*.sh text eol=lf
