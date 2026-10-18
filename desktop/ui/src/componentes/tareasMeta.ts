@@ -9,7 +9,7 @@
 import type { EstadoTareaVisible, TareaVisible } from '../dominio/tipos';
 import { el, vaciar } from '../util/dom';
 import { icono } from './iconos';
-import '../estilos/tareasMeta.css';
+import '../estilos/meta/tareasMeta.css';
 
 /** Marca textual por estado (espejo de `EstadoTodo::marca` en el núcleo). */
 const MARCAS: Record<EstadoTareaVisible, string> = {

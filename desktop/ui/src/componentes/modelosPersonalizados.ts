@@ -10,7 +10,7 @@
  * "Memorias" y "Proveedores").
  */
 
-import '../estilos/modelosPersonalizados.css';
+import '../estilos/comun/modelosPersonalizados.css';
 
 import type { ProveedorModelo } from '../dominio/tipos';
 import {

@@ -14,7 +14,7 @@
  */
 import { el, vaciar } from '../util/dom';
 import { icono } from './iconos';
-import '../estilos/subagentes.css';
+import '../estilos/paneles/subagentes.css';
 
 /** Estado visible de un subagente (espejo del ciclo inicio→fin del núcleo). */
 export type EstadoSubagente = 'trabajando' | 'fin' | 'parcial' | 'fallido';

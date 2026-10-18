@@ -9,7 +9,7 @@
  * custom y se monta como sección sin grupos (igual que "Memorias").
  */
 
-import '../estilos/proveedores.css';
+import '../estilos/comun/proveedores.css';
 
 import type { ModeloSeleccionado, ProveedorModelo } from '../dominio/tipos';
 import type { ProveedorInfo } from '../tauri/real';

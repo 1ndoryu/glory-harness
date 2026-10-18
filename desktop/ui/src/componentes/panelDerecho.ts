@@ -5,8 +5,8 @@
 // propio cierra solo su pestaña. Sin tabs muestra el inicio: pantalla de
 // opciones centrada al estilo `RightDockLauncher` de Synara.
 
-import '../estilos/tabs.css';
-import '../estilos/launcher.css';
+import '../estilos/base/tabs.css';
+import '../estilos/base/launcher.css';
 import { cerrarMenuActual, abrirMenuContextual, crearItemMenu } from './menu';
 import { icono } from './iconos';
 import { el } from '../util/dom';

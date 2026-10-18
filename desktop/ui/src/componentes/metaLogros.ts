@@ -15,7 +15,7 @@ import type { EstadoMetaVisible } from '../dominio/tipos';
 import { el, vaciar } from '../util/dom';
 import { formatearDuracion, formatearSegundos } from '../util/duracion';
 import { icono, ponerIcono } from './iconos';
-import '../estilos/metaLogros.css';
+import '../estilos/meta/metaLogros.css';
 
 /** Contexto de turno que decide si se puede cerrar la meta. */
 export interface ContextoMeta {

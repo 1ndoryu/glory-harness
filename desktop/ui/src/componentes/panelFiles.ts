@@ -2,7 +2,7 @@
 // cubren detección de cambios externos. Files sigue el patrón de Synara:
 // un único pane con árbol a la izquierda y preview del archivo a la derecha.
 
-import '../estilos/files.css';
+import '../estilos/paneles/files.css';
 import { icono } from './iconos';
 import { el, marcarCuerpo } from '../util/dom';
 import { crearBotonIcono } from './chromePanel';

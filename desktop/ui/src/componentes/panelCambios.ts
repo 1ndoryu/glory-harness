@@ -1,4 +1,4 @@
-import '../estilos/cambios.css';
+import '../estilos/paneles/cambios.css';
 import { el } from '../util/dom';
 import { dentroDePrefijo, normalizarRutaArea } from '../util/reposUtil';
 import { crearVueloUnico, type ModoVuelo } from '../util/vueloUnico';

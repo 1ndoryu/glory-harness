@@ -1,7 +1,7 @@
 /* Visor del log de un turno [129A-4 F4]: overlay de solo lectura con los
  * eventos persistidos por el backend (`log_turno`). Reutiliza la base de
  * diálogo `.modal-fondo`/`.modal` (modal.css); las clases `log-turno-*` son
- * propias (estilos/logTurno.css). Cada fila es un `<details>` con hora, tipo
+ * propias (estilos/paneles/logTurno.css). Cada fila es un `<details>` con hora, tipo
  * y JSON íntegro; "copiar" deja el JSON del evento en el portapapeles. */
 
 import { cuerpo, el } from '../util/dom';

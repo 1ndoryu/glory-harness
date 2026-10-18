@@ -1,4 +1,4 @@
-import '../estilos/toast.css';
+import '../estilos/comun/toast.css';
 import { el } from '../util/dom';
 
 export interface ToastGlobal {

@@ -14,7 +14,7 @@ import { el, vaciar } from '../util/dom';
 import { altoVentana, anchoVentana } from '../plataforma/ventana';
 import { icono } from './iconos';
 import { uso, type ComandoSlash } from '../dominio/comandosSlash';
-import '../estilos/menuComandos.css';
+import '../estilos/comun/menuComandos.css';
 
 export interface MenuComandosDeps {
   /** Elemento al que se ancla (el textarea del compositor). */

@@ -1,4 +1,4 @@
-import '../estilos/git.css';
+import '../estilos/paneles/git.css';
 import { el } from '../util/dom';
 import {
   pintarDiff,

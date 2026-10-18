@@ -10,7 +10,7 @@
  * así que este panel es custom y se monta como sección del modal.
  */
 
-import '../estilos/memorias.css';
+import '../estilos/meta/memorias.css';
 
 import type {
   ListadoMemoria,

@@ -12,7 +12,7 @@
 // seleccionar); `sincronizar` trae vivas+recientes del backend (backfill al
 // abrir la tab); las vivas aceptan stdin en la caja del visor.
 
-import '../estilos/consola.css';
+import '../estilos/paneles/consola.css';
 import { el } from '../util/dom';
 import { crearBotonIcono, crearCabeceraPanel } from './chromePanel';
 import type { EntradaConsola, LineaConsola, OpcionesPanelConsola, PanelConsola } from './consolaModelo';

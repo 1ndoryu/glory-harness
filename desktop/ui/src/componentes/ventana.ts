@@ -11,7 +11,7 @@
 // no romper el bundle web; si falla, los botones quedan
 // deshabilitados y el arrastre avisa por `onError` (nunca mudos).
 
-import '../estilos/ventana.css';
+import '../estilos/base/ventana.css';
 import { icono } from './iconos';
 import { el } from '../util/dom';
 

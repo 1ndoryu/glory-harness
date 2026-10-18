@@ -3,13 +3,13 @@
 // el suyo a mano (`.barra-boton`, `.cab-boton`, `.tab-mas`,
 // `.consola-accion`, `.files-accion`, `.nav-btn`) con tamaños y hovers
 // distintos que ningún tool del gate detectaba. El canon es el de la barra:
-// 28×28 sin borde, icono Lucide 16px (ver `estilos/botonIcono.css`).
+// 28×28 sin borde, icono Lucide 16px (ver `estilos/comun/botonIcono.css`).
 // Los botones de CONTENIDO (filas, `.btn` de texto, `.tab-x` dentro de tabs,
 // controles del composer, botonera de ventana nativa) NO usan este
 // constructor: tienen affordances propias (ver spec en
 // `Agente/documentacion/ui-chrome-botones-titulos-2026-09-21.md`).
 
-import '../estilos/botonIcono.css';
+import '../estilos/comun/botonIcono.css';
 import type { IconoNombre } from '../dominio/tipos';
 import { icono } from './iconos';
 import { el } from '../util/dom';

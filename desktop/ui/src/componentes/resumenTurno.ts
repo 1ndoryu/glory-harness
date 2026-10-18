@@ -12,7 +12,7 @@
  * resultados: nada nuevo que aprender ni que mantener dos veces. */
 import { el } from '../util/dom';
 import { icono } from './iconos';
-import '../estilos/git.css';
+import '../estilos/paneles/git.css';
 import type { CambioArchivoPanel } from './panelChatTipos';
 import {
   contarDiff,

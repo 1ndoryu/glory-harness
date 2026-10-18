@@ -12,7 +12,7 @@
 // Atrás/adelante replican la navegación por historial de Synara (089A-5) y
 // arrancan deshabilitados hasta la primera navegación.
 
-import '../estilos/barraSuperior.css';
+import '../estilos/base/barraSuperior.css';
 import { esEntornoTauri } from '../tauri/real';
 import { icono } from './iconos';
 import { el } from '../util/dom';

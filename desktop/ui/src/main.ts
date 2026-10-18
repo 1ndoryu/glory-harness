@@ -19,7 +19,7 @@ import { crearSesionVista } from './orquestador/sesionVista';
 import { crearGestorPaneles } from './orquestador/paneles';
 import { montarVistaBarra } from './orquestador/vistaBarra';
 import { montarVistaMeta } from './orquestador/vistaMeta';
-import './estilos/modalProyecto.css';
+import './estilos/comun/modalProyecto.css';
 import type { PanelChat } from './componentes/panelChat';
 import type { FichaSubagente } from './componentes/subagentesViva';
 import { montarNavegadorVista } from './orquestador/navegadorVista';

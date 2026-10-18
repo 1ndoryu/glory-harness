@@ -5,7 +5,7 @@
 // orquestador con `registrarCambio`). Sin backend disponible los
 // errores se muestran en el propio visor, nunca en silencio.
 
-import '../estilos/visor.css';
+import '../estilos/paneles/visor.css';
 import { el } from '../util/dom';
 
 export interface CambioArchivo {
