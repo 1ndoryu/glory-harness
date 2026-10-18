@@ -27,7 +27,6 @@
 .btn.cambios-boton {
     font-size: var(--xs);
     padding: 2px var(--sp-sm);
-    cursor: pointer;
 }
 
 .btn.cambios-boton:disabled {
