@@ -14,8 +14,8 @@
 }
 
 :root {
-    --fondo: #ffffff;
-    --texto: #000000;
+    --fondo: var(--blanco-fijo);
+    --texto: var(--negro-fijo);
     --invertido: var(--fondo);
     --borde: var(--texto);
     --superficie-hover: #eeeeee;
