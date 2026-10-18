@@ -42,7 +42,6 @@
     font-size: var(--sm);
     text-align: left;
     padding: 6px var(--sp-sm);
-    cursor: pointer;
     white-space: nowrap;
 }
 .entrada .selector-workspace-boton:hover {

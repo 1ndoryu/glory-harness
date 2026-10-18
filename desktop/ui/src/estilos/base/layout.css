@@ -54,7 +54,6 @@
     font-family: inherit;
     font-size: var(--sm);
     padding: var(--sp-xs) var(--sp-md);
-    cursor: pointer;
     text-align: left;
     opacity: 0.8;
     overflow: hidden;
@@ -187,7 +186,6 @@
     color: var(--texto);
     font: inherit;
     text-align: left;
-    cursor: pointer;
     opacity: 0.55;
     overflow: hidden;
 }
@@ -225,7 +223,6 @@
     color: var(--texto);
     border: none;
     padding: var(--sp-xs) var(--sp-md);
-    cursor: pointer;
     display: flex;
     align-items: center;
     gap: var(--sp-sm);

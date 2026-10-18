@@ -65,7 +65,6 @@
     color: var(--texto);
     font-family: inherit;
     padding: var(--sp-xs) var(--sp-sm);
-    cursor: pointer;
 }
 
 .proyecto-modal-boton-ruta:hover {

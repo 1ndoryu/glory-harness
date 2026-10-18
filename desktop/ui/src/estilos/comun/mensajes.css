@@ -199,6 +199,12 @@
 }
 
 /* ---------- Botones genéricos ---------- */
+/* Puntero de todo boton nativo: un solo sitio en vez de un `cursor` por bloque.
+   `:where` deja la especificidad en 0, asi que cualquier regla de clase lo sigue ganando. */
+:where(button:not(:disabled)) {
+    cursor: pointer;
+}
+
 .btn {
     border: 1px solid var(--negro-fijo);
     background: var(--fondo);
