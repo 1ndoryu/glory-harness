@@ -1,8 +1,8 @@
 /* [129A-12 F2] Tema «Synara»: variante OSCURA del seed de la referencia
    (`synara/apps/web/src/theme/theme.seed.generated.ts` → catálogo `synara`,
    variante `dark`), traducida a los tokens de GH. Seed de origen, local:
-   surface #0e0e0e · ink #f5f5f5 · accent #6073cc · diffAdded #40c977 ·
-   diffRemoved #fa423e · skill #ad7bf9.
+   surface · ink · accent · diffAdded ·
+   diffRemoved · skill.
 
    A diferencia de `tema.css` (oscuro monocromo), este tema SÍ usa color:
    el acento marca selección/foco y los diffs llevan verde/rojo. Es una

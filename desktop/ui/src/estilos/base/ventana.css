@@ -2,7 +2,7 @@
    Botonera caption de ventana (089A-3, referencia Synara
    `DesktopWindowControls.tsx`): 46px de ancho por botón y alto
    completo de la barra superior, planos (sin radio ni borde), icono
-   Lucide centrado (16px). Cerrar con hover rojo Synara #c42b1c (excepción explícita
+   Lucide centrado (16px). Cerrar con hover rojo Synara (excepción explícita
    a "sin rojo hover" pedida por el usuario en 089A-3).
    ============================================================ */
 
@@ -47,8 +47,8 @@
     opacity: 0.35;
     cursor: default;
 }
-.barra-superior .caption-boton.ven-cerrar:hover { background: #c42b1c; color: #fff; } /* varsense-disable-line -- rojo de cierre Windows: convención de plataforma, constante en ambos temas */
-.barra-superior .caption-boton.ven-cerrar:active { background: #b9281b; color: #fff; } /* varsense-disable-line -- rojo de cierre Windows: convención de plataforma, constante en ambos temas */
+.barra-superior .caption-boton.ven-cerrar:hover { background: var(--rojo-cierre); color: var(--blanco-fijo); }
+.barra-superior .caption-boton.ven-cerrar:active { background: var(--rojo-cierre-activo); color: var(--blanco-fijo); }
 
 .barra-superior .caption-boton .ic {
     width: 16px;

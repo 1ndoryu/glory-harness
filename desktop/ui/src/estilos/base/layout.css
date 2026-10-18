@@ -116,7 +116,7 @@
     font-size: var(--sm);
     background: var(--fondo);
     color: var(--texto);
-    border: 1px solid #000;
+    border: 1px solid var(--negro-fijo);
     padding: 1px 2px;
 }
 .conv.archivada { opacity: 0.35; }
@@ -209,7 +209,7 @@
     font-size: var(--sm);
     background: var(--fondo);
     color: var(--texto);
-    border: 1px solid #000;
+    border: 1px solid var(--negro-fijo);
     padding: 1px 2px;
 }
 .conv-proyecto { padding-left: var(--sp-md); }
@@ -326,7 +326,7 @@
     font-size: var(--sm);
     background: var(--fondo);
     color: var(--texto);
-    border: 1px solid #000;
+    border: 1px solid var(--negro-fijo);
     padding: 1px 2px;
     flex: 1;
     min-width: 0;

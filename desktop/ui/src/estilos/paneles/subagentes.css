@@ -15,7 +15,7 @@
   border: 1px solid var(--borde);
   background: var(--fondo);
   font-size: var(--sm);
-  box-shadow: 0 2px 8px rgb(0 0 0 / 0.15);
+  box-shadow: 0 2px 8px var(--sombra-suave);
 }
 
 .subagentes[hidden] { display: none; }

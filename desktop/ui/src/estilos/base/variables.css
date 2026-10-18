@@ -48,6 +48,17 @@
     --panel-ancho-min: 460px;
     --entrada-reserva: 200px;
     --navegador-ancho: 480px;
+    /* Colores fijos que no cambian con el tema: negro de los bordes (en claro es el texto), blanco y rojo de cierre de la ventana, y velos translúcidos. */
+    --negro-fijo: #000000;
+    --blanco-fijo: #ffffff;
+    --rojo-cierre: #c42b1c;
+    --rojo-cierre-activo: #b9281b;
+    --tinta-velo-fuerte: #00000022;
+    --tinta-velo-media: #00000011;
+    --tinta-velo-suave: #00000008;
+    --velo-modal-claro: rgba(255, 255, 255, 0.55);
+    --velo-scrim: rgba(0, 0, 0, 0.65);
+    --sombra-suave: rgb(0 0 0 / 0.15);
 }
 
 html { font-size: 13px; } /* varsense-disable-line -- raíz base de la escala: define 1rem, no existe token previo */

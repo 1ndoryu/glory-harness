@@ -16,7 +16,7 @@
     font-size: var(--md);
     font-weight: 600;
     padding-bottom: var(--sp-xs);
-    border-bottom: 1px solid #000;
+    border-bottom: 1px solid var(--negro-fijo);
 }
 
 .log-turno-cerrar {
@@ -52,7 +52,7 @@
 }
 
 .log-turno-evento {
-    border-bottom: 1px solid #00000022;
+    border-bottom: 1px solid var(--tinta-velo-fuerte);
     font-size: var(--sm);
 }
 
@@ -77,7 +77,7 @@
     flex: none;
     font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
     font-size: var(--xs);
-    background: #00000011; /* varsense-disable-line -- veladura cebra: tinta translúcida independiente del tema */
+    background: var(--tinta-velo-media);
     padding: 1px 6px;
 }
 
@@ -97,7 +97,7 @@
 .log-turno-json {
     margin: 0;
     padding: var(--sp-xs);
-    background: #00000008; /* varsense-disable-line -- veladura cebra: tinta translúcida independiente del tema */
+    background: var(--tinta-velo-suave);
     overflow-x: auto;
     font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
     font-size: var(--xs);

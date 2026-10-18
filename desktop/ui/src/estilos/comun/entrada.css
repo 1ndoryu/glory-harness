@@ -36,7 +36,7 @@
     align-items: center;
     gap: var(--sp-sm);
     background: var(--fondo);
-    border: 1px solid #000;
+    border: 1px solid var(--negro-fijo);
     color: var(--texto);
     font-family: inherit;
     font-size: var(--sm);
@@ -59,7 +59,7 @@
     flex-wrap: wrap;
     align-items: flex-end;
     gap: var(--sp-sm);
-    border: 1px solid #000;
+    border: 1px solid var(--negro-fijo);
     padding: var(--sp-sm);
     background: var(--fondo);
 }
@@ -143,7 +143,7 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    border: 1px solid #000;
+    border: 1px solid var(--negro-fijo);
     background: var(--texto);
     color: var(--invertido);
     cursor: pointer;
@@ -186,12 +186,12 @@
     stroke-linecap: round;
 }
 .entrada .ctx-indicador .ctx-pista {
-    stroke: #000;
+    stroke: var(--negro-fijo);
     opacity: 0.25;
     fill: none;
 }
 .entrada .ctx-indicador .ctx-lleno {
-    stroke: #000;
+    stroke: var(--negro-fijo);
     fill: none;
 }
 .entrada .ctx-indicador:hover { opacity: 1; background: var(--superficie-hover); }
@@ -208,7 +208,7 @@
     position: fixed;
     z-index: 110;
     background: var(--fondo);
-    border: 1px solid #000;
+    border: 1px solid var(--negro-fijo);
     padding: var(--sp-xs) var(--sp-sm);
     font-size: var(--xs);
     line-height: 1.5;
@@ -228,7 +228,7 @@
     opacity: 0.6;
     margin-bottom: 4px;
     padding-bottom: 4px;
-    border-bottom: 1px solid #000;
+    border-bottom: 1px solid var(--negro-fijo);
 }
 .ctx-detalle-fila {
     display: flex;
@@ -246,7 +246,7 @@
     gap: var(--sp-sm);
     flex-basis: 100%;
     padding: 2px 0 var(--sp-xs);
-    border-bottom: 1px solid #000;
+    border-bottom: 1px solid var(--negro-fijo);
     font-size: var(--xs);
     color: var(--texto);
 }
@@ -275,8 +275,8 @@
     position: fixed;
     z-index: 100;
     background: var(--fondo);
-    /* [139A-3] `var(--borde)` en vez de `#000` literal: en oscuro/synara el
-       negro sobre negro era invisible (en claro es idéntico: #000000). */
+    /* [139A-3] `var(--borde)` en vez de `var(--negro-fijo)` literal: en oscuro/synara el
+       negro sobre negro era invisible (en claro es idéntico al negro fijo). */
     border: 1px solid var(--borde);
     /* [179A-2] Menús más compactos: -2px de fuente (token --xs) y menos ancho. */
     min-width: 200px;
@@ -347,7 +347,7 @@
     flex-basis: 100%;
     padding: 2px 0 var(--sp-xs);
     margin-bottom: var(--sp-xs);
-    border-bottom: 1px solid #000;
+    border-bottom: 1px solid var(--negro-fijo);
     font-size: var(--xs);
     color: var(--texto);
     background: var(--fondo);
@@ -364,7 +364,7 @@
     font-size: var(--xs);
     color: var(--texto);
     background: transparent;
-    border: 1px solid #000;
+    border: 1px solid var(--negro-fijo);
     padding: 0 4px;
     cursor: pointer;
     flex: none;
