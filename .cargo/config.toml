@@ -6,7 +6,8 @@
 ## RUSTC_WRAPPER no sobrevive desde el shell: la via que si sobrevive es este
 ## archivo, y es justo lo que comprueba la etapa `sccache` del gate
 ## (scripts/quality/sentinel-sccache.mjs).
-# [10AA-2 F4] Target propio por proyecto: evita que compartan C:\tmp\glory-target\debug.
+# Sin target-dir a propósito: un valor fijo lo comparte entre checkouts (worktrees)
+# y solo existe en el portátil. La VPS (scripts/remoto/rcargo.mjs) pasa
+# CARGO_TARGET_DIR=<CM_TARGET_BASE>/<proyecto>_<rama>, uno por checkout.
 [build]
 rustc-wrapper = "sccache"
-target-dir = "C:/tmp/glory-target/glory-harness"
