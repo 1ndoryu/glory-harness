@@ -45,6 +45,7 @@
         "excludePatterns": [
           "**/target/**",
           "**/node_modules/**",
+          "**/dist/**",
           "**/.quality-tools/**",
           "**/.quality-reports/**",
           "**/.sentinel/**",
