@@ -10,3 +10,6 @@ desktop/ui/dist/
 node_modules/
 data/referencias-cli/
 .glory-harness/
+
+# Documentacion local del area (planes, tareas, lecciones): fuera del repo publico.
+Agente/
