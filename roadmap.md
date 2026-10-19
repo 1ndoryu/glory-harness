@@ -1,1045 +1,159 @@
 # Roadmap — glory-harness
 
-> Proyecto: Glory Harness (Rust workspace: `core` + `cli` + `desktop/src-tauri`; UI Tauri 2 +
-> TypeScript vanilla en `desktop/ui`). Rama primaria: `main`. Gate: Sentinel/VarSense en
-> `.quality-tools-harness` (autoridad de cierre). Convención documental del área: planes en
-> `Agente/planes/`, evidencia en `Agente/completados/`, documentación en `Agente/documentacion/`.
+Glory Harness es un workspace Rust (`core` + `cli` + `desktop/src-tauri`) con UI Tauri 2 y
+TypeScript vanilla en `desktop/ui`; rama primaria `main` y gate de cierre Sentinel/VarSense en
+`.quality-tools-harness`. Se compila siempre en `C:\tmp` (`CARGO_TARGET_DIR`); desde 16-10 (16AA-1)
+el desktop corre nativo en la VPS 89 (`scripts/desktop-correr-linux.sh`, tmux `gh-desktop`), y el
+navegador interno WebView2 sigue siendo exclusivo de Windows.
 
-## Contexto y fuentes
+## Siguiente bloque
 
-- **Plan maestro de escritorio (UI real + backend Tauri):** `Agente/planes/completados/plan-glory-harness-desktop-2026-09-03.md`
-  (ID **039A-1**). Contiene fases F1–F6 y el anexo **§10**: mapa de cada acción de la UI →
-  backend real (nueva conversación, acciones del agente, selector de modelo real,
-  configuraciones, cancelar ejecución, modos) + bloqueos de integración B1–B4.
-- Estado por fase (detalle en el plan 039A-1): F1 ☑ · F2 ☑ (318A-16) · F3 ☑ · F4 ☑ (backend, 17 comandos) · F5 ☑ (cableado) · F6 ☑ (bundle). Correcciones del primer `tauri dev` (H1–H7) cerradas el 04-09 (ver `Agente/completados/tareas-2026-09-04.md`).
+- [ ] `129A-9` — **Configuraciones Synara: inventario, decisión y réplica.**
+  F1 tabla panel→opciones→equivalente GH en el plan §F1 (decisión del usuario registrada 12-09:
+  replicar todo, empezar por Perfil y tema; tema ya existe en 129A-12). F2 bloques Perfil +
+  Proveedores HECHOS 07-10 (`nombre_perfil` + `handle_perfil`; lista ESTADO read-only con vivo +
+  `en uso` + `recargar`; F3 smoke vivo de Proveedores HECHO con Chromium headless: 4 filas
+  `disponible · 1 clave(s)`, `4 de 4`, 0 errores JS; F3 de Perfil pendiente). F2 bloque Modelos
+  HECHO 07-10 (modelos personalizados por proveedor: editor con validación + fusión en el selector +
+  persistencia `modelos_personalizados`; sin "generation defaults": GH no genera commits/PRs; F3
+  smoke vivo HECHO con Chromium headless: añadir/duplicado/vacío/selector/quitar/recarga, 0 errores
+  JS). Mostrar el nombre en barra/sidebar = bloque posterior. 12 paneles inventariados.
+  Plan: `Agente/planes/plan-129A-9-configs-synara-2026-09-12.md`.
 
-## Siguiente bloque ejecutable
+## Pendientes
 
-**129A-11 — Subagentes fijos + conversación de solo lectura.**
-Cierres 12-09: 129A-7 (panel "Cambios", gate PASS), 129A-12 (tema Synara,
-gate PASS), 129A-8 (resumen fin turno, gate PASS) y 129A-10 (agente controla
-GH, gate PASS) — evidencia en `Agente/completados/tareas-2026-09-12.md`.
-Siguiente en la serie de 6 pedidos: 129A-9 (129A-11 HECHO 07-10, gate PASS).
-(119A-2 queda pendiente solo de prueba en ventana Tauri real; ver Tareas.)
-Últimos cierres 11-09: 069A-6 (aviso de iframe bloqueado, a petición), 089A-5
-(historial de la app, gate PASS), Bloque B (pasada visual Tauri), 089A-16
-(re-gate `unwrap-produccion-rs` PASS), 119A-1 (preflight de disco del gate) y
-109A-10 (falsos positivos del medidor, ver abajo).
+- [ ] `10AA-1` — **Refactor y auditoría de rendimiento (re-planificado 10-10; planificado, sin ejecutar).**
+  Código cambió desde 13-09 (139A-8 resolvió R2/R4/S3–S5). Estado: R1, R5–R8 y S1/S2 parciales;
+  R9–R12, S6, S11, S12, S15 abiertos. Plan `Agente/planes/plan-refactor-rendimiento-2026-10-10.md`.
+  Espera D1 (coordinar con 119A-7 F2 en `tool.rs`/`runtime/`) y D2 (Sentinel en mantenimiento).
+  F0 línea base listo al aprobar.
 
-> **Bloque B — Pasada visual Tauri: HECHO 11-09.** `cargo build -p glory-harness-desktop` =
-> EXIT 0 en 7m08s (`glory-harness-desktop.exe` en `C:\tmp\glory-target\glory-harness\debug\`),
-> ejecutado con `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9222` para
-> inspeccionar la ventana real. Evidencia y números en
-> `Agente/completados/tareas-2026-09-11.md` (entrada de verificación Tauri). Prerrequisito de
-> disco confirmado: el shell añade ~2,3 GB al corte CLI/core; ver
-> `Agente/prevencion/prevencion-disco-lleno-build-2026-09-11.md`.
+- [ ] `139A-9` — **Repo único no minimizable en Cambios.**
+  Pedido 13-09: con un solo repositorio la sección no debe poder minimizarse. `fijarFijo` en
+  `seccionColapsable` (fija+expandida, sin marcador, sin foco, click inerte, cabecera con cursor
+  normal vía `git-seccion-fija`); el gestor fija la única visible (vale 1 descubierto o 2 con 1
+  visible); el vault sigue colapsable. Sin plan (bloque único). Evidencia: `tsc` EXIT 0; fixture
+  headless 16/16 + 24/24 139A-6. LISTA sin gate: no se fuerza (refactorización 139A-8 en curso rompe
+  4 tests `cli/infra`; mis ficheros son solo front y no tocan Rust).
 
-> **Prerrequisito de disco (11-09, 07:45): `C:` tiene 0,65 GB libres y el
-> gate exige 8 GB (`sentinel check 119A-3` → `rust` SETUP ERROR antes de
-> compilar). `C:\tmp` (13 GB) es casi todo `glory-target`: glory-harness
-> 6,67 · glory_backend_main 3,74 · coolify-manager 2,58. Borrar los dos
-> cachés hermanos libera ~6,3 GB (quedan ~7 GB: aún bajo el mínimo sin
-> override `GLORY_MIN_FREE_GB` o más limpieza). Sin otro volumen con
-> espacio. Pendiente decisión del usuario antes de reintentar el gate Rust
-> o el `tauri dev` de verificación (119A-2/119A-3/119A-5). La pasada del
-> gate consumió ~2,2 GB (quedan 6,06 GB): los gates propios de 119A-2/119A-5
-> no corren su etapa `rust`, pero quedan cubiertos por el PASS 119A-3 sobre
-> el mismo árbol (front stages con cache hit, sin deriva). Hueco del gate:
-> `sentinel check` no propaga `GLORY_MIN_FREE_GB` a la etapa `rust`
-> (probado con 5 y 6) — tarea para el dueño del gate.
+- [ ] `149A-2` — **Precisión reglas 149A-1 (11 FP workspace + allowlist).**
+  Derivado del gap H11-(b) registrado en plan §F4: path-join sin proveniencia (6 FP:
+  literales/UUID/slug/hash/`.git`), sqlite sin análisis de dependencias (5 FP, `join!` imposible);
+  cablear `htmlProductoresPermitidos` con `mensajesUtil.ts`; evaluar 2 TP-bajo
+  (`content_search.rs:399`, `skill.rs:183`). Propiedad: repos dueño.
 
-> Bloque A (UI real con Tauri, F1-F6 + primer `tauri dev` en debug): cerrado 06-09 — E2E en la
-> ventana real (enviar → streaming, tools → aprobación → `turno-fin`, P3 rewind, P5/P6) +
-> `cargo test --workspace` (284 verdes) + gate 039A-3 PASS. Evidencia en
-> `Agente/completados/tareas-2026-09-06.md` (commits `5dcefe4`, `d013e03`).
+- [ ] `129A-3` — **Aprobación: el turno pausa y continúa (sin reenvío) + tarjeta fija + toast Windows.**
+  Rediseño 12-09 tras verificación real fallida (la tarjeta se duplicaba, el `mkdir` no se creaba y
+  volvía a preguntar tras aceptar). Causa raíz: el backend OMITE la tool al pedir aprobación y el
+  turno sigue/cierra; el frente reenviaba el mensaje como turno nuevo y la segunda vuelta volvía a
+  pedir en vez de ejecutar. Nuevo diseño (paridad con `chat_comandos.rs:159-237`): el turno PAUSA en
+  la petición (oneshot por `id` en el registry) y CONTINÚA al responder — aprobar/siempre ejecuta la
+  tool pendiente en el MISMO turno, rechazar informa denegación al modelo sin reintento; cero
+  reenvíos. `responder_aprobacion` despierta al que espera Y aplica token/regla; modo espera opt-in
+  solo desktop (`abrir_sesion_interna`), CLI/TUI/daemon/web conservan entre-turnos; `tx.closed()` +
+  `cancelar_turno` (abort) como salidas de la espera. Frente: se elimina
+  `orquestador/reenvioAprobacion.ts` + hook `onAprobacionResuelta` + `requiereReenvioTrasAprobar`; la
+  tarjeta queda en el slot y pasa a "aprobada · ejecutando…" hasta el `ToolResult`. Toca Rust
+  (`tool.rs` esperas, `permisos.rs` + `subagente.rs` espera, `main.rs` desktop opt-in) + frente
+  (`aplicarEventos`, `turnoReal`, `realTipos`, `transporteTauri`, `main.ts`, `vistaMeta`). HECHO 07-10:
+  fix web `desperto` (endpoint devuelve `{ok,desperto}`, front propaga valor real) + gate PASS 530
+  tests + smoke real V1 (aprobar → tarjeta "el turno ya terminó", follow-up crea `smoke-129A-3`
+  vacío) y V2 (rechazar → `{desperto:false}`, sin ejecución, follow-up informa denegación sin
+  reintento). Plan archivado: `Agente/planes/completados/plan-129A-3-aprobacion-pausa-continua-2026-10-07.md`.
 
-## Tareas pendientes
+- [ ] `119A-2` — **Menú contextual de proyecto.**
+  F1–F4 implementados y verificados (F2 commit 1878d17, F3 commit 7c77b5e, F4 commit 41cd31b con
+  gate PASS 12-09 de 459 tests ok): clic derecho en cada grupo de `Proyectos` con Open in Finder,
+  Copy Path, Edit name, Pin project, Archive/Delete threads y Remove (Kanban eliminada; Start dev y
+  Spaces diferidas por decisión del usuario). F1 (Copy Path / Edit name / Remove) con `tsc` + `vite`
+  verificados. Plan: `Agente/planes/plan-119A-2-menu-contextual-proyecto-2026-09-11.md`.
 
-- [ ] **10AA-1 — Refactor y auditoría de rendimiento (re-planificado 10-10; planificado, sin ejecutar)**:
-      código cambió desde 13-09 (139A-8 resolvió R2/R4/S3–S5). Estado: R1, R5–R8 y S1/S2 parciales; R9–R12,
-      S6, S11, S12, S15 abiertos. Plan `Agente/planes/plan-refactor-rendimiento-2026-10-10.md`. Espera D1
-      (coordinar con 119A-7 F2 en `tool.rs`/`runtime/`) y D2 (Sentinel en mantenimiento). F0 línea base listo al aprobar.
+- [ ] `119A-3` — **Ordenar proyectos e hilos.**
+  F1 hilos implementado y gate PASS 11-09 (441 tests OK; pendiente verificación `tauri dev` +
+  commit): botón de orden en la cabecera `Proyectos` (actividad / creación, con
+  `sidebarOrdenHilos.ts`); backend expone `creada_en` en las 3 queries + constructor desktop (los 4
+  literales `InfoConversacion` actualizados). Front `tsc` + `vite` OK. Extra:
+  `onRenombrarProyecto/onEliminarProyecto` movidos a `orquestador/barraLateralProyecto.ts`. F2–F4
+  abiertos. Plan: `Agente/planes/plan-119A-3-orden-proyectos-2026-09-11.md`.
 
-- [x] **08AA-1 — Corte de consola 08-10: 56 `todo-prosa` + 1 `todo-pendiente` + ISP + `rustls`** (HECHO 08-10,
-      commit `cd3826c`, push OK): reformulación neutra de la prosa (raíz: `\b` ASCII parte `método`; `todo` =
-      "todo lo demás" en español; `tool \`todo\`` → `ListaTodo`); `context.rs:1028` era prosa, no tarea (sin Plan
-      que extraer); `logs/` (3 logs de sesión) eliminados. Excepción ISP de `VistaModalAcciones` (11 campos)
-      superada por 09AA-1: partida en sub-interfaces con `extends`, cableado intacto, sentinel 0 hallazgos. Gate FULL: coverage/sccache/sentinel PASS
-      (0E/0W/1I); etapa `rust` FAIL por código ajeno (`main.rs` E0603) → tarea 08AA-2. Evidencia en
-      `Agente/completados/tareas-2026-10-08.md`.
-- [x] **08AA-2 — Gate `rust` roto en desktop (HECHO 08-10, commit `3a52433`, push OK)**: causa raíz =
-      `generate_handler!` resuelve `__cmd__*` en el módulo de definición; `main.rs` usa `crud::`/`rewind::`/
-      `consolas::`, sin re-exports en `conversaciones.rs`; `UsoTurnoPorTurno` + campos a `pub(crate)`; cabecera
-      a párrafo corrido (sin lista → 0 `doc_lazy_continuation`). Gate FULL PASS: coverage/sccache/sentinel
-      (cached) + rust 207.6s 0E/0W/1I, tests 544 ok. Evidencia en `Agente/completados/tareas-2026-10-08.md`.
-- [x] **08AA-3 — 3 vulns GitHub tras push `3a52433` (HECHO 08-10, gate FULL PASS)**: `#4 high source-map-js`
-      venía del `pnpm-lock.yaml` obsoleto (07/09, residue scaffolding; manager canónico = npm: node_modules con
-      `.package-lock.json`, sin pnpm ni CI) → `git rm` del lock + `pnpm-workspace.yaml`. `#1 medium glib 0.18.5`
-      sigue BLOQUEADA: lo pide `gtk 0.18.2` vía `wry 0.55` (cadena linux-only, ni compila en Windows; exige
-      major de tauri/wry). Plan: `Agente/planes/plan-migracion-tauri-glib-2026-10-12.md` (F0 hecha 12-10: tauri 2.12.3, tauri-runtime-wry 2.12.1 y wry 0.57.0 siguen con gtk 0.18; **reabrir** cuando wry o tauri-runtime-wry publiquen gtk4; revisión 2026-11-12). `#2 low lru 0.12.5` CERRADA por 12AA-1 (`ratatui 0.30` + `crossterm 0.29`).
-      `npm audit` local 0; gate `08AA-3` PASS (rust 530 tests ok).
-- [x] **07AA-1 - Ancho mínimo 460px en paneles (HECHO 07-10)**: `min-width:
-      460px` global vía `--panel-ancho-min` en chat principal, lateral y
-      panel derecho; sidebar excluida (sigue 260px, grip 180-260 intacto);
-      tope del grip `panelDerechoAncho.ts` 260 → 460. `tsc` + `vite build`
-      OK; verificado en navegador (`chatMin/panelMin: 460px`).
-      Gate `--full` FAIL solo por clippy ajeno en
-      `core/.../turno/mod.rs` (refactor concurrente de otro agente, 23
-      ficheros tocados); sin hallazgos en mis ficheros.
-      F2 (07-10, mismo día): el mínimo dejaba la fila comprimirse bajo la
-      suma (#paneles colapsaba a 140px, el chat lo desbordaba y solapaba el
-      panel; el texto de consola se salía de la caja) → `#paneles` con el
-      mismo piso 460, `#cuerpo` con scroll horizontal, y `min-width: 0` en
-      `.panel-consola/.consola-visor/.consola-comando`. Verificado en
-      navegador: chat dentro de #paneles, página sin desborde, cero
-      derrames internos.
-      F3 (07-10, mismo día): con el scroll de F2 el grip quedó despegado
-      del borde del panel (anclado a `#cuerpo` con `right: var(...)`; medido
-      en mitad del chat, x=396 con el panel en 720, y sin handler bajo el
-      cursor el arrastre real no respondía) → grip montado DENTRO de
-      `.panel-derecho` (`position: relative` + grip `absolute; left: 0` con
-      `translateX(-50%)`) y cálculo de arrastre consciente del scroll
-      (`rect.left + scrollWidth - scrollLeft - clientX`). Verificado en
-      navegador: grip dentro del panel y pegado a su borde, el arrastre
-      sigue al cursor y frena en 460; preferencia restaurada a 932 tras
-      las pruebas.
-      F4 (07-10, mismo día): con el panel al máximo la fila desbordaba
-      (932+460+260 > viewport) y las tabs —subidas a la barra superior por
-      el refactor ajeno en curso, ancladas a la derecha del viewport— se
-      despegaban del panel (anclado a la fila con scroll): al arrastrar se
-      movían a ritmos distintos. Fix solo en `panelDerechoAncho.ts`: el
-      tope pasa del 70% a "lo que cabe" (`viewport - sidebar - 460` del
-      chat; con viewport enano se vuelve al 70% y la fila desplaza).
-      Verificado en navegador (viewport 1332): al recargar 932→612, fila
-      sin scroll y tabs clavadas sobre el panel en todo el recorrido
-      (máx 612, mín 460); preferencia dejada en 612.
+- [ ] `119A-4` — **Ajustes estilo Synara: página completa (F1 hecho; F2–F4 abiertos).**
+  Los ajustes dejan de ser un modal y pasan a página a pantalla completa (`ajustes-pagina` fija,
+  `← Volver a la app`, buscador con índice normalizado sin tildes, nav lateral, `Escape` cierra con
+  buscador vacío), reutilizando `formulario.ts` sin cambios y con la misma interfaz
+  `ModalConfiguracion`; `modal.css` conserva solo la base que usa el modal "Nuevo proyecto"; reglas
+  de formulario mudadas a `estilos/ajustes.css`; `tema.css` actualizado. `tsc` EXIT 0 + `vite` OK +
+  gate 119A-4 PASS (rust 430 ok) + smoke `tauri dev`. Comprobación visual fina pendiente del usuario.
+  Plan: `Agente/planes/plan-119A-4-ajustes-pagina-synara-2026-09-11.md`.
 
-- [x] **129A-8 — Resumen de cambios al finalizar el turno (estilo Synara)**
-      (HECHO 12-09, gate PASS): bloque `N cambios: X creados · Y modificados`
-      + filas con enlace "ver en Cambios" tras el pie (vivo y recarga);
-      `PanelCambios.revelar(ruta)` abre carpeta + diff vivo. Sin cambios = sin
-      bloque. 17/17 asserts CDP + captura Synara.
-- [ ] **129A-9 — Configuraciones Synara: inventario, decisión y réplica**
-      (quiere replicar casi todas): F1 tabla panel→opciones→equivalente GH
-      en el plan §F1 (decisión del usuario registrada 12-09: replicar todo,
-       empezar por Perfil y tema; tema ya existe en 129A-12); **F2 bloques
-       Perfil + Proveedores HECHOS 07-10** (`nombre_perfil` + `handle_perfil`;
-       lista ESTADO read-only con vivo + `en uso` + `recargar`; F3 smoke
-       vivo de Proveedores HECHO con Chromium headless: 4 filas
-       `disponible · 1 clave(s)`, `4 de 4`, 0 errores JS; F3 de Perfil
-       pendiente; **F2 bloque Modelos HECHO 07-10** (modelos personalizados
-       por proveedor: editor con validación + fusión en el selector +
-       persistencia `modelos_personalizados`; sin "generation defaults":
-       GH no genera commits/PRs; F3 smoke vivo HECHO con Chromium
-       headless: añadir/duplicado/vacío/selector/quitar/recarga, 0 errores
-       JS); mostrar el nombre en barra/sidebar =
-       bloque posterior). 12 paneles inventariados.
-      Plan: `Agente/planes/plan-129A-9-configs-synara-2026-09-12.md`.
-- [x] **129A-10 — El agente controla GH (navegador + abrir archivos)**
-      (HECHO 12-09, gate PASS): F1 auto-apertura de la tab en abrir/navegar
-      ok sin robar foco + supresión si el usuario la cierra en turno;
-      F2 tool `mostrar_archivo` (lectura libre, respeta secretos) →
-      evento `mostrar_archivo` → Files + preview + toast. Smokes CDP
-      6/6 (F1) + 8/8 (F2); `tsc` EXIT 0; `vite build` OK; rust 471 tests ok.
-- [x] **129A-11 — Subagentes fijos + conversación de solo lectura**
-      (HECHO 07-10, gate PASS): tarjeta flotante única por subagente
-      (perfil+instrucción+estado, colapsable, con resumen al terminar);
-      click → ficha de solo lectura en tab `subagente:<n>` sin caja de
-      envío. Smoke real con hijo explorar (fin parcial + resumen
-      HECHO/PENDIENTE/SIGUIENTE PASO). Evidencia en
-      `Agente/completados/tareas-2026-10-07.md`.
-      Plan: `Agente/planes/completados/plan-129A-11-subagentes-fijos-2026-09-12.md`.
-- [x] **139A-7 — Cambios eficiente: sin re-análisis al cambiar de conversación**
-      (HECHO 13-09, gate PASS): F1 pipeline partido git/vault
-      (cambiar de conversación no toca git) + single-flight con trailing +
-      pintar-solo-si-cambió (firmas por repo y por conv); F2 comando batch
-      `workspace_git_resumen` (1 IPC en vez de 1+N) con fallback al fan-out.
-       Evidencia: fixture headless antes `repos=6 estado=8 listar=4 resumen=0`
-      6/6 → después `repos=0 estado=0 listar=5 resumen=3` 6/6 (el +1 es el
-      trailing del burst) + 24/24 139A-6 sin regresión; `tsc` EXIT 0.
-       Plan: `Agente/planes/plan-139A-7-cambios-eficiente-2026-09-13.md`.
-- [ ] **139A-9 — Repo único no minimizable en Cambios** (pedido 13-09: con un
-      solo repositorio la sección no debe poder minimizarse): `fijarFijo` en
-      `seccionColapsable` (fija+expandida, sin marcador, sin foco, click
-      inerte, cabecera con cursor normal vía `git-seccion-fija`); el gestor
-      fija la única visible (vale 1 descubierto o 2 con 1 visible); el vault
-      sigue colapsable. Sin plan (bloque único).
-      Evidencia: `tsc` EXIT 0; fixture headless 16/16 + 24/24 139A-6.
-      LISTA sin gate: no se fuerza (refactorización 139A-8 en curso rompe 4
-      tests `cli/infra`; mis ficheros son solo front y no tocan Rust).
-- [x] **149A-1 — 14 reglas del gate en repos dueño + 1 opción + subir pin**
-      (HECHO 14-09, cierra el loop F7n/139A-8): sentinel `v0.7.11` (9 reglas
-      Rust + `html-sin-origen-declarado`, batch149A1 36 tests, mocha 667) +
-      `v0.7.12` (split mecánico modal por `check-core` rojo heredado in-base)
-      + varsense `v2.2.2` (F3.11/F3.13/F3.15 + opción F3.12, coreContracts 55).
-      F4: pin `0.7.12/66a2113` + `2.2.2/7dac28e`, doctor listo (gate true,
-      issues []), analyze 30 findings (10E/15W/5H) triados: 11 FP + 2 TP-bajo
-      (solo-lectura, sin fix en F4) + 1 productor legítimo a allowlist.
-      Evidencia en plan §F4 y `Agente/completados/tareas-2026-09-14.md`.
-      Plan: `Agente/planes/plan-149A-1-reglas-gate-duenos-2026-09-14.md`.
-- [ ] **149A-2 — Precisión reglas 149A-1 (11 FP workspace + allowlist)**
-      (derivado del gap H11-(b) registrado en plan §F4): path-join sin
-      proveniencia (6 FP: literales/UUID/slug/hash/`.git`), sqlite sin análisis
-      de dependencias (5 FP, `join!` imposible); cablear
-      `htmlProductoresPermitidos` con `mensajesUtil.ts`; evaluar 2 TP-bajo
-      (`content_search.rs:399`, `skill.rs:183`). Propiedad: repos dueño.
-- [x] **179A-1 — Gate en dos niveles: rápido ≤60 s + completo de cierre**
-      (HECHO 17-09): `stages-fast.json` + modo `--fast` en `sentinel-rust.mjs`
-      (check --tests + tests filtrados, sin clippy, `mode: fast` no válido
-      para cierre; `rust-pide-completo` fail-closed en 5 casos). Rápido
-      directo 6,2 s; piloto orquestador 14,1 s; completo 373,8 s con etapa
-      `rust` pass (clippy 0, 505 tests). Global FAIL solo por 30 findings
-      preexistentes (dueño 149A-2). Sin backdoor en el guard.
-      Plan: `Agente/planes/completados/plan-179A-1-gate-rapido-lento-2026-09-17.md`.
-      Evidencia: `Agente/completados/tareas-2026-09-17.md`.
-- [ ] **129A-3 — Aprobación: el turno pausa y continúa (sin reenvío) + tarjeta fija + toast Windows**
-      (rediseño 12-09 tras verificación real fallida: la tarjeta se duplicaba,
-      el `mkdir` no se creaba y volvía a preguntar tras aceptar):
-      causa raíz: el backend OMITE la tool al pedir aprobación y el turno
-      sigue/cierra; el frente reenviaba el mensaje como turno nuevo y la
-      segunda vuelta volvía a pedir en vez de ejecutar. Nuevo diseño
-      (paridad con las referencias CLI `chat_comandos.rs:159-237`): el turno
-      PAUSA en la petición (oneshot por `id` en el registry) y CONTINÚA al
-      responder — aprobar/siempre ejecuta la tool pendiente en el MISMO turno,
-      rechazar informa denegación al modelo sin reintento; cero reenvíos.
-      `responder_aprobacion` despierta al que espera Y aplica token/regla
-      (sirve a ambos modos); modo espera opt-in solo desktop
-      (`abrir_sesion_interna`), CLI/TUI/daemon/web conservan entre-turnos;
-      `tx.closed()` + `cancelar_turno` (abort) como salidas de la espera.
-      Frente: se elimina `orquestador/reenvioAprobacion.ts` + hook
-      `onAprobacionResuelta` + `requiereReenvioTrasAprobar`; la tarjeta queda
-      en el slot y pasa a "aprobada · ejecutando…" hasta el `ToolResult`.
-      Toca Rust (`tool.rs` esperas, `permisos.rs` + `subagente.rs` espera,
-       `main.rs` desktop opt-in) + frente (`aplicarEventos`, `turnoReal`,
-       `realTipos`, `transporteTauri`, `main.ts`, `vistaMeta`). Slot + toast
-       (`notificacionSistema.ts`, plugin `notification`) ya verificados; gate
-       anterior 129A-3 PASS 12-09 (464 tests) sobre el diseño viejo.
-      Plan: `Agente/planes/plan-129A-3-aprobacion-pausa-continua-2026-10-07.md`.
-      **HECHO 07-10: fix web `desperto` (endpoint devuelve `{ok,desperto}`, front
-      propaga valor real) + gate PASS 530 tests + smoke real V1 (aprobar →
-      tarjeta "el turno ya terminó", follow-up crea `smoke-129A-3` vacío) y V2
-      (rechazar → `{desperto:false}`, sin ejecución, follow-up informa
-      denegación sin reintento).**
-- [ ] **119A-2 — Menú contextual de proyecto** (F1–F4 implementados y
-      verificados: F2 commit 1878d17, F3 commit 7c77b5e, F4 commit 41cd31b
-      con gate PASS 12-09 de 459 tests ok):
-      clic derecho en cada grupo de `Proyectos` con Open in Finder, Copy
-      Path, Edit name, Pin project, Archive/Delete threads y Remove
-      (Kanban eliminada; Start dev y Spaces diferidas por decisión del
-      usuario). F1 (Copy Path / Edit name / Remove) con `tsc` + `vite`
-      verificados.
-      Plan: `Agente/planes/plan-119A-2-menu-contextual-proyecto-2026-09-11.md`.
-- [ ] **119A-3 — Ordenar proyectos e hilos** (F1 hilos implementado y gate
-      PASS 11-09 — 441 tests OK; pendiente verificación `tauri dev` + commit):
-      botón de orden en la cabecera `Proyectos` (actividad / creación, con
-      `sidebarOrdenHilos.ts`); backend expone `creada_en` en las 3 queries +
-      constructor desktop (los 4 literales `InfoConversacion` actualizados,
-      revisión estática sin destructuring exhaustivo). Front `tsc` + `vite`
-      OK. Extra: `onRenombrarProyecto/onEliminarProyecto` movidos a
-      `orquestador/barraLateralProyecto.ts` (barraLateral superaba 300 líneas
-      por F1 de 119A-2). F2–F4 abiertos.
-      Plan: `Agente/planes/plan-119A-3-orden-proyectos-2026-09-11.md`.
-- [x] **119A-4/F1 — Ajustes estilo Synara: página completa** (completado 11-09,
-      F2–F4 abiertos): los ajustes dejan de ser un modal y pasan a página a
-      pantalla completa (`ajustes-pagina` fija, `← Volver a la app`, buscador
-      con índice normalizado sin tildes, nav lateral, `Escape` cierra con
-      buscador vacío), reutilizando `formulario.ts` sin cambios y con la misma
-      interfaz `ModalConfiguracion`; `modal.css` conserva solo la base que usa
-      el modal "Nuevo proyecto"; reglas de formulario mudadas a nuevo
-      `estilos/ajustes.css`; `tema.css` actualizado. `tsc` EXIT 0 + `vite`
-      OK + gate 119A-4 PASS (rust 430 ok) + smoke `tauri dev` (ventana "Glory
-      Harness", sin errores). Comprobación visual fina pendiente del usuario.
-      Plan: `Agente/planes/plan-119A-4-ajustes-pagina-synara-2026-09-11.md`.
-- [ ] **119A-5 — Meta: fix `meta_leer` + tareas fijas y colapsables** (F1 implementado y verificado
-      11-09: front PASS + Rust vía PASS 119A-3 mismo árbol; pendiente
-      verificación Tauri + commit; F2–F3 abiertos):
-      el front invocaba con `conversacion_id` pero Tauri 2 espera camelCase
-      (`conversacionId`), así que leer/fijar/pausar/reanudar/lograr la meta
-      fallaban en la app (en web no); F1 pasa las claves a camelCase y audita
-      `panel_id`/`solo_lectura`/`turno_id` (caían a default en silencio),
-      con `tsc` + `vite build` verificados; F2 saca las tareas del
-      transcript a zona fija colapsable como la meta; F3 distingue «sin
-      meta» y no dispara comandos en blur sin cambios.
-      Plan: `Agente/planes/plan-119A-5-meta-leer-tareas-fijas-2026-09-11.md`.
-- [ ] **119A-6 — Automatizaciones estilo Synara** (F1 hecho 11-09, F2
-      implementado y verificado 11-09 —gate `sentinel check 119A-6` PASS:
-      456 tests ok, 0 fallidos, clippy 0—; F3–F5 planificados): `ScheduleTarea`
-      (`manual|una_vez|intervalo|diario|entre_semana|semanal|cron`) + zona
-      IANA (`chrono-tz`), `tarea_logs` extendida (no tabla nueva),
-      reprogramación tz-aware en `ejecutar_lista`/`ciclo_scheduler`,
-      `schedule run <id>` explícito, modos standalone/dedicated (+heartbeat
-      runs con estados, políticas y resultado taxonomizado, autoría por el
-      modelo y       vista UI; base GH (`ProgramadorTareas` + `schedule run`) se
-      reutiliza; worktree/Environment/Studio no entran. Nav temporal sin
-      Agentes/Flujo/Complementos (verificado `tsc` + `vite build`).
-      Plan: `Agente/planes/plan-119A-6-automatizaciones-synara-2026-09-11.md`.
-- [ ] **119A-7 — Agente sólido: auditoría vs referencias + bench** (planificado y
-      profundizado 11-09, veredicto `VIABLE CON RESERVAS`):
-      no es UI sino la inteligencia: F0 jaula + protocolo ×3 (prerrequisito);
-      F1 matriz del contrato agente contra las 5 referencias (`opencode`,
-      `hermes-agent`, `grok-cli`, `claurst`, `vscode`); F2 flujo canónico de
-      11 pasos con modelo real (crear→modificar→comandos→tests→aprobación→
-      rewind→compactar→solo-lectura→diagnóstico de error); F3 bench (evaluar
-      SWE-bench/Terminal-Bench y construir mini-bench propio congelado con
-      25% ciego); F4 corrección en `core` + re-medición; F5 regresión manual.
-      Aceptación: F2 11/11 en ≥2 de 3 runs + bench antes/después con costo.
-      Siguiente: F2 flujo 11 pasos (F0-protocolo ×3 cerrado 11-09 noche:
-      3/3 PASS con glory/auto, sandbox bloquea fuga en los 3 runs,
-      evidencia `C:\tmp\jaula-f0-chat*.log`; `cargo build` SÍ permitido —
-      el guard solo bloquea check/clippy/test/bench/fmt; `run` one-shot no
-      ejecuta tools, `chat` con stdin guionizado sí; autorizado ciclo
-      local; SSH prohibido).
-      Plan: `Agente/planes/plan-119A-7-agente-solido-bench-2026-09-11.md`.
-- [ ] **209A-1 — Consola lateral: visor de ejecuciones en vivo con tope anti-fuga**
-      (planificado 20-09; reapertura acotada de 089A-9, vía eficiente sin PTY por
-      decisión del usuario): tab "Consola" en el panel derecho con panel interno
-      (lista de consolas + visor + matar/cerrar/limpiar); streaming de `comando`
-      por eventos; topes innegociables (`MAX_CONSOLAS_VIVAS=4`, ring 128 KB,
-      transcript 32 KB, `stdin(null)`, reap global, cero polling UI).
-      Plan: `Agente/planes/plan-209A-1-consola-lateral-2026-09-20.md` (+revisión
-      20-09: comando literal verbatim, botón abrir-terminal por fila, botón
-      segundo-plano = desacoplar sin matar, `comando_lista` para el agente,
-      reap al cerrar conversación o app).
-      Estado 20-09 noche: F1 streaming backend cerrado (`ConsolaInicio/Chunk/Fin`,
-      `id_ejecucion`+`comando` en resultado, `conversacion_id`+`tx_eventos` hasta
-      la tool) + F2 topes + fondo operable cerrado (`MAX_CONSOLAS_VIVAS=4` con
-      rechazo `Limite`, ring 128 KB, `stdin(null)`, `desacoplar`, `comando_lista`,
-      reap del pump, `ok:false` accionable al tope) + F3.1 exploración UI + F3.2
-      tab Consola cerrada (store por `id_ejecucion` + lista/visor push-only,
-      auto-apertura con supresión F1, hook `onConsolaEvento`, persistencia;
-      `type-check` + `build` en verde) + F3.3 enlace fila→Consola cerrado
-      ("ver en Consola" en vivo por `consola_id`, solo en la fila, no en el
-      resumen de fin de turno) + F4-backend cerrado (`matar_por_conversacion`,
-      `matar_todas` idempotente, `kill_on_drop` en ambos spawns, fix de la
-      carrera `matar`-tras-`take` vía `Notify` en el pump; `cargo test
-      --workspace --lib` 521 passed + `clippy -D warnings` en verde).
-       PENDIENTE 20-09: cablear cierres (conversación/app/tab → primitivas F4; no hay
-       canal UI→backend) + E2E real en `:8799` con turno vivo + gate. Detalle y
-       correcciones al diseño en el plan §Estado/§Correcciones.
-       Estado 21-09: F4-resto CERRADO (retención executor/web/daemon/desktop +
-       transporte + tab × con `consola_matar` idempotente; commit `24954d4` 33
-       ficheros; `cargo test --workspace --lib` 523 passed + clippy + tsc +
-       build verdes) + lote visual Consola (disabled/focus/`:empty`/KB/hidden,
-       VarSense 0 hallazgos en Consola; SIN COMMIT, pasa a 219A-1). Detalle en
-       el plan §Estado.
-- [x] **219A-1 — Botones icono y títulos centralizados (canon 28×28 sin borde)**
-      (21-09, CERRADO con commit; incluye lote visual Consola del 20-09 que
-      estaba sin commit + mejoras Files integradas: grip arrastrable,
-      revelar-en-árbol, marca `.seleccionado`, toggle lista — el botón
-      `alternarLista` migrado solo funciona con ese cableado).
-      F1 `componentes/chromePanel.ts` (`crearBotonIcono` + `crearCabeceraPanel`)
-      + `estilos/botonIcono.css` (28×28 sin borde, `.ic` 16px,
-      hover/focus/disabled 0.35/activo/invertido-hover/`[hidden]`,
-      `.chrome-titulo` --sm); F2 migrados los 6 sitios y borradas
-      `.barra-boton/.cab-boton/.tab-mas/.consola-accion/.files-accion/.nav-btn`
-      (grep 0 en `desktop/ui/src` salvo comentarios); títulos a --sm
-      (Consola --md→--sm; `cerrarCaptura` Nav a `.btn` texto; `abrirCon`
-      normalizado `…`; `alternarLista` con title/aria-label/aria-expanded).
-      Evidencia: `type-check` EXIT 0, `vite build` OK (3.65s), VarSense scan
-      15E/14W idéntico baseline (0 nuevos; `todoProsa` preexistente en
-      "mé**todo**" y `cssInlineScript` en `explorador.style.flex` del grip),
-      DOM en vivo (vite :8760): 18/18 botones 28×28/borde none/icono 16px,
-      título Consola 11.05px (=--sm), 4 deshabilitados a opacity 0.35.
-      Spec: `Agente/documentacion/ui-chrome-botones-titulos-2026-09-21.md`.
-      Gate completo (cargo) no ejecutado: cambio solo-UI; documentado en
-      `Agente/completados/tareas-2026-09-21.md`.
-- [x] **219A-2 — Botón + tabs: centrado vertical** (21-09, CERRADO con commit):
-      `.tabs-barra` usa `align-items: stretch` para las tabs; el `+` antes sin
-      altura propia estiraba y centraba su icono, con el canon 28px fijos
-      quedaba pegado arriba. Fix: `.tabs-barra > .boton-icono
-      { align-self: center }` en `tabs.css` (posicional, solo el botón; las
-      tabs siguen con `stretch`). Verificado en DOM en vivo (harness con tab
-      alta: barra 41px, botón top 6px = centrado; con `flex-start` forzado top
-      0 = bug reproducido).
-- [x] **219A-3 — Tab Consola como visor interactivo (CERRADO 21-09 con
-      commit)**: implementada F1-F7 + gate PASS (541 tests) + funcional en
-      vivo. El commit incluye además trabajo olvidado sin commitear del
-      árbol (resume de sesión por cookie, frente Cambios 129A-7/129A-8,
-      turnos, navegador por agente, resto F4 `matar`, refactors
-      daemon/run/llm/runtime/mensajes/sidebar, scripts desktop,
-      `.gitignore`: `dist/` + `node_modules/`). Se borraron `prueba.txt` /
-      `prueba-2.txt` (basura) y se excluyó `.glory-harness/backups/`
-      (datos runtime). Plan cerrado en
-      `Agente/planes/completados/plan-219A-3-consola-interactiva-2026-09-21.md`.
-- [x] **219A-4 — Consola propia del usuario (CERRADA 21-09)**: la tab Consola
-      ya no es solo visor del agente: `[+ Nueva]` abre shell real propia (`cmd`
-      / `sh`, sin jaula) y la barra interna mezcla mías (`mía`) + agente con
-      dueño visible (fila + pie del visor). F2 backend (`OrigenConsola`,
-      `ejecutar_propia`, `POST /consolas`, `origen` en lista/salida) + F3
-      (`consola_crear` Tauri, `consolaCrear` web/Tauri, `NuevaConsola`) + F4 UI
-      (botón `mas`, pastilla dueño, refresco propias sin polling: al
-      seleccionar/abrir/escribir) + fix `bombear` (el anillo se empuja también
-      sin `chunks`: antes las propias devolvían transcript vacío) + `RegistroFondo`
-      (clippy `too_many_arguments`). Gate PASS (541 ok, clippy limpio),
-      `type-check` + `build` UI, funcional `:8799` (crear→escribir→salida con
-       eco→matar). Sin PTY. Plan cerrado en
-       `Agente/planes/completados/plan-219A-4-consola-propia-2026-09-21.md`.
-- [x] **219A-5 — Consola de fondo: fin vivo, reap atómico, dueño y matar
-      honestos (CERRADA 21-09)**: H5 localizada (relanzamiento del modelo,
-      no reintento) + `fondo_duplicado()`; refresco acotado 2 s con vivas;
-      `RegistroConsolas` + `archivar()` atómico + orden por fin real + UI
-      sin blankeo; `Archivada{resultado,origen}`; × por fila + toast
-      matada/ya-terminada; graceful web ya existía (`apagado_ordenado` →
-      `matar_todas`). Full gate forzado PASS (rust 68.4 s, 0 errores, 30
-      tests), `type-check` limpio, batería API `:8799` (matar honesto +
-      orden + dueño verificados). Pendiente operador: comprobación visual
-      + `taskkill` PIDs 19872/22056. Evidencia en
-      `Agente/completados/tareas-2026-09-21.md`. Plan cerrado en
-      `Agente/planes/completados/plan-219A-5-consola-fondo-2026-09-21.md`.
-- [x] **F3 — PersistenciaSqlite** (`cli/src/persistencia_sqlite.rs`, 04-09): `AgentPersistence` +
-      `ProgramadorTareas` sobre rusqlite bundled (WAL, `%APPDATA%/glory-harness/glory-harness.db`).
-      CRUD de conversaciones, mensaje de usuario persistido por el consumidor en `enviar_turno`,
-      `cancelado` al abortar (B5/B6 cerrados). Sesión Tauri usa SQLite con `user_id` estable
-      (tabla `config`); respaldo en memoria con aviso si la BD no abre.
-- [x] **F4 — Comandos IPC de conversación + workspace + config** (backend, 04-09): 16 comandos
-      (`abrir_sesion`, `enviar_turno`, `cancelar_turno`, `responder_aprobacion`,
-      `pendientes_aprobacion` + `conversacion_nueva`, `listar_conversaciones`,
-      `cargar_conversacion`, `renombrar_conversacion`, `archivar_conversacion`,
-      `eliminar_conversacion`, `proveedores_disponibles` (allowlist real del núcleo vía
-      `catalogo_proveedores`), `config_leer`/`config_guardar`, `elegir_workspace` (rfd),
-      `actualizar_meta`). `cargo check` + clippy limpios, 188 tests verdes (29 cli + 159 core).
-- [x] **Panel «modo meta» real** (04-09, commit `5dcefe4`): `actualizar_meta` en caliente,
-      tiempo de turno, tokens desde `AgenteEvento.Usage`, política de play/pausa; retirado el
-      boceto temporal `panelMetaBoceto.*` (anexo §10.5.2).
-- [x] **B1 — capabilities** `desktop/src-tauri/capabilities/default.json` (`core:default`, ventana `main`) — verificadas en el primer `tauri dev` (04-09).
-- [x] **B2 — detección de entorno** (`esEntornoTauri`/`__TAURI__`) — verificada en el primer `tauri dev` (04-09).
-- [x] **F5 — Cablear UI → backend** (04-09, commit `8a1310c`): sidebar real (nueva/listar/
-      cargar/renombrar/archivar/eliminar + `sustituir`), historial persistido al arrancar
-      (reabre donde se quedó), modelo/modo/razonamiento en config persistida, deriva
-      allowlist commandcode→glory, meta del boceto → `actualizar_meta` con puerta de modo en
-      backend, `reconfigurar_sesion` al cambiar modelo/modo. Tipos `AgenteEvento` fieles al
-      núcleo.
-- [x] **F6 — Empaquetado + RAM + gate** (04-09, commit `8a8768c`): `tauri build` ok — exe
-      release + MSI (`Glory Harness_0.1.0_x64_en-US.msi`) + NSIS setup en
-      `C:\tmp\glory-target\glory-harness\release\bundle\`. Iconos válidos generados
-      (`tauri icon`, array `icon` en config). RAM arranque release: WS 40 MB (objetivo
-      ≤140 MB ✓). `install-release.bat` (copia el release a `%LOCALAPPDATA%\GloryHarness`).
-      Gate `039A-1` **PASS** (0 errores, warnings preexistentes).
-- [x] **069A-5 — Deuda cero Sentinel** (CERRADA 07-09 con transferencia):
-      F1-F5 aterrizados 06-09 (core+CLI 0/0/0 por fichero entonces). F6 nunca
-      llegó a 0/0/0: el bloqueo (desktop no compilaba) ya está levantado
-      (`cargo check -p glory-harness-desktop` verde 07-09), pero sus 2
-      warnings persisten y el código reciente (069A-2 F2-F4, 069A-7/9/10,
-      Proyectos) metió deuda nueva. Gate full 07-09: 2E/10W/1I
-      (`.quality-reports/check/069A-5/latest.md`). Toda la deuda restante y
-      nueva se transfiere al próximo plan de deuda (pendiente de crear tras
-      tabla). Plan archivado en `Agente/planes/completados/`. No se reclama
-      0/0/0.
-- [x] **079A-1 — Deuda cero Sentinel, segunda vuelta**: HECHO 07-09, gate
-      full PASS 0/0/0 (ver `Agente/completados/tareas-2026-09-07.md`). Plan
-      archivado en `Agente/planes/completados/`.
-- [x] **069A-4 — Memoria de aprendizaje fases 1–5** (B3-F8b): HECHO 06-09
-      (ver `Agente/completados/tareas-2026-09-06.md`).
-- [x] **069A-1 — Navegador interno visible completo**: F1+F2 (WebView2 child, comandos IPC,
-      ciclo COM) + F3 (panel UI) + F4 (anotaciones+ToolBrowser) + F5 (tool núcleo) + F6
-      (pipeline multimodal: captura base64 + evento + runtime relay + frontend display).
-      Commit `5f67e82`. Plan archivado en `Agente/planes/completados/`.
-      Nota de estado (11-09): la excepción «desktop compilation bloqueada por errores
-      pre-existentes en navegador.rs» describe el estado del 06-09 y **ya no aplica**: el
-      shell compila (`Compiling glory-harness-desktop v0.1.0` → `Finished dev profile
-      [unoptimized + debuginfo] target(s) in 3m 16s`, `.quality-reports/tmp-rust-desktop.log`,
-      10-09 02:14). El intento del 11-09 falló por **disco lleno**
-      (`Agente/prevencion/prevencion-disco-lleno-build-2026-09-11.md`), no por el código; tras
-      liberar espacio el binario se construyó (`Finished dev profile [unoptimized + debuginfo]
-       target(s) in 7m 08s`, EXIT 0, `C:\tmp\glory-target\glory-harness\debug\
-       glory-harness-desktop.exe`) y con él se ejecutó la pasada funcional Tauri (evidencia en
-       `Agente/completados/tareas-2026-09-11.md`).
-- [x] **069A-6 — Navegador web: páginas que bloquean iframes (X-Frame-Options)**: HECHO
-      11-09 con la opción elegida por el usuario (solo avisar en el log, sin UI nueva). Causa:
-      en el navegador el panel usa un `<iframe>` y muchos sitios (Google, YouTube, etc.)
-      envían `X-Frame-Options: sameorigin`/CSP → se niegan a mostrarse dentro del panel
-      (`Refused to display ... in a frame`). No hay forma técnica de saltárselo desde un
-      iframe normal, y el bloqueo tampoco dispara evento de error: la única señal es la
-      ausencia de `load`. Implementación en `desktop/ui/src/componentes/panelNavegador.ts`:
-      `navegarWeb` y recargar arman un temporizador de 15 s (`avisarSiBloquea`) que el `load`
-      del iframe cancela; si se agota, sale por `onAviso` (chat activo): «es probable que
-      <url> bloquee su vista en iframes…». Solo modo web (Tauri usa WebView2 nativa).
-      Verificado: `tsc --noEmit` EXIT 0 + `vite build` 108 módulos con el aviso en el bundle;
-      sin E2E en navegador real (el temporizador exige backend + espera de 15 s; lógica
-      trivial revisada).
-- [x] **069A-7 — Conversaciones: crear la fila SOLO al escribir (web + app)** (06-09):
-      HECHO. Semántica create-on-write: no se crea fila al abrir/recargar/"Nueva conversación";
-      la fila se crea al enviar el primer mensaje (auto-nombre H5). `Option<Uuid>` en estado de
-      conversación (web `SesionWeb` + desktop `PanelDatos`), DELETE sin fila fantasma, borrador
-      local en el front. Verificado: API + navegador end-to-end (5 escenarios); 80 tests cli +
-      7 tests desktop; UI build OK. Gate bloqueado por `tool-release-unpublished` preexistente
-      (repin `6baf87c2`, ajeno). Plan movido a `Agente/planes/completados/`; evidencia en
-      `Agente/completados/tareas-2026-09-06.md`. BD quedó en 0 conversaciones (limpia).
-- [x] **069A-8 — Selector de área de trabajo en el composer** (09-09):
-      Añadido `<select>` nativo "Área de trabajo" dentro de `.entrada`, antes de `.caja`.
-      Opciones: "Sin proyecto" + workspaces registrados. Cableado `DepsPanel` → `main.ts` →
-      `adaptador.sesion.workspaces.activarPorRuta()`. Al cambiar proyecto: pone el panel
-      en borrador y refresca sidebar. CSS en `entrada.css`. Build tsc+vite OK. Verificado
-      en navegador: selector visible, cambio de opción funcional, panel reacciona.
-- [x] **069A-9 — Seleccionar elemento de la página + modelo navega** (07-09):
-      (a) Botón "Seleccionar elemento" en el panel navegador: hover resalta el
-      elemento (outline + crosshair) y al hacer clic captura un descriptor robusto
-      (`pagina` URL + `selector` CSS con `#id`/tag+clases+nth-child + `etiqueta` +
-      `texto`) que se adjunta como badge al chat; el siguiente mensaje lo antepone
-      (`[elemento de la página <url> — selector CSS: <sel> — etiqueta: <tag>]`) para
-      que el modelo lo reciba. Solo app de escritorio (WebView2); modo web → aviso.
-      E2E desktop 9/9 OK (hover resalta, clic captura, badge visible, envío con
-      badge). (b) Fix causa raíz: el modelo no veía `navegador_reflejo` al cambiar
-      de modelo porque `SesionComun::reconfigurar` reconstruía el runtime con
-      `navegador: None`. `SesionComun` conserva el puerto y lo reinyecta en
-      `reconfigurar`/`cambiar_workspace`. E2E modelo real: llamó `navegador_reflejo`
-      (ok), navegó al fixture e hizo clic en `#btn-uno` (contador=1). Evidencia en
-      `Agente/completados/tareas-2026-09-07.md`.
-- [x] **069A-10 — Persistencia web de modelo, modo y razonamiento** (07-09):
-      Fix: `guardar_config` persiste 4 claves en BD, `resolver_opciones` las
-      restaura, `api.ts` mapea `proveedor→provider`, `opcionesArranque` envía
-      campos vacíos. E2E verificado: PATCH devuelve configuración, sesión nueva
-      la recupera, recarga mantiene valores. Gate bloqueado por
-      `tool-release-unpublished` ajeno. Evidencia en
-      `Agente/completados/tareas-2026-09-07.md`.
-- [x] **069A-11 — Inicio del panel meta y acceso web local sin token** (07-09):
-      El panel meta se monta después del selector de workspace y permanece oculto
-      en el borrador inicial; aparece tras crear la conversación con el primer
-      mensaje. El modo web local acepta sesión sin token y limita el bind a
-      loopback cuando no hay `GLORY_HARNESS_WEB_TOKEN`. Evidencia en
-      `Agente/completados/tareas-2026-09-07.md`.
-- [x] **089A-17 — Git local estilo Synara: staged, changes y diff seleccionado** (09-09):
-      El panel Git separa `Staged` y `Changes`, muestra estadísticas por archivo,
-      mantiene el diff oculto hasta seleccionar una fila y renderiza un único
-      archivo con ruta, hunks y números de línea. Tauri y HTTP entregan
-      `diff_staged`/`diff_unstaged`, incluidos archivos `??` con límite combinado
-      de 1 MiB; la selección usa grupo+ruta. Gate `089A-2` PASS 0E/0W/0I.
-      Evidencia en `Agente/completados/tareas-2026-09-09.md`.
-- [x] **089A-1 — Controles de ventana propios estilo Paseo** (08-09, HECHO 11-09):
-      Quitar botones nativos (`decorations: false` en `tauri.conf.json`) e
-      integrar minimizar/maximizar-restaurar/cerrar propios en la cabecera del
-      panel principal (nuevo `componentes/ventana.ts` + `estilos/ventana.css`,
-      iconos `minimizar`/`maximizar`/`restaurar` en `iconos.ts` + `tipos.ts`;
-      orden Paseo; hover invertido monocromo reutilizando `.cab-boton`).
-      Solo bajo Tauri (`esEntornoTauri`); en web no se montan. La cabecera
-      principal actúa como barra de arrastre (`data-tauri-drag-region` +
-      `startDragging()` programático; los clics en botones/inputs no arrastran).
-      Referencia guardada en `area-trabajo/paseo`
-      (`components/desktop/window-controls.tsx`, `titlebar-drag-region.tsx`).
-      **Estado (11-09):** verificado en la ventana Tauri real — `tauri.conf.json` fija
-      `decorations: false` y el área no cliente mide **9px** (una caption nativa tendría
-      ~31px), o sea que el chrome lo dibuja la app; `startDragging()` tiene permiso
-      concedido y el arrastre **físico** por la barra superior mueve la ventana 140px
-      exactos, mientras que arrastrar desde un botón no la mueve y además dispara su acción
-      (prueba negativa correcta). En modo web la botonera caption **no se monta**
-       (`botoneraTauriEnWeb: []`). Revisión visual retirada del roadmap por orden del
-       usuario (11-09); verificación funcional hecha.
-- [x] **089A-2 — Layout Paseo: entrada flotante, toggles, tabs y preview** (08-09, HECHO 11-09):
-      (a) `.mensajes` sin `max-width`/centrado (todo el ancho); `.entrada`
-      flotante por encima (`absolute`, `bottom: 0`; el fondo y el borde viven en
-      `.caja`, no en el contenedor —`entrada.css:8`—) con reserva inferior dinámica
-      vía `ResizeObserver` en `panelChat`.
-      (b) Botón sidebar siempre visible y alterna (mostrar/ocultar); el
-      preview de archivos vive dentro de Files; × en la barra de tabs cierra
-      el panel.
-      (c) Panel derecho con tabs (`panelDerecho.ts` + `tabs.css`): Chat
-      lateral, Files, Git local y Navegador conviven; el preview pertenece
-      al pane Files y no es una tab independiente.
-      grip único; comando nuevo `navegador_mostrar` (oculta la webview hija
-      sin destruirla al cambiar de tab).
-      (d) Files integra árbol + preview de archivo (`panelFiles.ts` +
-      `files.css` + comando `leer_archivo` validado al workspace); los
-      cambios `file_write/file_patch` se reflejan en el archivo afectado.
-      No existe una tab Cambios/Visor independiente.
-      (e) Toggle del panel derecho (botón siempre visible en la cabecera
-      principal, espejo del izquierdo; ocultar no destruye las tabs), ×
-      propio por tab y multi-chat (una tab `chat:<id>` por conversación,
-      máx. 8 laterales; reabrir una abierta solo activa su tab).
-      **Estado (11-09, verificado en navegador):** `.mensajes` con `max-width: none`,
-      `margin: 0` y `padding-bottom: 200px` (reserva del `ResizeObserver`); `.entrada`
-      absoluta, `bottom: 0`, sin fondo ni borde, y `.caja` blanca (borde 0.8px, alto
-      144px) como tarjeta flotante; el `×` de tab cierra y deja el inicio (`tabs=[]` con
-      el launcher montado), reabrir funciona, ocultar el panel lo saca del DOM y volver a
-      mostrarlo restaura las tabs y la activa (`Git local`), y el toggle del sidebar
-      alterna «mostrar/ocultar lista de conversaciones»; Files es un único pane con
-      `.files-arbol` (23 nodos) + `.files-visor` (`roadmap.md` → «565 líneas», 1698 nodos
-      de código). **Estado Tauri (11-09):** el launcher monta las 4 opciones etiquetadas al
-      abrir el panel sin tabs y el grip es **único** (`panel-derecho-grip`, el lateral no
-      tiene propio); arrastrarlo con botón sostenido lleva el panel de 600 a 720px. El
-      comando `navegador_mostrar` cumple lo que promete: al pasar de la tab Navegador a
-      Files la webview hija **conserva su HWND** (`0xA203C8` pasa a 1×1 fuera de pantalla en
-      vez de destruirse) y una consulta `WindowFromPoint` sobre el panel confirma que ese
-       píxel vuelve a pertenecer a la webview principal. Revisión visual retirada del
-       roadmap por orden del usuario (11-09); verificación funcional hecha.
-- [x] **089A-3 — Barra superior global estilo Synara** (08-09, HECHO 11-09;
-       commit `d013e03`, verificación web y Tauri hechas el 11-09;
-       ajustes 08-09:
-      orden fiel Synara —lista, atrás, adelante … marca … toggle derecho +
-      botonera—; sin botón de visor (redundante); atrás/adelante presentes pero
-      deshabilitados; botonera caption 100% Lucide):
-      Barra de **38px** (`barraSuperior.css:12`; el plan decía 46px) a todo el ancho
-      por encima de sidebar/paneles/panel derecho (nuevo `componentes/barraSuperior.ts`
-      + `estilos/barraSuperior.css`, primera hija de `#app`): toggle sidebar +
-      atrás/adelante mudados
-      desde la cabecera del principal, zona central arrastrable y botonera
-      min/max/cerrar con iconos Lucide (46px, planos, orden Paseo;
-      cerrar con hover rojo `#c42b1c` como la referencia —excepción explícita
-      a "sin rojo hover" pedida por el usuario). Arrastre + botonera solo bajo
-      Tauri. La cabecera queda con título + ⋯ (+ × en laterales). Referencia:
-      `area-trabajo/synara` (`DesktopWindowControls.tsx`,
-      `SidebarHeaderNavigationControls.tsx`, `AppNavigationButtons.tsx`). Plan en
-      `Agente/planes/completados/plan-089A-3-barra-superior-2026-09-08.md`.
-      **Estado (11-09, medido en el DOM del modo web y luego en la ventana Tauri real):**
-      `.barra-superior` es la primera hija de `#app`, mide **38px** de alto y ocupa todo el
-      ancho (926px en la ventana de prueba web; 1100px de viewport en Tauri); contiene el
-      grupo izquierdo (lista + atrás + adelante, los dos últimos `disabled`) y la zona
-      derecha (tablist + toggle del panel derecho).
-      **Defecto real encontrado y corregido en la verificación Tauri (11-09):** la botonera
-      caption medía **46×16** en vez del alto completo de la barra —`.controles-ventana`
-      heredaba el centrado de `.barra-grupo` y se plegaba al alto del icono—; se añadió
-      `align-self: stretch` en `estilos/ventana.css` y ahora mide **46×37** (38px de barra
-      menos 1px de borde). Con eso el hover de cerrar se pinta de `#c42b1c` con texto blanco
-      en todo el botón, los iconos siguen centrados y maximizar/restaurar alternan el icono
-      y el estado real de la ventana. No se habría visto con type-check ni con el build:
-      hizo falta medir la ventana real.
-- [x] **089A-4 — Launcher del panel derecho estilo Synara** (08-09, HECHO 11-09):
-      Al abrir el panel derecho sin tabs muestra el inicio para elegir contenido
-      (nuevo `estilos/launcher.css`, estado vacío en `panelDerecho.ts`): pantalla
-      de opciones centrada (icono + etiqueta, full-width) al estilo
-      `RightDockLauncher` de Synara con Files, Git local, Navegador y Chat
-      lateral (con
-      gating: el chat solo si hay conversación activa). El × global oculta el
-      panel; cerrar la última tab deja el inicio (ya no se desmonta). Referencia:
-      `RightDock.tsx` + `rightDockPaneMeta.tsx` en `area-trabajo/synara`.
-      **Estado (11-09, verificado en navegador):** el inicio muestra 4 opciones
-      etiquetadas (icono + `.inicio-etiqueta`): Files, Git local, Navegador y Chat
-      lateral; el `×` global oculta el panel y cerrar la última tab deja el inicio
-      (`tabs=[]` con el launcher montado). Con una conversación sin turnos, Chat lateral
-      aparece deshabilitado y las otras tres siguen activas (gating correcto).
-- [x] **089A-5 — Historial de la app (lógica, no visual)** (08-09, HECHO 11-09):
-      atrás/adelante de la barra superior funcionales con la misma lógica que
-      Synara —gobiernan la navegación de la app (conversación + área juntas),
-      no el panel activo—: nuevo `dominio/historialApp.ts` (puro, dos pilas como
-      el Navegador + `puede*`; verificado con 13 aserciones en node), cableado en
-      `orquestador/historialVista.ts` + `barraLateral.ts` (registra seleccionar,
-      nueva y cambio de área; restore sin auto-registro), `vistaBarra.ts` y
-      `main.ts`; `barra.setPuedeNavegar` tras cada cambio. Terminal en el
-      launcher: **no aplica** (no existe panel Terminal; condición «cuando exista
-      ese panel» falsa). Gate `089A-5` PASS 0E/0W/0I (rust: 430 tests ok).
-- [x] **089A-13 — Gate cubre frontend TS + Tauri en VarSense** (09-09,
-      HECHO): el gate solo analizaba `.rs` de `core`/`cli` (herencia de fase 0);
-      añadidos `desktop/ui/src/**/*.ts` a `sentinel.config.json` y
-      `desktop/src-tauri/src/**/*.rs` + `desktop/ui/src/**/*.ts` a
-      `varsense.config.json`. Verificado: gate 089A-13 ve el TS (FAIL con
-      14 errores + 116 warnings + 7 info, todo deuda real del frontend).
-      Evidencia: `.quality-reports/check/089A-13/latest.md` (+ `sentinel.json`
-      con ubicaciones).
-- [x] **089A-14 — Sanear hallazgos TS del gate (deuda revelada por 089A-13)**
-      (09-09, HECHO 11-09 por superación): 14 errores (`innerHTML` ×10 en
-      `entrada/mensajes/iconos/panelMeta/dom`: riesgo XSS; `catch` vacío ×3 en
-      `panelNavegador.ts:423,491,521`; `main.ts` 1182 ef. triplica el límite
-      300 de componentes) + 116 warnings (62 `barras-decorativas`, 22
-      `window-reference` y 19 `dom-access` fuera de plataforma, 8
-      `limite-lineas`, 3 interfaces grandes, 1 `console`, 1 dir) + 7 info
-      (3 interfaces + 4 `todo-pendiente`). Detalle por fichero en
-       `.quality-reports/check/089A-13/sentinel.json`. OJO: el árbol queda en
-       rojo hasta sanearlo.
-      **Cierre (11-09):** la deuda ya no es visible en el corte propio del repo:
-      `npm run quality:analyze` sobre el alcance completo (236 archivos) sale **EXIT 0** con
-      **0 errores y 0 warnings**, y un único hint —el falso positivo `todo-pendiente` de
-      `core/src/nucleo/context.rs:972`, ajeno a este repo y seguido en 109A-10—
-      (`totalArchivosConViolaciones: 1` en `.quality-reports/analyze.json`). Las familias de
-      089A-13 se resolvieron en 089A-16 (F2-resto, B-ISP, F3) y los 101 errores del corte de
-      consola eran del checkout compartido (109A-10); lo que queda es el defecto de regla
-      externo, no deuda de este repo.
-- [x] **089A-15 — Gate con cobertura por defecto (nada fuente fuera en silencio)**
-      (09-09, HECHO): etapa `coverage`
-      (`scripts/quality/sentinel-coverage.mjs`, primera del gate, fail-closed)
-      que cruza `git ls-files` contra los includes de ambas configs; gate
-      089A-15: coverage PASS 0/0/0 (165 analizables cubiertas, 35 visibles en
-      sidecar). Sondas `--files-from` probaron la semántica real del motor
-      (nombres sin glob = solo raíz, `src/**/*.ts` excluye `vite.config.ts`,
-      css nunca se analiza) y se añadieron patrones explícitos
-      (`core/cli/tauri Cargo.toml`, ambos `package.json`,
-      `desktop/ui/vite.config.ts`, `**/*.mjs`, todos verificados total=1 en
-      el motor). Evidencia: `.quality-reports/check/089A-15/`.
-- [x] **089A-16 — Saneamiento total del gate (cero deuda tras 089A-15)**
-      (09-09, HECHO): gate full **PASS 0/0/0** con `coverage` verde.
-      F2-resto (`edbc8d9`, boundary DOM/window + barrels puros, gate
-      F2RESTO 0E/0W/10I) + B-ISP (`f292869`, 10 interfaces por `extends`,
-      gates BISP/BISP2 0E/0W/0I) + F3 (`caec783`, cero warnings Rust,
-      clippy 0 + tests 363 OK) + cierre (`tsc` EXIT 0, `vite build` OK).
-       Evidencia: `Agente/completados/tareas-2026-09-09.md` (entrada
-       089A-16); reportes `.quality-reports/check/089A-16*/`. **Pendiente cerrado
-       (11-09):** re-gate `unwrap-produccion-rs` ejecutado sobre el árbol sin
-       cambios —gate full **PASS** (coverage/sccache/sentinel/rust verdes,
-       sentinel 0E/0W/1I sobre 238 archivos, rust 430 tests OK)— y la regla no
-       dispara ni una vez (cero `unwrap-produccion-rs` y cero
-       `axum-ruta-sintaxis-rs` en `.quality-reports/check/089A-16/`; el único
-       hallazgo es el hint `todo-pendiente` de 109A-10, ajeno). Sin cambio de
-       código, sin `sentinel-disable-file`.
-- [x] **109A-1 — Hook pre-compactación** (10-09, HECHO):
-      hook externo configurable (`ContextoConfig.gancho_pre_compact`) antes de
-      resumir: recibe JSON por stdin, admite veto `exit 2` y ajuste JSON
-      validado; timeout acotado, fallo/timeout/stdout inválido/salida no cero =
-      warning + la compactación continúa. Runner HTTP con logs redacted, carga
-      persistida en `chat`/`tui`/`run`/`schedule` y borrado/null consistente en
-      UI. Evidencia en `Agente/completados/tareas-2026-09-10.md`.
-      Gate canónico ejecutado: FAIL por `sccache-no-configurado` y deuda heredada
-      de `data/referencias-cli/**`; análisis reducido del alcance propio: 0/0/0.
-- [x] **109A-2 — Memoria estrictamente por proyecto + export/import** (10-09,
-      HECHO): `AmbitoMemoria { Global | Proyecto(Uuid) }` en el contrato, con
-      ámbito propagado por tools, `TurnoConfig`, proveedor y curador
-      (`ejecutar_curador_todos` recorre todos los ámbitos). Migración real de
-      la tabla `memoria` a `UNIQUE (user_id, workspace_id, clave)` con
-      centinela `''` para global (los `NULL` no colisionan en `UNIQUE` y
-      romperían el `ON CONFLICT` del upsert); los recuerdos previos quedan
-      globales, sin reasignar. CLI `memoria` con `--global`,
-      `--proyecto <uuid|ruta>` y `--todos`, más export/import markdown por
-      recuerdo (`cli/src/infra/memoria_io.rs`): destino `project`
-      (`.glory/memorias`) o `local`, sanitize obligatorio en el import.
-      Evidencia: 393 tests lib verdes, clippy `-D warnings` limpio, build UI OK;
-      gate canónico FAIL por deuda ajena (`sccache` y `data/referencias-cli/**`)
-      con 0 hallazgos en `cli/src`/`core/src`; detalle en
-      `Agente/completados/tareas-2026-09-10.md`. F3 (sección en Configuración)
-      cerrada como 109A-3; plan completo en
-      `Agente/planes/completados/plan-109A-memorias-por-proyecto-2026-09-10.md`.
-- [x] **109A-4 — Comandos `/` estilo VS Code (`/compactar`, `/meta`)** (10-09,
-       **HECHO** F1–F4): catálogo v1 de 8 comandos
-       (`/ayuda /modelo /compactar /contexto /limpiar /revisar /iniciar /meta`),
-       menú flotante `/` (`dominio/comandosSlash.ts`, `menuComandos.ts`,
-       `entradaComandos.ts`, `panelChatComandos.ts` + IPC
-       `comandos_listar`/`comando_expandir` reutilizando `core::skill`),
-       `/compactar` con punto de compactación persistido que `preparar_turno`
-       aplica como `[resumen] + posteriores` (sin borrar mensajes) y
-       `/meta <texto>` como override de modo **por turno** (guard RAII
-       `GuardaModoTurno` + `modo_efectivo()`, `PeticionTurno`,
-       `solo_lectura` en el transporte Tauri) con retiro del modo global `meta`
-       (migración a `predeterminado` + aviso único). Evidencia: 124+283 tests
-       verdes, clippy `-D warnings` limpio, type-check/build EXIT 0 (97 módulos),
-       E2E web de `/compactar`, `/meta` y del segmentado de modo reducido, y gate
-       `check 109A-4` con `coverage`/`sentinel` PASS (10 warnings preexistentes) y
-       único error ajeno `sccache-no-configurado`. Detalle en
-       `Agente/completados/tareas-2026-09-10.md`; plan cerrado en
-       `Agente/planes/completados/plan-109A-comandos-slash-2026-09-10.md`.
+- [ ] `119A-5` — **Meta: fix `meta_leer` + tareas fijas y colapsables.**
+  F1 implementado y verificado 11-09 (front PASS + Rust vía PASS 119A-3 mismo árbol; pendiente
+  verificación Tauri + commit; F2–F3 abiertos): el front invocaba con `conversacion_id` pero Tauri 2
+  espera camelCase (`conversacionId`), así que leer/fijar/pausar/reanudar/lograr la meta fallaban en
+  la app (en web no); F1 pasa las claves a camelCase y audita `panel_id`/`solo_lectura`/`turno_id`
+  (caían a default en silencio). F2 saca las tareas del transcript a zona fija colapsable como la
+  meta; F3 distingue «sin meta» y no dispara comandos en blur sin cambios.
+  Plan: `Agente/planes/plan-119A-5-meta-leer-tareas-fijas-2026-09-11.md`.
 
+- [ ] `119A-6` — **Automatizaciones estilo Synara.**
+  F1 hecho 11-09, F2 implementado y verificado 11-09 (gate `sentinel check 119A-6` PASS: 456 tests
+  ok, 0 fallidos, clippy 0); F3–F5 planificados. `ScheduleTarea`
+  (`manual|una_vez|intervalo|diario|entre_semana|semanal|cron`) + zona IANA (`chrono-tz`),
+  `tarea_logs` extendida (no tabla nueva), reprogramación tz-aware en `ejecutar_lista`/`ciclo_scheduler`,
+  `schedule run <id>` explícito, modos standalone/dedicated (+heartbeat runs con estados, políticas y
+  resultado taxonomizado, autoría por el modelo y vista UI); base GH (`ProgramadorTareas` +
+  `schedule run`) se reutiliza; worktree/Environment/Studio no entran. Nav temporal sin
+  Agentes/Flujo/Complementos (verificado `tsc` + `vite build`).
+  Plan: `Agente/planes/plan-119A-6-automatizaciones-synara-2026-09-11.md`.
 
-> **Corte de referencia del bloque 109A** (10-09 11:41Z, `1aff7e0`, con WIP en el
-> árbol): es el corte de la **CONSOLA** (workspace-manager) = **371 hallazgos** (**101 errores** + 269
-> warnings + 1 hint), medido con **VarSense 2.2.1** + **Sentinel del checkout compartido**
-> (`area-trabajo/.quality-tools/sentinel`, 0.7.8 @ `902c45e`). Errores: `cssInlineScript` **52**
-> (VarSense; **0 en este repo desde 109A-7**, 11-09) · `unwrap-produccion-rs` **30** (Sentinel) ·
-> `axum-ruta-sintaxis-rs` **19** (Sentinel).
-> Warnings: `claseHuerfana` **258** (VarSense) · `console-production` **8** (Sentinel; **0 en este
-> repo desde 109A-9**, 11-09) · `limite-lineas` **3** (Sentinel). Las cifras se mueven con el WIP (el mismo día: 366/102 → 371/101),
-> así que lo estable es la familia y el veredicto de cada una, no el número.
-> **Corte del GATE canónico de este repo** (mismo árbol y mismos 224 archivos): `scripts/quality/
-> stages.json` ejecuta Sentinel 0.7.8 @ **`1587c59`** — el commit que este repo fija en
-> `quality-tools.json` (`provisionPath: ../.quality-tools-harness/sentinel`) — y **no ejecuta VarSense**
-> (no hay etapa `varsense`), así que su único corte propio es **0 errores, 0 warnings, 1 hint**
-> (11-09, tras 109A-9: los 8 `console-production` del panel del navegador ya salen como aviso visible
-> al usuario; el hint que queda es el falso positivo `todo-pendiente` de 109A-10. El corte anterior,
-> tras 109A-6, era de 8 warnings: los dos `limite-lineas` —`main.ts` y `panelDerecho.ts`— y la
-> densidad de `desktop/src-tauri/src/` ya estaban resueltos, y antes de eso eran 10).
-> Desde **109A-12** (11-09) el gate tiene **cuatro etapas** —`coverage`, `sccache`, `sentinel` y
-> `rust`— y su veredicto global es **PASS**. `.cargo/config.toml` fija `rustc-wrapper = "sccache"`
-> (cierra `sccache-no-configurado`), `sentinel.config.json` excluye `**/data/referencias-cli/**` (el
-> otro rojo heredado) y la etapa `rust` compila con `clippy -D warnings` y ejecuta los tests del árbol
-> Rust (**430 verdes**), que hasta ahora no tenía vía de validación porque los subcomandos pesados de
-> `cargo` están bloqueados por el guard. Un cambio en un `.rs` entra en el alcance y dispara la etapa
-> (verificado: 10 s en caliente, 61 s y 17 invocaciones de `sccache` al tocar `core/src/lib.rs`).
-> Verificado el 10-09 ejecutando los dos binarios sobre el mismo árbol: `902c45e` → **49 errores**;
-> `1587c59` → **0**. Los 49 del corte de consola **ya están corregidos upstream** (`08aaf25`,
-> `axum-ruta-sintaxis-rs` version-aware; `1587c59`, `unwrap-produccion-rs` en fichero solo-test): son
-> **falsos positivos del medidor, no deuda de este repo** (ver 109A-10). De los 101 errores de la
-> consola, **52 son reales** (`cssInlineScript`) y **49 son falsos positivos**.
+- [ ] `119A-7` — **Agente sólido: auditoría vs referencias + bench.**
+  Planificado y profundizado 11-09, veredicto `VIABLE CON RESERVAS`. No es UI sino la inteligencia:
+  F0 jaula + protocolo ×3 (prerrequisito); F1 matriz del contrato agente contra las 5 referencias
+  (`opencode`, `hermes-agent`, `grok-cli`, `claurst`, `vscode`); F2 flujo canónico de 11 pasos con
+  modelo real (crear→modificar→comandos→tests→aprobación→rewind→compactar→solo-lectura→diagnóstico de
+  error); F3 bench (evaluar SWE-bench/Terminal-Bench y construir mini-bench propio congelado con 25%
+  ciego); F4 corrección en `core` + re-medición; F5 regresión manual. Aceptación: F2 11/11 en ≥2 de 3
+  runs + bench antes/después con costo. Siguiente: F2 flujo 11 pasos (F0-protocolo ×3 cerrado 11-09
+  noche: 3/3 PASS con glory/auto, sandbox bloquea fuga en los 3 runs, evidencia
+  `C:\tmp\jaula-f0-chat*.log`; `cargo build` SÍ permitido — el guard solo bloquea
+  check/clippy/test/bench/fmt; `run` one-shot no ejecuta tools, `chat` con stdin guionizado sí;
+  autorizado ciclo local; SSH prohibido).
+  Plan: `Agente/planes/plan-119A-7-agente-solido-bench-2026-09-11.md`.
 
-- [x] **109A-10 — Falsos positivos del MEDIDOR (`unwrap-produccion-rs`, `axum-ruta-sintaxis-rs`,
-      `claseHuerfana`)**
-      (10-09; **no hay nada que arreglar en este repo**, la acción es de `workspace-manager`):
-      **suma la familia `claseHuerfana` de VarSense** (tras 109A-8: la medición de `orphan-classes`
-      sobre `desktop/ui/src/estilos` da **302 marcas**, y el cotejo nombre a nombre no encuentra
-      ninguna otra sin uso fuera de las hojas; las 7 que sí eran CSS muerto real se retiraron en esa
-      tarea). Dos casos confirmados al cotejar en 109A-8: (i) **composición por plantilla** —
-      `gitDiff.ts` escribe `` `git-diff-linea git-diff-${tipo}` `` con
-      `tipo ∈ {adicion, eliminacion, contexto}`, así que `.git-diff-adicion` y `.git-diff-eliminacion`
-      sí se aplican y la regla no las resuelve; (ii) **concatenación por ternario** —
-      `'ic' + (pequeno ? ' ic-xs' : '')`, ya conocida.
-      Ojo al alcance de la medición: `orphan-classes` barre el workspace entero (**4516 archivos hoy**,
-      `data/referencias-cli/**` incluido), así que su total global no es comparable con el corte de la
-      consola de 10-09 (258 marcas sobre 224 archivos); el número útil es el recuento por carpeta
-      propia.
-      **49 de los 101 errores del corte de consola no son defectos de este código y ya están
-      corregidos upstream.** (a) `unwrap-produccion-rs` ×30 — `cli/src/comandos/web_datos/pruebas.rs`
-      (24) y `core/src/herramientas/navegador/pruebas.rs` (6); los dos son módulos solo-test con
-      `#![cfg(test)]` en su cabecera (lo añadió a propósito `079A-1 F6`), y el analizador que los
-      marcaba (`rustAnalyzer.js` → `calcularRangosTest`) solo reconocía la línea suelta `#[cfg(test)]` y
-      descartaba rutas `/tests/`, así que el atributo interno no lo silenciaba; lo corrigió `1587c59`
-      («ignorar fichero solo-test con `#![cfg(test)]`»). (b) `axum-ruta-sintaxis-rs` ×19 — todo en
-      `cli/src/comandos/web.rs` (`router()`); el mensaje afirmaba que «esta versión de matchit (0.7.3)
-      parsea `:param`», pero el proyecto resuelve **axum 0.8.9 → matchit 0.8.4** (`Cargo.lock`), donde
-      `{id}` es la sintaxis correcta y `:id` sería un segmento literal: **aplicar el consejo habría
-      roto las rutas**; lo corrigió `08aaf25` (regla version-aware según `Cargo.lock`). Esos dos
-      arreglos son exactamente los que fija `quality-tools.json` (`provisionPath:
-      ../.quality-tools-harness/sentinel`, 0.7.8 @ `1587c59`, dos días más nuevo que el checkout
-      compartido `902c45e` que usa la consola), así que **este repo no tiene deuda pendiente por ellos
-      y no hacen falta `sentinel-disable-file`**: la consola resolvía el binario por el checkout
-      compartido sin mirar el `provisionPath` que fija cada proyecto (pendiente registrado en
-      `workspace-manager/roadmap.md` como `039A-4`).
-      Queda **un** defecto de regla real, ya **registrado** con caso mínimo, capa responsable, detección
-      esperada, fix propuesto y workaround descartado en
-      `Agente/prevencion/prevencion-falsos-positivos-medidor-2026-09-11.md` (junto con la familia
-      `claseHuerfana` y el alcance de `orphan-classes`): `todo-pendiente` marca el `///` de un doc
-      comentario en español (`core/src/nucleo/context.rs:972`, «todo el historial…») porque el patrón
-      `/(?:\/\/|\/\*|#|<!--)\s*(?:TODO|…|XXX)\b/i` arranca en el segundo par de barras; el mismo falso
-      positivo aparece en los hints de TASKS, RESTAURANTE y coolify-manager-rs.
-      **Estado (11-09):** la parte de este repo está cerrada —la cifra documentada es la del corte del
-      gate canónico, **0 errores**, verificado en 109A-11 y 109A-12— y el dueño de la regla es
-      `glory-sentinel` (`src/config/defaultRules.ts:208`), no este repo: el hint desaparecerá cuando esa
-      herramienta publique el arreglo y este repo suba su commit fijado (`1587c59` = `v0.7.8`; la fuente
-      va por `v0.7.9`/`a3f5607`, que arregla otros falsos positivos pero no este), lo que exige el bump
-      único de consumidores. **No** se reformula la prosa del comentario para bajarlo: sería tapar el
-      medidor y dejaría el defecto vivo en el resto del área. Confirmado el 11-09 sobre el alcance
-      completo (`npm run quality:analyze`, EXIT 0, 236 archivos): 0 errores, 0 warnings y
-      `totalArchivosConViolaciones: 1` —el hint del `todo-pendiente`—, cifra que coincide con el
-      corte del gate canónico.
-      **Cierre (11-09):** la acción pendiente en `workspace-manager` (039A-4) está HECHA y
-      verificada en vivo —la consola resuelve el `provisionPath` propio y analiza este repo con
-      0.7.8@`1587c59` → **0 errores**, así que el corte de consola de 10-09 citado arriba queda
-      superado—. El defecto de regla `todo-pendiente` queda en `glory-sentinel` (seguido en
-      `Agente/prevencion/prevencion-falsos-positivos-medidor-2026-09-11.md`); la familia
-      `claseHuerfana` queda documentada con su alcance (barre el workspace entero, no comparable
-      con el corte de consola). Sin código tocado en este repo.
-- [x] **089A-12 — Files estilo Synara: árbol + visor integrado** (09-09,
-      HECHO): Files es un único pane dividido (árbol a la izquierda y preview
-      a la derecha al seleccionar un archivo); se eliminaron `21 entradas`,
-      los estados persistentes y Visor como tab/opción independiente; los
-      errores de filesystem/Git se muestran mediante toast global. Evidencia:
-      `Agente/completados/tareas-2026-09-08.md` (entrada 089A-12); build UI y
-      gate 089A-12 PASS 0/0/0.
-- [x] **089A-11 — Files/Git se recargan al cambiar de área de trabajo**
-      (08-09, HECHO 08-09): al cambiar el workspace activo con la tab de
-      Files/Git abierta, la lista/diffs seguían del área anterior (Files/Git
-      resuelven la raíz en el backend según `comun.workspace`). Mecanismo de
-      suscripción en `main.ts`: `refrescarProyectos()` detecta el cambio de
-      ruta y notifica a los suscriptores; Files/Git recargan solo si su tab
-      está abierta (`panelDerecho.tiene`). Evidencia:
-      `Agente/completados/tareas-2026-09-08.md` (entrada 089A-11);
-      verificación navegador real: Files 21→3 entradas al pasar de
-      `glory-harness` a `Test` y Git se recargó al volver (3 cambios);
-      gate 089A-11 PASS 0/0/0.
-- [x] **089A-10 — Files y Git en el modo web (08-09, HECHO 08-09)**: el servidor
-      `glory-harness web` no expone endpoints de filesystem/Git (solo Tauri
-      IPC), así que en el navegador Files/Git mostraban "no está disponible en
-      el modo web". Portar la lógica pura de
-      `desktop/src-tauri/src/filesystem.rs` + `git.rs` a endpoints HTTP de
-      `cli` (`web_datos/files.rs` + `web_datos/git.rs`, raíz resuelta desde
-      `comun.workspace`): `GET .../files/info`, `.../files/listar`,
-      `.../files/leer`, `.../files/buscar` y `.../git/estado`; y cablear los 5
-      stubs de `api.ts` (`workspaceInfo/ListarEntrada/LeerArchivo/Buscar/
-      GitEstado`) a esas rutas + habilitar el visor web (`leerArchivo`). Sin
-      watcher (ponytail, igual que 089A-9). Verificación: navegador real sobre
-      `--fixture`. Evidencia: `Agente/completados/tareas-2026-09-08.md`
-      (entrada 089A-10); gate 089A-10 PASS 0/0/0 (14 archivos); 91 tests lib
-      del crate `cli` en verde (incluye `parsea_status_porcelain_nul`).
-- [x] **089A-7 — Dividir `core/src/herramientas/tools_archivo.rs`** (08-09,
-      HECHO como parte de 089A-8): `ToolContentSearch` extraída a
-      `core/src/herramientas/content_search.rs`; `tools_archivo.rs`
-      1342→~830 líneas. Evidencia: `Agente/completados/tareas-2026-09-08.md`
-      (entrada 089A-8).
-- [x] **089A-8 — `content_search` integrado 100% (tgrep-core compilado, sin
-      depender del sistema)** (08-09, HECHO): motor in-process con `tgrep-core`
-      (git tag v1.0.5). Índice persistente por workspace + manifiesto de
-      frescura, verificación con `regex` + `sandbox.leer` (secretos excluidos),
-      smart-case, timeout 180 s, fallback local con aviso. Supera a la v1 por
-      `GLORY_TGREP_BIN` (código eliminado). Evidencia:
-      `Agente/completados/tareas-2026-09-08.md`; gate 089A-8 PASS 0/0/0.
-- [x] **089A-9 — Explorador real del workspace, cambios/diffs y terminal**
-      (08-09, HECHO 08-09): Fases 0–4 completadas (contratos, filesystem
-      backend con tests 7/7, árbol lazy con apertura, cambios seguros de
-      tools sin truncamiento, Git local con panel y tab). Watcher nativo y
-      terminal PTY diferidos por decisión de MVP (ponytail); se reabren
-      como tarea separada si el uso real lo justifica. Evidencia:
-      `Agente/completados/tareas-2026-09-08.md`.
-- [x] **119A-1 — Preflight de disco en la etapa `rust` del gate** (11-09, HECHO): un volumen
-      lleno **no se anuncia como tal**. Con `C:` a 0 GB libres, `cargo build -p
-      glory-harness-desktop` devolvió `rustc-LLVM ERROR: IO failure on output stream: no space
-      on device`, un `STATUS_STACK_BUFFER_OVERRUN` y un `could not compile webview2-com-sys`:
-      tres mensajes que se leen como fallo de código y que costaron un intento de build completo
-      antes de mirar el volumen.
-      `scripts/quality/sentinel-rust.mjs` ahora mide el espacio del volumen del target con
-      `fs.statfsSync` **antes** de invocar cargo y, por debajo de `GLORY_MIN_FREE_GB` (8 GB por
-      defecto; el shell Tauri suma ~2,3 GB al corte CLI/core), sale con **código 2** y un mensaje
-      accionable: es un error de entorno, no deuda del repo, así que no entra como hallazgo.
-      El dato (volumen, libre antes, mínimo) queda además en `rust.json.detalle.json` y en la
-      nota `rust-alcance`, para que el operador vea con cuánto margen se compiló. Si `statfs` no
-      está disponible el dato se omite: no se inventa ni se bloquea el gate por eso.
-      **Prueba negativa:** `GLORY_MIN_FREE_GB=100` corta antes de cargo (`exit=2`, sin compilar).
-      **Prueba positiva:** gate `check 119A-1` PASS 4/4 con el espacio real (8,82 GB).
-      Evidencia en `Agente/completados/tareas-2026-09-11.md` y
-      `Agente/prevencion/prevencion-disco-lleno-build-2026-09-11.md`.
+- [ ] `209A-1` — **Consola lateral: visor de ejecuciones en vivo con tope anti-fuga.**
+  Planificado 20-09; reapertura acotada de 089A-9, vía eficiente sin PTY por decisión del usuario:
+  tab "Consola" en el panel derecho con panel interno (lista de consolas + visor + matar/cerrar/limpiar);
+  streaming de `comando` por eventos; topes innegociables (`MAX_CONSOLAS_VIVAS=4`, ring 128 KB,
+  transcript 32 KB, `stdin(null)`, reap global, cero polling UI).
+  Plan: `Agente/planes/plan-209A-1-consola-lateral-2026-09-20.md` (+revisión 20-09: comando literal
+  verbatim, botón abrir-terminal por fila, botón segundo-plano = desacoplar sin matar, `comando_lista`
+  para el agente, reap al cerrar conversación o app). Estado: F1 streaming backend cerrado, F2 topes
+  + fondo operable cerrado, F3.1–F3.3 UI cerrado, F4-backend cerrado (21-09: F4-resto cerrado con
+  retención executor/web/daemon/desktop + tab × con `consola_matar` idempotente). Pendiente 21-09: F3
+  parcial + F5 sin evidencia (E2E real en `:8799` con turno vivo + gate). Detalle y correcciones al
+  diseño en el plan §Estado/§Correcciones.
 
-> **Hecho (04-09, correcciones del primer `tauri dev`):** los 7 hallazgos del primer arranque
-> real quedaron corregidos (H1–H7, bloque 039A-1). Detalle en
-> `Agente/documentacion/hallazgos-primer-tauri-dev-2026-09-04.md` y evidencia en
-> `Agente/completados/tareas-2026-09-04.md`. El E2E en ventana real quedó HECHO el 06-09
-> (Todo OK + gate 039A-3 PASS; evidencia en `Agente/completados/tareas-2026-09-06.md`).
->
-> **Corrección de causa raíz H2 (04-09, tras el primer fix):** el usuario confirmó que la
-> respuesta del asistente seguía sin aparecer EN VIVO (solo al recargar). Causa: el frontend
-> `real.ts` leía el discriminante `evento` pero el backend serializa `AgenteEvento` con tag
-> `tipo` (`core/src/evento.rs`) → el switch no pintaba ningún evento. Fix aplicado en
-> `desktop/ui/src/tauri/real.ts` (`evento` → `tipo`; type-check limpio). **Validado en
-> vivo el 06-09:** el streaming de tokens aparece en la ventana (E2E Todo OK).
->
-> **Hecho (UI, 03-09):** los botones del nav «Agentes» / «Flujo» / «Complementos» ahora
-> muestran «próximamente» en el chat (`onAccionNav` en sidebar + aviso en main.ts; §10.4).
-> «Nueva conversación» queda reservado a la acción real con backend (F3), no a «próximamente».
->
-> **Boceto (03-09, §10.5.1):** panel «modo meta» corriendo visto sobre la UI real
-> (`panelMetaBoceto.ts/.css` montado dentro de `#entrada`, antes de `.caja`; 1 línea: meta
-> editable + estado · tiempo · tokens + play/pausa). Es TEMPORAL y simulado; el panel real
-> (meta editable en caliente, tokens/tiempo del turno, play/pausa real) quedó implementado en
-> §10.5.2 (commit `5dcefe4`) y el boceto se retiró.
+## Bloqueos
 
+- `10AA-1` espera D1 (coordinar con 119A-7 F2 en `tool.rs`/`runtime/`) y D2 (Sentinel en mantenimiento);
+  sin eso no arranca F0.
+- Alerta Dependabot #1 `glib 0.18.5` (08AA-3): bloqueada por upstream — `wry 0.57.0`,
+  `tauri-runtime-wry 2.12.1` y `tauri 2.12.3` siguen con gtk 0.18, sin migración a gtk4 posible hoy.
+  En vigilancia con revisión mensual, próxima 2026-11-12 (`plan-migracion-tauri-glib-2026-10-12.md`).
+- Divergencia conocida (04-09, carril ajeno): el runtime solo persiste turno + respuesta; `chat`/`run`/`tui`
+  del CLI no llaman a `guardar_mensaje` para el usuario, así que su historial entre turnos pierde el
+  lado usuario. No se toca por ser carril ajeno.
+- Defecto de `workspace-manager` (10-09, no de este repo): los números de línea de la consola van
+  0-based; al triar un hallazgo hay que mirar la línea siguiente.
 
 ## Planes activos
 
-- `Agente/planes/plan-refactor-rendimiento-2026-10-10.md` (10AA-1) —
-  **planificado, sin ejecutar**: refactor SOLID y rendimiento sobre el código de hoy; F0 línea base al aprobar.
-- `Agente/planes/plan-209A-1-consola-lateral-2026-09-20.md` (209A-1) —
-  **activo**: consola lateral con visor de ejecuciones en vivo + topes
-  anti-fuga; próximo paso F1 (streaming backend).
-- `Agente/planes/plan-119A-2-menu-contextual-proyecto-2026-09-11.md` (119A-2) —
-  **activo**: menú contextual de proyecto; F1 listo, F5 pendiente de decisión.
-- `Agente/planes/plan-119A-3-orden-proyectos-2026-09-11.md` (119A-3) —
-  **activo**: orden de proyectos e hilos; F1 listo, independiente de 119A-2.
-- `Agente/planes/plan-119A-4-ajustes-pagina-synara-2026-09-11.md` (119A-4) —
-  **activo**: ajustes como página estilo Synara + opciones aplicables; F1 listo.
-- `Agente/planes/plan-119A-5-meta-leer-tareas-fijas-2026-09-11.md` (119A-5) —
-  **activo**: fix `meta_leer` camelCase + tareas fijas/colapsables; F1 listo.
-- `Agente/planes/plan-119A-6-automatizaciones-synara-2026-09-11.md` (119A-6) —
-  **activo**: automatizaciones estilo Synara; F1 hecho (nav temporal), F2 listo.
-- `Agente/planes/plan-119A-7-agente-solido-bench-2026-09-11.md` (119A-7) —
-  **activo**: auditoría del núcleo vs referencias + bench propio; F1 listo.
-- `Agente/planes/completados/plan-workspace-explorer-diffs-terminal-2026-09.md` (089A-9) —
-  **cerrado 08-09** con Fases 0–4 completadas; watcher y PTY diferidos (ponytail).
-- `Agente/planes/completados/plan-deuda-cero-079A-1-2026-09-07.md` (079A-1) —
-  **cerrado 07-09** con gate full PASS 0/0/0.
-- `Agente/planes/completados/plan-web-real-069A-2.md` (069A-2) — **cerrado con observaciones**:
-  implementación y meta web verificadas contra el binario reconstruido; quedan
-  observaciones del gate y no se reabre F5b sin nueva justificación.
-
-## Historial de planes cerrados
-
-- `Agente/planes/completados/plan-109A-meta-ciclo-vida-2026-09-10.md` (109A-5) —
-  **cerrado 11-09** con F1–F4 completas (meta con ciclo de vida por
-  conversación, tareas visibles atadas a la meta, cierre con evidencia —badge
-  del pie + historial durable— y regla de bloqueo ×3 con pausa automática).
-  Gate con `coverage`/`sentinel` PASS en el baseline de 10 warnings.
-- `Agente/planes/completados/plan-109A-comandos-slash-2026-09-10.md` (109A-4) —
-  **cerrado 10-09** con F1–F4 completas (menú `/`, `/compactar` con punto de
-  compactación persistido, `/meta` como override de turno y retiro del modo global).
-  Gate con `coverage`/`sentinel` PASS en el baseline de 10 warnings preexistentes.
-- `Agente/planes/completados/plan-109A-memorias-por-proyecto-2026-09-10.md` (109A-2/109A-3) —
-  **cerrado 10-09**.
-- `Agente/planes/completados/plan-glory-harness-desktop-2026-09-03.md` (039A-1) — **cerrado 06-09**; las
-  fases F1–F6 y el Bloque A (backend + cableado + panel meta real) están cerrados; los 7
-  hallazgos del primer `tauri dev` quedaron corregidos (H1–H7) y el E2E en la ventana
-  Tauri real quedó Todo OK con gate 039A-3 PASS.
-- `Agente/planes/completados/plan-glory-harness-ux-turno-2026-09-04.md` (039A-3) — **cerrado 06-09**; el bloque P1–P6, P6b, el backend de contexto y el E2E Tauri real quedaron verificados. El detalle histórico siguiente conserva la evidencia de cada fase.
-  (04-09): bloque completo aprobado (P1-P6). P1 (pie de turno + persistir uso/modelo real)
-  HECHO (mock + type-check + cargo check). P2 (editar/volver a punto: rewind transaccional por
-  `rowid` + menú por mensaje) HECHO (unit + type-check + build + mock; commit `039A-3 (P2)`).
-  P4 (⋯ cabecera + sidebar colapsable/redimensionable + botón expandir) HECHO (type-check +
-  build + navegador mock; commit `039A-3 (P4)`).
-  P5 (2 paneles, M1) HECHO (05-09, commit `903a54b`): backend ya estaba (045f7e1, `panel_id`
-  por panel); front gestor de 1-2 `.chat` — fábrica `panelChat.ts` + orquestador delgado en
-  `main.ts` + "Abrir en panel lateral" (sidebar ⋯, D4) + responsive <900px apila los 2 chats.
-  Verificado con navegador mock (2 paneles, turno global M1, foco al cerrar lateral, guard
-  responsive). Evidencia en `Agente/completados/tareas-2026-09-05.md`.
-  P6-front (indicador circular de contexto + config "Ventana de contexto" 150k) HECHO (05-09,
-  commit `769492d`): SVG `.ctx-indicador` en `entrada.ts` + CSS; hook `onContexto` en `real.ts`
-  (fuente única = `ContextoDetalle`/`usage`) → `setContexto` en `main.ts`/`panelChat.ts`;
-  opción `contexto_max_ventana` en `opciones.ts` persistida vía config; rama mock pinta 7%/150k.
-  Verificado con navegador mock (círculo llenándose + config visible). Evidencia en
-  `Agente/completados/tareas-2026-09-05.md`.
-  P6-front menú hover de detalle del indicador HECHO (05-09, commit `a69c2a3`): al pasar el
-  cursor por el círculo se abre el pequeño menú `.ctx-detalle` con el detalle del uso de la
-  ventana (usados de M + %, reserva de salida, entrada del turno; "sin datos" si no hay turno).
-  Se elimina el `title` nativo; `EstadoContexto` propaga el detalle completo desde el backend.
-  Verificado con navegador mock (principal y lateral). Evidencia en
-  `Agente/completados/tareas-2026-09-05.md`.
-  P6b (mejoras UX de paneles) HECHO (05-09, commit `67729b5`): requisito del usuario — el panel
-  lateral se redimensiona con un divisor arrastrable (min 260 / max 70%, ancho persistido); el
-  lateral usa la entrada completa (modelo/razonamiento/modo compartidos M1, cambiar en uno
-  actualiza el otro); el ⋯ de la cabecera va al extremo derecho; la lista de conversaciones ya no
-  se oculta manualmente (sin botón de ocultar): se auto-oculta por ancho mínimo (720px) y el
-  botón solo aparece cuando está oculta para MOSTRARLA. Verificado con navegador mock (arrastre,
-  clamp 260, persistencia, 650px/1200px, M1 compartido). Evidencia en
-  `Agente/completados/tareas-2026-09-05.md`.
-  P6b retoque HECHO (05-09, commit `aa8dbd4`): al arrastrar el divisor de la sidebar hasta el
-  borde la lista se oculta del todo al soltar (antes el clamp la dejaba en 180px) y el botón
-  "mostrar lista" la reabre; el grupo izquierdo de la cabecera colapsa cuando su botón está
-  oculto (sin hueco fantasma). Verificado con navegador mock. Evidencia en
-  `Agente/completados/tareas-2026-09-05.md`.
-  P6b retoque 2 HECHO (05-09, commit `3a53771`): el divisor del panel lateral funcionaba
-  INVERTIDO (el lateral está anclado al borde derecho de `#paneles`, pero el ancho se calculaba
-  desde el borde izquierdo). Ahora `ancho = paneles.right - clientX`: arrastrar a la izquierda
-  ENGRANDE el lateral y a la derecha lo ENCOGE (clamp 260 / 70%). Verificado con navegador mock
-  (crece 342→465→725 máx, encoge →328→260 mín, persistencia `lateral_ancho`). Evidencia en
-  `Agente/completados/tareas-2026-09-05.md`.
-  P6b retoque 3 HECHO (05-09, commit `260c08e`): los grips (sidebar y lateral) eran franjas de
-  5px en el flujo flex que robaban ancho permanentemente y se pintaban de negro al hover/
-  arrastrar (el "borde negro de 5px" al redimensionar). Ahora son áreas de captura ABSOLUTAS
-  (`position:absolute`, 9px centrados sobre la línea divisoria de 1px, `z-index:5`, sin fondo):
-  no ocupan layout y no muestran franja al pasar el cursor. Verificado con navegador mock
-  (principal ocupa 838px sin perder 5px, hover transparente, arrastre y colapso intactos,
-  <900px se sigue ocultando). Evidencia en `Agente/completados/tareas-2026-09-05.md`.
-  P6b retoque 4 HECHO (05-09, commit `a0b965c`): al abrir el panel lateral su input no se veía
-  (el `medir()` de `montarEntrada` corre en el constructor antes de estar en el DOM →
-  `scrollHeight` 0 → `#lateral-input` quedaba con `height:0px`; solo se veían los controles).
-  Ahora `abrirEnLateral` llama a `lateral.medir()` tras montar el panel. Verificado con
-  navegador mock (input lateral 16px como el principal, autoresize al escribir). Evidencia en
-  `Agente/completados/tareas-2026-09-05.md`.
-  P6b retoque 5 HECHO (05-09, commit `c97bb53`): se quita el borde superior del pie de la
-  sidebar (el `border-top` de `#sidebar .pie` sobre el botón "Configuración"). Verificado con
-  navegador mock (`borderTop: 0px`). Evidencia en `Agente/completados/tareas-2026-09-05.md`.
-  P6b retoque 6 HECHO (05-09, commit `490e933`): el usuario pidió "hay mucha separación aquí
-  entre el primer botón y el texto, baja un poco" (cabecera del chat, entre el icono mostrar
-  lista/× y el título). El `gap` de `.cabecera-chat` era `--sp-md` (16px); se baja a `--sp-sm`
-  (10px). El ⋯ del extremo no se ve afectado (`margin-left:auto`). Verificado con navegador
-  mock (separación botón→título 16→10px). Evidencia en
-  `Agente/completados/tareas-2026-09-05.md`.
-   P6-backend HECHO 06-09 (`OpcionesRun.max_ventana` + `VENTANA_MINIMA`, desktop 150k, core 128k
-   intacto; tests 269 verdes + gate 039A-3 PASS 0 errores; evidencia en
-   `Agente/completados/tareas-2026-09-06.md`). Fix colateral en alcance: 2 `expect` de `vault.rs` →
-   `let-else` total (+ `es_vacio` huérfano eliminado).
-   E2E `tauri dev` en ventana real HECHO 06-09 (Todo OK: streaming en vivo, tools →
-   aprobación → turno-fin, P3 rewind+restaurar, P5 2 paneles, P6 150k tras reiniciar;
-   evidencia en `Agente/completados/tareas-2026-09-06.md`).
-
-## Notas
-
-- Build siempre en `C:\tmp` (`CARGO_TARGET_DIR=C:\tmp\glory-target\glory-harness`), nunca en el árbol.
-- F5 UI la está construyendo el usuario; este roadmap refleja la integración con backend real.
-- Divergencia conocida (04-09, para el dueño del núcleo/CLI): el runtime solo persiste turno +
-  respuesta; el mensaje del usuario lo debe persistir el consumidor — el desktop lo hace, pero
-  `chat`/`run`/`tui` del CLI hoy no llaman a `guardar_mensaje` para el usuario (su historial
-  entre turnos pierde el lado usuario). No se tocó por ser carril ajeno.
-- **Los números de línea de la consola van 0-based** (10-09; defecto de `workspace-manager`, no de
-  este proyecto): la línea que se muestra es la **anterior** a la real (verificado en 4 reglas y 4
-  ficheros: `web.rs` 499→500, `pruebas.rs` 28→29, `anotaciones.ts` 52→53,
-  `panelNavegadorSeleccion.ts` 76→77). Causa: `workspace-manager/src/server/gate/analizador.ts:259`
-  guarda `range.start.line` del LSP (0-based) sin sumar 1 y
-  `workspace-manager/src/v2/paneles/PanelConsola.tsx:123` lo imprime tal cual. Afecta a todo el área,
-  así que al triar un hallazgo hay que mirar la línea siguiente.
-- **Un conteo no es comparable sin el build (commit) y el alcance** (10-09, verificado en este repo):
-  el **mismo** 0.7.8 dio **49 errores** con el checkout compartido `902c45e` y **0** con `1587c59` (el
-  commit que fija `quality-tools.json`), sobre el **mismo árbol y los mismos 224 archivos**; en
-  WANDORIUS (8) y GLORYPORT (5) los dos builds coinciden, así que la diferencia **no** es subreporte
-  del nuevo, son las dos reglas ya corregidas ahí. Por eso toda cifra de este roadmap debe decir con
-   qué binario y con qué alcance se midió, y por eso `109A-10` se cerró (11-09) sin tocar código de este repo.
-- **Seguridad deps JS 08AA (2026-10-08)**: `desktop/ui` `npm audit` 1 HIGH → 0
-  (source-map-js 1.2.1→1.2.2, patch no-breaking vía `npm audit fix`; lado cargo ya en
-  rustls 0.23.45 con 0 vulns). Evidencia: `type-check` (tsc) PASS.
-- **El desktop corre nativo en la VPS 89 (16-10, tarea 16AA-1)**: el shell Tauri
-  ya compila y arranca en Linux (port de `Cargo.toml` + `filesystem.rs` +
-  `workspaces.rs`; `navegador/` ya tenía stubs `not(windows)`). Se corre en modo
-  dev con `scripts/desktop-correr-linux.sh` (tmux `gh-desktop`, `DISPLAY=:1`,
-  target `/var/tmp/glory-target/glory-harness_linux`, sccache en `~/bin`, render
-  por software) y se usa por el escritorio VNC de la 89. **No está dado de alta
-  en `registro.json`**: `Arranque up` exige puerto que escuche y responda 200 y
-  una GUI no tiene puerto. Runbook y trampas:
-  `Agente/documentacion/desktop-en-vps89-2026-10-16.md`. El navegador interno
-  WebView2 sigue siendo exclusivo de Windows.
+- `Agente/planes/plan-refactor-rendimiento-2026-10-10.md` — `10AA-1` — refactor SOLID y rendimiento; planificado, sin ejecutar (F0 línea base al aprobar).
+- `Agente/planes/plan-119A-2-menu-contextual-proyecto-2026-09-11.md` — `119A-2` — menú contextual de proyecto; F2–F4 hechos, pendiente prueba en ventana Tauri real.
+- `Agente/planes/plan-119A-3-orden-proyectos-2026-09-11.md` — `119A-3` — orden de proyectos e hilos; F1 hecho, pendiente verificación `tauri dev` + commit.
+- `Agente/planes/plan-119A-4-ajustes-pagina-synara-2026-09-11.md` — `119A-4` — ajustes como página estilo Synara; F1 hecha, F2 pendiente de decisión.
+- `Agente/planes/plan-119A-5-meta-leer-tareas-fijas-2026-09-11.md` — `119A-5` — fix `meta_leer` camelCase + tareas fijas/colapsables; F3 parcial.
+- `Agente/planes/plan-119A-6-automatizaciones-synara-2026-09-11.md` — `119A-6` — automatizaciones estilo Synara; F1–F2 hechos, F3–F5 planificados.
+- `Agente/planes/plan-119A-7-agente-solido-bench-2026-09-11.md` — `119A-7` — auditoría del núcleo vs referencias + bench propio; F2 en curso, F3–F5 pendientes.
+- `Agente/planes/plan-129A-9-configs-synara-2026-09-12.md` — `129A-9` — configuraciones Synara (inventario, decisión y réplica); F2 bloques 1–3 hechos, quedan F3 Perfil + bloques Archivados/Notificaciones/Avanzadas + nombre en barra/sidebar.
+- `Agente/planes/plan-209A-1-consola-lateral-2026-09-20.md` — `209A-1` — consola lateral con visor en vivo + topes anti-fuga; F1/F2/F4 hechas, F3 parcial, F5 pendiente.
+- `Agente/planes/plan-migracion-tauri-glib-2026-10-12.md` — `08AA-3` — migración Tauri a gtk4 para cerrar `glib 0.18.5`; activo en vigilancia (próxima revisión 2026-11-12).
