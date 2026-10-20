@@ -28,38 +28,11 @@ navegador interno WebView2 sigue siendo exclusivo de Windows.
   Espera D1 (coordinar con 119A-7 F2 en `tool.rs`/`runtime/`) y D2 (Sentinel en mantenimiento).
   F0 línea base listo al aprobar.
 
-- [ ] `139A-9` — **Repo único no minimizable en Cambios.**
-  Pedido 13-09: con un solo repositorio la sección no debe poder minimizarse. `fijarFijo` en
-  `seccionColapsable` (fija+expandida, sin marcador, sin foco, click inerte, cabecera con cursor
-  normal vía `git-seccion-fija`); el gestor fija la única visible (vale 1 descubierto o 2 con 1
-  visible); el vault sigue colapsable. Sin plan (bloque único). Evidencia: `tsc` EXIT 0; fixture
-  headless 16/16 + 24/24 139A-6. LISTA sin gate: no se fuerza (refactorización 139A-8 en curso rompe
-  4 tests `cli/infra`; mis ficheros son solo front y no tocan Rust).
-
 - [ ] `149A-2` — **Precisión reglas 149A-1 (11 FP workspace + allowlist).**
   Derivado del gap H11-(b) registrado en plan §F4: path-join sin proveniencia (6 FP:
   literales/UUID/slug/hash/`.git`), sqlite sin análisis de dependencias (5 FP, `join!` imposible);
   cablear `htmlProductoresPermitidos` con `mensajesUtil.ts`; evaluar 2 TP-bajo
   (`content_search.rs:399`, `skill.rs:183`). Propiedad: repos dueño.
-
-- [ ] `129A-3` — **Aprobación: el turno pausa y continúa (sin reenvío) + tarjeta fija + toast Windows.**
-  Rediseño 12-09 tras verificación real fallida (la tarjeta se duplicaba, el `mkdir` no se creaba y
-  volvía a preguntar tras aceptar). Causa raíz: el backend OMITE la tool al pedir aprobación y el
-  turno sigue/cierra; el frente reenviaba el mensaje como turno nuevo y la segunda vuelta volvía a
-  pedir en vez de ejecutar. Nuevo diseño (paridad con `chat_comandos.rs:159-237`): el turno PAUSA en
-  la petición (oneshot por `id` en el registry) y CONTINÚA al responder — aprobar/siempre ejecuta la
-  tool pendiente en el MISMO turno, rechazar informa denegación al modelo sin reintento; cero
-  reenvíos. `responder_aprobacion` despierta al que espera Y aplica token/regla; modo espera opt-in
-  solo desktop (`abrir_sesion_interna`), CLI/TUI/daemon/web conservan entre-turnos; `tx.closed()` +
-  `cancelar_turno` (abort) como salidas de la espera. Frente: se elimina
-  `orquestador/reenvioAprobacion.ts` + hook `onAprobacionResuelta` + `requiereReenvioTrasAprobar`; la
-  tarjeta queda en el slot y pasa a "aprobada · ejecutando…" hasta el `ToolResult`. Toca Rust
-  (`tool.rs` esperas, `permisos.rs` + `subagente.rs` espera, `main.rs` desktop opt-in) + frente
-  (`aplicarEventos`, `turnoReal`, `realTipos`, `transporteTauri`, `main.ts`, `vistaMeta`). HECHO 07-10:
-  fix web `desperto` (endpoint devuelve `{ok,desperto}`, front propaga valor real) + gate PASS 530
-  tests + smoke real V1 (aprobar → tarjeta "el turno ya terminó", follow-up crea `smoke-129A-3`
-  vacío) y V2 (rechazar → `{desperto:false}`, sin ejecución, follow-up informa denegación sin
-  reintento). Plan archivado: `Agente/planes/completados/plan-129A-3-aprobacion-pausa-continua-2026-10-07.md`.
 
 - [ ] `119A-2` — **Menú contextual de proyecto.**
   F1–F4 implementados y verificados (F2 commit 1878d17, F3 commit 7c77b5e, F4 commit 41cd31b con
