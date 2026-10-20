@@ -1,26 +1,26 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-10-20T18:13:47.413Z",
+  "generatedAt": "2026-10-20T23:05:42.507Z",
   "runtime": {
     "status": "installed",
     "version": "0.7.28",
-    "commit": "f6ea831bf4ff124bd20218c0ffff29a65e22e0b3",
+    "commit": "74bf014a935b9a70d25c611048a7519a8c6adca2",
     "artifactSha256": "b7b0e400a06d8556a6dd96f153090b84bef8a4330b4456d4494f3a944c611045",
-    "identitySha256": "89173e970bcfce7b04a59eb3d83e3b8bcaf78e38549936d8cb3b6e42b2331e6e"
+    "identitySha256": "fd0a95bea6a9552097cf660559b057a38ba85de23d471b127cefddab5c46b1c7"
   },
   "analyzers": {
     "sentinel": {
       "version": "0.7.28",
       "protocolVersion": 1,
-      "commit": "f6ea831bf4ff124bd20218c0ffff29a65e22e0b3",
-      "sha256": "4d8886f2073e11c506bbf49228c97b12fa252ac41270a9f6a96ba2df37f6add7",
+      "commit": "74bf014a935b9a70d25c611048a7519a8c6adca2",
+      "sha256": "4b50e185a7d3a424784a5142bf64134054a74eceb32713db97a8bc24c1407054",
       "patchSha256": null
     },
     "varsense": {
-      "version": "2.2.9",
+      "version": "2.2.10",
       "protocolVersion": 1,
-      "commit": "7c5cb7a6b448b52ac2fda8a219f89d1cb029c39a",
-      "sha256": "5fd9298f5c9f0f87b38562de474966b117399991e1acc1a63cc2008750a38813",
+      "commit": "101e986509941650a4dfc8f44ff52c9c06c2d92d",
+      "sha256": "1675d99412d494f313d9d09d00f35ca34e743bf735e572de9c3aee9529177fdb",
       "patchSha256": null,
       "capabilities": {
         "filesFrom": true,
