@@ -22,24 +22,11 @@ navegador interno WebView2 sigue siendo exclusivo de Windows.
 
 ## Pendientes
 
-- [ ] `10AA-1` — **Refactor y auditoría de rendimiento (re-planificado 10-10; planificado, sin ejecutar).**
-  Código cambió desde 13-09 (139A-8 resolvió R2/R4/S3–S5). Estado: R1, R5–R8 y S1/S2 parciales;
-  R9–R12, S6, S11, S12, S15 abiertos. Plan `Agente/planes/plan-refactor-rendimiento-2026-10-10.md`.
-  Espera D1 (coordinar con 119A-7 F2 en `tool.rs`/`runtime/`) y D2 (Sentinel en mantenimiento); sin eso no arranca F0.
-  F0 línea base listo al aprobar.
-
 - [ ] `149A-2` — **Precisión reglas 149A-1 (11 FP workspace + allowlist).**
   Derivado del gap H11-(b) registrado en plan §F4: path-join sin proveniencia (6 FP:
   literales/UUID/slug/hash/`.git`), sqlite sin análisis de dependencias (5 FP, `join!` imposible);
   cablear `htmlProductoresPermitidos` con `mensajesUtil.ts`; evaluar 2 TP-bajo
   (`content_search.rs:399`, `skill.rs:183`). Propiedad: repos dueño.
-
-- [ ] `119A-2` — **Menú contextual de proyecto.**
-  F1–F4 implementados y verificados (F2 commit 1878d17, F3 commit 7c77b5e, F4 commit 41cd31b con
-  gate PASS 12-09 de 459 tests ok): clic derecho en cada grupo de `Proyectos` con Open in Finder,
-  Copy Path, Edit name, Pin project, Archive/Delete threads y Remove (Kanban eliminada; Start dev y
-  Spaces diferidas por decisión del usuario). F1 (Copy Path / Edit name / Remove) con `tsc` + `vite`
-  verificados. Plan: `Agente/planes/plan-119A-2-menu-contextual-proyecto-2026-09-11.md`.
 
 - [ ] `119A-3` — **Ordenar proyectos e hilos.**
   F1 hilos implementado y gate PASS 11-09 (441 tests OK; pendiente verificación `tauri dev` +
@@ -48,15 +35,6 @@ navegador interno WebView2 sigue siendo exclusivo de Windows.
   literales `InfoConversacion` actualizados). Front `tsc` + `vite` OK. Extra:
   `onRenombrarProyecto/onEliminarProyecto` movidos a `orquestador/barraLateralProyecto.ts`. F2–F4
   abiertos. Plan: `Agente/planes/plan-119A-3-orden-proyectos-2026-09-11.md`.
-
-- [ ] `119A-4` — **Ajustes estilo Synara: página completa (F1 hecho; F2–F4 abiertos).**
-  Los ajustes dejan de ser un modal y pasan a página a pantalla completa (`ajustes-pagina` fija,
-  `← Volver a la app`, buscador con índice normalizado sin tildes, nav lateral, `Escape` cierra con
-  buscador vacío), reutilizando `formulario.ts` sin cambios y con la misma interfaz
-  `ModalConfiguracion`; `modal.css` conserva solo la base que usa el modal "Nuevo proyecto"; reglas
-  de formulario mudadas a `estilos/ajustes.css`; `tema.css` actualizado. `tsc` EXIT 0 + `vite` OK +
-  gate 119A-4 PASS (rust 430 ok) + smoke `tauri dev`. Comprobación visual fina pendiente del usuario.
-  Plan: `Agente/planes/plan-119A-4-ajustes-pagina-synara-2026-09-11.md`.
 
 - [ ] `119A-5` — **Meta: fix `meta_leer` + tareas fijas y colapsables.**
   F1 implementado y verificado 11-09 (front PASS + Rust vía PASS 119A-3 mismo árbol; pendiente
@@ -107,6 +85,9 @@ navegador interno WebView2 sigue siendo exclusivo de Windows.
 
 ## Bloqueos
 
+- Bloqueo `10AA-1` — refactor y auditoría de rendimiento (plan `Agente/planes/plan-refactor-rendimiento-2026-10-10.md`, planificado sin ejecutar): espera las decisiones D1 (coordinar con `119A-7` F2 en `tool.rs`/`runtime/`) y D2 (Sentinel en mantenimiento). Sin ellas no arranca F0; se desbloquea cuando la usuaria las decida.
+- Bloqueo `119A-2` — menú contextual de proyecto: F1–F4 hechos y verificados; falta la prueba en ventana Tauri real, que es de la usuaria.
+- Bloqueo `119A-4` — ajustes en página: F1 hecho; F2–F4 esperan la decisión de la usuaria sobre F2 y la comprobación visual fina.
 - Alerta Dependabot #1 `glib 0.18.5` (08AA-3): bloqueada por upstream — `wry 0.57.0`,
   `tauri-runtime-wry 2.12.1` y `tauri 2.12.3` siguen con gtk 0.18, sin migración a gtk4 posible hoy.
   En vigilancia con revisión mensual, próxima 2026-11-12 (`plan-migracion-tauri-glib-2026-10-12.md`).
