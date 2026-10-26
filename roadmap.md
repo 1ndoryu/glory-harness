@@ -105,10 +105,11 @@ navegador interno WebView2 sigue siendo exclusivo de Windows.
   parcial + F5 sin evidencia (E2E real en `:8799` con turno vivo + gate). Detalle y correcciones al
   diseño en el plan §Estado/§Correcciones.
 
+- [ ] `10AA-1` — espera D1 (coordinar con 119A-7 F2 en `tool.rs`/`runtime/`) y D2 (Sentinel en mantenimiento);
+  sin eso no arranca F0.
+
 ## Bloqueos
 
-- `10AA-1` espera D1 (coordinar con 119A-7 F2 en `tool.rs`/`runtime/`) y D2 (Sentinel en mantenimiento);
-  sin eso no arranca F0.
 - Alerta Dependabot #1 `glib 0.18.5` (08AA-3): bloqueada por upstream — `wry 0.57.0`,
   `tauri-runtime-wry 2.12.1` y `tauri 2.12.3` siguen con gtk 0.18, sin migración a gtk4 posible hoy.
   En vigilancia con revisión mensual, próxima 2026-11-12 (`plan-migracion-tauri-glib-2026-10-12.md`).
