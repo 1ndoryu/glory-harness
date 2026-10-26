@@ -25,7 +25,7 @@ navegador interno WebView2 sigue siendo exclusivo de Windows.
 - [ ] `10AA-1` — **Refactor y auditoría de rendimiento (re-planificado 10-10; planificado, sin ejecutar).**
   Código cambió desde 13-09 (139A-8 resolvió R2/R4/S3–S5). Estado: R1, R5–R8 y S1/S2 parciales;
   R9–R12, S6, S11, S12, S15 abiertos. Plan `Agente/planes/plan-refactor-rendimiento-2026-10-10.md`.
-  Espera D1 (coordinar con 119A-7 F2 en `tool.rs`/`runtime/`) y D2 (Sentinel en mantenimiento).
+  Espera D1 (coordinar con 119A-7 F2 en `tool.rs`/`runtime/`) y D2 (Sentinel en mantenimiento); sin eso no arranca F0.
   F0 línea base listo al aprobar.
 
 - [ ] `149A-2` — **Precisión reglas 149A-1 (11 FP workspace + allowlist).**
@@ -104,9 +104,6 @@ navegador interno WebView2 sigue siendo exclusivo de Windows.
   retención executor/web/daemon/desktop + tab × con `consola_matar` idempotente). Pendiente 21-09: F3
   parcial + F5 sin evidencia (E2E real en `:8799` con turno vivo + gate). Detalle y correcciones al
   diseño en el plan §Estado/§Correcciones.
-
-- [ ] `10AA-1` — espera D1 (coordinar con 119A-7 F2 en `tool.rs`/`runtime/`) y D2 (Sentinel en mantenimiento);
-  sin eso no arranca F0.
 
 ## Bloqueos
 
